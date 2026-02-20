@@ -1,8 +1,8 @@
 export const LOGIN_MUTATION = `
   mutation Login($email: String!, $password: String!) {
-    login(email: $email, password: $password) {
+    loginUser(email: $email, password: $password) {
       token
-      me { _id name email role }
+      user { _id email role firstname lastname }
     }
   }
 `;

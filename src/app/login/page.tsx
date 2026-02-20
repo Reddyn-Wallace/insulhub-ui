@@ -6,13 +6,14 @@ import { gql } from "@/lib/graphql";
 import { LOGIN_MUTATION } from "@/lib/queries";
 
 interface LoginResponse {
-  login: {
+  loginUser: {
     token: string;
-    me: {
+    user: {
       _id: string;
-      name: string;
       email: string;
       role: string;
+      firstname: string;
+      lastname: string;
     };
   };
 }
@@ -34,8 +35,8 @@ export default function LoginPage() {
         email,
         password,
       });
-      localStorage.setItem("token", data.login.token);
-      localStorage.setItem("me", JSON.stringify(data.login.me));
+      localStorage.setItem("token", data.loginUser.token);
+      localStorage.setItem("me", JSON.stringify(data.loginUser.user));
       router.push("/jobs");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
