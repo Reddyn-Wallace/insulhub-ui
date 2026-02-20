@@ -6,8 +6,8 @@ interface Job {
   stage: string;
   updatedAt: string;
   lead?: {
-    status?: string;
-    allocatedTo?: { _id: string; name: string };
+    leadStatus?: string;
+    allocatedTo?: { _id: string; firstname: string; lastname: string };
     callbackDate?: string;
   };
   quote?: {
@@ -18,7 +18,7 @@ interface Job {
     contactDetails?: {
       name?: string;
       email?: string;
-      mobilePhone?: string;
+      phoneMobile?: string;
       streetAddress?: string;
       suburb?: string;
       city?: string;
@@ -87,9 +87,9 @@ export default function JobCard({ job }: { job: Job }) {
         )}
 
         {/* Phone | Email */}
-        {(c?.mobilePhone || c?.email) && (
+        {(c?.phoneMobile || c?.email) && (
           <p className="text-sm text-gray-400 mb-2">
-            {[c?.mobilePhone, c?.email].filter(Boolean).join(" | ")}
+            {[c?.phoneMobile, c?.email].filter(Boolean).join(" | ")}
           </p>
         )}
 
@@ -108,7 +108,7 @@ export default function JobCard({ job }: { job: Job }) {
 
         {/* Salesperson + date */}
         <div className="flex items-center justify-between text-xs text-gray-400">
-          <span>{job.lead?.allocatedTo?.name || "Unallocated"}</span>
+          <span>{job.lead?.allocatedTo ? `${job.lead.allocatedTo.firstname} ${job.lead.allocatedTo.lastname}` : "Unallocated"}</span>
           <span>{formatDate(job.updatedAt)}</span>
         </div>
 

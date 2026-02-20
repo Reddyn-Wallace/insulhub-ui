@@ -27,8 +27,8 @@ interface Job {
   updatedAt: string;
   archivedAt?: string;
   lead?: {
-    status?: string;
-    allocatedTo?: { _id: string; name: string };
+    leadStatus?: string;
+    allocatedTo?: { _id: string; firstname: string; lastname: string };
     callbackDate?: string;
   };
   quote?: {
@@ -98,11 +98,8 @@ export default function JobsPage() {
   const filtered = jobs.filter((job) => {
     // Sub-tab filter (leads only)
     if (activeStage === "LEAD" && leadSubTab !== "ALL") {
-      const status = job.lead?.status?.toUpperCase() || "NEW";
-      if (leadSubTab === "NEW" && status !== "NEW" && status !== "" && job.lead?.status) return false;
-      if (leadSubTab === "CALLBACK" && status !== "CALLBACK") return false;
-      if (leadSubTab === "DEAD" && status !== "DEAD") return false;
-      if (leadSubTab === "NEW" && job.lead?.status && job.lead.status !== "NEW") return false;
+      const status = (job.lead?.leadStatus || "NEW").toUpperCase();
+      if (leadSubTab !== status) return false;
     }
 
     // Search filter
@@ -123,9 +120,9 @@ export default function JobsPage() {
   // Lead sub-tab counts
   const leadCounts = {
     ALL: jobs.length,
-    NEW: jobs.filter((j) => !j.lead?.status || j.lead.status === "NEW").length,
-    CALLBACK: jobs.filter((j) => j.lead?.status === "CALLBACK").length,
-    DEAD: jobs.filter((j) => j.lead?.status === "DEAD").length,
+    NEW: jobs.filter((j) => !j.lead?.leadStatus || j.lead.leadStatus === "NEW").length,
+    CALLBACK: jobs.filter((j) => j.lead?.leadStatus === "CALLBACK").length,
+    DEAD: jobs.filter((j) => j.lead?.leadStatus === "DEAD").length,
   };
 
   return (

@@ -18,8 +18,8 @@ export const JOBS_QUERY = `
         updatedAt
         archivedAt
         lead {
-          status
-          allocatedTo { _id name }
+          leadStatus
+          allocatedTo { _id firstname lastname }
           callbackDate
         }
         quote {
@@ -30,7 +30,7 @@ export const JOBS_QUERY = `
           contactDetails {
             name
             email
-            mobilePhone
+            phoneMobile
             streetAddress
             suburb
             city
@@ -51,39 +51,40 @@ export const JOB_QUERY = `
       notes
       updatedAt
       lead {
-        status
-        sources
-        allocatedTo { _id name }
+        leadStatus
+        leadSource
+        allocatedTo { _id firstname lastname }
         callbackDate
-        quoteBooking
+        quoteBookingDate
       }
       quote {
         quoteNumber
-        quoteDate
+        date
         c_total
         c_deposit
         depositPercentage
         consentFee
-        quoteComments
-        wallInsulation
-        wallSQMPrice
-        wallSQM
-        wallCavityDepth
-        wallRValue
-        wallBags
-        ceilingInsulation
-        ceilingSQMPrice
-        ceilingSQM
-        ceilingRValue
-        ceilingDownlights
-        ceilingBags
+        quoteNote
+        wall {
+          SQMPrice
+          SQM
+          c_RValue
+          c_bagCount
+        }
+        ceiling {
+          SQMPrice
+          SQM
+          RValue
+          downlights
+          c_bagCount
+        }
       }
       client {
         contactDetails {
           name
           email
-          mobilePhone
-          phone
+          phoneMobile
+          phoneSecondary
           streetAddress
           suburb
           city
@@ -92,7 +93,7 @@ export const JOB_QUERY = `
         billingDetails {
           name
           email
-          mobilePhone
+          phoneMobile
           streetAddress
           suburb
           city
