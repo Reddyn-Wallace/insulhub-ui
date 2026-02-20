@@ -31,7 +31,8 @@ export default function LoginPage() {
 
     try {
       const data = await gql<LoginResponse>(LOGIN_MUTATION, {
-        input: { email, password },
+        email,
+        password,
       });
       localStorage.setItem("token", data.login.token);
       localStorage.setItem("me", JSON.stringify(data.login.me));
