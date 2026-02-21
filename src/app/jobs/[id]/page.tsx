@@ -10,6 +10,7 @@ import {
 } from "@/lib/mutations";
 import PipelineBreadcrumb from "@/components/PipelineBreadcrumb";
 import BottomSheet from "@/components/BottomSheet";
+import AddressAutocomplete from "@/components/AddressAutocomplete";
 
 // ── Types ──────────────────────────────────────────────────────────
 interface User { _id: string; firstname: string; lastname: string; email: string; }
@@ -104,6 +105,7 @@ export default function JobDetailPage() {
 
   // Note form
   const [noteText, setNoteText] = useState("");
+  const [fullNoteText, setFullNoteText] = useState("");
 
   // Contact edit form
   const [contactForm, setContactForm] = useState<ContactDetails>({});
@@ -146,9 +148,14 @@ export default function JobDetailPage() {
       setCallbackDate(toDatetimeLocal(j.lead?.callbackDate));
       setQuoteBookingDate(toDatetimeLocal(j.lead?.quoteBookingDate));
       setSelectedUserId(j.lead?.allocatedTo?._id || "");
+
+      const me = JSON.parse(localStorage.getItem("me") || "{}");
+      const initials = ((me.firstname?.[0] || "") + (me.lastname?.[0] || "")).toUpperCase();
+      const autoQuoteNum = initials ? `${initials}${j.jobNumber}` : `${j.jobNumber}`;
+
       if (j.quote) {
         setQuoteForm({
-          quoteNumber: j.quote.quoteNumber || "",
+          quoteNumber: j.quote.quoteNumber || autoQuoteNum,
           date: toDatetimeLocal(j.quote.date),
           consentFee: j.quote.consentFee?.toString() || "",
           depositPercentage: j.quote.depositPercentage?.toString() || "25",
@@ -166,6 +173,8 @@ export default function JobDetailPage() {
           quoteNote: j.quote.quoteNote || "",
           quoteResultNote: j.quote.quoteResultNote || "",
         });
+      } else {
+        setQuoteForm(prev => ({ ...prev, quoteNumber: autoQuoteNum }));
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load";
@@ -180,17 +189,24 @@ export default function JobDetailPage() {
     load();
   }, [load, router]);
 
+  // Removed sessionStorage handling. Next.js router.back() maintains URL query appropriately.
+
+
   // ── Helper: build LeadInput from current job state ─────────────
-  function buildLeadInput(overrides: Record<string, unknown> = {}) {
-    return {
+  function buildLeadInput(overrides: Record<string, any> = {}) {
+    const lead: any = {
       leadStatus: job?.lead?.leadStatus || "NEW",
       leadSource: job?.lead?.leadSource || [],
       allocation: job?.lead?.allocatedTo ? "ALLOCATED" : "UNALLOCATED",
-      allocatedTo: job?.lead?.allocatedTo?._id || null,
+      allocatedTo: job?.lead?.allocatedTo?._id ? { _id: job.lead.allocatedTo._id } : null,
       callbackDate: job?.lead?.callbackDate || null,
       quoteBookingDate: job?.lead?.quoteBookingDate || null,
       ...overrides,
     };
+    if (typeof lead.allocatedTo === "string") {
+      lead.allocatedTo = { _id: lead.allocatedTo };
+    }
+    return lead;
   }
 
   // ── Helper: build QuoteInput from current job state ─────────────
@@ -235,6 +251,10 @@ export default function JobDetailPage() {
     const combined = existing ? `${existing}\n\n${prefix}` : prefix;
     await run(() => gql(UPDATE_JOB_NOTES, { input: { _id: id, notes: combined } }));
     setNoteText("");
+  }
+
+  async function saveFullNote() {
+    await run(() => gql(UPDATE_JOB_NOTES, { input: { _id: id, notes: fullNoteText } }));
   }
 
   async function saveContact() {
@@ -357,6 +377,82 @@ export default function JobDetailPage() {
   const hasCeiling = !!job.quote?.ceiling?.SQM;
   const isArchived = !!job.archivedAt;
 
+  const buildGCalUrl = (type: "Callback" | "Quote", dateStr: string, durationMins: number) => {
+    if (!dateStr) return "#";
+
+    let title = "";
+    let desc = "";
+    let attendees = "";
+
+    if (type === "Quote") {
+      const street = c?.streetAddress || address || "Unknown Address";
+      title = `${street} - Insulmax Quote`;
+      desc = [
+        c?.name ? `Name: ${c.name}` : "",
+        phone ? `Phone: ${phone}` : "",
+        address ? `Address: ${address}` : ""
+      ].filter(Boolean).join("\n");
+      if (c?.email) attendees = c.email;
+    } else {
+      title = `${c?.name || "Customer"} callback`;
+      desc = [
+        c?.name ? `Name: ${c.name}` : "",
+        phone ? `Phone: ${phone}` : ""
+      ].filter(Boolean).join("\n");
+    }
+
+    const start = new Date(dateStr);
+    const end = new Date(start.getTime() + durationMins * 60000);
+    const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+    const params = new URLSearchParams({
+      action: "TEMPLATE",
+      text: title,
+      dates: `${fmt(start)}/${fmt(end)}`,
+      details: desc,
+      location: type === "Quote" ? address : "",
+    });
+
+    if (attendees) {
+      params.append("add", attendees);
+    }
+
+    return `https://calendar.google.com/calendar/render?${params.toString()}`;
+  };
+
+  const buildIcsUrl = (type: "Callback" | "Quote", dateStr: string, durationMins: number) => {
+    if (!dateStr) return "#";
+
+    let title = "";
+    let desc = "";
+    let attendeeLine = "";
+
+    if (type === "Quote") {
+      const street = c?.streetAddress || address || "Unknown Address";
+      title = `${street} - Insulmax Quote`;
+      desc = [
+        c?.name ? `Name: ${c.name}` : "",
+        phone ? `Phone: ${phone}` : "",
+        address ? `Address: ${address}` : ""
+      ].filter(Boolean).join("\n");
+      if (c?.email) attendeeLine = `\nATTENDEE;RSVP=TRUE:mailto:${c.email}`;
+    } else {
+      title = `${c?.name || "Customer"} callback`;
+      desc = [
+        c?.name ? `Name: ${c.name}` : "",
+        phone ? `Phone: ${phone}` : ""
+      ].filter(Boolean).join("\n");
+    }
+
+    const start = new Date(dateStr);
+    const end = new Date(start.getTime() + durationMins * 60000);
+    const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+
+    const locationLine = type === "Quote" && address ? `\nLOCATION:${address}` : "";
+
+    const ics = `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nSUMMARY:${title}\nDTSTART:${fmt(start)}\nDTEND:${fmt(end)}${locationLine}\nDESCRIPTION:${desc.replace(/\n/g, "\\n")}${attendeeLine}\nEND:VEVENT\nEND:VCALENDAR`;
+    return `data:text/calendar;charset=utf8,${encodeURIComponent(ics)}`;
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 pb-10">
       {/* Header */}
@@ -397,9 +493,8 @@ export default function JobDetailPage() {
             {["NEW", "CALLBACK", "DEAD"].map((s) => (
               <button key={s} onClick={() => s === "CALLBACK" ? openSheet("callback") : saveLeadStatus(s)}
                 disabled={saving || status === s}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
-                  status === s ? "bg-gray-200 text-gray-500" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                }`}>
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${status === s ? "bg-gray-200 text-gray-500" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  }`}>
                 {s === "NEW" ? "New" : s === "CALLBACK" ? "Callback" : "Dead"}
               </button>
             ))}
@@ -500,7 +595,15 @@ export default function JobDetailPage() {
         ) : null}
 
         {/* Notes */}
-        <Section title="Notes" action={<EditBtn onClick={() => openSheet("note")} />}>
+        <Section
+          title="Notes"
+          action={
+            <div className="flex items-center gap-3">
+              <button onClick={() => openSheet("addNote")} className="text-xs text-[#e85d04] font-medium">+ Add</button>
+              <button onClick={() => { setFullNoteText(job.notes || ""); openSheet("editNote"); }} className="text-xs text-gray-500 font-medium">Edit</button>
+            </div>
+          }
+        >
           {job.notes ? (
             <p className="text-sm text-gray-700 whitespace-pre-wrap">{job.notes}</p>
           ) : (
@@ -522,7 +625,7 @@ export default function JobDetailPage() {
       {/* ── Bottom Sheets ─────────────────────────────────────────── */}
 
       {/* Add note */}
-      <BottomSheet open={sheet === "note"} onClose={closeSheet} title="Add Note">
+      <BottomSheet open={sheet === "addNote"} onClose={closeSheet} title="Add Note">
         <textarea
           value={noteText}
           onChange={(e) => setNoteText(e.target.value)}
@@ -536,19 +639,43 @@ export default function JobDetailPage() {
         </button>
       </BottomSheet>
 
+      {/* Edit note */}
+      <BottomSheet open={sheet === "editNote"} onClose={closeSheet} title="Edit All Notes">
+        <textarea
+          value={fullNoteText}
+          onChange={(e) => setFullNoteText(e.target.value)}
+          placeholder="Edit your notes..."
+          rows={10}
+          className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04] resize-none mb-4"
+        />
+        <button onClick={saveFullNote} disabled={saving}
+          className="w-full bg-[#1a3a4a] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
+          {saving ? "Saving..." : "Save Notes"}
+        </button>
+      </BottomSheet>
+
       {/* Edit contact */}
       <BottomSheet open={sheet === "contact"} onClose={closeSheet} title="Edit Contact">
         {(["name", "phoneMobile", "phoneSecondary", "email", "streetAddress", "suburb", "city", "postCode"] as const).map((f) => (
           <div key={f} className="mb-3">
             <label className="block text-xs text-gray-500 font-medium mb-1 capitalize">
-              {f.replace(/([A-Z])/g, " $1").replace("phone Secondary", "Phone 2")}
+              {f.replace(/([A-Z])/g, " $1").replace("phone Secondary", "Phone 2").replace("street Address", "Street Address").replace("post Code", "Post Code")}
             </label>
-            <input
-              type="text"
-              value={contactForm[f] || ""}
-              onChange={(e) => setContactForm((prev) => ({ ...prev, [f]: e.target.value }))}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
-            />
+            {f === "streetAddress" ? (
+              <AddressAutocomplete
+                value={contactForm[f] || ""}
+                onChange={(val) => setContactForm((prev) => ({ ...prev, [f]: val }))}
+                onSelectAddress={(details) => setContactForm(prev => ({ ...prev, ...details }))}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+              />
+            ) : (
+              <input
+                type="text"
+                value={contactForm[f] || ""}
+                onChange={(e) => setContactForm((prev) => ({ ...prev, [f]: e.target.value }))}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+              />
+            )}
           </div>
         ))}
         <button onClick={saveContact} disabled={saving}
@@ -589,10 +716,15 @@ export default function JobDetailPage() {
             className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
             {saving ? "Saving..." : "Save"}
           </button>
-          <a href={callbackDate ? `data:text/calendar;charset=utf8,BEGIN:VCALENDAR%0AVERSION:2.0%0ABEGIN:VEVENT%0ASUMMARY:Callback - ${encodeURIComponent(c?.name || "Customer")}%0ADTSTART:${callbackDate.replace(/[-:]/g, "").replace("T", "T")}00Z%0ADURATION:PT30M%0AEND:VEVENT%0AEND:VCALENDAR` : "#"}
+          <a href={buildGCalUrl("Callback", callbackDate, 30)}
+            target="_blank" rel="noopener noreferrer"
+            className={`px-4 py-3 bg-blue-50 text-blue-700 rounded-xl text-sm font-medium flex items-center justify-center gap-1 ${!callbackDate ? "opacity-40 pointer-events-none" : ""}`}>
+            📅 Google Cal
+          </a>
+          <a href={buildIcsUrl("Callback", callbackDate, 30)}
             download="callback.ics"
-            className={`px-4 py-3 bg-gray-100 text-gray-700 rounded-xl text-sm font-medium ${!callbackDate ? "opacity-40 pointer-events-none" : ""}`}>
-            📅 Calendar
+            className={`px-4 py-3 bg-gray-100 text-gray-700 rounded-xl text-sm font-medium flex items-center justify-center gap-1 ${!callbackDate ? "opacity-40 pointer-events-none" : ""}`}>
+            ⬇️ .ics
           </a>
         </div>
       </BottomSheet>
@@ -608,10 +740,15 @@ export default function JobDetailPage() {
             className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
             {saving ? "Saving..." : "Save"}
           </button>
-          <a href={quoteBookingDate ? `data:text/calendar;charset=utf8,BEGIN:VCALENDAR%0AVERSION:2.0%0ABEGIN:VEVENT%0ASUMMARY:Quote - ${encodeURIComponent(c?.name || "Customer")}%0ADTSTART:${quoteBookingDate.replace(/[-:]/g, "").replace("T", "T")}00Z%0ADURATION:PT1H%0AEND:VEVENT%0AEND:VCALENDAR` : "#"}
+          <a href={buildGCalUrl("Quote", quoteBookingDate, 60)}
+            target="_blank" rel="noopener noreferrer"
+            className={`px-4 py-3 bg-blue-50 text-blue-700 rounded-xl text-sm font-medium flex items-center justify-center gap-1 ${!quoteBookingDate ? "opacity-40 pointer-events-none" : ""}`}>
+            📅 Google Cal
+          </a>
+          <a href={buildIcsUrl("Quote", quoteBookingDate, 60)}
             download="quote-booking.ics"
-            className={`px-4 py-3 bg-gray-100 text-gray-700 rounded-xl text-sm font-medium ${!quoteBookingDate ? "opacity-40 pointer-events-none" : ""}`}>
-            📅 Calendar
+            className={`px-4 py-3 bg-gray-100 text-gray-700 rounded-xl text-sm font-medium flex items-center justify-center gap-1 ${!quoteBookingDate ? "opacity-40 pointer-events-none" : ""}`}>
+            ⬇️ .ics
           </a>
         </div>
       </BottomSheet>

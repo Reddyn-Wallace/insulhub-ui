@@ -73,9 +73,8 @@ export default function JobCard({ job }: { job: Job }) {
             {c?.name || "Unknown"}
           </p>
           <span
-            className={`flex-shrink-0 text-xs font-medium px-2 py-0.5 rounded-full ${
-              STAGE_BADGE[job.stage] || "bg-gray-100 text-gray-600"
-            }`}
+            className={`flex-shrink-0 text-xs font-medium px-2 py-0.5 rounded-full ${STAGE_BADGE[job.stage] || "bg-gray-100 text-gray-600"
+              }`}
           >
             {STAGE_LABEL[job.stage] || job.stage}
           </span>

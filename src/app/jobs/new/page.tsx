@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { gql } from "@/lib/graphql";
 import { CREATE_JOB } from "@/lib/mutations";
+import AddressAutocomplete from "@/components/AddressAutocomplete";
 
 const LEAD_SOURCES = [
   "Website", "Home Show", "TV", "Social Media", "Radio",
@@ -105,20 +106,32 @@ export default function NewLeadPage() {
             { label: "Full Name *", field: "name", type: "text", placeholder: "Jane Smith" },
             { label: "Mobile", field: "phoneMobile", type: "tel", placeholder: "021 000 0000" },
             { label: "Email", field: "email", type: "email", placeholder: "jane@example.com" },
-            { label: "Street Address", field: "streetAddress", type: "text", placeholder: "12 Example St" },
+            { label: "Street Address", field: "streetAddress", type: "text", placeholder: "12 Example St", isAddress: true },
             { label: "Suburb", field: "suburb", type: "text", placeholder: "Suburb" },
             { label: "City", field: "city", type: "text", placeholder: "Wellington" },
             { label: "Postcode", field: "postCode", type: "text", placeholder: "6011" },
-          ].map(({ label, field, type, placeholder }) => (
+          ].map(({ label, field, type, placeholder, isAddress }) => (
             <div key={field} className="mb-3">
               <label className="block text-xs text-gray-500 font-medium mb-1">{label}</label>
-              <input
-                type={type}
-                value={(form as unknown as Record<string, string>)[field]}
-                onChange={(e) => set(field, e.target.value)}
-                placeholder={placeholder}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
-              />
+              {isAddress ? (
+                <AddressAutocomplete
+                  value={(form as unknown as Record<string, string>)[field]}
+                  onChange={(val) => set(field, val)}
+                  onSelectAddress={({ streetAddress, suburb, city, postCode }) => {
+                    setForm((f) => ({ ...f, streetAddress, suburb, city, postCode }));
+                  }}
+                  placeholder={placeholder}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+                />
+              ) : (
+                <input
+                  type={type}
+                  value={(form as unknown as Record<string, string>)[field]}
+                  onChange={(e) => set(field, e.target.value)}
+                  placeholder={placeholder}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+                />
+              )}
             </div>
           ))}
         </div>
@@ -132,11 +145,10 @@ export default function NewLeadPage() {
                 key={src}
                 type="button"
                 onClick={() => toggleSource(src)}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                  form.leadSources.includes(src)
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${form.leadSources.includes(src)
                     ? "bg-[#e85d04] text-white"
                     : "bg-gray-100 text-gray-600"
-                }`}
+                  }`}
               >
                 {src}
               </button>
