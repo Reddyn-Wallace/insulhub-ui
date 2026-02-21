@@ -1,3 +1,11 @@
+export const USERS_QUERY = `
+  query Users {
+    users {
+      results { _id firstname lastname email role }
+    }
+  }
+`;
+
 export const LOGIN_MUTATION = `
   mutation Login($email: String!, $password: String!) {
     loginUser(email: $email, password: $password) {
@@ -8,8 +16,8 @@ export const LOGIN_MUTATION = `
 `;
 
 export const JOBS_QUERY = `
-  query Jobs($stages: [JobStage!], $skip: Int, $limit: Int) {
-    jobs(stages: $stages, skip: $skip, limit: $limit) {
+  query Jobs($stages: [JobStage!], $skip: Int, $limit: Int, $search: String) {
+    jobs(stages: $stages, skip: $skip, limit: $limit, search: $search) {
       total
       results {
         _id
@@ -50,6 +58,7 @@ export const JOB_QUERY = `
       stage
       notes
       updatedAt
+      archivedAt
       lead {
         leadStatus
         leadSource
@@ -65,6 +74,7 @@ export const JOB_QUERY = `
         depositPercentage
         consentFee
         quoteNote
+        quoteResultNote
         wall {
           SQMPrice
           SQM
@@ -80,6 +90,7 @@ export const JOB_QUERY = `
         }
       }
       client {
+        _id
         contactDetails {
           name
           email
