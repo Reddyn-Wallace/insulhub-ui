@@ -1,20 +1,14 @@
-const https = require('https');
-const data = JSON.stringify({
-  query: "query { __typename }"
-});
-const options = {
-  hostname: 'api.insulhub.nz',
-  path: '/graphql',
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' }
-};
-const req = https.request(options, (res) => {
-  let body = '';
-  res.on('data', (d) => body += d);
-  res.on('end', () => {
-    console.log('RESULT:' + body);
-    process.exit(0);
+async function inspectJob() {
+  const res = await fetch("https://api.insulhub.nz/graphql", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      query: "query { __typename }",
+    }),
   });
-});
-req.write(data);
-req.end();
+
+  const json = await res.json();
+  console.log("RESULT:" + JSON.stringify(json));
+}
+
+inspectJob().catch(console.error);

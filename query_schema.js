@@ -1,6 +1,4 @@
-const fetch = require('node-fetch');
-
-async function introspect() {
+async function introspectQuerySchema() {
   const query = `
     query {
       __type(name: "Query") {
@@ -18,6 +16,15 @@ async function introspect() {
       }
     }
   `;
-  
-  // Need to find the server URL. I'll look at `src/lib/graphql.ts` first.
+
+  const res = await fetch("https://api.insulhub.nz/graphql", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query }),
+  });
+
+  const json = await res.json();
+  console.log(JSON.stringify(json, null, 2));
 }
+
+introspectQuerySchema().catch(console.error);

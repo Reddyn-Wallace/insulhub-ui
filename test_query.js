@@ -1,6 +1,4 @@
-const fetch = require('node-fetch');
-
-async function test() {
+async function testQuery() {
   const query = `
     query Jobs($stages: [JobStage!], $leadStatus: String) {
       jobs(stages: $stages, leadStatus: $leadStatus) {
@@ -8,18 +6,21 @@ async function test() {
       }
     }
   `;
-  
-  const token = ""; // I don't have a token here.
-  
+
   const res = await fetch("https://api.insulhub.nz/graphql", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(process.env.TOKEN ? { Authorization: `Bearer ${process.env.TOKEN}` } : {}),
+    },
     body: JSON.stringify({
       query,
-      variables: { stages: ["QUOTE"], leadStatus: "DEAD" }
-    })
+      variables: { stages: ["QUOTE"], leadStatus: "DEAD" },
+    }),
   });
+
   const json = await res.json();
   console.log(JSON.stringify(json, null, 2));
 }
-test();
+
+testQuery().catch(console.error);

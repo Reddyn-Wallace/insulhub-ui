@@ -15,6 +15,21 @@ interface AddressAutocompleteProps {
     className?: string;
 }
 
+interface PhotonFeature {
+    properties: {
+        housenumber?: string;
+        street?: string;
+        name?: string;
+        suburb?: string;
+        district?: string;
+        city?: string;
+        county?: string;
+        state?: string;
+        postcode?: string;
+        country?: string;
+    };
+}
+
 export default function AddressAutocomplete({
     value,
     onChange,
@@ -23,16 +38,14 @@ export default function AddressAutocomplete({
     className = "",
 }: AddressAutocompleteProps) {
     const [query, setQuery] = useState(value || "");
-    const [results, setResults] = useState<any[]>([]);
+    const [results, setResults] = useState<PhotonFeature[]>([]);
     const [isOpen, setIsOpen] = useState(false);
     const [loading, setLoading] = useState(false);
     const wrapperRef = useRef<HTMLDivElement>(null);
 
     // Sync internal query with external value if it changes externally
     useEffect(() => {
-        if (value !== query) {
-            setQuery(value || "");
-        }
+        setQuery(value || "");
     }, [value]);
 
     // Click outside to close
@@ -83,7 +96,7 @@ export default function AddressAutocomplete({
         onChange(val); // Bubble up exact typing
     };
 
-    const handleSelect = (feature: any) => {
+    const handleSelect = (feature: PhotonFeature) => {
         const p = feature.properties;
 
         // Format the display string

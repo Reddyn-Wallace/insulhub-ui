@@ -5,7 +5,7 @@ import { useRouter, useParams } from "next/navigation";
 import { gql } from "@/lib/graphql";
 import { JOB_QUERY, USERS_QUERY } from "@/lib/queries";
 import {
-  UPDATE_JOB_LEAD, UPDATE_JOB_STAGE, UPDATE_JOB_NOTES,
+  UPDATE_JOB_LEAD, UPDATE_JOB_NOTES,
   UPDATE_JOB_QUOTE, ARCHIVE_JOB, UPDATE_CLIENT, SEND_EBA,
 } from "@/lib/mutations";
 import PipelineBreadcrumb from "@/components/PipelineBreadcrumb";
@@ -193,8 +193,17 @@ export default function JobDetailPage() {
 
 
   // ── Helper: build LeadInput from current job state ─────────────
-  function buildLeadInput(overrides: Record<string, any> = {}) {
-    const lead: any = {
+  type LeadInput = {
+    leadStatus: string;
+    leadSource: string[];
+    allocation: "ALLOCATED" | "UNALLOCATED";
+    allocatedTo: { _id: string } | null;
+    callbackDate: string | null;
+    quoteBookingDate: string | null;
+  };
+
+  function buildLeadInput(overrides: Partial<LeadInput> = {}) {
+    const lead: LeadInput = {
       leadStatus: job?.lead?.leadStatus || "NEW",
       leadSource: job?.lead?.leadSource || [],
       allocation: job?.lead?.allocatedTo ? "ALLOCATED" : "UNALLOCATED",
@@ -203,9 +212,6 @@ export default function JobDetailPage() {
       quoteBookingDate: job?.lead?.quoteBookingDate || null,
       ...overrides,
     };
-    if (typeof lead.allocatedTo === "string") {
-      lead.allocatedTo = { _id: lead.allocatedTo };
-    }
     return lead;
   }
 
@@ -268,7 +274,7 @@ export default function JobDetailPage() {
   async function saveAllocate() {
     const user = users.find((u) => u._id === selectedUserId);
     await run(() => gql(UPDATE_JOB_LEAD, {
-      input: { _id: id, lead: buildLeadInput({ allocatedTo: selectedUserId || null, allocation: selectedUserId ? "ALLOCATED" : "UNALLOCATED" }) },
+      input: { _id: id, lead: buildLeadInput({ allocatedTo: selectedUserId ? { _id: selectedUserId } : null, allocation: selectedUserId ? "ALLOCATED" : "UNALLOCATED" }) },
     }));
     void user;
   }
@@ -291,9 +297,6 @@ export default function JobDetailPage() {
     }));
   }
 
-  async function progressToQuote() {
-    await run(() => gql(UPDATE_JOB_STAGE, { input: { _id: id, stage: "QUOTE" } }));
-  }
 
   async function markAccepted() {
     await run(() => gql(UPDATE_JOB_QUOTE, {

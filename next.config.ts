@@ -8,7 +8,6 @@ const withPWA = withPWAInit({
 
 const nextConfig: NextConfig = {
   /* config options here */
-  // @ts-ignore - Silence Turbopack/Webpack conflict
   turbopack: {},
 };
 
