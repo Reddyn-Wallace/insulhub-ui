@@ -23,12 +23,14 @@ export const JOBS_QUERY = `
         _id
         jobNumber
         stage
+        createdAt
         updatedAt
         archivedAt
         lead {
           leadStatus
           allocatedTo { _id firstname lastname }
           callbackDate
+          quoteBookingDate
         }
         quote {
           quoteNumber

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { gql } from "@/lib/graphql";
@@ -15,12 +15,14 @@ interface Job {
   _id: string;
   jobNumber: number;
   stage: string;
+  createdAt?: string;
   updatedAt: string;
   archivedAt?: string;
   lead?: {
     leadStatus?: string;
     allocatedTo?: { _id: string; firstname: string; lastname: string };
     callbackDate?: string;
+    quoteBookingDate?: string;
   };
   quote?: { quoteNumber?: string; c_total?: number };
   client?: {
@@ -51,6 +53,7 @@ function JobsPageContent() {
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [searchMode, setSearchMode] = useState(false);
+  const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
   const [jobs, setJobs] = useState<Job[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -198,26 +201,39 @@ function JobsPageContent() {
   }
 
   // Calculate counts for sub-tabs across all fetched non-archived jobs for this stage
+  const isQuoteBooked = (job: Job) => Boolean(job.lead?.quoteBookingDate);
+
   const counts = {
     ALL: jobs.length,
     NEW: jobs.filter((j) => !j.lead?.leadStatus || j.lead.leadStatus === "NEW").length,
     CALLBACK: jobs.filter((j) => j.lead?.leadStatus === "CALLBACK").length,
+    QUOTE_BOOKED: jobs.filter((j) => isQuoteBooked(j)).length,
     DEAD: jobs.filter((j) => j.lead?.leadStatus === "DEAD").length,
   };
 
   // Client-side sub-tab filter
   const filtered = jobs.filter((job) => {
     if (!searchMode && subTab !== "ALL" && (activeStage === "LEAD" || activeStage === "QUOTE")) {
+      if (subTab === "QUOTE_BOOKED") return isQuoteBooked(job);
       const status = (job.lead?.leadStatus || "NEW").toUpperCase();
       return subTab === status;
     }
     return true;
   });
 
+  const sortedJobs = useMemo(() => {
+    const pickDate = (job: Job) => job.createdAt || job.updatedAt;
+    return [...filtered].sort((a, b) => {
+      const aTime = new Date(pickDate(a)).getTime();
+      const bTime = new Date(pickDate(b)).getTime();
+      return sortOrder === "newest" ? bTime - aTime : aTime - bTime;
+    });
+  }, [filtered, sortOrder]);
+
   const showSubTabs = !searchMode && (activeStage === "LEAD" || activeStage === "QUOTE");
 
-  // With server-side pagination, 'filtered' is already limited to the current page.
-  const paginatedResults = filtered;
+  // With server-side pagination, list is already page-limited from API.
+  const paginatedResults = sortedJobs;
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -272,6 +288,14 @@ function JobsPageContent() {
               ×
             </button>
           )}
+        </div>
+        <div className="mt-2 flex justify-end">
+          <button
+            onClick={() => setSortOrder((prev) => (prev === "newest" ? "oldest" : "newest"))}
+            className="text-xs bg-white border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg font-medium hover:bg-gray-50"
+          >
+            Sort: Created {sortOrder === "newest" ? "Newest first" : "Oldest first"}
+          </button>
         </div>
       </div>
 

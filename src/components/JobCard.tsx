@@ -1,14 +1,17 @@
+import { useState } from "react";
 import Link from "next/link";
 
 interface Job {
   _id: string;
   jobNumber: number;
   stage: string;
+  createdAt?: string;
   updatedAt: string;
   lead?: {
     leadStatus?: string;
     allocatedTo?: { _id: string; firstname: string; lastname: string };
     callbackDate?: string;
+    quoteBookingDate?: string;
   };
   quote?: {
     quoteNumber?: string;
@@ -27,7 +30,8 @@ interface Job {
   };
 }
 
-function formatDate(iso: string) {
+function formatDate(iso?: string) {
+  if (!iso) return "";
   return new Date(iso).toLocaleDateString("en-NZ", {
     day: "numeric",
     month: "short",
@@ -58,41 +62,74 @@ const STAGE_LABEL: Record<string, string> = {
   COMPLETED: "Completed",
 };
 
+const LEAD_STATUS_STYLE: Record<string, { pill: string; border: string; label: string }> = {
+  NEW: {
+    pill: "bg-sky-50 text-sky-700 border border-sky-100",
+    border: "border-l-sky-300",
+    label: "New",
+  },
+  CALLBACK: {
+    pill: "bg-amber-50 text-amber-700 border border-amber-100",
+    border: "border-l-amber-300",
+    label: "Callback",
+  },
+  QUOTE_BOOKED: {
+    pill: "bg-indigo-50 text-indigo-700 border border-indigo-100",
+    border: "border-l-indigo-300",
+    label: "Quote booked",
+  },
+  DEAD: {
+    pill: "bg-rose-50 text-rose-700 border border-rose-100",
+    border: "border-l-rose-300",
+    label: "Dead",
+  },
+};
+
 export default function JobCard({ job }: { job: Job }) {
   const c = job.client?.contactDetails;
   const addressParts = [c?.streetAddress, c?.suburb, c?.city]
     .filter(Boolean)
     .join(", ");
 
+  const [now] = useState(() => Date.now());
+  const status = (job.lead?.leadStatus || "NEW").toUpperCase();
+  const hasQuoteBooked = Boolean(job.lead?.quoteBookingDate);
+  const leadState = hasQuoteBooked ? "QUOTE_BOOKED" : status;
+  const leadStyle = LEAD_STATUS_STYLE[leadState] || LEAD_STATUS_STYLE.NEW;
+
+  const callbackTime = job.lead?.callbackDate ? new Date(job.lead.callbackDate).getTime() : null;
+  const isCallbackOverdue = status === "CALLBACK" && Boolean(callbackTime && callbackTime < now);
+
   return (
     <Link href={`/jobs/${job._id}`}>
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-3 active:bg-gray-50 transition-colors cursor-pointer">
-        {/* Name + stage badge */}
+      <div className={`bg-white rounded-xl shadow-sm border border-gray-100 border-l-4 ${leadStyle.border} p-4 mb-3 active:bg-gray-50 transition-colors cursor-pointer`}>
         <div className="flex items-start justify-between gap-2 mb-1">
           <p className="font-semibold text-gray-900 text-base leading-tight">
             {c?.name || "Unknown"}
           </p>
-          <span
-            className={`flex-shrink-0 text-xs font-medium px-2 py-0.5 rounded-full ${STAGE_BADGE[job.stage] || "bg-gray-100 text-gray-600"
-              }`}
-          >
-            {STAGE_LABEL[job.stage] || job.stage}
-          </span>
+          <div className="flex items-center gap-1.5">
+            <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${leadStyle.pill}`}>
+              {leadStyle.label}
+            </span>
+            <span
+              className={`flex-shrink-0 text-xs font-medium px-2 py-0.5 rounded-full ${STAGE_BADGE[job.stage] || "bg-gray-100 text-gray-600"
+                }`}
+            >
+              {STAGE_LABEL[job.stage] || job.stage}
+            </span>
+          </div>
         </div>
 
-        {/* Address */}
         {addressParts && (
           <p className="text-sm text-gray-500 mb-1">{addressParts}</p>
         )}
 
-        {/* Phone | Email */}
         {(c?.phoneMobile || c?.email) && (
           <p className="text-sm text-gray-400 mb-2">
             {[c?.phoneMobile, c?.email].filter(Boolean).join(" | ")}
           </p>
         )}
 
-        {/* Job # + Quote info */}
         <div className="flex flex-wrap gap-2 mb-2">
           <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
             Job #{job.jobNumber}
@@ -105,18 +142,21 @@ export default function JobCard({ job }: { job: Job }) {
           )}
         </div>
 
-        {/* Salesperson + date */}
         <div className="flex items-center justify-between text-xs text-gray-400">
           <span>{job.lead?.allocatedTo ? `${job.lead.allocatedTo.firstname} ${job.lead.allocatedTo.lastname}` : "Unallocated"}</span>
-          <span>{formatDate(job.updatedAt)}</span>
+          <span>Created: {formatDate(job.createdAt || job.updatedAt)}</span>
         </div>
 
-        {/* Callback date for leads */}
-        {job.lead?.callbackDate && (
-          <div className="mt-1.5 text-xs text-orange-600 font-medium">
-            Callback: {formatDate(job.lead.callbackDate)}
-          </div>
-        )}
+        <div className="mt-1.5 flex flex-wrap gap-3 text-xs font-medium">
+          {job.lead?.callbackDate && (
+            <span className={isCallbackOverdue ? "text-red-600" : "text-orange-600"}>
+              {isCallbackOverdue ? "⚠️ " : ""}Callback: {formatDate(job.lead.callbackDate)}
+            </span>
+          )}
+          {job.lead?.quoteBookingDate && (
+            <span className="text-indigo-600">Quote booked: {formatDate(job.lead.quoteBookingDate)}</span>
+          )}
+        </div>
       </div>
     </Link>
   );

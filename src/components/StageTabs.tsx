@@ -13,6 +13,7 @@ const LEAD_SUB_TABS = [
   { label: "All", value: "ALL" },
   { label: "New", value: "NEW" },
   { label: "Callback", value: "CALLBACK" },
+  { label: "Quote booked", value: "QUOTE_BOOKED" },
   { label: "Dead", value: "DEAD" },
 ];
 
