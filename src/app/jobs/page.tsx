@@ -4,13 +4,21 @@ import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { gql } from "@/lib/graphql";
-import { JOBS_QUERY } from "@/lib/queries";
+import { JOBS_QUERY, USERS_QUERY } from "@/lib/queries";
 import StageTabs from "@/components/StageTabs";
 import JobCard from "@/components/JobCard";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 
 const PAGE_SIZE = 40;
 const STAGE_CACHE_TTL_MS = 5 * 60 * 1000;
+
+
+interface User {
+  _id: string;
+  firstname: string;
+  lastname: string;
+  role?: string;
+}
 
 interface Job {
   _id: string;
@@ -60,6 +68,8 @@ function JobsPageContent() {
   const [total, setTotal] = useState(0);
   const [globalCounts, setGlobalCounts] = useState<Record<string, number> | null>(null);
   const [stageHydrated, setStageHydrated] = useState(false);
+  const [users, setUsers] = useState<User[]>([]);
+  const [salespersonFilter, setSalespersonFilter] = useState<string>("ALL");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -231,6 +241,14 @@ function JobsPageContent() {
     };
   }, []);
 
+  useEffect(() => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    if (!token) return;
+    gql<{ users: { results: User[] } }>(USERS_QUERY)
+      .then((d) => setUsers((d.users?.results || []).filter((u) => (u.role || "").toUpperCase() !== "INSTALLER")))
+      .catch(() => {});
+  }, []);
+
   // Debounced search
   function handleSearchInput(val: string) {
     setSearchInput(val);
@@ -285,6 +303,7 @@ function JobsPageContent() {
 
   // Client-side sub-tab filter
   const filtered = jobs.filter((job) => {
+    if (salespersonFilter !== "ALL" && job.lead?.allocatedTo?._id !== salespersonFilter) return false;
     if (!searchMode && subTab !== "ALL" && (activeStage === "LEAD" || activeStage === "QUOTE")) {
       if (activeStage === "QUOTE") return quoteState(job) === subTab;
       if (subTab === "QUOTE_BOOKED") return isQuoteBooked(job);
@@ -329,8 +348,12 @@ function JobsPageContent() {
     }
   }, [loading, error, page, jobs.length, sortedJobs.length]);
 
+  useEffect(() => { setPage(0); }, [subTab, salespersonFilter]);
+
   // Client-side paginate after filtering/sorting.
   const paginatedResults = sortedJobs.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(sortedJobs.length / PAGE_SIZE));
+  const currentPage = page + 1;
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -386,7 +409,17 @@ function JobsPageContent() {
             </button>
           )}
         </div>
-        <div className="mt-2 flex justify-end">
+        <div className="mt-2 flex gap-2 justify-end flex-wrap">
+          <select
+            value={salespersonFilter}
+            onChange={(e) => setSalespersonFilter(e.target.value)}
+            className="text-xs bg-white border border-gray-200 text-gray-700 px-2 py-1.5 rounded-lg font-medium"
+          >
+            <option value="ALL">Salesperson: All</option>
+            {users.map((u) => (
+              <option key={u._id} value={u._id}>{u.firstname} {u.lastname}</option>
+            ))}
+          </select>
           <button
             onClick={() => setSortOrder((prev) => (prev === "newest" ? "oldest" : "newest"))}
             className="text-xs bg-white border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg font-medium hover:bg-gray-50"
@@ -406,11 +439,12 @@ function JobsPageContent() {
           >
             ← Prev
           </button>
-          <span className="text-[10px] text-gray-500 font-medium bg-gray-100 px-2 py-1 rounded-full uppercase tracking-wider">
-            {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, sortedJobs.length)} of {sortedJobs.length}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-gray-500 font-medium bg-gray-100 px-2 py-1 rounded-full">Page {currentPage} / {totalPages}</span>
+            <span className="text-[10px] text-gray-400">{page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, sortedJobs.length)} of {sortedJobs.length}</span>
+          </div>
           <button
-            onClick={() => { setPage((p) => p + 1); window.scrollTo(0, 0); }}
+            onClick={() => { setPage((p) => Math.min(totalPages - 1, p + 1)); window.scrollTo(0, 0); }}
             disabled={(page + 1) * PAGE_SIZE >= sortedJobs.length}
             className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs text-gray-700 disabled:opacity-40 font-medium"
           >

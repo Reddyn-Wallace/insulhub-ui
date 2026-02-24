@@ -148,6 +148,7 @@ export default function JobDetailPage() {
   const [leadSourceForm, setLeadSourceForm] = useState<string[]>([]);
   const [quoteExpanded, setQuoteExpanded] = useState(false);
   const [quoteLastSentAt, setQuoteLastSentAt] = useState<string>("");
+  const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   // Load job + users
   const load = useCallback(async () => {
@@ -507,7 +508,7 @@ export default function JobDetailPage() {
 
   async function saveQuoteAndOpenEBA() {
     if (!quoteForm.quoteNumber || !quoteForm.date || (!quoteForm.hasWall && !quoteForm.hasCeiling)) {
-      alert("Add quote data first (quote number, date, and wall/ceiling values).");
+      setNotice({ type: "error", text: "Add quote data first (quote number, date, and wall/ceiling values)." });
       return;
     }
 
@@ -531,16 +532,16 @@ export default function JobDetailPage() {
 
   async function sendEBA() {
     if (!job?.ebaForm?.complete) {
-      alert("Complete the EBA first before sending.");
+      setNotice({ type: "error", text: "Complete the EBA first before sending." });
       return;
     }
     await run(() => gql(SEND_EBA, { jobId: id }));
-    alert("EBA email sent!");
+    setNotice({ type: "success", text: "EBA email sent." });
   }
 
-  async function sendQuoteToCustomer() {
+  async function sendQuoteToCustomerConfirmed() {
     if (!quoteForm.quoteNumber || !quoteForm.date || (!quoteForm.hasWall && !quoteForm.hasCeiling)) {
-      alert("Add quote data first (quote number, date, and wall/ceiling values).");
+      setNotice({ type: "error", text: "Add quote data first (quote number, date, and wall/ceiling values)." });
       return;
     }
 
@@ -564,7 +565,7 @@ export default function JobDetailPage() {
     const sentAt = new Date().toISOString();
     setQuoteLastSentAt(sentAt);
     if (typeof window !== "undefined") localStorage.setItem(`quote-last-sent:${id}`, sentAt);
-    alert("Quote sent to customer.");
+    setNotice({ type: "success", text: "Quote sent to customer." });
   }
 
   // ── Render ─────────────────────────────────────────────────────
@@ -706,6 +707,7 @@ export default function JobDetailPage() {
 
       <div className="px-4 pt-3">
         {error && <div className="bg-red-50 text-red-700 text-sm px-4 py-2 rounded-xl mb-3">{error}</div>}
+        {notice && <div className={`text-sm px-4 py-2 rounded-xl mb-3 ${notice.type === "success" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{notice.text}</div>}
         {isArchived && <div className="bg-yellow-50 text-yellow-700 text-sm px-4 py-2 rounded-xl mb-3">⚠️ This job is archived</div>}
 
         {/* Quick contact */}
@@ -870,7 +872,7 @@ export default function JobDetailPage() {
                   ✓ Mark Accepted
                 </button>
               )}
-              <button onClick={sendQuoteToCustomer} disabled={saving}
+              <button onClick={() => openSheet("sendQuoteConfirm")} disabled={saving}
                 className="flex-1 bg-indigo-600 text-white text-sm font-semibold py-2.5 rounded-xl disabled:opacity-50">
                 ✉️ Send Quote
               </button>
@@ -1097,6 +1099,23 @@ export default function JobDetailPage() {
             className={`px-4 py-3 bg-gray-100 text-gray-700 rounded-xl text-sm font-medium flex items-center justify-center gap-1 ${!quoteBookingDate ? "opacity-40 pointer-events-none" : ""}`}>
             ⬇️ .ics
           </a>
+        </div>
+      </BottomSheet>
+
+
+      <BottomSheet open={sheet === "sendQuoteConfirm"} onClose={closeSheet} title="Send Quote">
+        <p className="text-sm text-gray-600 mb-3">Send this quote to the customer now?</p>
+        <div className="bg-gray-50 rounded-xl p-3 text-sm text-gray-700 mb-3 space-y-1">
+          <p><span className="text-gray-500">Quote #:</span> {quoteForm.quoteNumber || "-"}</p>
+          <p><span className="text-gray-500">Quote Date:</span> {quoteForm.date ? fmt(fromDatetimeLocal(quoteForm.date) || "") : "-"}</p>
+          <p><span className="text-gray-500">Customer Email:</span> {job.client?.contactDetails?.email || "-"}</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={closeSheet} className="flex-1 bg-gray-100 text-gray-700 font-semibold py-2.5 rounded-xl">Cancel</button>
+          <button onClick={() => { closeSheet(); sendQuoteToCustomerConfirmed(); }} disabled={saving}
+            className="flex-1 bg-indigo-600 text-white font-semibold py-2.5 rounded-xl disabled:opacity-50">
+            {saving ? "Sending..." : "Send Quote"}
+          </button>
         </div>
       </BottomSheet>
 
