@@ -13,7 +13,7 @@ import BottomSheet from "@/components/BottomSheet";
 import AddressAutocomplete from "@/components/AddressAutocomplete";
 
 // ── Types ──────────────────────────────────────────────────────────
-interface User { _id: string; firstname: string; lastname: string; email: string; }
+interface User { _id: string; firstname: string; lastname: string; email: string; role?: string; }
 interface ContactDetails {
   name?: string; email?: string; phoneMobile?: string; phoneSecondary?: string;
   streetAddress?: string; suburb?: string; city?: string; postCode?: string;
@@ -511,6 +511,7 @@ export default function JobDetailPage() {
     : leadStatus;
   const salesperson = job.lead?.allocatedTo
     ? `${job.lead.allocatedTo.firstname} ${job.lead.allocatedTo.lastname}` : "Unallocated";
+  const assignableUsers = users.filter((u) => (u.role || "").toUpperCase() !== "INSTALLER");
   const hasWall = !!job.quote?.wall?.SQM;
   const hasCeiling = !!job.quote?.ceiling?.SQM;
   const displayCallbackDate = job.stage === "QUOTE" ? (job.quote?.deferralDate || job.lead?.callbackDate) : job.lead?.callbackDate;
@@ -641,14 +642,31 @@ export default function JobDetailPage() {
         </div>
 
         {/* Job info */}
-        <Section title="Job Info" action={<EditBtn onClick={() => openSheet("allocate")} />}>
-          <InfoRow label="Salesperson" value={salesperson} />
-          <InfoRow label="Updated" value={fmt(job.updatedAt)} />
-          {displayCallbackDate && <InfoRow label="Callback" value={fmt(displayCallbackDate)} />}
-          {job.lead?.quoteBookingDate && <InfoRow label="Quote Booking" value={fmt(job.lead.quoteBookingDate)} />}
-          <div className="flex gap-2 mt-3 flex-wrap">
-            <button onClick={() => openSheet("callback")} className="text-xs bg-gray-100 text-gray-700 px-3 py-1.5 rounded-lg">📅 Set Callback</button>
-            <button onClick={() => openSheet("booking")} className="text-xs bg-gray-100 text-gray-700 px-3 py-1.5 rounded-lg">📅 Quote Booking</button>
+        <Section title="Job Info">
+          <div className="flex flex-col py-2 border-b border-gray-50">
+            <span className="text-xs text-gray-400 uppercase tracking-wide font-medium">Salesperson</span>
+            <div className="mt-1.5 flex items-center gap-2">
+              <span className="text-sm text-gray-800">{salesperson}</span>
+              <button onClick={() => openSheet("allocate")} className="text-xs text-[#e85d04] font-medium">Edit</button>
+            </div>
+          </div>
+
+          <div className="flex flex-col py-2 border-b border-gray-50">
+            <span className="text-xs text-gray-400 uppercase tracking-wide font-medium">Quote Booking</span>
+            <div className="mt-1.5 flex items-center gap-2">
+              <span className="text-sm text-gray-800">{job.lead?.quoteBookingDate ? fmt(job.lead.quoteBookingDate) : "Not set"}</span>
+              <button onClick={() => openSheet("booking")} className="text-xs text-[#e85d04] font-medium">{job.lead?.quoteBookingDate ? "Edit" : "Set"}</button>
+            </div>
+          </div>
+
+          <div className="flex flex-col py-2">
+            <span className="text-xs text-gray-400 uppercase tracking-wide font-medium">Callback</span>
+            <div className="mt-1.5 flex items-center gap-2">
+              <span className="text-sm text-gray-800">{displayCallbackDate ? fmt(displayCallbackDate) : "Not set"}</span>
+              {displayCallbackDate && (
+                <button onClick={() => openSheet("callback")} className="text-xs text-[#e85d04] font-medium">Edit</button>
+              )}
+            </div>
           </div>
         </Section>
 
@@ -851,7 +869,7 @@ export default function JobDetailPage() {
             className={`w-full text-left px-4 py-3 rounded-xl border text-sm ${!selectedUserId ? "border-[#e85d04] bg-orange-50 text-[#e85d04] font-medium" : "border-gray-200 text-gray-700"}`}>
             Unallocated
           </button>
-          {users.map((u) => (
+          {assignableUsers.map((u) => (
             <button key={u._id} onClick={() => setSelectedUserId(u._id)}
               className={`w-full text-left px-4 py-3 rounded-xl border text-sm ${selectedUserId === u._id ? "border-[#e85d04] bg-orange-50 text-[#e85d04] font-medium" : "border-gray-200 text-gray-700"}`}>
               {u.firstname} {u.lastname}
@@ -866,7 +884,7 @@ export default function JobDetailPage() {
       </BottomSheet>
 
       {/* Set callback date */}
-      <BottomSheet open={sheet === "callback"} onClose={closeSheet} title="Set Callback Date">
+      <BottomSheet open={sheet === "callback"} onClose={closeSheet} title="Callback Date">
         <p className="text-sm text-gray-500 mb-3">Sets status to Callback and saves the date.</p>
         <input type="datetime-local" value={callbackDate} onChange={(e) => setCallbackDate(e.target.value)}
           className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
