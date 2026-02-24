@@ -419,25 +419,35 @@ export default function EbaPage() {
 
             <div className="bg-white border border-gray-200 rounded-xl p-4">
               <h2 className="text-sm font-semibold text-gray-700 mb-3">3) Install Information</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-gray-500">Cladding Type</label>
-                  <div className="mt-1 grid grid-cols-1 gap-1">
-                    {["Timber","Cement Board","Rendered Plaster","Masonry Veneer","Masonry (Double brick)","EIFS","Palisade (plastic) weatherboard","Corrugated steel"].map((opt)=>(<label key={opt} className="text-sm"><input type="checkbox" className="mr-2" checked={listValue(form.claddingType).includes(opt)} onChange={() => setField("claddingType", toggleList(form.claddingType, opt))} />{opt}</label>))}
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500">Installed Via</label>
-                  <div className="mt-1 grid grid-cols-1 gap-1">
-                    {["Through wall","Injected from internal lining","Installed during reclad/new build","Other"].map((opt)=>(<label key={opt} className="text-sm"><input type="checkbox" className="mr-2" checked={listValue(form.claddingTypeInstalledVia).includes(opt)} onChange={() => setField("claddingTypeInstalledVia", toggleList(form.claddingTypeInstalledVia, opt))} />{opt}</label>))}
-                  </div>
-                </div>
-                <div className="md:col-span-2">
-                  <label className="text-xs text-gray-500">Finish of Cladding</label>
-                  <div className="mt-1 grid grid-cols-1 md:grid-cols-3 gap-1">
-                    {["Painted","Unpainted","Recoatable in good condition","Requires maintenance"].map((opt)=>(<label key={opt} className="text-sm"><input type="checkbox" className="mr-2" checked={listValue(form.finishOfCladding).includes(opt)} onChange={() => setField("finishOfCladding", toggleList(form.finishOfCladding, opt))} />{opt}</label>))}
-                  </div>
-                </div>
+
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Cladding Type</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-1 mb-4">
+                {["Timber","Cement Board","Rendered Plaster","Masonry Veneer","Masonry (Double brick)","EIFS","Palisade (plastic) weatherboard","Corrugated Steel"].map((opt)=>(
+                  <label key={opt} className="text-sm"><input type="checkbox" className="mr-2" checked={listValue(form.claddingType).includes(opt)} onChange={() => setField("claddingType", toggleList(form.claddingType, opt))} />{opt}</label>
+                ))}
+              </div>
+
+              <p className="text-sm text-gray-700 font-medium mb-1">Installed Via:</p>
+              <div className="grid grid-cols-1 gap-1 mb-4">
+                {["Cladding","Internal Lining mandatory for EIF, Palisade or Corrugated Steel"].map((opt)=>(
+                  <label key={opt} className="text-sm"><input type="checkbox" className="mr-2" checked={listValue(form.claddingTypeInstalledVia).includes(opt)} onChange={() => setField("claddingTypeInstalledVia", toggleList(form.claddingTypeInstalledVia, opt))} />{opt}</label>
+                ))}
+              </div>
+
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Installation</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Framing timber and accessible cavities are located by various means including infra red detection and a 16mm installation hole is made to access each cavity. The installation hole can be made in the exterior cladding (with the exception of palisade weather board, corrugated steel or EIFS claddings) or in the interior lining. The Insulmax® installation machinery is calibrated for the construction type and each cavity is filled with Insulmax® water resistant blown mineral fibre.
+              </p>
+
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Finishing of Cladding</h3>
+              <div className="grid grid-cols-1 gap-2">
+                {[
+                  "Timber / Cement Board Holes filled with Turbo house filler, sand flush and holes sealed with exterior pant system",
+                  "Painted render / plaster / masonry Holes filled with Turbo house filler, sand flush and holes sealed with exterior pant system",
+                  "Unsealed masonry Holes filled with sand / cement mortar and exterior cladding sealed with appropriate Surfapor masonry surface sealer for concrete or clay based substrates. Clay brick http://www.pacificnanotech.co.nz/catalog/surfapore-range/surfapore-r Concrete block/brick http://www.pacificnanotech.co.nz/catalog/surfapore/surfapore-c",
+                ].map((opt)=>(
+                  <label key={opt} className="text-sm"><input type="checkbox" className="mr-2 align-top mt-1" checked={listValue(form.finishOfCladding).includes(opt)} onChange={() => setField("finishOfCladding", toggleList(form.finishOfCladding, opt))} />{opt}</label>
+                ))}
               </div>
             </div>
 
