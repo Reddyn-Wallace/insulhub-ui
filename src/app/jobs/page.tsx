@@ -69,6 +69,7 @@ function JobsPageContent() {
   const [total, setTotal] = useState(0);
   const [globalCounts, setGlobalCounts] = useState<Record<string, number> | null>(null);
   const [stageHydrated, setStageHydrated] = useState(false);
+  const [stageLoaded, setStageLoaded] = useState<Record<string, boolean>>({});
   const [users, setUsers] = useState<User[]>([]);
   const [salespersonFilter, setSalespersonFilter] = useState<string>("ALL");
   const [loading, setLoading] = useState(true);
@@ -133,11 +134,13 @@ function JobsPageContent() {
       setTotal(cached.total);
       setGlobalCounts(persisted?.counts || null);
       setStageHydrated(true);
+      setStageLoaded((p) => ({ ...p, [initStage]: true }));
       setLoading(false);
     } else {
       // Otherwise show loading state (including empty/expired cache)
       setJobs([]);
       setStageHydrated(false);
+      setStageLoaded((p) => ({ ...p, [initStage]: false }));
       setLoading(true);
     }
   }, [initStage, searchMode, searchParams, readStageCache]); // Depend on searchMode too to ensure we clear/show correctly
@@ -169,6 +172,7 @@ function JobsPageContent() {
       setJobs(activeJobs);
       setTotal(data.jobs.total);
       setStageHydrated(true);
+      setStageLoaded((p) => ({ ...p, [activeStage]: true }));
 
       if (!isSearching && (activeStage === "LEAD" || activeStage === "QUOTE")) {
         const stageJobs = activeJobs;
@@ -490,9 +494,16 @@ function JobsPageContent() {
             </div>
           </div>
         ) : paginatedResults.length === 0 ? (
-          <div className="px-4 pt-8 text-center text-gray-400 text-sm">
-            {searchMode ? `No results for "${searchInput}"` : "No jobs found"}
-          </div>
+          !searchMode && !stageLoaded[activeStage] ? (
+            <div className="px-4 pt-10 flex flex-col items-center gap-3 text-gray-400 text-sm">
+              <div className="w-7 h-7 border-2 border-gray-200 border-t-[#e85d04] rounded-full animate-spin" />
+              <span>Loading jobs...</span>
+            </div>
+          ) : (
+            <div className="px-4 pt-8 text-center text-gray-400 text-sm">
+              {searchMode ? `No results for "${searchInput}"` : "No jobs found"}
+            </div>
+          )
         ) : (
           <div className="px-4 pt-1">
             {paginatedResults.map((job) => (
