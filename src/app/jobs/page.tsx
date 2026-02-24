@@ -65,6 +65,7 @@ function JobsPageContent() {
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fetchIdRef = useRef(0);
+  const backgroundRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Cache for first page of stage jobs to enable instant switching
   const cacheRef = useRef<Record<string, { jobs: Job[]; total: number }>>({});
 
@@ -197,8 +198,21 @@ function JobsPageContent() {
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (!token) { router.push("/login"); return; }
+
+    const canUseWarmCache = !searchMode && !search && page === 0 && (activeStage === "LEAD" || activeStage === "QUOTE");
+    const cached = canUseWarmCache ? readStageCache(activeStage) : null;
+
+    if (canUseWarmCache && cached) {
+      // Keep navigation feeling instant, refresh silently in background.
+      if (backgroundRefreshTimerRef.current) clearTimeout(backgroundRefreshTimerRef.current);
+      backgroundRefreshTimerRef.current = setTimeout(() => {
+        fetchJobs();
+      }, 800);
+      return;
+    }
+
     fetchJobs();
-  }, [fetchJobs, router]);
+  }, [fetchJobs, router, readStageCache, activeStage, searchMode, search, page]);
 
   // Initial prefetch - only once on mount
   useEffect(() => {
@@ -208,6 +222,13 @@ function JobsPageContent() {
       prefetchJobsForStage("QUOTE");
     }
   }, [prefetchJobsForStage]);
+
+
+  useEffect(() => {
+    return () => {
+      if (backgroundRefreshTimerRef.current) clearTimeout(backgroundRefreshTimerRef.current);
+    };
+  }, []);
 
   // Debounced search
   function handleSearchInput(val: string) {

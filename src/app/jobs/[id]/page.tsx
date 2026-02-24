@@ -61,6 +61,7 @@ function fromDatetimeLocal(val: string) {
 }
 
 const API_BASE = "https://api.insulhub.nz";
+const JOB_CACHE_TTL_MS = 3 * 60 * 1000;
 
 function getToken() {
   return typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
@@ -150,12 +151,34 @@ export default function JobDetailPage() {
   // Load job + users
   const load = useCallback(async () => {
     try {
+      if (typeof window !== "undefined") {
+        const rawJob = sessionStorage.getItem(`job-cache:${id}`);
+        const rawUsers = sessionStorage.getItem("users-cache");
+        if (rawJob) {
+          const parsed = JSON.parse(rawJob) as { ts: number; job: Job };
+          if (Date.now() - parsed.ts < JOB_CACHE_TTL_MS) {
+            setJob(parsed.job);
+            setLoading(false);
+          }
+        }
+        if (rawUsers) {
+          const parsed = JSON.parse(rawUsers) as { ts: number; users: User[] };
+          if (Date.now() - parsed.ts < JOB_CACHE_TTL_MS) {
+            setUsers(parsed.users);
+          }
+        }
+      }
+
       const [jobData, usersData] = await Promise.all([
         gql<{ job: Job }>(JOB_QUERY, { _id: id }),
-        gql<{ users: { results: User[] } }>(USERS_QUERY),
+        users.length > 0 ? Promise.resolve({ users: { results: users } }) : gql<{ users: { results: User[] } }>(USERS_QUERY),
       ]);
       setJob(jobData.job);
       setUsers(usersData.users.results);
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem(`job-cache:${id}`, JSON.stringify({ ts: Date.now(), job: jobData.job }));
+        sessionStorage.setItem("users-cache", JSON.stringify({ ts: Date.now(), users: usersData.users.results }));
+      }
 
       // Prefill forms
       const j = jobData.job;
@@ -211,7 +234,7 @@ export default function JobDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, users]);
 
   useEffect(() => {
     if (!localStorage.getItem("token")) { router.push("/login"); return; }
