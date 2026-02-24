@@ -132,8 +132,9 @@ export default function JobDetailPage() {
     wallSQMPrice: "", wallSQM: "", wallCavityDepth: "0.1",
     ceilingSQMPrice: "", ceilingSQM: "", ceilingRValue: "", ceilingDownlights: "",
     hasWall: false, hasCeiling: false,
-    extras: [{ name: "", price: "" }],
+    extras: [] as { name: string; price: string }[],
     totalManual: "",
+    depositManual: "",
     quoteNote: "", quoteResultNote: "",
   });
 
@@ -188,13 +189,14 @@ export default function JobDetailPage() {
           ceilingDownlights: j.quote.ceiling?.downlights?.toString() || "",
           hasWall: !!j.quote.wall?.SQM,
           hasCeiling: !!j.quote.ceiling?.SQM,
-          extras: (j.quote.extras && j.quote.extras.length ? j.quote.extras : [{ name: "", price: undefined }]).map((x) => ({ name: x.name || "", price: x.price?.toString() || "" })),
+          extras: (j.quote.extras && j.quote.extras.length ? j.quote.extras : []).map((x) => ({ name: x.name || "", price: x.price?.toString() || "" })),
           totalManual: j.quote.c_total?.toString() || "",
+          depositManual: j.quote.c_deposit?.toString() || "",
           quoteNote: j.quote.quoteNote || "",
           quoteResultNote: j.quote.quoteResultNote || "",
         });
       } else {
-        setQuoteForm(prev => ({ ...prev, quoteNumber: autoQuoteNum, consentFee: "380" }));
+        setQuoteForm(prev => ({ ...prev, quoteNumber: autoQuoteNum, consentFee: "380", depositManual: "" }));
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load";
@@ -279,6 +281,7 @@ export default function JobDetailPage() {
     const ceilingPrice = n(quoteForm.ceilingSQMPrice);
     const ceilingR = n(quoteForm.ceilingRValue);
     const ceilingBags = ceilingR * ceilingSQM * 0.0405;
+    const ceilingThickness = ceilingR * 42;
 
     const extrasTotal = (quoteForm.extras || []).reduce((acc, e) => acc + n(e.price), 0);
     const contractPrice = (quoteForm.hasWall ? wallSQM * wallPrice : 0) + (quoteForm.hasCeiling ? ceilingSQM * ceilingPrice : 0) + extrasTotal;
@@ -287,9 +290,10 @@ export default function JobDetailPage() {
     const autoTotal = contractPrice + gst + consentFee;
     const total = n(quoteForm.totalManual) > 0 ? n(quoteForm.totalManual) : autoTotal;
     const depositPct = n(quoteForm.depositPercentage) || 25;
-    const deposit = (total * depositPct) / 100;
+    const autoDeposit = (total * depositPct) / 100;
+    const deposit = n(quoteForm.depositManual) > 0 ? n(quoteForm.depositManual) : autoDeposit;
 
-    return { wallR, wallBags, ceilingBags, contractPrice, gst, autoTotal, total, deposit };
+    return { wallR, wallBags, ceilingBags, ceilingThickness, contractPrice, gst, autoTotal, total, autoDeposit, deposit };
   }, [quoteForm]);
 
   // ── Actions ────────────────────────────────────────────────────
@@ -982,8 +986,8 @@ export default function JobDetailPage() {
 
       {/* Quote form */}
       <BottomSheet open={sheet === "quote"} onClose={closeSheet} title={job.stage === "LEAD" ? "Enter Quote Details" : "Edit Quote"}>
-        <div className="space-y-3">
-          {/* Quote number & date */}
+        <div className="space-y-4">
+          <div className="text-xs uppercase tracking-wide text-gray-400 font-semibold">1) Quote Basics</div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-gray-500 font-medium mb-1 block">Quote Number</label>
@@ -998,7 +1002,7 @@ export default function JobDetailPage() {
             </div>
           </div>
 
-          {/* Wall insulation */}
+          <div className="text-xs uppercase tracking-wide text-gray-400 font-semibold">2) Insulation Inputs</div>
           <div className="border border-gray-200 rounded-xl p-3">
             <label className="flex items-center gap-2 mb-3 cursor-pointer">
               <input type="checkbox" checked={quoteForm.hasWall} onChange={(e) => setQuoteForm((f) => ({ ...f, hasWall: e.target.checked }))} className="w-4 h-4 accent-[#e85d04]" />
@@ -1049,12 +1053,13 @@ export default function JobDetailPage() {
                     </div>
                   ))}
                 </div>
-                <div className="text-xs text-gray-500 mt-2">Auto Bags: <span className="font-semibold text-gray-700">{quoteCalc.ceilingBags.toFixed(1)}</span></div>
+                <div className="text-xs text-gray-500 mt-2">Auto Thickness: <span className="font-semibold text-gray-700">{quoteCalc.ceilingThickness.toFixed(0)} mm</span></div>
+                <div className="text-xs text-gray-500 mt-1">Auto Bags: <span className="font-semibold text-gray-700">{quoteCalc.ceilingBags.toFixed(1)}</span></div>
               </>
             )}
           </div>
 
-          {/* Fees */}
+          <div className="text-xs uppercase tracking-wide text-gray-400 font-semibold">3) Pricing</div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-gray-500 font-medium mb-1 block">Consent Fee</label>
@@ -1076,12 +1081,16 @@ export default function JobDetailPage() {
               <span className="text-sm font-semibold text-gray-700">Extra Charges</span>
               <button type="button" onClick={() => setQuoteForm((f) => ({ ...f, extras: [...f.extras, { name: "", price: "" }] }))} className="text-xs text-[#e85d04] font-medium">+ Add</button>
             </div>
-            {(quoteForm.extras || []).map((ex, i) => (
-              <div key={i} className="grid grid-cols-5 gap-2 mb-2">
+            {(quoteForm.extras || []).length === 0 ? (
+              <p className="text-xs text-gray-400">No extra charges added</p>
+            ) : (quoteForm.extras || []).map((ex, i) => (
+              <div key={i} className="grid grid-cols-12 gap-2 mb-2">
                 <input type="text" value={ex.name} onChange={(e) => setQuoteForm((f) => ({ ...f, extras: f.extras.map((x, idx) => idx === i ? { ...x, name: e.target.value } : x) }))}
-                  placeholder="Extra name" className="col-span-3 border border-gray-200 rounded-lg px-2 py-2 text-sm" />
+                  placeholder="Extra name" className="col-span-7 border border-gray-200 rounded-lg px-2 py-2 text-sm" />
                 <input type="number" value={ex.price} onChange={(e) => setQuoteForm((f) => ({ ...f, extras: f.extras.map((x, idx) => idx === i ? { ...x, price: e.target.value } : x) }))}
-                  placeholder="0" className="col-span-2 border border-gray-200 rounded-lg px-2 py-2 text-sm" />
+                  placeholder="0" className="col-span-4 border border-gray-200 rounded-lg px-2 py-2 text-sm" />
+                <button type="button" onClick={() => setQuoteForm((f) => ({ ...f, extras: f.extras.filter((_, idx) => idx !== i) }))}
+                  className="col-span-1 text-red-500 text-xs">✕</button>
               </div>
             ))}
           </div>
@@ -1095,7 +1104,12 @@ export default function JobDetailPage() {
                 placeholder={quoteCalc.autoTotal.toFixed(2)} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm" />
               <button type="button" onClick={() => setQuoteForm((f) => ({ ...f, totalManual: "" }))} className="text-xs text-gray-500 mt-1 underline">Recalculate</button>
             </div>
-            <div className="bg-gray-50 rounded-lg p-2">Deposit: <b>{fmtCurrency(quoteCalc.deposit)}</b></div>
+            <div>
+              <label className="text-xs text-gray-500 font-medium mb-1 block">Deposit (editable)</label>
+              <input type="number" value={quoteForm.depositManual} onChange={(e) => setQuoteForm((f) => ({ ...f, depositManual: e.target.value }))}
+                placeholder={quoteCalc.autoDeposit.toFixed(2)} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm" />
+              <button type="button" onClick={() => setQuoteForm((f) => ({ ...f, depositManual: "" }))} className="text-xs text-gray-500 mt-1 underline">Recalculate</button>
+            </div>
           </div>
 
           {/* Comments */}
