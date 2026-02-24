@@ -432,24 +432,42 @@ function JobsPageContent() {
       {/* Pagination */}
       {!loading && !error && sortedJobs.length > PAGE_SIZE && (
         <div className="px-4 pb-2 pt-1 flex items-center justify-between">
-          <button
-            onClick={() => { setPage((p) => Math.max(0, p - 1)); window.scrollTo(0, 0); }}
-            disabled={page === 0}
-            className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs text-gray-700 disabled:opacity-40 font-medium"
-          >
-            ← Prev
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => { setPage(0); window.scrollTo(0, 0); }}
+              disabled={page === 0}
+              className="px-2.5 py-1.5 bg-white border border-gray-200 rounded-lg text-xs text-gray-700 disabled:opacity-40 font-medium"
+            >
+              « First
+            </button>
+            <button
+              onClick={() => { setPage((p) => Math.max(0, p - 1)); window.scrollTo(0, 0); }}
+              disabled={page === 0}
+              className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs text-gray-700 disabled:opacity-40 font-medium"
+            >
+              ← Prev
+            </button>
+          </div>
           <div className="flex items-center gap-2">
             <span className="text-[11px] text-gray-500 font-medium bg-gray-100 px-2 py-1 rounded-full">Page {currentPage} / {totalPages}</span>
             <span className="text-[10px] text-gray-400">{page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, sortedJobs.length)} of {sortedJobs.length}</span>
           </div>
-          <button
-            onClick={() => { setPage((p) => Math.min(totalPages - 1, p + 1)); window.scrollTo(0, 0); }}
-            disabled={(page + 1) * PAGE_SIZE >= sortedJobs.length}
-            className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs text-gray-700 disabled:opacity-40 font-medium"
-          >
-            Next →
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => { setPage((p) => Math.min(totalPages - 1, p + 1)); window.scrollTo(0, 0); }}
+              disabled={(page + 1) * PAGE_SIZE >= sortedJobs.length}
+              className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs text-gray-700 disabled:opacity-40 font-medium"
+            >
+              Next →
+            </button>
+            <button
+              onClick={() => { setPage(totalPages - 1); window.scrollTo(0, 0); }}
+              disabled={page >= totalPages - 1}
+              className="px-2.5 py-1.5 bg-white border border-gray-200 rounded-lg text-xs text-gray-700 disabled:opacity-40 font-medium"
+            >
+              Last »
+            </button>
+          </div>
         </div>
       )}
 

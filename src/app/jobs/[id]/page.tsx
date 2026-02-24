@@ -369,7 +369,13 @@ export default function JobDetailPage() {
   async function saveLeadStatus(status: string) {
     const apiStatus = status === "CALLBACK" ? "ON_HOLD" : status;
     await run(() => gql(UPDATE_JOB_LEAD, {
-      input: { _id: id, lead: buildLeadInput({ leadStatus: apiStatus }) },
+      input: {
+        _id: id,
+        lead: buildLeadInput({
+          leadStatus: apiStatus,
+          ...(apiStatus === "ON_HOLD" ? {} : { callbackDate: null }),
+        }),
+      },
     }));
   }
 
@@ -410,7 +416,7 @@ export default function JobDetailPage() {
     }));
   }
 
-  function buildQuoteUpdateInput(andProgress = false) {
+  function buildQuoteUpdateInput(andProgress = false, overrides: Record<string, unknown> = {}) {
     const q = quoteForm;
     return {
       _id: id,
@@ -557,13 +563,14 @@ export default function JobDetailPage() {
       // fallback template kept
     }
 
+    const sentAt = new Date().toISOString();
     await run(() => gql(UPDATE_JOB_QUOTE, {
-      input: buildQuoteUpdateInput(false),
+      input: buildQuoteUpdateInput(false, { date: sentAt }),
       emailQuoteToCustomer: true,
       quotePDFEmailBodyTemplate: template,
     }));
-    const sentAt = new Date().toISOString();
     setQuoteLastSentAt(sentAt);
+    setJob((prev) => prev ? ({ ...prev, quote: { ...prev.quote, date: sentAt } }) : prev);
     if (typeof window !== "undefined") localStorage.setItem(`quote-last-sent:${id}`, sentAt);
     setNotice({ type: "success", text: "Quote sent to customer." });
   }
