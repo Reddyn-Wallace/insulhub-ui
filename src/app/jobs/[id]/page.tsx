@@ -196,7 +196,13 @@ export default function JobDetailPage() {
           quoteResultNote: j.quote.quoteResultNote || "",
         });
       } else {
-        setQuoteForm(prev => ({ ...prev, quoteNumber: autoQuoteNum, consentFee: "380", depositManual: "" }));
+        setQuoteForm(prev => ({
+          ...prev,
+          quoteNumber: autoQuoteNum,
+          date: toDatetimeLocal(j.lead?.quoteBookingDate),
+          consentFee: "380",
+          depositManual: "",
+        }));
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load";
