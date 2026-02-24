@@ -128,14 +128,14 @@ function JobsPageContent() {
     const persisted = !searchMode ? readStageCache(initStage) : null;
     const cached = inMemCached || (persisted ? { jobs: persisted.jobs, total: persisted.total } : null);
 
-    if (cached && !searchMode) {
+    if (cached && !searchMode && cached.jobs.length > 0) {
       setJobs(cached.jobs);
       setTotal(cached.total);
       setGlobalCounts(persisted?.counts || null);
       setStageHydrated(true);
       setLoading(false);
     } else {
-      // Otherwise show loading state
+      // Otherwise show loading state (including empty/expired cache)
       setJobs([]);
       setStageHydrated(false);
       setLoading(true);
