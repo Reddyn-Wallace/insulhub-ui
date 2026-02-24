@@ -735,6 +735,29 @@ export default function JobDetailPage() {
           )}
         </Section>
 
+        {/* Site plan */}
+        {(job.stage === "QUOTE" || job.stage === "SCHEDULED") && (
+          <Section title="Site Plan">
+            <div className="flex gap-2 mb-3 flex-wrap">
+              <button onClick={printQuoteSitePlanPDF} className="bg-gray-700 text-white text-sm font-semibold px-3 py-2.5 rounded-xl">🖨️ Print Site Plan PDF</button>
+            </div>
+            <div className="border border-gray-200 rounded-xl p-3">
+              <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Completed Site Plan</p>
+              <input type="file" onChange={(e) => uploadQuoteSitePlan(e.target.files)} disabled={uploadingSitePlan} className="text-sm mb-2" />
+              {uploadingSitePlan && <p className="text-xs text-gray-500">Uploading...</p>}
+              <div className="space-y-1">
+                {(job.quote?.files_QuoteSitePlan || []).map((f) => (
+                  <div key={f} className="flex items-center justify-between text-sm">
+                    <a href={fileUrl(f)} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline truncate max-w-[70%]">{f}</a>
+                    <button onClick={() => removeQuoteSitePlan(f)} className="text-xs text-red-600">Remove</button>
+                  </div>
+                ))}
+                {(!job.quote?.files_QuoteSitePlan || job.quote.files_QuoteSitePlan.length === 0) && <p className="text-xs text-gray-400">No site plan files uploaded yet.</p>}
+              </div>
+            </div>
+          </Section>
+        )}
+
         {/* Quote details */}
         {job.stage === "QUOTE" || job.stage === "SCHEDULED" ? (
           <Section title="Quote" action={<EditBtn onClick={() => openSheet("quote")} />}>
@@ -790,22 +813,7 @@ export default function JobDetailPage() {
                 📋 Send EBA
               </button>
               <button onClick={downloadQuotePDF} className="flex-1 bg-gray-900 text-white text-sm font-semibold py-2.5 rounded-xl">📄 Quote PDF</button>
-              <button onClick={printQuoteSitePlanPDF} className="flex-1 bg-gray-700 text-white text-sm font-semibold py-2.5 rounded-xl">🖨️ Site Plan PDF</button>
               <button onClick={openEBAClientApprovalPage} className="flex-1 bg-white border border-gray-300 text-gray-700 text-sm font-semibold py-2.5 rounded-xl">🧾 Complete EBA</button>
-            </div>
-            <div className="mt-3 border border-gray-200 rounded-xl p-3">
-              <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Completed Site Plan</p>
-              <input type="file" onChange={(e) => uploadQuoteSitePlan(e.target.files)} disabled={uploadingSitePlan} className="text-sm mb-2" />
-              {uploadingSitePlan && <p className="text-xs text-gray-500">Uploading...</p>}
-              <div className="space-y-1">
-                {(job.quote?.files_QuoteSitePlan || []).map((f) => (
-                  <div key={f} className="flex items-center justify-between text-sm">
-                    <a href={fileUrl(f)} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline truncate max-w-[70%]">{f}</a>
-                    <button onClick={() => removeQuoteSitePlan(f)} className="text-xs text-red-600">Remove</button>
-                  </div>
-                ))}
-                {(!job.quote?.files_QuoteSitePlan || job.quote.files_QuoteSitePlan.length === 0) && <p className="text-xs text-gray-400">No site plan files uploaded yet.</p>}
-              </div>
             </div>
           </Section>
         ) : job.stage === "LEAD" ? (
