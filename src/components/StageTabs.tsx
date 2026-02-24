@@ -11,8 +11,8 @@ const STAGES = [
 
 const LEAD_SUB_TABS = [
   { label: "New", value: "NEW" },
-  { label: "Callback", value: "CALLBACK" },
   { label: "Quote booked", value: "QUOTE_BOOKED" },
+  { label: "Callback", value: "CALLBACK" },
   { label: "Dead", value: "DEAD" },
   { label: "All", value: "ALL" },
 ];
