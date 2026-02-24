@@ -467,12 +467,8 @@ export default function JobDetailPage() {
   }
 
   async function openEBAClientApprovalPage() {
-    try {
-      const data = await gql<{ getEBAClientApprovalLink: string }>(`query($jobId:ObjectId!){ getEBAClientApprovalLink(jobId:$jobId) }`, { jobId: id });
-      if (data.getEBAClientApprovalLink) window.open(data.getEBAClientApprovalLink, "_blank");
-    } catch {
-      alert("Could not open EBA approval page.");
-    }
+    // Match legacy internal workflow: open staff EBA editor, not public client approval URL.
+    window.open(`https://www.insulhub.nz/job/${id}/eba`, "_blank");
   }
 
   async function saveQuoteAndOpenEBA() {
