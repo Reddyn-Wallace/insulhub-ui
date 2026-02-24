@@ -366,7 +366,53 @@ export default function EbaPage() {
             </div>
 
             <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <h2 className="text-sm font-semibold text-gray-700 mb-3">6) Assessment Questions</h2>
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">6) Building Paper</h2>
+              <div className="flex gap-2 flex-wrap">
+                {["Not detected","Detected (but unable to guarantee extent or condition)"].map((opt)=>(
+                  <label key={opt} className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white cursor-pointer">
+                    <input type="radio" name="buildingPaper" className="mr-2" checked={(form.buildingPaper as string) === opt} onChange={() => setField("buildingPaper", opt)} />
+                    {opt}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white border border-gray-200 rounded-xl p-4">
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">7) Exterior Cladding</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {["Timber","Cement Board","Rendered Plaster","Masonry veneer (nominal 140mm cavity)","Masonry (double brick)","EIFS","Palisade (plastic) weatherboard","Corrugated steel"].map((opt)=>(
+                  <label key={opt} className="text-sm"><input type="checkbox" className="mr-2" checked={listValue(form.exteriorCladding).includes(opt)} onChange={() => setField("exteriorCladding", toggleList(form.exteriorCladding, opt))} />{opt}</label>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white border border-gray-200 rounded-xl p-4">
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">8) Install Information</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500">Cladding Type</label>
+                  <div className="mt-1 grid grid-cols-1 gap-1">
+                    {["Timber","Cement Board","Rendered Plaster","Masonry Veneer","Masonry (Double brick)","EIFS","Palisade (plastic) weatherboard","Corrugated steel"].map((opt)=>(<label key={opt} className="text-sm"><input type="checkbox" className="mr-2" checked={listValue(form.claddingType).includes(opt)} onChange={() => setField("claddingType", toggleList(form.claddingType, opt))} />{opt}</label>))}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500">Installed Via</label>
+                  <div className="mt-1 grid grid-cols-1 gap-1">
+                    {["Through wall","Injected from internal lining","Installed during reclad/new build","Other"].map((opt)=>(<label key={opt} className="text-sm"><input type="checkbox" className="mr-2" checked={listValue(form.claddingTypeInstalledVia).includes(opt)} onChange={() => setField("claddingTypeInstalledVia", toggleList(form.claddingTypeInstalledVia, opt))} />{opt}</label>))}
+                  </div>
+                </div>
+                <div className="md:col-span-2">
+                  <label className="text-xs text-gray-500">Finish of Cladding</label>
+                  <div className="mt-1 grid grid-cols-1 md:grid-cols-3 gap-1">
+                    {["Painted","Unpainted","Recoatable in good condition","Requires maintenance"].map((opt)=>(<label key={opt} className="text-sm"><input type="checkbox" className="mr-2" checked={listValue(form.finishOfCladding).includes(opt)} onChange={() => setField("finishOfCladding", toggleList(form.finishOfCladding, opt))} />{opt}</label>))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white border border-gray-200 rounded-xl p-4">
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">9) Assessment Questions</h2>
+
               <div className="space-y-3">
                 {q.map(([key, label]) => (
                   <div key={key} className="border border-gray-100 rounded-lg p-3">
@@ -388,7 +434,7 @@ export default function EbaPage() {
             </div>
 
             <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <h2 className="text-sm font-semibold text-gray-700 mb-3">7) Assessor Declaration</h2>
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">10) Assessor Declaration</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-gray-500">Assessor Name</label>
