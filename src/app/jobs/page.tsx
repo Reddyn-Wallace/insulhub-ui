@@ -221,11 +221,17 @@ function JobsPageContent() {
     const cached = canUseWarmCache ? readStageCache(activeStage) : null;
 
     if (canUseWarmCache && cached) {
-      // Keep navigation feeling instant, refresh silently in background.
-      if (backgroundRefreshTimerRef.current) clearTimeout(backgroundRefreshTimerRef.current);
-      backgroundRefreshTimerRef.current = setTimeout(() => {
-        fetchJobs();
-      }, 800);
+      // Keep navigation feeling instant when cache has data.
+      if (cached.jobs.length > 0) {
+        if (backgroundRefreshTimerRef.current) clearTimeout(backgroundRefreshTimerRef.current);
+        backgroundRefreshTimerRef.current = setTimeout(() => {
+          fetchJobs();
+        }, 500);
+        return;
+      }
+      // If cache is empty, show loading skeleton and fetch immediately.
+      setStageHydrated(false);
+      fetchJobs();
       return;
     }
 
