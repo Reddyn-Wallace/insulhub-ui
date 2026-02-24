@@ -36,6 +36,7 @@ export const JOBS_QUERY = `
           quoteNumber
           date
           status
+          deferralDate
           c_total
         }
         client {
@@ -74,6 +75,7 @@ export const JOB_QUERY = `
         quoteNumber
         date
         status
+        deferralDate
         c_total
         c_deposit
         depositPercentage

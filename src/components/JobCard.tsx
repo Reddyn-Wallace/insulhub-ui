@@ -17,6 +17,7 @@ interface Job {
     quoteNumber?: string;
     date?: string;
     status?: string;
+    deferralDate?: string;
     c_total?: number;
   };
   client?: {
@@ -96,7 +97,8 @@ export default function JobCard({ job }: { job: Job }) {
 
   const cardStyle = STATUS_STYLE[cardState] || STATUS_STYLE.NEW;
 
-  const callbackTime = job.lead?.callbackDate ? new Date(job.lead.callbackDate).getTime() : null;
+  const callbackIso = job.stage === "QUOTE" ? (job.quote?.deferralDate || job.lead?.callbackDate) : job.lead?.callbackDate;
+  const callbackTime = callbackIso ? new Date(callbackIso).getTime() : null;
   const isCallbackOverdue = (leadStatus === "CALLBACK" || quoteState === "CALLBACK") && Boolean(callbackTime && callbackTime < now);
 
   const isQuoteSent = Boolean(job.quote?.date && job.quote?.quoteNumber);
@@ -131,7 +133,7 @@ export default function JobCard({ job }: { job: Job }) {
         </div>
 
         <div className="mt-1.5 flex flex-wrap gap-3 text-xs font-medium">
-          {job.lead?.callbackDate && <span className={isCallbackOverdue ? "text-red-600" : "text-orange-600"}>{isCallbackOverdue ? "⚠️ " : ""}Callback: {formatDate(job.lead.callbackDate)}</span>}
+          {callbackIso && <span className={isCallbackOverdue ? "text-red-600" : "text-orange-600"}>{isCallbackOverdue ? "⚠️ " : ""}Callback: {formatDate(callbackIso)}</span>}
           {job.stage !== "QUOTE" && job.lead?.quoteBookingDate && <span className="text-indigo-600">Quote booked: {formatDate(job.lead.quoteBookingDate)}</span>}
         </div>
       </div>

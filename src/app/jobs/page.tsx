@@ -10,6 +10,7 @@ import JobCard from "@/components/JobCard";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 
 const PAGE_SIZE = 40;
+const STAGE_CACHE_TTL_MS = 5 * 60 * 1000;
 
 interface Job {
   _id: string;
@@ -24,7 +25,7 @@ interface Job {
     callbackDate?: string;
     quoteBookingDate?: string;
   };
-  quote?: { quoteNumber?: string; date?: string; status?: string; c_total?: number };
+  quote?: { quoteNumber?: string; date?: string; status?: string; deferralDate?: string; c_total?: number };
   client?: {
     contactDetails?: {
       name?: string;
@@ -59,12 +60,33 @@ function JobsPageContent() {
   const [total, setTotal] = useState(0);
   const [globalCounts, setGlobalCounts] = useState<Record<string, number> | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fetchIdRef = useRef(0);
   // Cache for first page of stage jobs to enable instant switching
   const cacheRef = useRef<Record<string, { jobs: Job[]; total: number }>>({});
+
+  const cacheKey = useCallback((stage: string) => `jobs-cache:${stage}`, []);
+
+  const readStageCache = useCallback((stage: string): { jobs: Job[]; total: number; counts?: Record<string, number>; ts: number } | null => {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = sessionStorage.getItem(cacheKey(stage));
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { jobs: Job[]; total: number; counts?: Record<string, number>; ts: number };
+      if (Date.now() - parsed.ts > STAGE_CACHE_TTL_MS) return null;
+      return parsed;
+    } catch {
+      return null;
+    }
+  }, [cacheKey]);
+
+  const writeStageCache = useCallback((stage: string, data: { jobs: Job[]; total: number; counts?: Record<string, number> }) => {
+    if (typeof window === "undefined") return;
+    sessionStorage.setItem(cacheKey(stage), JSON.stringify({ ...data, ts: Date.now() }));
+  }, [cacheKey]);
 
   const prefetchJobsForStage = useCallback(async (stage: string) => {
     try {
@@ -90,23 +112,27 @@ function JobsPageContent() {
     setGlobalCounts(null);
 
     // If we have cached data for this stage and we're not searching, use it immediately
-    const cached = cacheRef.current[initStage];
+    const inMemCached = cacheRef.current[initStage];
+    const persisted = !searchMode ? readStageCache(initStage) : null;
+    const cached = inMemCached || (persisted ? { jobs: persisted.jobs, total: persisted.total } : null);
+
     if (cached && !searchMode) {
       setJobs(cached.jobs);
       setTotal(cached.total);
+      setGlobalCounts(persisted?.counts || null);
       setLoading(false);
     } else {
       // Otherwise show loading state
       setJobs([]);
       setLoading(true);
     }
-  }, [initStage, searchMode, searchParams]); // Depend on searchMode too to ensure we clear/show correctly
+  }, [initStage, searchMode, searchParams, readStageCache]); // Depend on searchMode too to ensure we clear/show correctly
 
   const fetchJobs = useCallback(async () => {
     const currentFetchId = ++fetchIdRef.current;
     setError("");
-    // We don't set loading(true) here because it might already be true from handleStageChange
-    // and we want it to stay true.
+    if (jobs.length === 0) setLoading(true);
+    else setRefreshing(true);
 
     const isSearching = searchMode;
     const q = search;
@@ -124,18 +150,6 @@ function JobsPageContent() {
       if (currentFetchId !== fetchIdRef.current) return;
 
       const allFetched = data.jobs.results;
-
-      // DEBUG: Specifically look for the job the user mentioned
-      const targetJob = allFetched.find(j => j._id === "699177c3a5185b0a06c01f07");
-      if (targetJob) {
-        console.log("[Debug] Found target job:", {
-          id: targetJob._id,
-          archivedAt: targetJob.archivedAt,
-          stage: targetJob.stage,
-          leadStatus: targetJob.lead?.leadStatus
-        });
-      }
-
       // Filter out archived jobs as requested
       const activeJobs = allFetched.filter(j => !j.archivedAt);
 
@@ -143,8 +157,7 @@ function JobsPageContent() {
       setTotal(data.jobs.total);
 
       if (!isSearching && (activeStage === "LEAD" || activeStage === "QUOTE")) {
-        const allData = await gql<JobsData>(JOBS_QUERY, { stages: [activeStage], skip: 0, limit: 5000 });
-        const stageJobs = allData.jobs.results.filter((j) => !j.archivedAt);
+        const stageJobs = activeJobs;
         const isQuoteBooked = (job: Job) => Boolean(job.lead?.quoteBookingDate);
         const isCallbackLead = (job: Job) => ["CALLBACK", "ON_HOLD"].includes((job.lead?.leadStatus || "").toUpperCase());
         const isNewLead = (job: Job) => (!job.lead?.leadStatus || job.lead.leadStatus === "NEW") && !isQuoteBooked(job);
@@ -153,14 +166,16 @@ function JobsPageContent() {
           if (job.quote?.status === "DEFERRED" || isCallbackLead(job)) return "CALLBACK";
           return "OPEN";
         };
-        setGlobalCounts({
+        const computedCounts = {
           ALL: stageJobs.length,
           NEW: stageJobs.filter((j) => isNewLead(j)).length,
           CALLBACK: stageJobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "CALLBACK" : isCallbackLead(j)).length,
           QUOTE_BOOKED: stageJobs.filter((j) => isQuoteBooked(j)).length,
           OPEN: stageJobs.filter((j) => quoteState(j) === "OPEN").length,
           DEAD: stageJobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "DEAD" : j.lead?.leadStatus === "DEAD").length,
-        });
+        };
+        setGlobalCounts(computedCounts);
+        writeStageCache(activeStage, { jobs: activeJobs, total: data.jobs.total, counts: computedCounts });
       }
 
       // Update cache for stage first page
@@ -174,9 +189,10 @@ function JobsPageContent() {
     } finally {
       if (currentFetchId === fetchIdRef.current) {
         setLoading(false);
+        setRefreshing(false);
       }
     }
-  }, [activeStage, page, search, searchMode]);
+  }, [activeStage, page, search, searchMode, jobs.length, writeStageCache]);
 
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
@@ -357,6 +373,14 @@ function JobsPageContent() {
           </button>
         </div>
       </div>
+
+      {refreshing && (
+        <div className="px-4 pb-2">
+          <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+            <div className="h-full w-1/3 bg-[#e85d04] animate-pulse" />
+          </div>
+        </div>
+      )}
 
       {/* Pagination */}
       {!loading && !error && sortedJobs.length > PAGE_SIZE && (

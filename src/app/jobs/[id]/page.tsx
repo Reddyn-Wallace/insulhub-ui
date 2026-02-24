@@ -29,6 +29,7 @@ interface Job {
     quoteNumber?: string; date?: string; c_total?: number; c_deposit?: number;
     depositPercentage?: number; consentFee?: number; quoteNote?: string; quoteResultNote?: string;
     status?: string;
+    deferralDate?: string;
     wall?: { SQMPrice?: number; SQM?: number; c_RValue?: number; c_bagCount?: number; cavityDepthMeters?: number };
     ceiling?: { SQMPrice?: number; SQM?: number; RValue?: number; downlights?: number; c_bagCount?: number };
     extras?: { name?: string; price?: number }[];
@@ -512,6 +513,7 @@ export default function JobDetailPage() {
     ? `${job.lead.allocatedTo.firstname} ${job.lead.allocatedTo.lastname}` : "Unallocated";
   const hasWall = !!job.quote?.wall?.SQM;
   const hasCeiling = !!job.quote?.ceiling?.SQM;
+  const displayCallbackDate = job.stage === "QUOTE" ? (job.quote?.deferralDate || job.lead?.callbackDate) : job.lead?.callbackDate;
   const isArchived = !!job.archivedAt;
 
   const buildGCalUrl = (type: "Callback" | "Quote", dateStr: string, durationMins: number) => {
@@ -642,7 +644,7 @@ export default function JobDetailPage() {
         <Section title="Job Info" action={<EditBtn onClick={() => openSheet("allocate")} />}>
           <InfoRow label="Salesperson" value={salesperson} />
           <InfoRow label="Updated" value={fmt(job.updatedAt)} />
-          {job.lead?.callbackDate && <InfoRow label="Callback" value={fmt(job.lead.callbackDate)} />}
+          {displayCallbackDate && <InfoRow label="Callback" value={fmt(displayCallbackDate)} />}
           {job.lead?.quoteBookingDate && <InfoRow label="Quote Booking" value={fmt(job.lead.quoteBookingDate)} />}
           <div className="flex gap-2 mt-3 flex-wrap">
             <button onClick={() => openSheet("callback")} className="text-xs bg-gray-100 text-gray-700 px-3 py-1.5 rounded-lg">📅 Set Callback</button>
