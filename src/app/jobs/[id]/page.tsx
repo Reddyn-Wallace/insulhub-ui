@@ -508,8 +508,7 @@ export default function JobDetailPage() {
   }
 
   async function openEBAClientApprovalPage() {
-    // Match legacy internal workflow: open staff EBA editor, not public client approval URL.
-    window.open(`https://www.insulhub.nz/job/${id}/eba`, "_blank");
+    window.location.href = `/jobs/${id}/eba`;
   }
 
   async function saveQuoteAndOpenEBA() {
