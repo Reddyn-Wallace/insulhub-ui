@@ -172,7 +172,7 @@ export default function JobDetailPage() {
 
       const [jobData, usersData] = await Promise.all([
         gql<{ job: Job }>(JOB_QUERY, { _id: id }),
-        users.length > 0 ? Promise.resolve({ users: { results: users } }) : gql<{ users: { results: User[] } }>(USERS_QUERY),
+        gql<{ users: { results: User[] } }>(USERS_QUERY),
       ]);
       setJob(jobData.job);
       setUsers(usersData.users.results);
@@ -238,7 +238,7 @@ export default function JobDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [id, users]);
+  }, [id]);
 
   useEffect(() => {
     if (!localStorage.getItem("token")) { router.push("/login"); return; }
