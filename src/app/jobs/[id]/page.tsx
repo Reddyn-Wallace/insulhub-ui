@@ -35,7 +35,7 @@ interface Job {
     extras?: { name?: string; price?: number }[];
     files_QuoteSitePlan?: string[];
   };
-  ebaForm?: { complete?: boolean; signature_assessor?: { fileName?: string } | null };
+  ebaForm?: { complete?: boolean; clientApproved?: boolean; signature_assessor?: { fileName?: string } | null };
   client?: {
     _id?: string;
     contactDetails?: ContactDetails;
@@ -588,7 +588,7 @@ export default function JobDetailPage() {
   if (!job) return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <div className="bg-[#1a3a4a] px-4 py-4">
-        <button onClick={() => router.back()} className="text-white text-sm">← Back</button>
+        <button onClick={() => router.push("/jobs")} className="text-white text-sm">← Back</button>
       </div>
       <div className="px-4 pt-4">
         <div className="bg-red-50 text-red-700 text-sm px-4 py-3 rounded-xl">{error || "Job not found"}</div>
@@ -697,7 +697,7 @@ export default function JobDetailPage() {
     <div className="min-h-screen bg-gray-50 pb-10">
       {/* Header */}
       <div className="bg-[#1a3a4a] px-4 pt-3 pb-2">
-        <button onClick={() => router.back()} className="text-gray-300 text-sm mb-1">← Back</button>
+        <button onClick={() => router.push("/jobs")} className="text-gray-300 text-sm mb-1">← Back</button>
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-white font-bold text-lg leading-tight">{c?.name || "Unknown"}</h1>
@@ -899,6 +899,11 @@ export default function JobDetailPage() {
 
         {(job.stage === "QUOTE" || job.stage === "SCHEDULED") && (
           <Section title="EBA">
+            <div className="mb-2 text-sm">
+              <span className={`px-2 py-1 rounded-full text-xs font-semibold ${job.ebaForm?.clientApproved ? "bg-emerald-100 text-emerald-700" : job.ebaForm?.complete ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"}`}>
+                {job.ebaForm?.clientApproved ? "Client Signed" : job.ebaForm?.complete ? "Finalised" : "Draft In Progress"}
+              </span>
+            </div>
             <div className="flex gap-2 flex-wrap">
               <button
                 onClick={saveQuoteAndOpenEBA}

@@ -203,6 +203,7 @@ export default function EbaPage() {
       const res = await gql<{ saveEBA: Job }>(SAVE_EBA_MUTATION, { input, isDraft });
       setJob((prev) => (prev ? { ...prev, ebaForm: { ...(prev.ebaForm || {}), ...(res.saveEBA.ebaForm || {}), ...ebaForm } } : prev));
       setNotice(isDraft ? "EBA draft saved." : "EBA finalised.");
+      router.replace(`/jobs/${id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save EBA");
     } finally {
@@ -449,8 +450,8 @@ export default function EbaPage() {
 
             <div className="bg-white border border-gray-200 rounded-xl p-4 sticky bottom-3">
               <div className="flex gap-2 flex-wrap">
-                <button onClick={() => saveEBA(true)} disabled={saving} className="bg-white border border-gray-300 text-gray-700 px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50">{saving ? "Saving..." : "Save Draft"}</button>
-                <button onClick={() => saveEBA(false)} disabled={saving} className="bg-[#1a3a4a] text-white px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50">{saving ? "Finalising..." : "Finalise EBA"}</button>
+                <button onClick={() => saveEBA(true)} disabled={saving} className="bg-white border border-gray-300 text-gray-700 px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50">{saving ? "Saving..." : "Save as Draft"}</button>
+                <button onClick={() => saveEBA(false)} disabled={saving} className="bg-[#1a3a4a] text-white px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50">{saving ? "Finalising..." : "Save as Finalised"}</button>
               </div>
             </div>
           </>
