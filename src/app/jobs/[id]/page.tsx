@@ -143,6 +143,7 @@ export default function JobDetailPage() {
 
   // Selected salesperson
   const [selectedUserId, setSelectedUserId] = useState("");
+  const [leadSourceForm, setLeadSourceForm] = useState<string[]>([]);
 
   // Load job + users
   const load = useCallback(async () => {
@@ -166,6 +167,7 @@ export default function JobDetailPage() {
       setCallbackDate(toDatetimeLocal(j.lead?.callbackDate));
       setQuoteBookingDate(toDatetimeLocal(j.lead?.quoteBookingDate));
       setSelectedUserId(j.lead?.allocatedTo?._id || "");
+      setLeadSourceForm(j.lead?.leadSource || []);
 
       const me = JSON.parse(localStorage.getItem("me") || "{}");
       const initials = ((me.firstname?.[0] || "") + (me.lastname?.[0] || "")).toUpperCase();
@@ -327,6 +329,13 @@ export default function JobDetailPage() {
     const apiStatus = status === "CALLBACK" ? "ON_HOLD" : status;
     await run(() => gql(UPDATE_JOB_LEAD, {
       input: { _id: id, lead: buildLeadInput({ leadStatus: apiStatus }) },
+    }));
+  }
+
+
+  async function saveLeadSource() {
+    await run(() => gql(UPDATE_JOB_LEAD, {
+      input: { _id: id, lead: buildLeadInput({ leadSource: leadSourceForm }) },
     }));
   }
 
@@ -680,15 +689,17 @@ export default function JobDetailPage() {
         </Section>
 
         {/* Lead sources */}
-        {job.lead?.leadSource && job.lead.leadSource.length > 0 && (
-          <Section title="Lead Source">
+        <Section title="Lead Source" action={<EditBtn onClick={() => openSheet("leadSource")} />}>
+          {job.lead?.leadSource && job.lead.leadSource.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {job.lead.leadSource.map((s) => (
                 <span key={s} className="text-xs bg-teal-50 text-teal-700 px-3 py-1 rounded-full font-medium">{s}</span>
               ))}
             </div>
-          </Section>
-        )}
+          ) : (
+            <p className="text-sm text-gray-400">No lead source set</p>
+          )}
+        </Section>
 
         {/* Quote details */}
         {job.stage === "QUOTE" || job.stage === "SCHEDULED" ? (
@@ -859,6 +870,33 @@ export default function JobDetailPage() {
         <button onClick={saveContact} disabled={saving}
           className="w-full bg-[#e85d04] text-white font-semibold py-3 rounded-xl mt-2 disabled:opacity-50">
           {saving ? "Saving..." : "Save Contact"}
+        </button>
+      </BottomSheet>
+
+
+      {/* Edit lead source */}
+      <BottomSheet open={sheet === "leadSource"} onClose={closeSheet} title="Lead Source">
+        {[
+          "Website", "Home Show", "TV", "Social Media", "Radio", "Vehicle Signage", "Mailchimp", "Referral", "Printed Media", "Door Drop", "Google Ads"
+        ].map((opt) => {
+          const checked = leadSourceForm.includes(opt);
+          return (
+            <label key={opt} className="flex items-center gap-2 py-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={(e) => {
+                  setLeadSourceForm((prev) => e.target.checked ? [...prev, opt] : prev.filter((x) => x !== opt));
+                }}
+                className="w-4 h-4 accent-[#e85d04]"
+              />
+              {opt}
+            </label>
+          );
+        })}
+        <button onClick={saveLeadSource} disabled={saving}
+          className="w-full bg-[#e85d04] text-white font-semibold py-3 rounded-xl mt-3 disabled:opacity-50">
+          {saving ? "Saving..." : "Save Lead Source"}
         </button>
       </BottomSheet>
 
