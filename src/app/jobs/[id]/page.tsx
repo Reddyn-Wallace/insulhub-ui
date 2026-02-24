@@ -274,7 +274,7 @@ export default function JobDetailPage() {
     const wallSQM = n(quoteForm.wallSQM);
     const wallPrice = n(quoteForm.wallSQMPrice);
     const cavity = n(quoteForm.wallCavityDepth) || 0.1;
-    const wallR = 28 * cavity;
+    const wallR = Math.round((28 * cavity) * 10) / 10;
     const wallBagsRaw = cavity === 0.1 ? wallSQM / 6.5 : wallSQM / 5;
     const wallBags = Math.round(wallBagsRaw * 10) / 10;
 
@@ -1091,7 +1091,7 @@ export default function JobDetailPage() {
                     <option value="0.15">15 cm</option>
                   </select>
                 </div>
-                <div className="text-xs text-gray-500 flex items-end pb-2">Auto R-Value: <span className="ml-1 font-semibold text-gray-700">R{quoteCalc.wallR.toFixed(2)}</span></div>
+                <div className="text-xs text-gray-500 flex items-end pb-2">Auto R-Value: <span className="ml-1 font-semibold text-gray-700">R{quoteCalc.wallR.toFixed(1)}</span></div>
                 <div className="text-xs text-gray-500 flex items-end pb-2">Auto Bags: <span className="ml-1 font-semibold text-gray-700">{quoteCalc.wallBags.toFixed(1)}</span></div>
               </div>
             )}
