@@ -112,10 +112,11 @@ function JobsPageContent() {
     const q = search;
 
     try {
+      const shouldFetchAllForStage = !isSearching && (activeStage === "LEAD" || activeStage === "QUOTE");
       const data = await gql<JobsData>(JOBS_QUERY, {
         ...(isSearching ? {} : { stages: [activeStage] }),
-        skip: page * PAGE_SIZE,
-        limit: PAGE_SIZE,
+        skip: shouldFetchAllForStage ? 0 : page * PAGE_SIZE,
+        limit: shouldFetchAllForStage ? 5000 : PAGE_SIZE,
         ...(q ? { search: q } : {}),
       });
 
@@ -290,8 +291,8 @@ function JobsPageContent() {
     }
   }, [loading, error, page, jobs.length, sortedJobs.length]);
 
-  // With server-side pagination, list is already page-limited from API.
-  const paginatedResults = sortedJobs;
+  // Client-side paginate after filtering/sorting.
+  const paginatedResults = sortedJobs.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -358,7 +359,7 @@ function JobsPageContent() {
       </div>
 
       {/* Pagination */}
-      {!loading && !error && (globalCounts?.ALL ?? total) > PAGE_SIZE && (
+      {!loading && !error && sortedJobs.length > PAGE_SIZE && (
         <div className="px-4 pb-2 pt-1 flex items-center justify-between">
           <button
             onClick={() => { setPage((p) => Math.max(0, p - 1)); window.scrollTo(0, 0); }}
@@ -368,11 +369,11 @@ function JobsPageContent() {
             ← Prev
           </button>
           <span className="text-[10px] text-gray-500 font-medium bg-gray-100 px-2 py-1 rounded-full uppercase tracking-wider">
-            {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, (globalCounts?.ALL ?? total))} of {(globalCounts?.ALL ?? total)}
+            {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, sortedJobs.length)} of {sortedJobs.length}
           </span>
           <button
             onClick={() => { setPage((p) => p + 1); window.scrollTo(0, 0); }}
-            disabled={(page + 1) * PAGE_SIZE >= (globalCounts?.ALL ?? total)}
+            disabled={(page + 1) * PAGE_SIZE >= sortedJobs.length}
             className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs text-gray-700 disabled:opacity-40 font-medium"
           >
             Next →

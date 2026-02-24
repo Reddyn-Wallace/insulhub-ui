@@ -499,7 +499,15 @@ export default function JobDetailPage() {
   const phone = c?.phoneMobile || c?.phoneSecondary;
   const address = [c?.streetAddress, c?.suburb, c?.city, c?.postCode].filter(Boolean).join(", ");
   const statusRaw = (job.lead?.leadStatus || "NEW").toUpperCase();
-  const status = statusRaw === "ON_HOLD" ? "CALLBACK" : statusRaw;
+  const leadStatus = statusRaw === "ON_HOLD" ? "CALLBACK" : statusRaw;
+  const quoteStatus = (job.quote?.status || "").toUpperCase();
+  const status = job.stage === "QUOTE"
+    ? (leadStatus === "DEAD" || quoteStatus === "DECLINED"
+      ? "DEAD"
+      : quoteStatus === "DEFERRED" || leadStatus === "CALLBACK"
+        ? "CALLBACK"
+        : "NEW")
+    : leadStatus;
   const salesperson = job.lead?.allocatedTo
     ? `${job.lead.allocatedTo.firstname} ${job.lead.allocatedTo.lastname}` : "Unallocated";
   const hasWall = !!job.quote?.wall?.SQM;
