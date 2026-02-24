@@ -447,6 +447,7 @@ export default function JobDetailPage() {
           downlights: q.ceilingDownlights ? parseFloat(q.ceilingDownlights) : undefined,
           c_bagCount: quoteCalc.ceilingBags,
         } : {},
+        ...overrides,
       },
     };
   }
