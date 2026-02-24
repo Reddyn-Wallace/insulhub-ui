@@ -190,7 +190,7 @@ export default function EbaPage() {
       const input = { _id: job._id, ebaForm };
       const res = await gql<{ saveEBA: Job }>(SAVE_EBA_MUTATION, { input, isDraft });
       setJob((prev) => (prev ? { ...prev, ebaForm: { ...(prev.ebaForm || {}), ...(res.saveEBA.ebaForm || {}), ...ebaForm } } : prev));
-      setNotice(isDraft ? "EBA draft saved." : "EBA saved.");
+      setNotice(isDraft ? "EBA draft saved." : "EBA finalised.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save EBA");
     } finally {
@@ -219,8 +219,16 @@ export default function EbaPage() {
       <div className="sticky top-0 z-20 bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between">
         <button onClick={() => router.push(`/jobs/${id}`)} className="text-sm text-gray-600">← Back to Job</button>
         <h1 className="text-sm font-semibold text-gray-800">EBA</h1>
-        <span className={`text-xs px-2 py-1 rounded-full ${job?.ebaForm?.complete ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
-          {job?.ebaForm?.complete ? "Completed" : "In progress"}
+        <span
+          className={`text-xs px-2 py-1 rounded-full ${
+            job?.ebaForm?.clientApproved
+              ? "bg-emerald-100 text-emerald-700"
+              : job?.ebaForm?.complete
+                ? "bg-blue-100 text-blue-700"
+                : "bg-amber-100 text-amber-700"
+          }`}
+        >
+          {job?.ebaForm?.clientApproved ? "Client Signed" : job?.ebaForm?.complete ? "Finalised" : "Draft In Progress"}
         </span>
       </div>
 
@@ -231,6 +239,13 @@ export default function EbaPage() {
 
         {!loading && job && (
           <>
+          <div className={`border rounded-xl p-3 text-sm ${job.ebaForm?.clientApproved ? "bg-emerald-50 border-emerald-200 text-emerald-700" : job.ebaForm?.complete ? "bg-blue-50 border-blue-200 text-blue-700" : "bg-amber-50 border-amber-200 text-amber-700"}`}>
+            {job.ebaForm?.clientApproved
+              ? "EBA is client signed and complete."
+              : job.ebaForm?.complete
+                ? "EBA is finalised."
+                : "EBA draft in progress. Keep saving draft until assessor is ready to finalise."}
+          </div>
             <div className="bg-white border border-gray-200 rounded-xl p-4">
               <h2 className="text-sm font-semibold text-gray-700 mb-3">1) Administrative Information</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -304,8 +319,8 @@ export default function EbaPage() {
 
             <div className="bg-white border border-gray-200 rounded-xl p-4 sticky bottom-3">
               <div className="flex gap-2 flex-wrap">
-                <button onClick={() => saveEBA(true)} disabled={saving} className="bg-white border border-gray-300 text-gray-700 px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50">{saving ? "Saving..." : "Save as Draft"}</button>
-                <button onClick={() => saveEBA(false)} disabled={saving} className="bg-[#1a3a4a] text-white px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50">{saving ? "Saving..." : "Save EBA"}</button>
+                <button onClick={() => saveEBA(true)} disabled={saving} className="bg-white border border-gray-300 text-gray-700 px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50">{saving ? "Saving..." : "Save Draft"}</button>
+                <button onClick={() => saveEBA(false)} disabled={saving} className="bg-[#1a3a4a] text-white px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50">{saving ? "Finalising..." : "Finalise EBA"}</button>
               </div>
             </div>
           </>
