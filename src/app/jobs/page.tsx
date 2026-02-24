@@ -73,6 +73,7 @@ function JobsPageContent() {
   const [users, setUsers] = useState<User[]>([]);
   const [salespersonFilter, setSalespersonFilter] = useState<string>("ALL");
   const [loading, setLoading] = useState(true);
+  const [isFetchingStage, setIsFetchingStage] = useState(false);
   const [error, setError] = useState("");
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -148,6 +149,7 @@ function JobsPageContent() {
   const fetchJobs = useCallback(async () => {
     const currentFetchId = ++fetchIdRef.current;
     setError("");
+    setIsFetchingStage(true);
     if (jobs.length === 0) setLoading(true);
 
     const isSearching = searchMode;
@@ -207,6 +209,7 @@ function JobsPageContent() {
     } finally {
       if (currentFetchId === fetchIdRef.current) {
         setLoading(false);
+        setIsFetchingStage(false);
       }
     }
   }, [activeStage, page, search, searchMode, jobs.length, writeStageCache]);
@@ -484,7 +487,12 @@ function JobsPageContent() {
 
       {/* Content */}
       <div className={`flex-1 transition-opacity duration-200 ${loading ? "opacity-50 pointer-events-none" : "opacity-100"}`}>
-        {(loading && jobs.length === 0) || (!stageHydrated && !error) ? (
+        {(isFetchingStage && paginatedResults.length === 0 && !error) ? (
+          <div className="px-4 pt-10 flex flex-col items-center gap-3 text-gray-400 text-sm">
+            <div className="w-7 h-7 border-2 border-gray-200 border-t-[#e85d04] rounded-full animate-spin" />
+            <span>Loading jobs...</span>
+          </div>
+        ) : ((loading && jobs.length === 0) || (!stageHydrated && !error)) ? (
           <LoadingSkeleton />
         ) : error ? (
           <div className="px-4 pt-2">
@@ -494,16 +502,9 @@ function JobsPageContent() {
             </div>
           </div>
         ) : paginatedResults.length === 0 ? (
-          !searchMode && !stageLoaded[activeStage] ? (
-            <div className="px-4 pt-10 flex flex-col items-center gap-3 text-gray-400 text-sm">
-              <div className="w-7 h-7 border-2 border-gray-200 border-t-[#e85d04] rounded-full animate-spin" />
-              <span>Loading jobs...</span>
-            </div>
-          ) : (
-            <div className="px-4 pt-8 text-center text-gray-400 text-sm">
-              {searchMode ? `No results for "${searchInput}"` : "No jobs found"}
-            </div>
-          )
+          <div className="px-4 pt-8 text-center text-gray-400 text-sm">
+            {searchMode ? `No results for "${searchInput}"` : "No jobs found"}
+          </div>
         ) : (
           <div className="px-4 pt-1">
             {paginatedResults.map((job) => (
