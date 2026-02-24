@@ -617,7 +617,7 @@ export default function JobDetailPage() {
   const assignableUsers = users.filter((u) => (u.role || "").toUpperCase() !== "INSTALLER");
   const hasWall = !!job.quote?.wall?.SQM;
   const hasCeiling = !!job.quote?.ceiling?.SQM;
-  const displayCallbackDate = job.stage === "QUOTE" ? (job.quote?.deferralDate || job.lead?.callbackDate) : job.lead?.callbackDate;
+  const displayCallbackDate = status === "CALLBACK" ? (job.stage === "QUOTE" ? (job.quote?.deferralDate || job.lead?.callbackDate) : job.lead?.callbackDate) : null;
   const isArchived = !!job.archivedAt;
 
   const buildGCalUrl = (type: "Callback" | "Quote", dateStr: string, durationMins: number) => {

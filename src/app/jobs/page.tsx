@@ -165,12 +165,19 @@ function JobsPageContent() {
       // Filter out archived jobs as requested
       const activeJobs = allFetched.filter(j => !j.archivedAt);
 
-      setJobs(activeJobs);
+      const withLatestSent = activeJobs.map((j) => {
+        if (typeof window === "undefined") return j;
+        const sentAt = localStorage.getItem(`quote-last-sent:${j._id}`);
+        if (!sentAt) return j;
+        return { ...j, quote: { ...j.quote, date: sentAt } };
+      });
+
+      setJobs(withLatestSent);
       setTotal(data.jobs.total);
       setStageHydrated(true);
 
       if (!isSearching && (activeStage === "LEAD" || activeStage === "QUOTE")) {
-        const stageJobs = activeJobs;
+        const stageJobs = withLatestSent;
         const isQuoteBooked = (job: Job) => Boolean(job.lead?.quoteBookingDate);
         const isCallbackLead = (job: Job) => ["CALLBACK", "ON_HOLD"].includes((job.lead?.leadStatus || "").toUpperCase());
         const isNewLead = (job: Job) => (!job.lead?.leadStatus || job.lead.leadStatus === "NEW") && !isQuoteBooked(job);
@@ -188,12 +195,12 @@ function JobsPageContent() {
           DEAD: stageJobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "DEAD" : j.lead?.leadStatus === "DEAD").length,
         };
         setGlobalCounts(computedCounts);
-        writeStageCache(activeStage, { jobs: activeJobs, total: data.jobs.total, counts: computedCounts });
+        writeStageCache(activeStage, { jobs: withLatestSent, total: data.jobs.total, counts: computedCounts });
       }
 
       // Update cache for stage first page
       if (!isSearching && page === 0) {
-        cacheRef.current[activeStage] = { jobs: activeJobs, total: data.jobs.total };
+        cacheRef.current[activeStage] = { jobs: withLatestSent, total: data.jobs.total };
       }
     } catch (err) {
       if (currentFetchId !== fetchIdRef.current) return;

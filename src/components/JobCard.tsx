@@ -97,7 +97,9 @@ export default function JobCard({ job }: { job: Job }) {
 
   const cardStyle = STATUS_STYLE[cardState] || STATUS_STYLE.NEW;
 
-  const callbackIso = job.stage === "QUOTE" ? (job.quote?.deferralDate || job.lead?.callbackDate) : job.lead?.callbackDate;
+  const callbackIso = (leadStatus === "CALLBACK" || quoteState === "CALLBACK")
+    ? (job.stage === "QUOTE" ? (job.quote?.deferralDate || job.lead?.callbackDate) : job.lead?.callbackDate)
+    : null;
   const callbackTime = callbackIso ? new Date(callbackIso).getTime() : null;
   const isCallbackOverdue = (leadStatus === "CALLBACK" || quoteState === "CALLBACK") && Boolean(callbackTime && callbackTime < now);
 
