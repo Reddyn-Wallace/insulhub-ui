@@ -69,7 +69,6 @@ function JobsPageContent() {
   const [total, setTotal] = useState(0);
   const [globalCounts, setGlobalCounts] = useState<Record<string, number> | null>(null);
   const [stageHydrated, setStageHydrated] = useState(false);
-  const [stageLoaded, setStageLoaded] = useState<Record<string, boolean>>({});
   const [users, setUsers] = useState<User[]>([]);
   const [salespersonFilter, setSalespersonFilter] = useState<string>("ALL");
   const [loading, setLoading] = useState(true);
@@ -121,7 +120,7 @@ function JobsPageContent() {
   // Only dependent on initStage to prevent toggle-back loops
   useEffect(() => {
     setActiveStage(initStage);
-    setSubTab(searchParams.get("subTab") || (initStage === "QUOTE" ? "OPEN" : "NEW"));
+    setSubTab(initSubTab);
     setPage(0);
     setGlobalCounts(null);
 
@@ -135,16 +134,14 @@ function JobsPageContent() {
       setTotal(cached.total);
       setGlobalCounts(persisted?.counts || null);
       setStageHydrated(true);
-      setStageLoaded((p) => ({ ...p, [initStage]: true }));
       setLoading(false);
     } else {
       // Otherwise show loading state (including empty/expired cache)
       setJobs([]);
       setStageHydrated(false);
-      setStageLoaded((p) => ({ ...p, [initStage]: false }));
       setLoading(true);
     }
-  }, [initStage, searchMode, searchParams, readStageCache]); // Depend on searchMode too to ensure we clear/show correctly
+  }, [initStage, initSubTab, searchMode, readStageCache]); // Depend on searchMode too to ensure we clear/show correctly
 
   const fetchJobs = useCallback(async () => {
     const currentFetchId = ++fetchIdRef.current;
@@ -174,7 +171,6 @@ function JobsPageContent() {
       setJobs(activeJobs);
       setTotal(data.jobs.total);
       setStageHydrated(true);
-      setStageLoaded((p) => ({ ...p, [activeStage]: true }));
 
       if (!isSearching && (activeStage === "LEAD" || activeStage === "QUOTE")) {
         const stageJobs = activeJobs;
