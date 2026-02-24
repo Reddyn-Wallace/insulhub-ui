@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { gql } from "@/lib/graphql";
 
@@ -99,6 +99,12 @@ const EBA_JOB_QUERY = `
   }
 `;
 
+const ADD_FILES_MUTATION = `
+  mutation AddFiles($_id: ObjectId!, $documentType: UploadedFileType!, $fileNames: [String!]!) {
+    addFiles(_id: $_id, documentType: $documentType, fileNames: $fileNames)
+  }
+`;
+
 const SAVE_EBA_MUTATION = `
   mutation SaveEBA($input: UpdateJobInput!, $isDraft: Boolean) {
     saveEBA(input: $input, isDraft: $isDraft) {
@@ -147,9 +153,99 @@ export default function EbaPage() {
   const [notice, setNotice] = useState("");
   const [job, setJob] = useState<Job | null>(null);
   const [form, setForm] = useState<Record<string, unknown>>({});
+  const [ebaPhotos, setEbaPhotos] = useState<string[]>([]);
+  const [signing, setSigning] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const drawingRef = useRef(false);
 
   const setField = (name: string, value: unknown) => setForm((f) => ({ ...f, [name]: value }));
 
+
+  const getToken = () => (typeof window !== "undefined" ? localStorage.getItem("token") || "" : "");
+  const fileUrl = (fileName: string) => `https://api.insulhub.nz/files/documents/${encodeURIComponent(fileName)}?token=${getToken()}`;
+
+  function startDraw(x: number, y: number) {
+    const c = canvasRef.current;
+    if (!c) return;
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
+    drawingRef.current = true;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+  }
+
+  function drawTo(x: number, y: number) {
+    const c = canvasRef.current;
+    if (!c || !drawingRef.current) return;
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
+    ctx.lineTo(x, y);
+    ctx.strokeStyle = "#111827";
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+    ctx.stroke();
+  }
+
+  function stopDraw() {
+    drawingRef.current = false;
+  }
+
+  function clearSignaturePad() {
+    const c = canvasRef.current;
+    if (!c) return;
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, c.width, c.height);
+  }
+
+  async function uploadFiles(files: FileList | null) {
+    if (!files || files.length === 0) return [] as string[];
+    const formData = new FormData();
+    Array.from(files).forEach((f) => formData.append("files", f));
+    const res = await fetch("https://api.insulhub.nz/files/upload", {
+      method: "POST",
+      headers: { "x-token": getToken() },
+      body: formData,
+    });
+    const json = await res.json();
+    return (json.fileNames || []) as string[];
+  }
+
+  async function saveAssessorSignature() {
+    const c = canvasRef.current;
+    if (!c || !job) return;
+    setSigning(true);
+    setError("");
+    try {
+      const blob: Blob | null = await new Promise((resolve) => c.toBlob((b) => resolve(b), "image/png"));
+      if (!blob) throw new Error("Could not capture signature");
+      const files = new File([blob], `signature-${Date.now()}.png`, { type: "image/png" });
+      const fileNames = await uploadFiles({ 0: files, length: 1, item: (i: number) => (i === 0 ? files : null) } as unknown as FileList);
+      if (!fileNames.length) throw new Error("Signature upload failed");
+      const fileName = fileNames[0];
+      const thumbnail = `thumb${fileName}`;
+      await gql(SAVE_EBA_MUTATION, { input: { _id: job._id, ebaForm: { signature_assessor: { fileName, thumbnail } } }, isDraft: true });
+      setJob((prev) => prev ? ({ ...prev, ebaForm: { ...(prev.ebaForm || {}), signature_assessor: { fileName, thumbnail } } }) : prev);
+      setNotice("Assessor signature saved.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save signature");
+    } finally {
+      setSigning(false);
+    }
+  }
+
+  async function uploadEbaPhotos(files: FileList | null) {
+    if (!job) return;
+    try {
+      const fileNames = await uploadFiles(files);
+      if (!fileNames.length) return;
+      await gql(ADD_FILES_MUTATION, { _id: job._id, documentType: "EBA", fileNames });
+      setEbaPhotos((p) => [...fileNames, ...p]);
+      setNotice("EBA photos uploaded.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Photo upload failed");
+    }
+  }
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
@@ -543,7 +639,54 @@ export default function EbaPage() {
             </div>
 
             <div className="bg-white border border-gray-200 rounded-xl p-4">
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">Photos</h2>
+              <input type="file" multiple accept="image/*" onChange={(e) => uploadEbaPhotos(e.target.files)} className="text-sm" />
+              {ebaPhotos.length > 0 && (
+                <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
+                  {ebaPhotos.map((f) => (
+                    <a key={f} href={fileUrl(f)} target="_blank" rel="noreferrer" className="text-xs text-blue-600 underline truncate">{f}</a>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white border border-gray-200 rounded-xl p-4">
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">Assessor Signature</h2>
+              <div className="border border-gray-300 rounded-lg bg-white overflow-hidden">
+                <canvas
+                  ref={canvasRef}
+                  width={900}
+                  height={220}
+                  className="w-full h-40 touch-none"
+                  onMouseDown={(e) => startDraw(e.nativeEvent.offsetX, e.nativeEvent.offsetY)}
+                  onMouseMove={(e) => drawTo(e.nativeEvent.offsetX, e.nativeEvent.offsetY)}
+                  onMouseUp={stopDraw}
+                  onMouseLeave={stopDraw}
+                  onTouchStart={(e) => {
+                    const rect = (e.target as HTMLCanvasElement).getBoundingClientRect();
+                    const t = e.touches[0];
+                    startDraw(t.clientX - rect.left, t.clientY - rect.top);
+                  }}
+                  onTouchMove={(e) => {
+                    const rect = (e.target as HTMLCanvasElement).getBoundingClientRect();
+                    const t = e.touches[0];
+                    drawTo(t.clientX - rect.left, t.clientY - rect.top);
+                  }}
+                  onTouchEnd={stopDraw}
+                />
+              </div>
+              <div className="flex gap-2 mt-2">
+                <button type="button" onClick={clearSignaturePad} className="px-3 py-2 text-sm bg-gray-100 rounded-lg">Clear</button>
+                <button type="button" onClick={saveAssessorSignature} disabled={signing} className="px-3 py-2 text-sm bg-[#1a3a4a] text-white rounded-lg disabled:opacity-50">{signing ? 'Saving...' : 'Save Signature'}</button>
+              </div>
+              {job.ebaForm?.signature_assessor?.fileName && (
+                <p className="text-xs text-gray-500 mt-2">Current signature: {job.ebaForm.signature_assessor.fileName}</p>
+              )}
+            </div>
+
+            <div className="bg-white border border-gray-200 rounded-xl p-4">
               <h2 className="text-sm font-semibold text-gray-700 mb-3">Assessor Declaration</h2>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-gray-500">Assessor Name</label>
