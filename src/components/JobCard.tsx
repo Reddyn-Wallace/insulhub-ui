@@ -37,6 +37,7 @@ interface Job {
 function formatDate(iso?: string) {
   if (!iso) return "";
   return new Date(iso).toLocaleDateString("en-NZ", {
+    timeZone: "Pacific/Auckland",
     day: "numeric",
     month: "short",
     year: "numeric",
@@ -104,8 +105,8 @@ export default function JobCard({ job }: { job: Job }) {
   const callbackTime = callbackIso ? new Date(callbackIso).getTime() : null;
   const isCallbackOverdue = (leadStatus === "CALLBACK" || quoteState === "CALLBACK") && Boolean(callbackTime && callbackTime < now);
 
-  const effectiveSentAt = job.quoteLastSentAt || job.quote?.date;
-  const isQuoteSent = Boolean(effectiveSentAt && job.quote?.quoteNumber);
+  const effectiveSentAt = job.quoteLastSentAt;
+  const isQuoteSent = Boolean(effectiveSentAt);
 
   return (
     <Link href={`/jobs/${job._id}`}>
