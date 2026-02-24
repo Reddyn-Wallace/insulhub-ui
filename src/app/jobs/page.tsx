@@ -395,14 +395,6 @@ function JobsPageContent() {
         </div>
       </div>
 
-      {refreshing && (
-        <div className="px-4 pb-2">
-          <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-            <div className="h-full w-1/3 bg-[#e85d04] animate-pulse" />
-          </div>
-        </div>
-      )}
-
       {/* Pagination */}
       {!loading && !error && sortedJobs.length > PAGE_SIZE && (
         <div className="px-4 pb-2 pt-1 flex items-center justify-between">
