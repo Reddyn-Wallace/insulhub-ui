@@ -265,7 +265,7 @@ export default function EbaPage() {
                 <div><label className="text-xs text-gray-500">Property Address</label><div className="text-sm text-gray-800 mt-1">{address || "-"}</div></div>
                 <div><label className="text-xs text-gray-500">Name of Owners</label><input value={(form.nameOfOwners as string) || ""} onChange={(e) => setField("nameOfOwners", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
                 <div><label className="text-xs text-gray-500">Proof of Ownership</label><select value={(form.proofOfOwnership as string) || ""} onChange={(e) => setField("proofOfOwnership", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1"><option>Certificate of Title</option><option>Rates</option><option>Other</option></select></div>
-                <div><label className="text-xs text-gray-500">BCA / TA</label><input value={(form.bcaOrTa as string) || ""} onChange={(e) => setField("bcaOrTa", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
+                <div><label className="text-xs text-gray-500">BCA/TA</label><input value={(form.bcaOrTa as string) || ""} onChange={(e) => setField("bcaOrTa", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
                 <div><label className="text-xs text-gray-500">Lot / DP Number</label><input value={(form.lotOrDPNumber as string) || ""} onChange={(e) => setField("lotOrDPNumber", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
                 <div><label className="text-xs text-gray-500">Date</label><input type="datetime-local" value={(form.date as string) || ""} onChange={(e) => setField("date", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
               </div>
@@ -306,18 +306,6 @@ export default function EbaPage() {
                     ))}
                   </div>
                 </div>
-                <div><label className="text-xs text-gray-500">Foundation & Floor</label><input value={(form.foundationAndFloor as string) || ""} onChange={(e) => setField("foundationAndFloor", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
-                <div><label className="text-xs text-gray-500">Roof & Eaves (1)</label><input value={(form.roofAndEavesCol1 as string) || ""} onChange={(e) => setField("roofAndEavesCol1", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
-                <div><label className="text-xs text-gray-500">Roof & Eaves (2)</label><input value={(form.roofAndEavesCol2 as string) || ""} onChange={(e) => setField("roofAndEavesCol2", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
-                <div><label className="text-xs text-gray-500">Roof & Eaves (3)</label><input value={(form.roofAndEavesCol3 as string) || ""} onChange={(e) => setField("roofAndEavesCol3", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
-                <div><label className="text-xs text-gray-500">Framing</label><input value={(form.framing as string) || ""} onChange={(e) => setField("framing", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
-                <div><label className="text-xs text-gray-500">Joinery</label><input value={(form.joinery as string) || ""} onChange={(e) => setField("joinery", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
-                <div><label className="text-xs text-gray-500">Lining</label><input value={(form.lining as string) || ""} onChange={(e) => setField("lining", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
-                <div><label className="text-xs text-gray-500">Building Paper</label><input value={(form.buildingPaper as string) || ""} onChange={(e) => setField("buildingPaper", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
-                <div><label className="text-xs text-gray-500">Exterior Cladding</label><input value={(form.exteriorCladding as string) || ""} onChange={(e) => setField("exteriorCladding", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
-                <div><label className="text-xs text-gray-500">Cladding Type</label><input value={(form.claddingType as string) || ""} onChange={(e) => setField("claddingType", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
-                <div><label className="text-xs text-gray-500">Installed Via</label><input value={(form.claddingTypeInstalledVia as string) || ""} onChange={(e) => setField("claddingTypeInstalledVia", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
-                <div className="md:col-span-2"><label className="text-xs text-gray-500">Finish of Cladding</label><input value={(form.finishOfCladding as string) || ""} onChange={(e) => setField("finishOfCladding", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
               </div>
             </div>
 
