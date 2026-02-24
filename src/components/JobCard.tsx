@@ -7,6 +7,7 @@ interface Job {
   stage: string;
   createdAt?: string;
   updatedAt: string;
+  quoteLastSentAt?: string;
   lead?: {
     leadStatus?: string;
     allocatedTo?: { _id: string; firstname: string; lastname: string };
@@ -103,7 +104,8 @@ export default function JobCard({ job }: { job: Job }) {
   const callbackTime = callbackIso ? new Date(callbackIso).getTime() : null;
   const isCallbackOverdue = (leadStatus === "CALLBACK" || quoteState === "CALLBACK") && Boolean(callbackTime && callbackTime < now);
 
-  const isQuoteSent = Boolean(job.quote?.date && job.quote?.quoteNumber);
+  const effectiveSentAt = job.quoteLastSentAt || job.quote?.date;
+  const isQuoteSent = Boolean(effectiveSentAt && job.quote?.quoteNumber);
 
   return (
     <Link href={`/jobs/${job._id}`}>
@@ -124,7 +126,7 @@ export default function JobCard({ job }: { job: Job }) {
           {job.quote?.quoteNumber && <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-medium">#{job.quote.quoteNumber} {job.quote.c_total ? formatCurrency(job.quote.c_total) : ""}</span>}
           {job.stage === "QUOTE" && (
             <span className={`text-xs px-2 py-0.5 rounded ${isQuoteSent ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
-              {isQuoteSent ? `Sent to customer${job.quote?.date ? ` • ${formatDate(job.quote.date)}` : ""}` : "Not sent to customer"}
+              {isQuoteSent ? `Sent to customer${effectiveSentAt ? ` • ${formatDate(effectiveSentAt)}` : ""}` : "Not sent to customer"}
             </span>
           )}
         </div>

@@ -27,6 +27,7 @@ interface Job {
   createdAt?: string;
   updatedAt: string;
   archivedAt?: string;
+  quoteLastSentAt?: string;
   lead?: {
     leadStatus?: string;
     allocatedTo?: { _id: string; firstname: string; lastname: string };
@@ -169,7 +170,7 @@ function JobsPageContent() {
         if (typeof window === "undefined") return j;
         const sentAt = localStorage.getItem(`quote-last-sent:${j._id}`);
         if (!sentAt) return j;
-        return { ...j, quote: { ...j.quote, date: sentAt } };
+        return { ...j, quoteLastSentAt: sentAt };
       });
 
       setJobs(withLatestSent);
