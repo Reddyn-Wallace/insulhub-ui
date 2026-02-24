@@ -85,11 +85,11 @@ const EBA_JOB_QUERY = `
         c22_externalMoisture_isWaterAbleToPoolAgainstExteriorWall
         c22_externalMoisture_wallsAreFreeToAir
 
-        c22_externalMoisture_masonryCladHomeUnderfloorVentsArePresentAndClear
-        c22_externalMoisture_windowMasonryVerticalJointsAreSealed
-        signsOfWaterIngress_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaint
-        signsOfWaterIngress_areasOfLiningCladdingAppearToBeDampSoftDiscolouredMouldyOrRotten
-        signsOfWaterIngress_underfloorSpaceIsExcessivelyDamp
+        masonryCladding_masonryCladUnderfloorVentsArePresentAndClear
+        masonryCladding_windowOrMasonryVerticalJointsAreSealed
+        masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls
+        masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater
+        masonryCladding_underfloorSpaceExcessivelyDamp
         c22_externalMoisture_priorToInstallationWorkRequired
         c22_externalMoisture_priorToCertificationWorkRequired
         assessorName
@@ -229,11 +229,11 @@ export default function EbaPage() {
         c22_externalMoisture_isWaterAbleToPoolAgainstExteriorWall: form.c22_externalMoisture_isWaterAbleToPoolAgainstExteriorWall,
         c22_externalMoisture_wallsAreFreeToAir: form.c22_externalMoisture_wallsAreFreeToAir,
 
-        c22_externalMoisture_masonryCladHomeUnderfloorVentsArePresentAndClear: form.c22_externalMoisture_masonryCladHomeUnderfloorVentsArePresentAndClear,
-        c22_externalMoisture_windowMasonryVerticalJointsAreSealed: form.c22_externalMoisture_windowMasonryVerticalJointsAreSealed,
-        signsOfWaterIngress_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaint: form.signsOfWaterIngress_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaint,
-        signsOfWaterIngress_areasOfLiningCladdingAppearToBeDampSoftDiscolouredMouldyOrRotten: form.signsOfWaterIngress_areasOfLiningCladdingAppearToBeDampSoftDiscolouredMouldyOrRotten,
-        signsOfWaterIngress_underfloorSpaceIsExcessivelyDamp: form.signsOfWaterIngress_underfloorSpaceIsExcessivelyDamp,
+        masonryCladding_masonryCladUnderfloorVentsArePresentAndClear: form.masonryCladding_masonryCladUnderfloorVentsArePresentAndClear,
+        masonryCladding_windowOrMasonryVerticalJointsAreSealed: form.masonryCladding_windowOrMasonryVerticalJointsAreSealed,
+        masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls: form.masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls,
+        masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater: form.masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater,
+        masonryCladding_underfloorSpaceExcessivelyDamp: form.masonryCladding_underfloorSpaceExcessivelyDamp,
         c22_externalMoisture_priorToInstallationWorkRequired: form.c22_externalMoisture_priorToInstallationWorkRequired,
         c22_externalMoisture_priorToCertificationWorkRequired: form.c22_externalMoisture_priorToCertificationWorkRequired,
         assessorName: form.assessorName,
@@ -509,14 +509,14 @@ export default function EbaPage() {
                     ))}
                   </div>
                   <div className="space-y-3 mt-3">
-                    <YesNoRow keyName="c22_externalMoisture_masonryCladHomeUnderfloorVentsArePresentAndClear" label="Masonry clad home underfloor vents are present and clear?" notApplicable />
-                    <YesNoRow keyName="c22_externalMoisture_windowMasonryVerticalJointsAreSealed" label="Window / masonry vertical joints are sealed?" notApplicable />
+                    <YesNoRow keyName="masonryCladding_masonryCladUnderfloorVentsArePresentAndClear" label="Masonry clad home underfloor vents are present and clear?" notApplicable />
+                    <YesNoRow keyName="masonryCladding_windowOrMasonryVerticalJointsAreSealed" label="Window / masonry vertical joints are sealed?" notApplicable />
                   </div>
 
                   {[
                     ...externalMoistureQuestions.map(([k]) => k),
-                    "c22_externalMoisture_masonryCladHomeUnderfloorVentsArePresentAndClear",
-                    "c22_externalMoisture_windowMasonryVerticalJointsAreSealed",
+                    "masonryCladding_masonryCladUnderfloorVentsArePresentAndClear",
+                    "masonryCladding_windowOrMasonryVerticalJointsAreSealed",
                   ].some((k) => form[k] === false) && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
                       <div>
@@ -534,9 +534,9 @@ export default function EbaPage() {
                 <div className="border border-gray-100 rounded-lg p-3">
                   <h3 className="text-sm font-semibold text-gray-700">Signs of Water Ingress</h3>
                   <div className="space-y-3 mt-2">
-                    <YesNoRow keyName="signsOfWaterIngress_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaint" label="Soffits appear to be sound with no water staining or bubbling paint which may indicate gutters or roof leaking into soffits and possibly walls?" />
-                    <YesNoRow keyName="signsOfWaterIngress_areasOfLiningCladdingAppearToBeDampSoftDiscolouredMouldyOrRotten" label="Areas of lining / cladding appear to be damp / soft / discoloured / mouldy or rotten suggesting the accumulation of water?" />
-                    <YesNoRow keyName="signsOfWaterIngress_underfloorSpaceIsExcessivelyDamp" label="Underfloor space is excessively damp ?" notApplicable />
+                    <YesNoRow keyName="masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls" label="Soffits appear to be sound with no water staining or bubbling paint which may indicate gutters or roof leaking into soffits and possibly walls?" />
+                    <YesNoRow keyName="masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater" label="Areas of lining / cladding appear to be damp / soft / discoloured / mouldy or rotten suggesting the accumulation of water?" />
+                    <YesNoRow keyName="masonryCladding_underfloorSpaceExcessivelyDamp" label="Underfloor space is excessively damp ?" notApplicable />
                   </div>
                 </div>
               </div>
