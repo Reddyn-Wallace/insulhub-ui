@@ -283,6 +283,13 @@ function JobsPageContent() {
 
   const showSubTabs = !searchMode && (activeStage === "LEAD" || activeStage === "QUOTE");
 
+  // If current page has no rows after sub-filtering, jump back to page 1 for that view.
+  useEffect(() => {
+    if (!loading && !error && page > 0 && jobs.length > 0 && sortedJobs.length === 0) {
+      setPage(0);
+    }
+  }, [loading, error, page, jobs.length, sortedJobs.length]);
+
   // With server-side pagination, list is already page-limited from API.
   const paginatedResults = sortedJobs;
 
