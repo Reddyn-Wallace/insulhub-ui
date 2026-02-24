@@ -416,7 +416,7 @@ export default function JobDetailPage() {
     }));
   }
 
-  function buildQuoteUpdateInput(andProgress = false, overrides: Record<string, unknown> = {}) {
+  function buildQuoteUpdateInput(andProgress = false) {
     const q = quoteForm;
     return {
       _id: id,
@@ -447,7 +447,6 @@ export default function JobDetailPage() {
           downlights: q.ceilingDownlights ? parseFloat(q.ceilingDownlights) : undefined,
           c_bagCount: quoteCalc.ceilingBags,
         } : {},
-        ...overrides,
       },
     };
   }
@@ -566,12 +565,11 @@ export default function JobDetailPage() {
 
     const sentAt = new Date().toISOString();
     await run(() => gql(UPDATE_JOB_QUOTE, {
-      input: buildQuoteUpdateInput(false, { date: sentAt }),
+      input: buildQuoteUpdateInput(false),
       emailQuoteToCustomer: true,
       quotePDFEmailBodyTemplate: template,
     }));
     setQuoteLastSentAt(sentAt);
-    setJob((prev) => prev ? ({ ...prev, quote: { ...prev.quote, date: sentAt } }) : prev);
     if (typeof window !== "undefined") localStorage.setItem(`quote-last-sent:${id}`, sentAt);
     setNotice({ type: "success", text: "Quote sent to customer." });
   }
