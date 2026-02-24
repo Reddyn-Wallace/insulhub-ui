@@ -103,6 +103,8 @@ export default function JobCard({ job }: { job: Job }) {
     : null;
   const callbackTime = callbackIso ? new Date(callbackIso).getTime() : null;
   const isCallbackOverdue = (leadStatus === "CALLBACK" || quoteState === "CALLBACK") && Boolean(callbackTime && callbackTime < now);
+  const quoteBookingTime = job.lead?.quoteBookingDate ? new Date(job.lead.quoteBookingDate).getTime() : null;
+  const isQuoteBookingOverdue = Boolean(quoteBookingTime && quoteBookingTime < now);
 
   const isQuoteSent = Boolean(job.quote?.status && job.quote.status !== "NEW");
 
@@ -137,7 +139,11 @@ export default function JobCard({ job }: { job: Job }) {
 
         <div className="mt-1.5 flex flex-wrap gap-3 text-xs font-medium">
           {callbackIso && <span className={isCallbackOverdue ? "bg-red-50 text-red-700 border border-red-200 px-2 py-0.5 rounded" : "text-orange-600"}>{isCallbackOverdue ? "⚠️ OVERDUE " : ""}Callback: {formatDate(callbackIso)}</span>}
-          {job.stage !== "QUOTE" && job.lead?.quoteBookingDate && <span className="text-indigo-600">Quote booked: {formatDate(job.lead.quoteBookingDate)}</span>}
+          {job.stage !== "QUOTE" && job.lead?.quoteBookingDate && (
+            <span className={isQuoteBookingOverdue ? "text-red-600" : "text-indigo-600"}>
+              {isQuoteBookingOverdue ? "⚠️ " : ""}Quote booked: {formatDate(job.lead.quoteBookingDate)}
+            </span>
+          )}
         </div>
       </div>
     </Link>

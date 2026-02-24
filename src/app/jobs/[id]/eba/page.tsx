@@ -658,7 +658,7 @@ export default function EbaPage() {
                     </div>
                     {!elevationSkip[dir] && (
                       <>
-                        <input type="file" accept="image/*" onChange={(e) => uploadEbaPhotos(`elevation_${dir}`, e.target.files)} className="text-sm" />
+                        <input type="file" accept="image/*" capture="environment" onChange={(e) => uploadEbaPhotos(`elevation_${dir}`, e.target.files)} className="text-sm" />
                         {(ebaPhotos[`elevation_${dir}`] || []).length > 0 && (
                           <div className="mt-2 space-y-1">
                             {(ebaPhotos[`elevation_${dir}`] || []).map((f) => (
@@ -675,7 +675,7 @@ export default function EbaPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
                 <div className="border border-gray-100 rounded-lg p-3">
                   <h3 className="text-sm font-semibold text-gray-700 mb-2">Foundation</h3>
-                  <input type="file" accept="image/*" onChange={(e) => uploadEbaPhotos('foundation', e.target.files)} className="text-sm" />
+                  <input type="file" accept="image/*" capture="environment" onChange={(e) => uploadEbaPhotos('foundation', e.target.files)} className="text-sm" />
                   {(ebaPhotos.foundation || []).length > 0 && (
                     <div className="mt-2 space-y-1">
                       {(ebaPhotos.foundation || []).map((f) => (
@@ -686,7 +686,7 @@ export default function EbaPage() {
                 </div>
                 <div className="border border-gray-100 rounded-lg p-3">
                   <h3 className="text-sm font-semibold text-gray-700 mb-2">Maintenance</h3>
-                  <input type="file" accept="image/*" onChange={(e) => uploadEbaPhotos('maintenance', e.target.files)} className="text-sm" />
+                  <input type="file" accept="image/*" capture="environment" onChange={(e) => uploadEbaPhotos('maintenance', e.target.files)} className="text-sm" />
                   {(ebaPhotos.maintenance || []).length > 0 && (
                     <div className="mt-2 space-y-1">
                       {(ebaPhotos.maintenance || []).map((f) => (
@@ -728,7 +728,14 @@ export default function EbaPage() {
                 <button type="button" onClick={saveAssessorSignature} disabled={signing} className="px-3 py-2 text-sm bg-[#1a3a4a] text-white rounded-lg disabled:opacity-50">{signing ? 'Saving...' : 'Save Signature'}</button>
               </div>
               {job.ebaForm?.signature_assessor?.fileName && (
-                <p className="text-xs text-gray-500 mt-2">Current signature: {job.ebaForm.signature_assessor.fileName}</p>
+                <div className="mt-2">
+                  <p className="text-xs text-gray-500">Current signature: {job.ebaForm.signature_assessor.fileName}</p>
+                  <img
+                    src={fileUrl(job.ebaForm.signature_assessor.fileName)}
+                    alt="Current assessor signature"
+                    className="mt-1 h-20 border border-gray-200 rounded bg-white"
+                  />
+                </div>
               )}
             </div>
 
