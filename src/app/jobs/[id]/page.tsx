@@ -145,8 +145,6 @@ export default function JobDetailPage() {
   // Selected salesperson
   const [selectedUserId, setSelectedUserId] = useState("");
   const [leadSourceForm, setLeadSourceForm] = useState<string[]>([]);
-  const [quoteEmailTemplate, setQuoteEmailTemplate] = useState("");
-  const [quoteEmailLoading, setQuoteEmailLoading] = useState(false);
 
   // Load job + users
   const load = useCallback(async () => {
@@ -492,32 +490,28 @@ export default function JobDetailPage() {
     alert("EBA email sent!");
   }
 
-  async function openSendQuoteModal() {
+  async function sendQuoteToCustomer() {
     if (!quoteForm.quoteNumber || !quoteForm.date || (!quoteForm.hasWall && !quoteForm.hasCeiling)) {
       alert("Add quote data first (quote number, date, and wall/ceiling values).");
       return;
     }
-    setQuoteEmailLoading(true);
+
+    let template = "Please find your insulation quote attached.";
     try {
       const input = buildQuoteUpdateInput(false);
       const data = await gql<{ getQuotePDFEmailBody: string }>(
         `query($input: UpdateJobInput!) { getQuotePDFEmailBody(input: $input) }`,
         { input }
       );
-      setQuoteEmailTemplate(data.getQuotePDFEmailBody || "Please find your insulation quote attached.");
+      if (data.getQuotePDFEmailBody) template = data.getQuotePDFEmailBody;
     } catch {
-      setQuoteEmailTemplate("Please find your insulation quote attached.");
-    } finally {
-      setQuoteEmailLoading(false);
-      openSheet("sendQuote");
+      // fallback template kept
     }
-  }
 
-  async function sendQuoteToCustomer() {
     await run(() => gql(UPDATE_JOB_QUOTE, {
       input: buildQuoteUpdateInput(false),
       emailQuoteToCustomer: true,
-      quotePDFEmailBodyTemplate: quoteEmailTemplate || "Please find your insulation quote attached.",
+      quotePDFEmailBodyTemplate: template,
     }));
     alert("Quote sent to customer.");
   }
@@ -787,7 +781,7 @@ export default function JobDetailPage() {
                   ✓ Mark Accepted
                 </button>
               )}
-              <button onClick={openSendQuoteModal} disabled={saving || quoteEmailLoading}
+              <button onClick={sendQuoteToCustomer} disabled={saving}
                 className="flex-1 bg-indigo-600 text-white text-sm font-semibold py-2.5 rounded-xl disabled:opacity-50">
                 ✉️ Send Quote
               </button>
@@ -1006,25 +1000,6 @@ export default function JobDetailPage() {
             className={`px-4 py-3 bg-gray-100 text-gray-700 rounded-xl text-sm font-medium flex items-center justify-center gap-1 ${!quoteBookingDate ? "opacity-40 pointer-events-none" : ""}`}>
             ⬇️ .ics
           </a>
-        </div>
-      </BottomSheet>
-
-
-      {/* Send quote to customer */}
-      <BottomSheet open={sheet === "sendQuote"} onClose={closeSheet} title="Send Quote to Customer">
-        <p className="text-sm text-gray-500 mb-3">Review and edit the email message before sending.</p>
-        <textarea
-          value={quoteEmailTemplate}
-          onChange={(e) => setQuoteEmailTemplate(e.target.value)}
-          rows={8}
-          className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04] resize-none mb-4"
-        />
-        <div className="flex gap-2">
-          <button onClick={closeSheet} className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">Cancel</button>
-          <button onClick={sendQuoteToCustomer} disabled={saving}
-            className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
-            {saving ? "Sending..." : "Send Quote"}
-          </button>
         </div>
       </BottomSheet>
 
