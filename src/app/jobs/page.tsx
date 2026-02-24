@@ -24,7 +24,7 @@ interface Job {
     callbackDate?: string;
     quoteBookingDate?: string;
   };
-  quote?: { quoteNumber?: string; c_total?: number };
+  quote?: { quoteNumber?: string; date?: string; status?: string; c_total?: number };
   client?: {
     contactDetails?: {
       name?: string;
@@ -56,6 +56,7 @@ function JobsPageContent() {
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
   const [jobs, setJobs] = useState<Job[]>([]);
   const [total, setTotal] = useState(0);
+  const [globalCounts, setGlobalCounts] = useState<Record<string, number> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -85,6 +86,7 @@ function JobsPageContent() {
     setActiveStage(initStage);
     setSubTab("ALL");
     setPage(0);
+    setGlobalCounts(null);
 
     // If we have cached data for this stage and we're not searching, use it immediately
     const cached = cacheRef.current[initStage];
@@ -137,6 +139,26 @@ function JobsPageContent() {
 
       setJobs(activeJobs);
       setTotal(data.jobs.total);
+
+      if (!isSearching && (activeStage === "LEAD" || activeStage === "QUOTE")) {
+        const allData = await gql<JobsData>(JOBS_QUERY, { stages: [activeStage], skip: 0, limit: 5000 });
+        const stageJobs = allData.jobs.results.filter((j) => !j.archivedAt);
+        const isQuoteBooked = (job: Job) => Boolean(job.lead?.quoteBookingDate);
+        const isNewLead = (job: Job) => (!job.lead?.leadStatus || job.lead.leadStatus === "NEW") && !isQuoteBooked(job);
+        const quoteState = (job: Job) => {
+          if (job.lead?.leadStatus === "DEAD" || job.quote?.status === "DECLINED") return "DEAD";
+          if (job.quote?.status === "DEFERRED" || job.lead?.leadStatus === "CALLBACK") return "CALLBACK";
+          return "OPEN";
+        };
+        setGlobalCounts({
+          ALL: stageJobs.length,
+          NEW: stageJobs.filter((j) => isNewLead(j)).length,
+          CALLBACK: stageJobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "CALLBACK" : j.lead?.leadStatus === "CALLBACK").length,
+          QUOTE_BOOKED: stageJobs.filter((j) => isQuoteBooked(j)).length,
+          OPEN: stageJobs.filter((j) => quoteState(j) === "OPEN").length,
+          DEAD: stageJobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "DEAD" : j.lead?.leadStatus === "DEAD").length,
+        });
+      }
 
       // Update cache for stage first page
       if (!isSearching && page === 0) {
@@ -202,19 +224,28 @@ function JobsPageContent() {
 
   // Calculate counts for sub-tabs across all fetched non-archived jobs for this stage
   const isQuoteBooked = (job: Job) => Boolean(job.lead?.quoteBookingDate);
+  const isNewLead = (job: Job) => (!job.lead?.leadStatus || job.lead.leadStatus === "NEW") && !isQuoteBooked(job);
+  const quoteState = (job: Job) => {
+    if (job.lead?.leadStatus === "DEAD" || job.quote?.status === "DECLINED") return "DEAD";
+    if (job.quote?.status === "DEFERRED" || job.lead?.leadStatus === "CALLBACK") return "CALLBACK";
+    return "OPEN";
+  };
 
-  const counts = {
+  const counts = globalCounts || {
     ALL: jobs.length,
-    NEW: jobs.filter((j) => !j.lead?.leadStatus || j.lead.leadStatus === "NEW").length,
-    CALLBACK: jobs.filter((j) => j.lead?.leadStatus === "CALLBACK").length,
+    NEW: jobs.filter((j) => isNewLead(j)).length,
+    CALLBACK: jobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "CALLBACK" : j.lead?.leadStatus === "CALLBACK").length,
     QUOTE_BOOKED: jobs.filter((j) => isQuoteBooked(j)).length,
-    DEAD: jobs.filter((j) => j.lead?.leadStatus === "DEAD").length,
+    OPEN: jobs.filter((j) => quoteState(j) === "OPEN").length,
+    DEAD: jobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "DEAD" : j.lead?.leadStatus === "DEAD").length,
   };
 
   // Client-side sub-tab filter
   const filtered = jobs.filter((job) => {
     if (!searchMode && subTab !== "ALL" && (activeStage === "LEAD" || activeStage === "QUOTE")) {
+      if (activeStage === "QUOTE") return quoteState(job) === subTab;
       if (subTab === "QUOTE_BOOKED") return isQuoteBooked(job);
+      if (subTab === "NEW") return isNewLead(job);
       const status = (job.lead?.leadStatus || "NEW").toUpperCase();
       return subTab === status;
     }
@@ -222,13 +253,28 @@ function JobsPageContent() {
   });
 
   const sortedJobs = useMemo(() => {
-    const pickDate = (job: Job) => job.createdAt || job.updatedAt;
+    const quoteSortTs = (job: Job) => {
+      if (!job.quote?.date) return Number.MAX_SAFE_INTEGER;
+      return new Date(job.quote.date).getTime();
+    };
+    const leadSortTs = (job: Job) => new Date(job.createdAt || job.updatedAt).getTime();
+
     return [...filtered].sort((a, b) => {
-      const aTime = new Date(pickDate(a)).getTime();
-      const bTime = new Date(pickDate(b)).getTime();
+      if (activeStage === "QUOTE") {
+        const aHasDate = Boolean(a.quote?.date);
+        const bHasDate = Boolean(b.quote?.date);
+        if (!aHasDate && bHasDate) return -1;
+        if (aHasDate && !bHasDate) return 1;
+        const aTime = quoteSortTs(a);
+        const bTime = quoteSortTs(b);
+        return sortOrder === "newest" ? bTime - aTime : aTime - bTime;
+      }
+
+      const aTime = leadSortTs(a);
+      const bTime = leadSortTs(b);
       return sortOrder === "newest" ? bTime - aTime : aTime - bTime;
     });
-  }, [filtered, sortOrder]);
+  }, [filtered, sortOrder, activeStage]);
 
   const showSubTabs = !searchMode && (activeStage === "LEAD" || activeStage === "QUOTE");
 
@@ -244,7 +290,7 @@ function JobsPageContent() {
           <p className="text-[#e85d04] text-lg font-bold tracking-widest leading-tight">INSULHUB</p>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-gray-300 text-sm">{total} jobs</span>
+          <span className="text-gray-300 text-sm">{(globalCounts?.ALL ?? total)} jobs</span>
           <button
             onClick={() => router.push("/jobs/new")}
             className="text-white bg-[#e85d04] text-sm px-3 py-1.5 rounded-lg font-medium"
@@ -294,13 +340,13 @@ function JobsPageContent() {
             onClick={() => setSortOrder((prev) => (prev === "newest" ? "oldest" : "newest"))}
             className="text-xs bg-white border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg font-medium hover:bg-gray-50"
           >
-            Sort: Created {sortOrder === "newest" ? "Newest first" : "Oldest first"}
+            Sort: {activeStage === "QUOTE" ? "Quote date" : "Created"} {sortOrder === "newest" ? "Newest first" : "Oldest first"}
           </button>
         </div>
       </div>
 
       {/* Pagination */}
-      {!loading && !error && total > PAGE_SIZE && (
+      {!loading && !error && (globalCounts?.ALL ?? total) > PAGE_SIZE && (
         <div className="px-4 pb-2 pt-1 flex items-center justify-between">
           <button
             onClick={() => { setPage((p) => Math.max(0, p - 1)); window.scrollTo(0, 0); }}
@@ -310,11 +356,11 @@ function JobsPageContent() {
             ← Prev
           </button>
           <span className="text-[10px] text-gray-500 font-medium bg-gray-100 px-2 py-1 rounded-full uppercase tracking-wider">
-            {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total}
+            {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, (globalCounts?.ALL ?? total))} of {(globalCounts?.ALL ?? total)}
           </span>
           <button
             onClick={() => { setPage((p) => p + 1); window.scrollTo(0, 0); }}
-            disabled={(page + 1) * PAGE_SIZE >= total}
+            disabled={(page + 1) * PAGE_SIZE >= (globalCounts?.ALL ?? total)}
             className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs text-gray-700 disabled:opacity-40 font-medium"
           >
             Next →

@@ -34,6 +34,8 @@ export const JOBS_QUERY = `
         }
         quote {
           quoteNumber
+          date
+          status
           c_total
         }
         client {
@@ -71,17 +73,20 @@ export const JOB_QUERY = `
       quote {
         quoteNumber
         date
+        status
         c_total
         c_deposit
         depositPercentage
         consentFee
         quoteNote
         quoteResultNote
+        extras { name price }
         wall {
           SQMPrice
           SQM
           c_RValue
           c_bagCount
+          cavityDepthMeters
         }
         ceiling {
           SQMPrice
@@ -90,6 +95,11 @@ export const JOB_QUERY = `
           downlights
           c_bagCount
         }
+        files_QuoteSitePlan
+      }
+      ebaForm {
+        complete
+        signature_assessor { fileName }
       }
       client {
         _id

@@ -28,8 +28,8 @@ export const UPDATE_JOB_NOTES = `
 `;
 
 export const UPDATE_JOB_QUOTE = `
-  mutation UpdateJobQuote($input: UpdateJobInput!) {
-    updateJob(input: $input) {
+  mutation UpdateJobQuote($input: UpdateJobInput!, $emailQuoteToCustomer: Boolean, $quotePDFEmailBodyTemplate: String) {
+    updateJob(input: $input, emailQuoteToCustomer: $emailQuoteToCustomer, quotePDFEmailBodyTemplate: $quotePDFEmailBodyTemplate) {
       _id
       stage
       quote {
@@ -74,5 +74,17 @@ export const CREATE_JOB = `
 export const SEND_EBA = `
   mutation SendEBA($jobId: ObjectId!) {
     sendEBAEmail(jobId: $jobId)
+  }
+`;
+
+export const ADD_FILES = `
+  mutation AddFiles($_id: ObjectId!, $documentType: UploadedFileType!, $fileNames: [String!]!) {
+    addFiles(_id: $_id, documentType: $documentType, fileNames: $fileNames)
+  }
+`;
+
+export const REMOVE_FILE = `
+  mutation RemoveFile($_id: ObjectId!, $documentType: UploadedFileType!, $fileName: String!) {
+    removeFile(_id: $_id, documentType: $documentType, fileName: $fileName)
   }
 `;

@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { gql } from "@/lib/graphql";
 import { JOB_QUERY, USERS_QUERY } from "@/lib/queries";
 import {
   UPDATE_JOB_LEAD, UPDATE_JOB_NOTES,
-  UPDATE_JOB_QUOTE, ARCHIVE_JOB, UPDATE_CLIENT, SEND_EBA,
+  UPDATE_JOB_QUOTE, ARCHIVE_JOB, UPDATE_CLIENT, SEND_EBA, ADD_FILES, REMOVE_FILE,
 } from "@/lib/mutations";
 import PipelineBreadcrumb from "@/components/PipelineBreadcrumb";
 import BottomSheet from "@/components/BottomSheet";
@@ -28,9 +28,13 @@ interface Job {
   quote?: {
     quoteNumber?: string; date?: string; c_total?: number; c_deposit?: number;
     depositPercentage?: number; consentFee?: number; quoteNote?: string; quoteResultNote?: string;
-    wall?: { SQMPrice?: number; SQM?: number; c_RValue?: number; c_bagCount?: number };
+    status?: string;
+    wall?: { SQMPrice?: number; SQM?: number; c_RValue?: number; c_bagCount?: number; cavityDepthMeters?: number };
     ceiling?: { SQMPrice?: number; SQM?: number; RValue?: number; downlights?: number; c_bagCount?: number };
+    extras?: { name?: string; price?: number }[];
+    files_QuoteSitePlan?: string[];
   };
+  ebaForm?: { complete?: boolean; signature_assessor?: { fileName?: string } | null };
   client?: {
     _id?: string;
     contactDetails?: ContactDetails;
@@ -53,6 +57,16 @@ function toDatetimeLocal(iso?: string | null) {
 }
 function fromDatetimeLocal(val: string) {
   return val ? new Date(val).toISOString() : null;
+}
+
+const API_BASE = "https://api.insulhub.nz";
+
+function getToken() {
+  return typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
+}
+
+function fileUrl(fileName: string) {
+  return `${API_BASE}/files/documents/${encodeURIComponent(fileName)}?token=${getToken()}`;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -96,6 +110,7 @@ export default function JobDetailPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingSitePlan, setUploadingSitePlan] = useState(false);
   const [error, setError] = useState("");
 
   // Sheet visibility
@@ -113,9 +128,11 @@ export default function JobDetailPage() {
   // Quote form
   const [quoteForm, setQuoteForm] = useState({
     quoteNumber: "", date: "", consentFee: "", depositPercentage: "25",
-    wallSQMPrice: "", wallSQM: "", wallRValue: "", wallBags: "",
-    ceilingSQMPrice: "", ceilingSQM: "", ceilingRValue: "", ceilingDownlights: "", ceilingBags: "",
+    wallSQMPrice: "", wallSQM: "", wallCavityDepth: "0.1",
+    ceilingSQMPrice: "", ceilingSQM: "", ceilingRValue: "", ceilingDownlights: "",
     hasWall: false, hasCeiling: false,
+    extras: [{ name: "", price: "" }],
+    totalManual: "",
     quoteNote: "", quoteResultNote: "",
   });
 
@@ -161,20 +178,20 @@ export default function JobDetailPage() {
           depositPercentage: j.quote.depositPercentage?.toString() || "25",
           wallSQMPrice: j.quote.wall?.SQMPrice?.toString() || "",
           wallSQM: j.quote.wall?.SQM?.toString() || "",
-          wallRValue: j.quote.wall?.c_RValue?.toString() || "",
-          wallBags: j.quote.wall?.c_bagCount?.toString() || "",
+          wallCavityDepth: (j.quote.wall?.cavityDepthMeters ?? 0.1).toString(),
           ceilingSQMPrice: j.quote.ceiling?.SQMPrice?.toString() || "",
           ceilingSQM: j.quote.ceiling?.SQM?.toString() || "",
           ceilingRValue: j.quote.ceiling?.RValue?.toString() || "",
           ceilingDownlights: j.quote.ceiling?.downlights?.toString() || "",
-          ceilingBags: j.quote.ceiling?.c_bagCount?.toString() || "",
           hasWall: !!j.quote.wall?.SQM,
           hasCeiling: !!j.quote.ceiling?.SQM,
+          extras: (j.quote.extras && j.quote.extras.length ? j.quote.extras : [{ name: "", price: undefined }]).map((x) => ({ name: x.name || "", price: x.price?.toString() || "" })),
+          totalManual: j.quote.c_total?.toString() || "",
           quoteNote: j.quote.quoteNote || "",
           quoteResultNote: j.quote.quoteResultNote || "",
         });
       } else {
-        setQuoteForm(prev => ({ ...prev, quoteNumber: autoQuoteNum }));
+        setQuoteForm(prev => ({ ...prev, quoteNumber: autoQuoteNum, consentFee: "380" }));
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load";
@@ -246,6 +263,32 @@ export default function JobDetailPage() {
     }
   }
 
+
+  const quoteCalc = useMemo(() => {
+    const n = (v: string) => parseFloat(v || "0") || 0;
+    const wallSQM = n(quoteForm.wallSQM);
+    const wallPrice = n(quoteForm.wallSQMPrice);
+    const cavity = n(quoteForm.wallCavityDepth) || 0.1;
+    const wallR = 280 * cavity;
+    const wallBags = cavity === 0.1 ? wallSQM / 6.5 : wallSQM / 5;
+
+    const ceilingSQM = n(quoteForm.ceilingSQM);
+    const ceilingPrice = n(quoteForm.ceilingSQMPrice);
+    const ceilingR = n(quoteForm.ceilingRValue);
+    const ceilingBags = ceilingR * ceilingSQM * 0.0405;
+
+    const extrasTotal = (quoteForm.extras || []).reduce((acc, e) => acc + n(e.price), 0);
+    const contractPrice = (quoteForm.hasWall ? wallSQM * wallPrice : 0) + (quoteForm.hasCeiling ? ceilingSQM * ceilingPrice : 0) + extrasTotal;
+    const consentFee = n(quoteForm.consentFee);
+    const gst = contractPrice * 0.15;
+    const autoTotal = contractPrice + gst + consentFee;
+    const total = n(quoteForm.totalManual) > 0 ? n(quoteForm.totalManual) : autoTotal;
+    const depositPct = n(quoteForm.depositPercentage) || 25;
+    const deposit = (total * depositPct) / 100;
+
+    return { wallR, wallBags, ceilingBags, contractPrice, gst, autoTotal, total, deposit };
+  }, [quoteForm]);
+
   // ── Actions ────────────────────────────────────────────────────
   async function saveNote() {
     if (!noteText.trim()) return;
@@ -304,36 +347,104 @@ export default function JobDetailPage() {
     }));
   }
 
-  async function saveQuote(andProgress = false) {
+  function buildQuoteUpdateInput(andProgress = false) {
     const q = quoteForm;
-    await run(() => gql(UPDATE_JOB_QUOTE, {
-      input: {
-        _id: id,
-        ...(andProgress ? { stage: "QUOTE" } : {}),
-        quote: {
-          quoteNote: q.quoteNote,
-          quoteResultNote: q.quoteResultNote,
-          extras: [],
-          quoteNumber: q.quoteNumber,
-          date: fromDatetimeLocal(q.date),
-          consentFee: q.consentFee ? parseFloat(q.consentFee) : undefined,
-          depositPercentage: q.depositPercentage ? parseFloat(q.depositPercentage) : 25,
-          wall: q.hasWall ? {
-            SQMPrice: q.wallSQMPrice ? parseFloat(q.wallSQMPrice) : undefined,
-            SQM: q.wallSQM ? parseFloat(q.wallSQM) : undefined,
-            c_RValue: q.wallRValue ? parseFloat(q.wallRValue) : undefined,
-            c_bagCount: q.wallBags ? parseFloat(q.wallBags) : undefined,
-          } : {},
-          ceiling: q.hasCeiling ? {
-            SQMPrice: q.ceilingSQMPrice ? parseFloat(q.ceilingSQMPrice) : undefined,
-            SQM: q.ceilingSQM ? parseFloat(q.ceilingSQM) : undefined,
-            RValue: q.ceilingRValue ? parseFloat(q.ceilingRValue) : undefined,
-            downlights: q.ceilingDownlights ? parseFloat(q.ceilingDownlights) : undefined,
-            c_bagCount: q.ceilingBags ? parseFloat(q.ceilingBags) : undefined,
-          } : {},
-        },
+    return {
+      _id: id,
+      ...(andProgress ? { stage: "QUOTE" } : {}),
+      quote: {
+        quoteNote: q.quoteNote,
+        quoteResultNote: q.quoteResultNote,
+        extras: (q.extras || []).filter((e) => e.name || e.price).map((e) => ({ name: e.name, price: parseFloat(e.price || "0") || 0 })),
+        quoteNumber: q.quoteNumber,
+        date: fromDatetimeLocal(q.date),
+        consentFee: q.consentFee ? parseFloat(q.consentFee) : undefined,
+        depositPercentage: q.depositPercentage ? parseFloat(q.depositPercentage) : 25,
+        c_contractPrice: quoteCalc.contractPrice,
+        c_gst: quoteCalc.gst,
+        c_total: quoteCalc.total,
+        c_deposit: quoteCalc.deposit,
+        wall: q.hasWall ? {
+          SQMPrice: q.wallSQMPrice ? parseFloat(q.wallSQMPrice) : undefined,
+          SQM: q.wallSQM ? parseFloat(q.wallSQM) : undefined,
+          cavityDepthMeters: q.wallCavityDepth ? parseFloat(q.wallCavityDepth) : 0.1,
+          c_RValue: quoteCalc.wallR,
+          c_bagCount: quoteCalc.wallBags,
+        } : {},
+        ceiling: q.hasCeiling ? {
+          SQMPrice: q.ceilingSQMPrice ? parseFloat(q.ceilingSQMPrice) : undefined,
+          SQM: q.ceilingSQM ? parseFloat(q.ceilingSQM) : undefined,
+          RValue: q.ceilingRValue ? parseFloat(q.ceilingRValue) : undefined,
+          downlights: q.ceilingDownlights ? parseFloat(q.ceilingDownlights) : undefined,
+          c_bagCount: quoteCalc.ceilingBags,
+        } : {},
       },
+    };
+  }
+
+  async function saveQuote(andProgress = false, emailQuoteToCustomer = false) {
+    await run(() => gql(UPDATE_JOB_QUOTE, {
+      input: buildQuoteUpdateInput(andProgress),
+      ...(emailQuoteToCustomer ? { emailQuoteToCustomer: true, quotePDFEmailBodyTemplate: "Please find your insulation quote attached." } : {}),
     }));
+  }
+
+
+  async function downloadQuotePDF() {
+    try {
+      const input = buildQuoteUpdateInput(false);
+      const params = new URLSearchParams({ token: encodeURIComponent(getToken()), input: JSON.stringify(input) });
+      window.open(`${API_BASE}/pdf/saveJobAndGetQuotePDF?${params.toString()}`, "_blank");
+    } catch {
+      alert("Could not open quote PDF.");
+    }
+  }
+
+  async function printQuoteSitePlanPDF() {
+    const quoteDate = fromDatetimeLocal(quoteForm.date);
+    if (!quoteDate) {
+      alert("Set quote date first.");
+      return;
+    }
+    const params = new URLSearchParams({ jobId: id, quoteDate, token: encodeURIComponent(getToken()) });
+    window.open(`${API_BASE}/pdf/quote-siteplan?${params.toString()}`, "_blank");
+  }
+
+  async function uploadQuoteSitePlan(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    try {
+      setUploadingSitePlan(true);
+      const form = new FormData();
+      Array.from(files).forEach((f) => form.append("files", f));
+      const res = await fetch(`${API_BASE}/files/upload`, {
+        method: "POST",
+        headers: { "x-token": getToken() },
+        body: form,
+      });
+      const json = await res.json();
+      const fileNames: string[] = json.fileNames || [];
+      if (!fileNames.length) throw new Error("Upload failed");
+      await gql(ADD_FILES, { _id: id, documentType: "QUOTE_SITE_PLAN", fileNames });
+      await load();
+    } catch {
+      alert("Failed to upload site plan.");
+    } finally {
+      setUploadingSitePlan(false);
+    }
+  }
+
+  async function removeQuoteSitePlan(fileName: string) {
+    if (!confirm("Remove this uploaded site plan file?")) return;
+    await run(() => gql(REMOVE_FILE, { _id: id, documentType: "QUOTE_SITE_PLAN", fileName }));
+  }
+
+  async function openEBAClientApprovalPage() {
+    try {
+      const data = await gql<{ getEBAClientApprovalLink: string }>(`query($jobId:ObjectId!){ getEBAClientApprovalLink(jobId:$jobId) }`, { jobId: id });
+      if (data.getEBAClientApprovalLink) window.open(data.getEBAClientApprovalLink, "_blank");
+    } catch {
+      alert("Could not open EBA approval page.");
+    }
   }
 
   async function archiveJob() {
@@ -343,8 +454,21 @@ export default function JobDetailPage() {
   }
 
   async function sendEBA() {
+    if (!job?.ebaForm?.complete || !job?.ebaForm?.signature_assessor?.fileName) {
+      alert("Complete and sign the EBA first before sending.");
+      return;
+    }
     await run(() => gql(SEND_EBA, { jobId: id }));
     alert("EBA email sent!");
+  }
+
+  async function sendQuoteToCustomer() {
+    if (!quoteForm.quoteNumber || !quoteForm.date || (!quoteForm.hasWall && !quoteForm.hasCeiling)) {
+      alert("Add quote data first (quote number, date, and wall/ceiling values).");
+      return;
+    }
+    await saveQuote(false, true);
+    alert("Quote sent to customer.");
   }
 
   // ── Render ─────────────────────────────────────────────────────
@@ -582,10 +706,31 @@ export default function JobDetailPage() {
                   ✓ Mark Accepted
                 </button>
               )}
-              <button onClick={sendEBA} disabled={saving}
-                className="flex-1 bg-[#1a3a4a] text-white text-sm font-semibold py-2.5 rounded-xl disabled:opacity-50">
+              <button onClick={sendQuoteToCustomer} disabled={saving}
+                className="flex-1 bg-indigo-600 text-white text-sm font-semibold py-2.5 rounded-xl disabled:opacity-50">
+                ✉️ Send Quote
+              </button>
+              <button onClick={sendEBA} disabled={saving || !job.ebaForm?.complete || !job.ebaForm?.signature_assessor?.fileName}
+                className="flex-1 bg-[#1a3a4a] text-white text-sm font-semibold py-2.5 rounded-xl disabled:opacity-40">
                 📋 Send EBA
               </button>
+              <button onClick={downloadQuotePDF} className="flex-1 bg-gray-900 text-white text-sm font-semibold py-2.5 rounded-xl">📄 Quote PDF</button>
+              <button onClick={printQuoteSitePlanPDF} className="flex-1 bg-gray-700 text-white text-sm font-semibold py-2.5 rounded-xl">🖨️ Site Plan PDF</button>
+              <button onClick={openEBAClientApprovalPage} className="flex-1 bg-white border border-gray-300 text-gray-700 text-sm font-semibold py-2.5 rounded-xl">🧾 Complete EBA</button>
+            </div>
+            <div className="mt-3 border border-gray-200 rounded-xl p-3">
+              <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Completed Site Plan</p>
+              <input type="file" onChange={(e) => uploadQuoteSitePlan(e.target.files)} disabled={uploadingSitePlan} className="text-sm mb-2" />
+              {uploadingSitePlan && <p className="text-xs text-gray-500">Uploading...</p>}
+              <div className="space-y-1">
+                {(job.quote?.files_QuoteSitePlan || []).map((f) => (
+                  <div key={f} className="flex items-center justify-between text-sm">
+                    <a href={fileUrl(f)} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline truncate max-w-[70%]">{f}</a>
+                    <button onClick={() => removeQuoteSitePlan(f)} className="text-xs text-red-600">Remove</button>
+                  </div>
+                ))}
+                {(!job.quote?.files_QuoteSitePlan || job.quote.files_QuoteSitePlan.length === 0) && <p className="text-xs text-gray-400">No site plan files uploaded yet.</p>}
+              </div>
             </div>
           </Section>
         ) : job.stage === "LEAD" ? (
@@ -782,10 +927,7 @@ export default function JobDetailPage() {
             </label>
             {quoteForm.hasWall && (
               <div className="grid grid-cols-2 gap-2">
-                {[
-                  { label: "SQM", field: "wallSQM" }, { label: "Price / m²", field: "wallSQMPrice" },
-                  { label: "R-Value", field: "wallRValue" }, { label: "Bags", field: "wallBags" },
-                ].map(({ label, field }) => (
+                {[{ label: "SQM", field: "wallSQM" }, { label: "Price / m²", field: "wallSQMPrice" }].map(({ label, field }) => (
                   <div key={field}>
                     <label className="text-xs text-gray-500 mb-1 block">{label}</label>
                     <input type="number" step="0.1" value={(quoteForm as unknown as Record<string, string>)[field]}
@@ -793,6 +935,16 @@ export default function JobDetailPage() {
                       className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#e85d04]" />
                   </div>
                 ))}
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Cavity Depth</label>
+                  <select value={quoteForm.wallCavityDepth} onChange={(e) => setQuoteForm((f) => ({ ...f, wallCavityDepth: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#e85d04]">
+                    <option value="0.1">10 cm</option>
+                    <option value="0.15">15 cm</option>
+                  </select>
+                </div>
+                <div className="text-xs text-gray-500 flex items-end pb-2">Auto R-Value: <span className="ml-1 font-semibold text-gray-700">R{quoteCalc.wallR.toFixed(2)}</span></div>
+                <div className="text-xs text-gray-500 flex items-end pb-2">Auto Bags: <span className="ml-1 font-semibold text-gray-700">{quoteCalc.wallBags.toFixed(1)}</span></div>
               </div>
             )}
           </div>
@@ -804,20 +956,22 @@ export default function JobDetailPage() {
               <span className="text-sm font-semibold text-gray-700">Ceiling Insulation</span>
             </label>
             {quoteForm.hasCeiling && (
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { label: "SQM", field: "ceilingSQM" }, { label: "Price / m²", field: "ceilingSQMPrice" },
-                  { label: "R-Value", field: "ceilingRValue" }, { label: "Downlights", field: "ceilingDownlights" },
-                  { label: "Bags", field: "ceilingBags" },
-                ].map(({ label, field }) => (
-                  <div key={field}>
-                    <label className="text-xs text-gray-500 mb-1 block">{label}</label>
-                    <input type="number" step="0.1" value={(quoteForm as unknown as Record<string, string>)[field]}
-                      onChange={(e) => setQuoteForm((f) => ({ ...f, [field]: e.target.value }))}
-                      className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#e85d04]" />
-                  </div>
-                ))}
-              </div>
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { label: "SQM", field: "ceilingSQM" }, { label: "Price / m²", field: "ceilingSQMPrice" },
+                    { label: "R-Value", field: "ceilingRValue" }, { label: "Downlights", field: "ceilingDownlights" },
+                  ].map(({ label, field }) => (
+                    <div key={field}>
+                      <label className="text-xs text-gray-500 mb-1 block">{label}</label>
+                      <input type="number" step="0.1" value={(quoteForm as unknown as Record<string, string>)[field]}
+                        onChange={(e) => setQuoteForm((f) => ({ ...f, [field]: e.target.value }))}
+                        className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#e85d04]" />
+                    </div>
+                  ))}
+                </div>
+                <div className="text-xs text-gray-500 mt-2">Auto Bags: <span className="font-semibold text-gray-700">{quoteCalc.ceilingBags.toFixed(1)}</span></div>
+              </>
             )}
           </div>
 
@@ -835,6 +989,34 @@ export default function JobDetailPage() {
                 placeholder="25"
                 className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#e85d04]" />
             </div>
+          </div>
+
+          {/* Extras */}
+          <div className="border border-gray-200 rounded-xl p-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-semibold text-gray-700">Extra Charges</span>
+              <button type="button" onClick={() => setQuoteForm((f) => ({ ...f, extras: [...f.extras, { name: "", price: "" }] }))} className="text-xs text-[#e85d04] font-medium">+ Add</button>
+            </div>
+            {(quoteForm.extras || []).map((ex, i) => (
+              <div key={i} className="grid grid-cols-5 gap-2 mb-2">
+                <input type="text" value={ex.name} onChange={(e) => setQuoteForm((f) => ({ ...f, extras: f.extras.map((x, idx) => idx === i ? { ...x, name: e.target.value } : x) }))}
+                  placeholder="Extra name" className="col-span-3 border border-gray-200 rounded-lg px-2 py-2 text-sm" />
+                <input type="number" value={ex.price} onChange={(e) => setQuoteForm((f) => ({ ...f, extras: f.extras.map((x, idx) => idx === i ? { ...x, price: e.target.value } : x) }))}
+                  placeholder="0" className="col-span-2 border border-gray-200 rounded-lg px-2 py-2 text-sm" />
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="bg-gray-50 rounded-lg p-2">Contract: <b>{fmtCurrency(quoteCalc.contractPrice)}</b></div>
+            <div className="bg-gray-50 rounded-lg p-2">GST: <b>{fmtCurrency(quoteCalc.gst)}</b></div>
+            <div>
+              <label className="text-xs text-gray-500 font-medium mb-1 block">Total (editable)</label>
+              <input type="number" value={quoteForm.totalManual} onChange={(e) => setQuoteForm((f) => ({ ...f, totalManual: e.target.value }))}
+                placeholder={quoteCalc.autoTotal.toFixed(2)} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm" />
+              <button type="button" onClick={() => setQuoteForm((f) => ({ ...f, totalManual: "" }))} className="text-xs text-gray-500 mt-1 underline">Recalculate</button>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-2">Deposit: <b>{fmtCurrency(quoteCalc.deposit)}</b></div>
           </div>
 
           {/* Comments */}

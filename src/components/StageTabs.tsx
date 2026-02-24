@@ -19,7 +19,7 @@ const LEAD_SUB_TABS = [
 
 const QUOTE_SUB_TABS = [
   { label: "All", value: "ALL" },
-  { label: "Open", value: "NEW" },
+  { label: "Open", value: "OPEN" },
   { label: "Callback", value: "CALLBACK" },
   { label: "Dead", value: "DEAD" },
 ];

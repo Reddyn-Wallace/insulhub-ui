@@ -15,6 +15,8 @@ interface Job {
   };
   quote?: {
     quoteNumber?: string;
+    date?: string;
+    status?: string;
     c_total?: number;
   };
   client?: {
@@ -62,100 +64,74 @@ const STAGE_LABEL: Record<string, string> = {
   COMPLETED: "Completed",
 };
 
-const LEAD_STATUS_STYLE: Record<string, { pill: string; border: string; label: string }> = {
-  NEW: {
-    pill: "bg-sky-50 text-sky-700 border border-sky-100",
-    border: "border-l-sky-300",
-    label: "New",
-  },
-  CALLBACK: {
-    pill: "bg-amber-50 text-amber-700 border border-amber-100",
-    border: "border-l-amber-300",
-    label: "Callback",
-  },
-  QUOTE_BOOKED: {
-    pill: "bg-indigo-50 text-indigo-700 border border-indigo-100",
-    border: "border-l-indigo-300",
-    label: "Quote booked",
-  },
-  DEAD: {
-    pill: "bg-rose-50 text-rose-700 border border-rose-100",
-    border: "border-l-rose-300",
-    label: "Dead",
-  },
+const STATUS_STYLE: Record<string, { pill: string; border: string; label: string }> = {
+  NEW: { pill: "bg-sky-50 text-sky-700 border border-sky-100", border: "border-l-sky-300", label: "New" },
+  CALLBACK: { pill: "bg-amber-50 text-amber-700 border border-amber-100", border: "border-l-amber-300", label: "Callback" },
+  QUOTE_BOOKED: { pill: "bg-indigo-50 text-indigo-700 border border-indigo-100", border: "border-l-indigo-300", label: "Quote booked" },
+  OPEN: { pill: "bg-sky-50 text-sky-700 border border-sky-100", border: "border-l-sky-300", label: "Open" },
+  DEAD: { pill: "bg-rose-50 text-rose-700 border border-rose-100", border: "border-l-rose-300", label: "Dead" },
 };
 
 export default function JobCard({ job }: { job: Job }) {
   const c = job.client?.contactDetails;
-  const addressParts = [c?.streetAddress, c?.suburb, c?.city]
-    .filter(Boolean)
-    .join(", ");
+  const addressParts = [c?.streetAddress, c?.suburb, c?.city].filter(Boolean).join(", ");
 
   const [now] = useState(() => Date.now());
-  const status = (job.lead?.leadStatus || "NEW").toUpperCase();
+  const leadStatus = (job.lead?.leadStatus || "NEW").toUpperCase();
+  const quoteStatus = (job.quote?.status || "UNSET").toUpperCase();
   const hasQuoteBooked = Boolean(job.lead?.quoteBookingDate);
-  const leadState = hasQuoteBooked ? "QUOTE_BOOKED" : status;
-  const leadStyle = LEAD_STATUS_STYLE[leadState] || LEAD_STATUS_STYLE.NEW;
+
+  const quoteState = leadStatus === "DEAD" || quoteStatus === "DECLINED"
+    ? "DEAD"
+    : quoteStatus === "DEFERRED" || leadStatus === "CALLBACK"
+      ? "CALLBACK"
+      : "OPEN";
+
+  const cardState = job.stage === "QUOTE"
+    ? quoteState
+    : hasQuoteBooked
+      ? "QUOTE_BOOKED"
+      : leadStatus;
+
+  const cardStyle = STATUS_STYLE[cardState] || STATUS_STYLE.NEW;
 
   const callbackTime = job.lead?.callbackDate ? new Date(job.lead.callbackDate).getTime() : null;
-  const isCallbackOverdue = status === "CALLBACK" && Boolean(callbackTime && callbackTime < now);
+  const isCallbackOverdue = (leadStatus === "CALLBACK" || quoteState === "CALLBACK") && Boolean(callbackTime && callbackTime < now);
+
+  const isQuoteSent = Boolean(job.quote?.date && job.quote?.quoteNumber);
 
   return (
     <Link href={`/jobs/${job._id}`}>
-      <div className={`bg-white rounded-xl shadow-sm border border-gray-100 border-l-4 ${leadStyle.border} p-4 mb-3 active:bg-gray-50 transition-colors cursor-pointer`}>
+      <div className={`bg-white rounded-xl shadow-sm border border-gray-100 border-l-4 ${cardStyle.border} p-4 mb-3 active:bg-gray-50 transition-colors cursor-pointer`}>
         <div className="flex items-start justify-between gap-2 mb-1">
-          <p className="font-semibold text-gray-900 text-base leading-tight">
-            {c?.name || "Unknown"}
-          </p>
+          <p className="font-semibold text-gray-900 text-base leading-tight">{c?.name || "Unknown"}</p>
           <div className="flex items-center gap-1.5">
-            <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${leadStyle.pill}`}>
-              {leadStyle.label}
-            </span>
-            <span
-              className={`flex-shrink-0 text-xs font-medium px-2 py-0.5 rounded-full ${STAGE_BADGE[job.stage] || "bg-gray-100 text-gray-600"
-                }`}
-            >
-              {STAGE_LABEL[job.stage] || job.stage}
-            </span>
+            <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${cardStyle.pill}`}>{cardStyle.label}</span>
+            <span className={`flex-shrink-0 text-xs font-medium px-2 py-0.5 rounded-full ${STAGE_BADGE[job.stage] || "bg-gray-100 text-gray-600"}`}>{STAGE_LABEL[job.stage] || job.stage}</span>
           </div>
         </div>
 
-        {addressParts && (
-          <p className="text-sm text-gray-500 mb-1">{addressParts}</p>
-        )}
-
-        {(c?.phoneMobile || c?.email) && (
-          <p className="text-sm text-gray-400 mb-2">
-            {[c?.phoneMobile, c?.email].filter(Boolean).join(" | ")}
-          </p>
-        )}
+        {addressParts && <p className="text-sm text-gray-500 mb-1">{addressParts}</p>}
+        {(c?.phoneMobile || c?.email) && <p className="text-sm text-gray-400 mb-2">{[c?.phoneMobile, c?.email].filter(Boolean).join(" | ")}</p>}
 
         <div className="flex flex-wrap gap-2 mb-2">
-          <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
-            Job #{job.jobNumber}
-          </span>
-          {job.quote?.quoteNumber && (
-            <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-medium">
-              #{job.quote.quoteNumber}{" "}
-              {job.quote.c_total ? formatCurrency(job.quote.c_total) : ""}
+          <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">Job #{job.jobNumber}</span>
+          {job.quote?.quoteNumber && <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-medium">#{job.quote.quoteNumber} {job.quote.c_total ? formatCurrency(job.quote.c_total) : ""}</span>}
+          {job.stage === "QUOTE" && (
+            <span className={`text-xs px-2 py-0.5 rounded ${isQuoteSent ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
+              {isQuoteSent ? "Sent to customer" : "Not sent to customer"}
             </span>
           )}
         </div>
 
         <div className="flex items-center justify-between text-xs text-gray-400">
           <span>{job.lead?.allocatedTo ? `${job.lead.allocatedTo.firstname} ${job.lead.allocatedTo.lastname}` : "Unallocated"}</span>
-          <span>Created: {formatDate(job.createdAt || job.updatedAt)}</span>
+          <span>{job.stage === "QUOTE" ? `Quote: ${formatDate(job.quote?.date) || "Undated"}` : `Created: ${formatDate(job.createdAt || job.updatedAt)}`}</span>
         </div>
 
         <div className="mt-1.5 flex flex-wrap gap-3 text-xs font-medium">
-          {job.lead?.callbackDate && (
-            <span className={isCallbackOverdue ? "text-red-600" : "text-orange-600"}>
-              {isCallbackOverdue ? "⚠️ " : ""}Callback: {formatDate(job.lead.callbackDate)}
-            </span>
-          )}
-          {job.lead?.quoteBookingDate && (
-            <span className="text-indigo-600">Quote booked: {formatDate(job.lead.quoteBookingDate)}</span>
-          )}
+          {job.lead?.callbackDate && <span className={isCallbackOverdue ? "text-red-600" : "text-orange-600"}>{isCallbackOverdue ? "⚠️ " : ""}Callback: {formatDate(job.lead.callbackDate)}</span>}
+          {job.stage !== "QUOTE" && job.lead?.quoteBookingDate && <span className="text-indigo-600">Quote booked: {formatDate(job.lead.quoteBookingDate)}</span>}
         </div>
       </div>
     </Link>
