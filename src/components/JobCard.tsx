@@ -122,7 +122,7 @@ export default function JobCard({ job }: { job: Job }) {
           {job.quote?.quoteNumber && <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-medium">#{job.quote.quoteNumber} {job.quote.c_total ? formatCurrency(job.quote.c_total) : ""}</span>}
           {job.stage === "QUOTE" && (
             <span className={`text-xs px-2 py-0.5 rounded ${isQuoteSent ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
-              {isQuoteSent ? "Sent to customer" : "Not sent to customer"}
+              {isQuoteSent ? `Sent to customer${job.quote?.date ? ` • ${formatDate(job.quote.date)}` : ""}` : "Not sent to customer"}
             </span>
           )}
         </div>
