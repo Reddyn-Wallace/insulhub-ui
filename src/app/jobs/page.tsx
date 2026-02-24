@@ -60,7 +60,6 @@ function JobsPageContent() {
   const [total, setTotal] = useState(0);
   const [globalCounts, setGlobalCounts] = useState<Record<string, number> | null>(null);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -133,7 +132,6 @@ function JobsPageContent() {
     const currentFetchId = ++fetchIdRef.current;
     setError("");
     if (jobs.length === 0) setLoading(true);
-    else setRefreshing(true);
 
     const isSearching = searchMode;
     const q = search;
@@ -190,7 +188,6 @@ function JobsPageContent() {
     } finally {
       if (currentFetchId === fetchIdRef.current) {
         setLoading(false);
-        setRefreshing(false);
       }
     }
   }, [activeStage, page, search, searchMode, jobs.length, writeStageCache]);
