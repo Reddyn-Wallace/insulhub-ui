@@ -211,7 +211,7 @@ export default function JobDetailPage() {
 
   // ── Helper: build LeadInput from current job state ─────────────
   type LeadInput = {
-    leadStatus: string;
+    leadStatus: "NEW" | "ON_HOLD" | "DEAD" | string;
     leadSource: string[];
     allocation: "ALLOCATED" | "UNALLOCATED";
     allocatedTo: { _id: string } | null;
@@ -323,14 +323,15 @@ export default function JobDetailPage() {
   }
 
   async function saveLeadStatus(status: string) {
+    const apiStatus = status === "CALLBACK" ? "ON_HOLD" : status;
     await run(() => gql(UPDATE_JOB_LEAD, {
-      input: { _id: id, lead: buildLeadInput({ leadStatus: status }) },
+      input: { _id: id, lead: buildLeadInput({ leadStatus: apiStatus }) },
     }));
   }
 
   async function saveCallbackDate() {
     await run(() => gql(UPDATE_JOB_LEAD, {
-      input: { _id: id, lead: buildLeadInput({ callbackDate: fromDatetimeLocal(callbackDate), leadStatus: "CALLBACK" }) },
+      input: { _id: id, lead: buildLeadInput({ callbackDate: fromDatetimeLocal(callbackDate), leadStatus: "ON_HOLD" }) },
     }));
   }
 
@@ -497,7 +498,8 @@ export default function JobDetailPage() {
   const c = job.client?.contactDetails;
   const phone = c?.phoneMobile || c?.phoneSecondary;
   const address = [c?.streetAddress, c?.suburb, c?.city, c?.postCode].filter(Boolean).join(", ");
-  const status = job.lead?.leadStatus || "NEW";
+  const statusRaw = (job.lead?.leadStatus || "NEW").toUpperCase();
+  const status = statusRaw === "ON_HOLD" ? "CALLBACK" : statusRaw;
   const salesperson = job.lead?.allocatedTo
     ? `${job.lead.allocatedTo.firstname} ${job.lead.allocatedTo.lastname}` : "Unallocated";
   const hasWall = !!job.quote?.wall?.SQM;

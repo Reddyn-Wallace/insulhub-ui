@@ -77,7 +77,8 @@ export default function JobCard({ job }: { job: Job }) {
   const addressParts = [c?.streetAddress, c?.suburb, c?.city].filter(Boolean).join(", ");
 
   const [now] = useState(() => Date.now());
-  const leadStatus = (job.lead?.leadStatus || "NEW").toUpperCase();
+  const leadStatusRaw = (job.lead?.leadStatus || "NEW").toUpperCase();
+  const leadStatus = leadStatusRaw === "ON_HOLD" ? "CALLBACK" : leadStatusRaw;
   const quoteStatus = (job.quote?.status || "UNSET").toUpperCase();
   const hasQuoteBooked = Boolean(job.lead?.quoteBookingDate);
 

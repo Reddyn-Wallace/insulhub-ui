@@ -46,9 +46,10 @@ function JobsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const initStage = searchParams.get("stage") || "LEAD";
+  const initSubTab = searchParams.get("subTab") || (initStage === "QUOTE" ? "OPEN" : "NEW");
 
   const [activeStage, setActiveStage] = useState<string>(initStage);
-  const [subTab, setSubTab] = useState("ALL");
+  const [subTab, setSubTab] = useState(initSubTab);
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
@@ -84,7 +85,7 @@ function JobsPageContent() {
   // Only dependent on initStage to prevent toggle-back loops
   useEffect(() => {
     setActiveStage(initStage);
-    setSubTab("ALL");
+    setSubTab(searchParams.get("subTab") || (initStage === "QUOTE" ? "OPEN" : "NEW"));
     setPage(0);
     setGlobalCounts(null);
 
@@ -99,7 +100,7 @@ function JobsPageContent() {
       setJobs([]);
       setLoading(true);
     }
-  }, [initStage, searchMode]); // Depend on searchMode too to ensure we clear/show correctly
+  }, [initStage, searchMode, searchParams]); // Depend on searchMode too to ensure we clear/show correctly
 
   const fetchJobs = useCallback(async () => {
     const currentFetchId = ++fetchIdRef.current;
@@ -144,16 +145,17 @@ function JobsPageContent() {
         const allData = await gql<JobsData>(JOBS_QUERY, { stages: [activeStage], skip: 0, limit: 5000 });
         const stageJobs = allData.jobs.results.filter((j) => !j.archivedAt);
         const isQuoteBooked = (job: Job) => Boolean(job.lead?.quoteBookingDate);
+        const isCallbackLead = (job: Job) => ["CALLBACK", "ON_HOLD"].includes((job.lead?.leadStatus || "").toUpperCase());
         const isNewLead = (job: Job) => (!job.lead?.leadStatus || job.lead.leadStatus === "NEW") && !isQuoteBooked(job);
         const quoteState = (job: Job) => {
           if (job.lead?.leadStatus === "DEAD" || job.quote?.status === "DECLINED") return "DEAD";
-          if (job.quote?.status === "DEFERRED" || job.lead?.leadStatus === "CALLBACK") return "CALLBACK";
+          if (job.quote?.status === "DEFERRED" || isCallbackLead(job)) return "CALLBACK";
           return "OPEN";
         };
         setGlobalCounts({
           ALL: stageJobs.length,
           NEW: stageJobs.filter((j) => isNewLead(j)).length,
-          CALLBACK: stageJobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "CALLBACK" : j.lead?.leadStatus === "CALLBACK").length,
+          CALLBACK: stageJobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "CALLBACK" : isCallbackLead(j)).length,
           QUOTE_BOOKED: stageJobs.filter((j) => isQuoteBooked(j)).length,
           OPEN: stageJobs.filter((j) => quoteState(j) === "OPEN").length,
           DEAD: stageJobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "DEAD" : j.lead?.leadStatus === "DEAD").length,
@@ -213,7 +215,8 @@ function JobsPageContent() {
     if (stage === activeStage) return;
     // We only update the URL. The useEffect above will sync the local state.
     // This maintains a single source of truth and prevents state-toggling bugs.
-    router.replace(`/jobs?stage=${stage}`);
+    const defaultSub = stage === "QUOTE" ? "OPEN" : "NEW";
+    router.replace(`/jobs?stage=${stage}&subTab=${defaultSub}`);
   }
 
   function handleLogout() {
@@ -224,17 +227,18 @@ function JobsPageContent() {
 
   // Calculate counts for sub-tabs across all fetched non-archived jobs for this stage
   const isQuoteBooked = (job: Job) => Boolean(job.lead?.quoteBookingDate);
+  const isCallbackLead = (job: Job) => ["CALLBACK", "ON_HOLD"].includes((job.lead?.leadStatus || "").toUpperCase());
   const isNewLead = (job: Job) => (!job.lead?.leadStatus || job.lead.leadStatus === "NEW") && !isQuoteBooked(job);
   const quoteState = (job: Job) => {
     if (job.lead?.leadStatus === "DEAD" || job.quote?.status === "DECLINED") return "DEAD";
-    if (job.quote?.status === "DEFERRED" || job.lead?.leadStatus === "CALLBACK") return "CALLBACK";
+    if (job.quote?.status === "DEFERRED" || isCallbackLead(job)) return "CALLBACK";
     return "OPEN";
   };
 
   const counts = globalCounts || {
     ALL: jobs.length,
     NEW: jobs.filter((j) => isNewLead(j)).length,
-    CALLBACK: jobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "CALLBACK" : j.lead?.leadStatus === "CALLBACK").length,
+    CALLBACK: jobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "CALLBACK" : isCallbackLead(j)).length,
     QUOTE_BOOKED: jobs.filter((j) => isQuoteBooked(j)).length,
     OPEN: jobs.filter((j) => quoteState(j) === "OPEN").length,
     DEAD: jobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "DEAD" : j.lead?.leadStatus === "DEAD").length,
@@ -246,7 +250,8 @@ function JobsPageContent() {
       if (activeStage === "QUOTE") return quoteState(job) === subTab;
       if (subTab === "QUOTE_BOOKED") return isQuoteBooked(job);
       if (subTab === "NEW") return isNewLead(job);
-      const status = (job.lead?.leadStatus || "NEW").toUpperCase();
+      const statusRaw = (job.lead?.leadStatus || "NEW").toUpperCase();
+      const status = statusRaw === "ON_HOLD" ? "CALLBACK" : statusRaw;
       return subTab === status;
     }
     return true;
@@ -311,7 +316,7 @@ function JobsPageContent() {
         activeStage={activeStage}
         onStageChange={handleStageChange}
         subTab={subTab}
-        onSubTabChange={(tab) => { setSubTab(tab); setPage(0); }}
+        onSubTabChange={(tab) => { setSubTab(tab); setPage(0); router.replace(`/jobs?stage=${activeStage}&subTab=${tab}`); }}
         counts={showSubTabs ? counts : undefined}
         searchMode={searchMode}
       />

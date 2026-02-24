@@ -10,18 +10,18 @@ const STAGES = [
 ];
 
 const LEAD_SUB_TABS = [
-  { label: "All", value: "ALL" },
   { label: "New", value: "NEW" },
   { label: "Callback", value: "CALLBACK" },
   { label: "Quote booked", value: "QUOTE_BOOKED" },
   { label: "Dead", value: "DEAD" },
+  { label: "All", value: "ALL" },
 ];
 
 const QUOTE_SUB_TABS = [
-  { label: "All", value: "ALL" },
   { label: "Open", value: "OPEN" },
   { label: "Callback", value: "CALLBACK" },
   { label: "Dead", value: "DEAD" },
+  { label: "All", value: "ALL" },
 ];
 
 interface StageTabsProps {
