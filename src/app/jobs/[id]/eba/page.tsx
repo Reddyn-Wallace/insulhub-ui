@@ -84,6 +84,12 @@ const EBA_JOB_QUERY = `
         c22_externalMoisture_guttersAndDownPipesArePresentAndAppearToBeFunctioningCorrectly
         c22_externalMoisture_isWaterAbleToPoolAgainstExteriorWall
         c22_externalMoisture_wallsAreFreeToAir
+
+        c22_externalMoisture_masonryCladHomeUnderfloorVentsArePresentAndClear
+        c22_externalMoisture_windowMasonryVerticalJointsAreSealed
+        signsOfWaterIngress_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaint
+        signsOfWaterIngress_areasOfLiningCladdingAppearToBeDampSoftDiscolouredMouldyOrRotten
+        signsOfWaterIngress_underfloorSpaceIsExcessivelyDamp
         c22_externalMoisture_priorToInstallationWorkRequired
         c22_externalMoisture_priorToCertificationWorkRequired
         assessorName
@@ -222,6 +228,12 @@ export default function EbaPage() {
         c22_externalMoisture_guttersAndDownPipesArePresentAndAppearToBeFunctioningCorrectly: form.c22_externalMoisture_guttersAndDownPipesArePresentAndAppearToBeFunctioningCorrectly,
         c22_externalMoisture_isWaterAbleToPoolAgainstExteriorWall: form.c22_externalMoisture_isWaterAbleToPoolAgainstExteriorWall,
         c22_externalMoisture_wallsAreFreeToAir: form.c22_externalMoisture_wallsAreFreeToAir,
+
+        c22_externalMoisture_masonryCladHomeUnderfloorVentsArePresentAndClear: form.c22_externalMoisture_masonryCladHomeUnderfloorVentsArePresentAndClear,
+        c22_externalMoisture_windowMasonryVerticalJointsAreSealed: form.c22_externalMoisture_windowMasonryVerticalJointsAreSealed,
+        signsOfWaterIngress_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaint: form.signsOfWaterIngress_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaint,
+        signsOfWaterIngress_areasOfLiningCladdingAppearToBeDampSoftDiscolouredMouldyOrRotten: form.signsOfWaterIngress_areasOfLiningCladdingAppearToBeDampSoftDiscolouredMouldyOrRotten,
+        signsOfWaterIngress_underfloorSpaceIsExcessivelyDamp: form.signsOfWaterIngress_underfloorSpaceIsExcessivelyDamp,
         c22_externalMoisture_priorToInstallationWorkRequired: form.c22_externalMoisture_priorToInstallationWorkRequired,
         c22_externalMoisture_priorToCertificationWorkRequired: form.c22_externalMoisture_priorToCertificationWorkRequired,
         assessorName: form.assessorName,
@@ -251,6 +263,17 @@ export default function EbaPage() {
   ] as const;
 
 
+
+  const YesNoRow = ({ keyName, label, notApplicable = false }: { keyName: string; label: string; notApplicable?: boolean }) => (
+    <div>
+      <p className="text-sm text-gray-700">{label}</p>
+      <div className="flex gap-3 mt-1">
+        <label className="text-sm"><input type="radio" name={keyName} className="mr-2 accent-green-600" checked={form[keyName] === true} onChange={() => setField(keyName, true)} />Yes</label>
+        <label className="text-sm text-red-700"><input type="radio" name={keyName} className="mr-2 accent-red-600" checked={form[keyName] === false} onChange={() => setField(keyName, false)} />No</label>
+        {notApplicable && <label className="text-sm text-gray-600"><input type="radio" name={keyName} className="mr-2 accent-gray-500" checked={form[keyName] === "NOT_APPLICABLE"} onChange={() => setField(keyName, "NOT_APPLICABLE")} />Not Applicable</label>}
+      </div>
+    </div>
+  );
   return (
     <div className="min-h-screen bg-[#f8f7f4]">
       <div className="sticky top-0 z-20 bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between">
@@ -485,7 +508,16 @@ export default function EbaPage() {
                       </div>
                     ))}
                   </div>
-                  {externalMoistureQuestions.some(([k]) => form[k] === false) && (
+                  <div className="space-y-3 mt-3">
+                    <YesNoRow keyName="c22_externalMoisture_masonryCladHomeUnderfloorVentsArePresentAndClear" label="Masonry clad home underfloor vents are present and clear?" notApplicable />
+                    <YesNoRow keyName="c22_externalMoisture_windowMasonryVerticalJointsAreSealed" label="Window / masonry vertical joints are sealed?" notApplicable />
+                  </div>
+
+                  {[
+                    ...externalMoistureQuestions.map(([k]) => k),
+                    "c22_externalMoisture_masonryCladHomeUnderfloorVentsArePresentAndClear",
+                    "c22_externalMoisture_windowMasonryVerticalJointsAreSealed",
+                  ].some((k) => form[k] === false) && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
                       <div>
                         <label className="text-xs text-gray-500">Prior to Installation Work Required</label>
@@ -497,6 +529,15 @@ export default function EbaPage() {
                       </div>
                     </div>
                   )}
+                </div>
+
+                <div className="border border-gray-100 rounded-lg p-3">
+                  <h3 className="text-sm font-semibold text-gray-700">Signs of Water Ingress</h3>
+                  <div className="space-y-3 mt-2">
+                    <YesNoRow keyName="signsOfWaterIngress_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaint" label="Soffits appear to be sound with no water staining or bubbling paint which may indicate gutters or roof leaking into soffits and possibly walls?" />
+                    <YesNoRow keyName="signsOfWaterIngress_areasOfLiningCladdingAppearToBeDampSoftDiscolouredMouldyOrRotten" label="Areas of lining / cladding appear to be damp / soft / discoloured / mouldy or rotten suggesting the accumulation of water?" />
+                    <YesNoRow keyName="signsOfWaterIngress_underfloorSpaceIsExcessivelyDamp" label="Underfloor space is excessively damp ?" notApplicable />
+                  </div>
                 </div>
               </div>
             </div>
