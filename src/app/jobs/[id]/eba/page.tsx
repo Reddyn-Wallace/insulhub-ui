@@ -153,7 +153,8 @@ export default function EbaPage() {
   const [notice, setNotice] = useState("");
   const [job, setJob] = useState<Job | null>(null);
   const [form, setForm] = useState<Record<string, unknown>>({});
-  const [ebaPhotos, setEbaPhotos] = useState<string[]>([]);
+  const [ebaPhotos, setEbaPhotos] = useState<Record<string, string[]>>({});
+  const [elevationSkip, setElevationSkip] = useState<Record<string, boolean>>({ north:false, east:false, south:false, west:false });
   const [signing, setSigning] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
@@ -234,13 +235,13 @@ export default function EbaPage() {
     }
   }
 
-  async function uploadEbaPhotos(files: FileList | null) {
+  async function uploadEbaPhotos(section: string, files: FileList | null) {
     if (!job) return;
     try {
       const fileNames = await uploadFiles(files);
       if (!fileNames.length) return;
       await gql(ADD_FILES_MUTATION, { _id: job._id, documentType: "EBA", fileNames });
-      setEbaPhotos((p) => [...fileNames, ...p]);
+      setEbaPhotos((p) => ({ ...p, [section]: [...(p[section] || []), ...fileNames] }));
       setNotice("EBA photos uploaded.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Photo upload failed");
@@ -639,15 +640,62 @@ export default function EbaPage() {
             </div>
 
             <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <h2 className="text-sm font-semibold text-gray-700 mb-3">Photos</h2>
-              <input type="file" multiple accept="image/*" onChange={(e) => uploadEbaPhotos(e.target.files)} className="text-sm" />
-              {ebaPhotos.length > 0 && (
-                <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
-                  {ebaPhotos.map((f) => (
-                    <a key={f} href={fileUrl(f)} target="_blank" rel="noreferrer" className="text-xs text-blue-600 underline truncate">{f}</a>
-                  ))}
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-sm font-semibold text-gray-700">5</span>
+                <h2 className="text-sm font-semibold text-gray-700">Site Photos</h2>
+              </div>
+
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Elevation</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {(["north","east","south","west"] as const).map((dir) => (
+                  <div key={dir} className="border border-gray-100 rounded-lg p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-medium text-gray-700 capitalize">{dir} Elevation</p>
+                      <label className="text-xs text-gray-600 flex items-center gap-1">
+                        <input type="checkbox" checked={!!elevationSkip[dir]} onChange={(e)=>setElevationSkip((p)=>({ ...p, [dir]: e.target.checked }))} />
+                        Skip
+                      </label>
+                    </div>
+                    {!elevationSkip[dir] && (
+                      <>
+                        <input type="file" accept="image/*" onChange={(e) => uploadEbaPhotos(`elevation_${dir}`, e.target.files)} className="text-sm" />
+                        {(ebaPhotos[`elevation_${dir}`] || []).length > 0 && (
+                          <div className="mt-2 space-y-1">
+                            {(ebaPhotos[`elevation_${dir}`] || []).map((f) => (
+                              <a key={f} href={fileUrl(f)} target="_blank" rel="noreferrer" className="block text-xs text-blue-600 underline truncate">{f}</a>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                <div className="border border-gray-100 rounded-lg p-3">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2">Foundation</h3>
+                  <input type="file" accept="image/*" onChange={(e) => uploadEbaPhotos('foundation', e.target.files)} className="text-sm" />
+                  {(ebaPhotos.foundation || []).length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {(ebaPhotos.foundation || []).map((f) => (
+                        <a key={f} href={fileUrl(f)} target="_blank" rel="noreferrer" className="block text-xs text-blue-600 underline truncate">{f}</a>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
+                <div className="border border-gray-100 rounded-lg p-3">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2">Maintenance</h3>
+                  <input type="file" accept="image/*" onChange={(e) => uploadEbaPhotos('maintenance', e.target.files)} className="text-sm" />
+                  {(ebaPhotos.maintenance || []).length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {(ebaPhotos.maintenance || []).map((f) => (
+                        <a key={f} href={fileUrl(f)} target="_blank" rel="noreferrer" className="block text-xs text-blue-600 underline truncate">{f}</a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div className="bg-white border border-gray-200 rounded-xl p-4">
