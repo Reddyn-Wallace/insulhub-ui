@@ -1130,7 +1130,7 @@ export default function JobDetailPage() {
             </div>
             <div>
               <label className="text-xs text-gray-500 font-medium mb-1 block">Deposit %</label>
-              <input type="number" value={quoteForm.depositPercentage} onChange={(e) => setQuoteForm((f) => ({ ...f, depositPercentage: e.target.value }))}
+              <input type="number" value={quoteForm.depositPercentage} onChange={(e) => setQuoteForm((f) => ({ ...f, depositPercentage: e.target.value, depositManual: "" }))}
                 placeholder="25"
                 className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#e85d04]" />
             </div>
@@ -1161,7 +1161,7 @@ export default function JobDetailPage() {
             <div className="bg-gray-50 rounded-lg p-2">GST: <b>{fmtCurrency(quoteCalc.gst)}</b></div>
             <div>
               <label className="text-xs text-gray-500 font-medium mb-1 block">Total (editable)</label>
-              <input type="number" value={quoteForm.totalManual} onChange={(e) => setQuoteForm((f) => ({ ...f, totalManual: e.target.value }))}
+              <input type="number" value={quoteForm.totalManual} onChange={(e) => setQuoteForm((f) => ({ ...f, totalManual: e.target.value, depositManual: "" }))}
                 placeholder={quoteCalc.autoTotal.toFixed(2)} className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm" />
               <button type="button" onClick={() => setQuoteForm((f) => ({ ...f, totalManual: "" }))} className="text-xs text-gray-500 mt-1 underline">Recalculate</button>
             </div>
