@@ -272,7 +272,7 @@ export default function JobDetailPage() {
     const wallSQM = n(quoteForm.wallSQM);
     const wallPrice = n(quoteForm.wallSQMPrice);
     const cavity = n(quoteForm.wallCavityDepth) || 0.1;
-    const wallR = 280 * cavity;
+    const wallR = 28 * cavity;
     const wallBags = cavity === 0.1 ? wallSQM / 6.5 : wallSQM / 5;
 
     const ceilingSQM = n(quoteForm.ceilingSQM);
