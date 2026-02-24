@@ -133,6 +133,18 @@ function SelectYesNo({ value, onChange }: { value: unknown; onChange: (v: boolea
   );
 }
 
+
+function listValue(v: unknown): string[] {
+  if (Array.isArray(v)) return v.map((x) => String(x));
+  if (typeof v === "string") return v.split(",").map((x) => x.trim()).filter(Boolean);
+  return [];
+}
+
+function toggleList(curr: unknown, item: string): string {
+  const arr = listValue(curr);
+  const next = arr.includes(item) ? arr.filter((x) => x !== item) : [...arr, item];
+  return next.join(", ");
+}
 export default function EbaPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -263,9 +275,36 @@ export default function EbaPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div><label className="text-xs text-gray-500">Approx Year of Construction</label><input value={(form.approximateYearOfConstruction as string) || ""} onChange={(e) => setField("approximateYearOfConstruction", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
                 <div><label className="text-xs text-gray-500">Number of Stories</label><input type="number" value={(form.numberOfStories as number | undefined)?.toString() || ""} onChange={(e) => setField("numberOfStories", e.target.value ? Number(e.target.value) : undefined)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
-                <div><label className="text-xs text-gray-500">Property Site Section</label><input value={(form.propertySiteSection as string) || ""} onChange={(e) => setField("propertySiteSection", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
-                <div><label className="text-xs text-gray-500">Property Site Exposure</label><input value={(form.propertySiteExposure as string) || ""} onChange={(e) => setField("propertySiteExposure", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
-                <div><label className="text-xs text-gray-500">Property Site Area</label><input value={(form.propertySiteArea as string) || ""} onChange={(e) => setField("propertySiteArea", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
+                <div className="md:col-span-2">
+                  <label className="text-xs text-gray-500">Property Site Section</label>
+                  <div className="flex gap-2 mt-1 flex-wrap">
+                    {["Flat Section","Sloping Section","Steep Section"].map((opt) => (
+                      <label key={opt} className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white cursor-pointer">
+                        <input type="radio" name="propertySiteSection" className="mr-1" checked={(form.propertySiteSection as string) === opt} onChange={() => setField("propertySiteSection", opt)} />{opt}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="md:col-span-2">
+                  <label className="text-xs text-gray-500">Property Site Exposure</label>
+                  <div className="flex gap-2 mt-1 flex-wrap">
+                    {["Exposed","Semi-Exposed","Sheltered"].map((opt) => (
+                      <label key={opt} className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white cursor-pointer">
+                        <input type="radio" name="propertySiteExposure" className="mr-1" checked={(form.propertySiteExposure as string) === opt} onChange={() => setField("propertySiteExposure", opt)} />{opt}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="md:col-span-2">
+                  <label className="text-xs text-gray-500">Property Site Area</label>
+                  <div className="flex gap-2 mt-1 flex-wrap">
+                    {["Urban","Rural"].map((opt) => (
+                      <label key={opt} className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white cursor-pointer">
+                        <input type="radio" name="propertySiteArea" className="mr-1" checked={(form.propertySiteArea as string) === opt} onChange={() => setField("propertySiteArea", opt)} />{opt}
+                      </label>
+                    ))}
+                  </div>
+                </div>
                 <div><label className="text-xs text-gray-500">Foundation & Floor</label><input value={(form.foundationAndFloor as string) || ""} onChange={(e) => setField("foundationAndFloor", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
                 <div><label className="text-xs text-gray-500">Roof & Eaves (1)</label><input value={(form.roofAndEavesCol1 as string) || ""} onChange={(e) => setField("roofAndEavesCol1", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
                 <div><label className="text-xs text-gray-500">Roof & Eaves (2)</label><input value={(form.roofAndEavesCol2 as string) || ""} onChange={(e) => setField("roofAndEavesCol2", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
@@ -282,7 +321,52 @@ export default function EbaPage() {
             </div>
 
             <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <h2 className="text-sm font-semibold text-gray-700 mb-3">3) Assessment Questions</h2>
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">3) Roof & Eaves</h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500">Roof Type</label>
+                  <div className="mt-1 space-y-1">{["Hip Gable","Double Gable","Skillion / Mono pitch","Other"].map((opt)=>(<label key={opt} className="text-sm block"><input type="checkbox" className="mr-2" checked={listValue(form.roofAndEavesCol1).includes(opt)} onChange={() => setField("roofAndEavesCol1", toggleList(form.roofAndEavesCol1, opt))} />{opt}</label>))}</div>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500">Roof Cladding</label>
+                  <div className="mt-1 space-y-1">{["Corrugated Steel","Tile","Membrane","Other"].map((opt)=>(<label key={opt} className="text-sm block"><input type="checkbox" className="mr-2" checked={listValue(form.roofAndEavesCol2).includes(opt)} onChange={() => setField("roofAndEavesCol2", toggleList(form.roofAndEavesCol2, opt))} />{opt}</label>))}</div>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500">Eaves</label>
+                  <div className="mt-1 space-y-1">{["No eaves","Modest eaves","Generous Eaves"].map((opt)=>(<label key={opt} className="text-sm block"><input type="checkbox" className="mr-2" checked={listValue(form.roofAndEavesCol3).includes(opt)} onChange={() => setField("roofAndEavesCol3", toggleList(form.roofAndEavesCol3, opt))} />{opt}</label>))}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white border border-gray-200 rounded-xl p-4">
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">4) Foundation & Floor</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {["Ring Perimeter","Piles","Slab","Suspended Floor Timber"].map((opt)=>(
+                  <label key={opt} className="text-sm"><input type="checkbox" className="mr-2" checked={listValue(form.foundationAndFloor).includes(opt)} onChange={() => setField("foundationAndFloor", toggleList(form.foundationAndFloor, opt))} />{opt}</label>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white border border-gray-200 rounded-xl p-4">
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">5) Framing, Joinery & Lining</h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="text-xs text-gray-500">Framing</label>
+                  {["Likely Rimu","Treated pinus","Untreated pinus","No framing (double brick)"].map((opt)=>(<label key={opt} className="text-sm block mt-1"><input type="checkbox" className="mr-2" checked={listValue(form.framing).includes(opt)} onChange={() => setField("framing", toggleList(form.framing, opt))} />{opt}</label>))}
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500">Joinery</label>
+                  {["Timber","Aluminium (Single Glazed)","Aluminium (Double Glazed)","uPVC"].map((opt)=>(<label key={opt} className="text-sm block mt-1"><input type="checkbox" className="mr-2" checked={listValue(form.joinery).includes(opt)} onChange={() => setField("joinery", toggleList(form.joinery, opt))} />{opt}</label>))}
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500">Lining</label>
+                  {["Plasterboard","Timber","Hardboard","Plaster"].map((opt)=>(<label key={opt} className="text-sm block mt-1"><input type="checkbox" className="mr-2" checked={listValue(form.lining).includes(opt)} onChange={() => setField("lining", toggleList(form.lining, opt))} />{opt}</label>))}
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white border border-gray-200 rounded-xl p-4">
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">6) Assessment Questions</h2>
               <div className="space-y-3">
                 {q.map(([key, label]) => (
                   <div key={key} className="border border-gray-100 rounded-lg p-3">
@@ -304,7 +388,7 @@ export default function EbaPage() {
             </div>
 
             <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <h2 className="text-sm font-semibold text-gray-700 mb-3">4) Assessor Declaration</h2>
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">7) Assessor Declaration</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-gray-500">Assessor Name</label>
