@@ -310,7 +310,7 @@ export default function EbaPage() {
             </div>
 
             <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <h2 className="text-sm font-semibold text-gray-700 mb-3">3) Roof & Eaves</h2>
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">Roof & Eaves</h2>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
                   <label className="text-xs text-gray-500">Roof Type</label>
@@ -328,7 +328,7 @@ export default function EbaPage() {
             </div>
 
             <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <h2 className="text-sm font-semibold text-gray-700 mb-3">4) Foundation & Floor</h2>
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">Foundation & Floor</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 {["Ring Perimeter","Piles","Slab","Suspended Floor Timber"].map((opt)=>(
                   <label key={opt} className="text-sm"><input type="checkbox" className="mr-2" checked={listValue(form.foundationAndFloor).includes(opt)} onChange={() => setField("foundationAndFloor", toggleList(form.foundationAndFloor, opt))} />{opt}</label>
@@ -337,7 +337,7 @@ export default function EbaPage() {
             </div>
 
             <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <h2 className="text-sm font-semibold text-gray-700 mb-3">5) Framing, Joinery & Lining</h2>
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">Framing, Joinery & Lining</h2>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="text-xs text-gray-500">Framing</label>
@@ -355,7 +355,7 @@ export default function EbaPage() {
             </div>
 
             <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <h2 className="text-sm font-semibold text-gray-700 mb-3">6) Building Paper</h2>
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">Building Paper</h2>
               <div className="flex gap-2 flex-wrap">
                 {["Not detected","Detected (but unable to guarantee extent or condition)"].map((opt)=>(
                   <label key={opt} className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white cursor-pointer">
@@ -367,7 +367,7 @@ export default function EbaPage() {
             </div>
 
             <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <h2 className="text-sm font-semibold text-gray-700 mb-3">7) Exterior Cladding</h2>
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">Exterior Cladding</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 {["Timber","Cement Board","Rendered Plaster","Masonry veneer (nominal 140mm cavity)","Masonry (double brick)","EIFS","Palisade (plastic) weatherboard","Corrugated steel"].map((opt)=>(
                   <label key={opt} className="text-sm"><input type="checkbox" className="mr-2" checked={listValue(form.exteriorCladding).includes(opt)} onChange={() => setField("exteriorCladding", toggleList(form.exteriorCladding, opt))} />{opt}</label>
@@ -376,7 +376,7 @@ export default function EbaPage() {
             </div>
 
             <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <h2 className="text-sm font-semibold text-gray-700 mb-3">8) Install Information</h2>
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">3) Install Information</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-gray-500">Cladding Type</label>
@@ -400,7 +400,7 @@ export default function EbaPage() {
             </div>
 
             <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <h2 className="text-sm font-semibold text-gray-700 mb-3">9) Assessment Questions</h2>
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">Assessment Questions</h2>
 
               <div className="space-y-3">
                 {q.map(([key, label]) => (
@@ -423,7 +423,7 @@ export default function EbaPage() {
             </div>
 
             <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <h2 className="text-sm font-semibold text-gray-700 mb-3">10) Assessor Declaration</h2>
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">Assessor Declaration</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-gray-500">Assessor Name</label>
