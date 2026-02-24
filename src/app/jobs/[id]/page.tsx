@@ -145,6 +145,7 @@ export default function JobDetailPage() {
   // Selected salesperson
   const [selectedUserId, setSelectedUserId] = useState("");
   const [leadSourceForm, setLeadSourceForm] = useState<string[]>([]);
+  const [quoteExpanded, setQuoteExpanded] = useState(false);
 
   // Load job + users
   const load = useCallback(async () => {
@@ -780,7 +781,17 @@ export default function JobDetailPage() {
 
         {/* Quote details */}
         {job.stage === "QUOTE" || job.stage === "SCHEDULED" ? (
-          <Section title="Quote" action={<EditBtn onClick={() => openSheet("quote")} />}>
+          <Section
+            title="Quote"
+            action={
+              <div className="flex items-center gap-3">
+                <button onClick={() => setQuoteExpanded((v) => !v)} className="text-xs text-gray-500 font-medium">
+                  {quoteExpanded ? "Collapse" : "Expand"}
+                </button>
+                <EditBtn onClick={() => openSheet("quote")} />
+              </div>
+            }
+          >
             {job.quote?.c_total != null && (
               <div className="text-3xl font-bold text-green-600 mb-2">{fmtCurrency(job.quote.c_total)}</div>
             )}
@@ -788,32 +799,37 @@ export default function JobDetailPage() {
               {job.quote?.quoteNumber && <span className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded font-medium">#{job.quote.quoteNumber}</span>}
               {job.quote?.date && <span className="text-xs text-gray-400">{fmt(job.quote.date)}</span>}
             </div>
-            <InfoRow label="Consent Fee" value={job.quote?.consentFee ? fmtCurrency(job.quote.consentFee) : null} />
-            <InfoRow label="Deposit" value={job.quote?.depositPercentage ? `${job.quote.depositPercentage}% — ${fmtCurrency(job.quote.c_deposit)}` : null} />
-            {job.quote?.quoteNote && (
-              <div className="mt-2 pt-2 border-t border-gray-50">
-                <span className="text-xs text-gray-400 uppercase tracking-wide font-medium">Comments</span>
-                <p className="text-sm text-gray-700 mt-1">{job.quote.quoteNote}</p>
-              </div>
-            )}
 
-            {hasWall && (
-              <div className="mt-3 pt-3 border-t border-gray-100">
-                <p className="text-xs font-bold text-gray-400 uppercase mb-2">Wall Insulation</p>
-                <InfoRow label="SQM" value={job.quote?.wall?.SQM ? `${job.quote.wall.SQM} m²` : null} />
-                <InfoRow label="Price / m²" value={job.quote?.wall?.SQMPrice ? fmtCurrency(job.quote.wall.SQMPrice) : null} />
-                <InfoRow label="R-Value" value={job.quote?.wall?.c_RValue ? `R${job.quote.wall.c_RValue}` : null} />
-                <InfoRow label="Bags" value={job.quote?.wall?.c_bagCount ? `${job.quote.wall.c_bagCount} bags` : null} />
-              </div>
-            )}
-            {hasCeiling && (
-              <div className="mt-3 pt-3 border-t border-gray-100">
-                <p className="text-xs font-bold text-gray-400 uppercase mb-2">Ceiling Insulation</p>
-                <InfoRow label="SQM" value={job.quote?.ceiling?.SQM ? `${job.quote.ceiling.SQM} m²` : null} />
-                <InfoRow label="Price / m²" value={job.quote?.ceiling?.SQMPrice ? fmtCurrency(job.quote.ceiling.SQMPrice) : null} />
-                <InfoRow label="R-Value" value={job.quote?.ceiling?.RValue ? `R${job.quote.ceiling.RValue}` : null} />
-                <InfoRow label="Bags" value={job.quote?.ceiling?.c_bagCount ? `${job.quote.ceiling.c_bagCount} bags` : null} />
-              </div>
+            {quoteExpanded && (
+              <>
+                <InfoRow label="Consent Fee" value={job.quote?.consentFee ? fmtCurrency(job.quote.consentFee) : null} />
+                <InfoRow label="Deposit" value={job.quote?.depositPercentage ? `${job.quote.depositPercentage}% — ${fmtCurrency(job.quote.c_deposit)}` : null} />
+                {job.quote?.quoteNote && (
+                  <div className="mt-2 pt-2 border-t border-gray-50">
+                    <span className="text-xs text-gray-400 uppercase tracking-wide font-medium">Comments</span>
+                    <p className="text-sm text-gray-700 mt-1">{job.quote.quoteNote}</p>
+                  </div>
+                )}
+
+                {hasWall && (
+                  <div className="mt-3 pt-3 border-t border-gray-100">
+                    <p className="text-xs font-bold text-gray-400 uppercase mb-2">Wall Insulation</p>
+                    <InfoRow label="SQM" value={job.quote?.wall?.SQM ? `${job.quote.wall.SQM} m²` : null} />
+                    <InfoRow label="Price / m²" value={job.quote?.wall?.SQMPrice ? fmtCurrency(job.quote.wall.SQMPrice) : null} />
+                    <InfoRow label="R-Value" value={job.quote?.wall?.c_RValue ? `R${job.quote.wall.c_RValue}` : null} />
+                    <InfoRow label="Bags" value={job.quote?.wall?.c_bagCount ? `${job.quote.wall.c_bagCount} bags` : null} />
+                  </div>
+                )}
+                {hasCeiling && (
+                  <div className="mt-3 pt-3 border-t border-gray-100">
+                    <p className="text-xs font-bold text-gray-400 uppercase mb-2">Ceiling Insulation</p>
+                    <InfoRow label="SQM" value={job.quote?.ceiling?.SQM ? `${job.quote.ceiling.SQM} m²` : null} />
+                    <InfoRow label="Price / m²" value={job.quote?.ceiling?.SQMPrice ? fmtCurrency(job.quote.ceiling.SQMPrice) : null} />
+                    <InfoRow label="R-Value" value={job.quote?.ceiling?.RValue ? `R${job.quote.ceiling.RValue}` : null} />
+                    <InfoRow label="Bags" value={job.quote?.ceiling?.c_bagCount ? `${job.quote.ceiling.c_bagCount} bags` : null} />
+                  </div>
+                )}
+              </>
             )}
 
             {/* Quote actions */}
@@ -830,6 +846,9 @@ export default function JobDetailPage() {
               </button>
               <button onClick={downloadQuotePDF} className="flex-1 bg-gray-900 text-white text-sm font-semibold py-2.5 rounded-xl">📄 Quote PDF</button>
             </div>
+            {job.quote?.date && (
+              <p className="text-xs text-gray-500 mt-2">Last sent to customer: {fmt(job.quote.date)}</p>
+            )}
           </Section>
         ) : job.stage === "LEAD" ? (
           <div className="mb-3">
