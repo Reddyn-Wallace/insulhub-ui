@@ -147,6 +147,7 @@ export default function JobDetailPage() {
   const [selectedUserId, setSelectedUserId] = useState("");
   const [leadSourceForm, setLeadSourceForm] = useState<string[]>([]);
   const [quoteExpanded, setQuoteExpanded] = useState(false);
+  const [quoteLastSentAt, setQuoteLastSentAt] = useState<string>("");
 
   // Load job + users
   const load = useCallback(async () => {
@@ -193,6 +194,9 @@ export default function JobDetailPage() {
       setQuoteBookingDate(toDatetimeLocal(j.lead?.quoteBookingDate));
       setSelectedUserId(j.lead?.allocatedTo?._id || "");
       setLeadSourceForm(j.lead?.leadSource || []);
+      const lsKey = `quote-last-sent:${id}`;
+      const cachedSentAt = typeof window !== "undefined" ? localStorage.getItem(lsKey) : null;
+      setQuoteLastSentAt(cachedSentAt || j.quote?.date || "");
 
       const me = JSON.parse(localStorage.getItem("me") || "{}");
       const initials = ((me.firstname?.[0] || "") + (me.lastname?.[0] || "")).toUpperCase();
@@ -557,6 +561,9 @@ export default function JobDetailPage() {
       emailQuoteToCustomer: true,
       quotePDFEmailBodyTemplate: template,
     }));
+    const sentAt = new Date().toISOString();
+    setQuoteLastSentAt(sentAt);
+    if (typeof window !== "undefined") localStorage.setItem(`quote-last-sent:${id}`, sentAt);
     alert("Quote sent to customer.");
   }
 
@@ -869,8 +876,8 @@ export default function JobDetailPage() {
               </button>
               <button onClick={downloadQuotePDF} className="flex-1 bg-gray-900 text-white text-sm font-semibold py-2.5 rounded-xl">📄 Quote PDF</button>
             </div>
-            {job.quote?.date && (
-              <p className="text-xs text-gray-500 mt-2">Last sent to customer: {fmt(job.quote.date)}</p>
+            {quoteLastSentAt && (
+              <p className="text-xs text-gray-500 mt-2">Last sent to customer: {fmt(quoteLastSentAt)}</p>
             )}
           </Section>
         ) : job.stage === "LEAD" ? (
