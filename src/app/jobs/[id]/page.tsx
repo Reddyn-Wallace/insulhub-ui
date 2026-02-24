@@ -334,9 +334,20 @@ export default function JobDetailPage() {
 
 
   async function saveLeadSource() {
-    await run(() => gql(UPDATE_JOB_LEAD, {
-      input: { _id: id, lead: buildLeadInput({ leadSource: leadSourceForm }) },
-    }));
+    setSaving(true);
+    setError("");
+    try {
+      await gql(UPDATE_JOB_LEAD, {
+        input: { _id: id, lead: buildLeadInput({ leadSource: leadSourceForm }) },
+      });
+      setJob((prev) => prev ? ({ ...prev, lead: { ...prev.lead, leadSource: leadSourceForm } }) : prev);
+      closeSheet();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Could not save lead source";
+      setError(msg || "Could not save lead source");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function saveCallbackDate() {
