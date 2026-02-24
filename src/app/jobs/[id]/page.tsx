@@ -475,6 +475,24 @@ export default function JobDetailPage() {
     }
   }
 
+  async function saveQuoteAndOpenEBA() {
+    if (!quoteForm.quoteNumber || !quoteForm.date || (!quoteForm.hasWall && !quoteForm.hasCeiling)) {
+      alert("Add quote data first (quote number, date, and wall/ceiling values).");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await gql(UPDATE_JOB_QUOTE, { input: buildQuoteUpdateInput(false) });
+      await load();
+      await openEBAClientApprovalPage();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save quote and open EBA");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function archiveJob() {
     if (!confirm("Archive this job?")) return;
     await run(() => gql(ARCHIVE_JOB, { _id: id }));
@@ -482,8 +500,8 @@ export default function JobDetailPage() {
   }
 
   async function sendEBA() {
-    if (!job?.ebaForm?.complete || !job?.ebaForm?.signature_assessor?.fileName) {
-      alert("Complete and sign the EBA first before sending.");
+    if (!job?.ebaForm?.complete) {
+      alert("Complete the EBA first before sending.");
       return;
     }
     await run(() => gql(SEND_EBA, { jobId: id }));
@@ -808,12 +826,7 @@ export default function JobDetailPage() {
                 className="flex-1 bg-indigo-600 text-white text-sm font-semibold py-2.5 rounded-xl disabled:opacity-50">
                 ✉️ Send Quote
               </button>
-              <button onClick={sendEBA} disabled={saving || !job.ebaForm?.complete || !job.ebaForm?.signature_assessor?.fileName}
-                className="flex-1 bg-[#1a3a4a] text-white text-sm font-semibold py-2.5 rounded-xl disabled:opacity-40">
-                📋 Send EBA
-              </button>
               <button onClick={downloadQuotePDF} className="flex-1 bg-gray-900 text-white text-sm font-semibold py-2.5 rounded-xl">📄 Quote PDF</button>
-              <button onClick={openEBAClientApprovalPage} className="flex-1 bg-white border border-gray-300 text-gray-700 text-sm font-semibold py-2.5 rounded-xl">🧾 Complete EBA</button>
             </div>
           </Section>
         ) : job.stage === "LEAD" ? (
@@ -824,6 +837,31 @@ export default function JobDetailPage() {
             </button>
           </div>
         ) : null}
+
+
+        {(job.stage === "QUOTE" || job.stage === "SCHEDULED") && (
+          <Section title="EBA">
+            <div className="flex gap-2 flex-wrap">
+              <button
+                onClick={saveQuoteAndOpenEBA}
+                disabled={saving}
+                className="flex-1 bg-white border border-gray-300 text-gray-700 text-sm font-semibold py-2.5 rounded-xl disabled:opacity-50"
+              >
+                🧾 {job.ebaForm?.complete || job.ebaForm?.signature_assessor?.fileName ? "Edit EBA" : "Complete EBA"}
+              </button>
+              <button
+                onClick={sendEBA}
+                disabled={saving || !job.ebaForm?.complete}
+                className="flex-1 bg-[#1a3a4a] text-white text-sm font-semibold py-2.5 rounded-xl disabled:opacity-40"
+              >
+                📋 Send EBA
+              </button>
+            </div>
+            {!job.ebaForm?.complete && (
+              <p className="text-xs text-gray-400 mt-2">Send EBA becomes available once EBA is completed.</p>
+            )}
+          </Section>
+        )}
 
         {/* Notes */}
         <Section
