@@ -277,12 +277,14 @@ export default function JobDetailPage() {
     const wallPrice = n(quoteForm.wallSQMPrice);
     const cavity = n(quoteForm.wallCavityDepth) || 0.1;
     const wallR = 28 * cavity;
-    const wallBags = cavity === 0.1 ? wallSQM / 6.5 : wallSQM / 5;
+    const wallBagsRaw = cavity === 0.1 ? wallSQM / 6.5 : wallSQM / 5;
+    const wallBags = Math.round(wallBagsRaw * 10) / 10;
 
     const ceilingSQM = n(quoteForm.ceilingSQM);
     const ceilingPrice = n(quoteForm.ceilingSQMPrice);
     const ceilingR = n(quoteForm.ceilingRValue);
-    const ceilingBags = ceilingR * ceilingSQM * 0.0405;
+    const ceilingBagsRaw = ceilingR * ceilingSQM * 0.0405;
+    const ceilingBags = Math.round(ceilingBagsRaw * 10) / 10;
     const ceilingThickness = ceilingR * 42;
 
     const extrasTotal = (quoteForm.extras || []).reduce((acc, e) => acc + n(e.price), 0);
