@@ -59,6 +59,7 @@ function JobsPageContent() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [total, setTotal] = useState(0);
   const [globalCounts, setGlobalCounts] = useState<Record<string, number> | null>(null);
+  const [stageHydrated, setStageHydrated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -120,10 +121,12 @@ function JobsPageContent() {
       setJobs(cached.jobs);
       setTotal(cached.total);
       setGlobalCounts(persisted?.counts || null);
+      setStageHydrated(true);
       setLoading(false);
     } else {
       // Otherwise show loading state
       setJobs([]);
+      setStageHydrated(false);
       setLoading(true);
     }
   }, [initStage, searchMode, searchParams, readStageCache]); // Depend on searchMode too to ensure we clear/show correctly
@@ -154,6 +157,7 @@ function JobsPageContent() {
 
       setJobs(activeJobs);
       setTotal(data.jobs.total);
+      setStageHydrated(true);
 
       if (!isSearching && (activeStage === "LEAD" || activeStage === "QUOTE")) {
         const stageJobs = activeJobs;
@@ -417,7 +421,7 @@ function JobsPageContent() {
 
       {/* Content */}
       <div className={`flex-1 transition-opacity duration-200 ${loading ? "opacity-50 pointer-events-none" : "opacity-100"}`}>
-        {loading && jobs.length === 0 ? (
+        {(loading && jobs.length === 0) || (!stageHydrated && !error) ? (
           <LoadingSkeleton />
         ) : error ? (
           <div className="px-4 pt-2">
