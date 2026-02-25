@@ -422,6 +422,7 @@ export default function JobDetailPage() {
         quoteResultNote: q.quoteResultNote,
         extras: (q.extras || []).filter((e) => e.name || e.price).map((e) => ({ name: e.name, price: parseFloat(e.price || "0") || 0 })),
         quoteNumber: q.quoteNumber,
+        status: job?.quote?.status || "NEW",
         date: fromDatetimeLocal(q.date),
         consentFee: q.consentFee ? parseFloat(q.consentFee) : undefined,
         depositPercentage: q.depositPercentage ? parseFloat(q.depositPercentage) : 25,
