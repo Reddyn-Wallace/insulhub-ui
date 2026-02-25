@@ -7,7 +7,6 @@ interface Job {
   stage: string;
   createdAt?: string;
   updatedAt: string;
-  quoteLastSentAt?: string;
   lead?: {
     leadStatus?: string;
     allocatedTo?: { _id: string; firstname: string; lastname: string };
@@ -67,15 +66,39 @@ const STAGE_LABEL: Record<string, string> = {
   COMPLETED: "Completed",
 };
 
-let quoteSentMapCache: Record<string, string> | null = null;
-let quoteSentMapPromise: Promise<Record<string, string>> | null = null;
+const STATUS_STYLE: Record<string, { pill: string; border: string; label: string }> = {
+  NEW: { pill: "bg-sky-50 text-sky-700 border border-sky-100", border: "border-l-sky-300", label: "New" },
+  CALLBACK: { pill: "bg-amber-50 text-amber-700 border border-amber-100", border: "border-l-amber-300", label: "Callback" },
+  QUOTE_BOOKED: { pill: "bg-indigo-50 text-indigo-700 border border-indigo-100", border: "border-l-indigo-300", label: "Quote booked" },
+  OPEN: { pill: "bg-sky-50 text-sky-700 border border-sky-100", border: "border-l-sky-300", label: "Open" },
+  DEAD: { pill: "bg-rose-50 text-rose-700 border border-rose-100", border: "border-l-rose-300", label: "Dead" },
+};
 
-async function loadQuoteSentMap(): Promise<Record<string, string>> {
-  if (quoteSentMapCache) return quoteSentMapCache;
-  if (quoteSentMapPromise) return quoteSentMapPromise;
+let sentMapCache: Record<string, string> | null = null;
+let sentMapPromise: Promise<Record<string, string>> | null = null;
 
-  quoteSentMapPromise = (async () => {
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
+async function getSentMap(): Promise<Record<string, string>> {
+  if (sentMapCache) return sentMapCache;
+  if (sentMapPromise) return sentMapPromise;
+
+  sentMapPromise = (async () => {
+    if (typeof window === "undefined") return {};
+
+    const cacheKey = "quote-sent-email-map-v2";
+    const cachedRaw = sessionStorage.getItem(cacheKey);
+    if (cachedRaw) {
+      try {
+        const parsed = JSON.parse(cachedRaw) as { ts: number; map: Record<string, string> };
+        if (Date.now() - parsed.ts < 10 * 60 * 1000 && Object.keys(parsed.map || {}).length > 0) {
+          sentMapCache = parsed.map;
+          return parsed.map;
+        }
+      } catch {
+        // ignore cache parse issues
+      }
+    }
+
+    const token = localStorage.getItem("token") || "";
     if (!token) return {};
 
     let skip = 0;
@@ -95,6 +118,7 @@ async function loadQuoteSentMap(): Promise<Record<string, string>> {
       const json = await res.json();
       const data = json?.data?.listEmailLogs;
       if (!data) break;
+
       total = data.total;
       const batch = data.results || [];
       for (const row of batch) {
@@ -108,30 +132,36 @@ async function loadQuoteSentMap(): Promise<Record<string, string>> {
           map[to] = row.createdAt;
         }
       }
+
       skip += batch.length;
       if (batch.length === 0) break;
     }
 
-    quoteSentMapCache = map;
+    sentMapCache = map;
+    sessionStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), map }));
     return map;
   })();
 
-  return quoteSentMapPromise;
+  return sentMapPromise;
 }
-
-const STATUS_STYLE: Record<string, { pill: string; border: string; label: string }> = {
-  NEW: { pill: "bg-sky-50 text-sky-700 border border-sky-100", border: "border-l-sky-300", label: "New" },
-  CALLBACK: { pill: "bg-amber-50 text-amber-700 border border-amber-100", border: "border-l-amber-300", label: "Callback" },
-  QUOTE_BOOKED: { pill: "bg-indigo-50 text-indigo-700 border border-indigo-100", border: "border-l-indigo-300", label: "Quote booked" },
-  OPEN: { pill: "bg-sky-50 text-sky-700 border border-sky-100", border: "border-l-sky-300", label: "Open" },
-  DEAD: { pill: "bg-rose-50 text-rose-700 border border-rose-100", border: "border-l-rose-300", label: "Dead" },
-};
 
 export default function JobCard({ job }: { job: Job }) {
   const c = job.client?.contactDetails;
   const addressParts = [c?.streetAddress, c?.suburb, c?.city].filter(Boolean).join(", ");
 
   const [now] = useState(() => Date.now());
+  const [sentAt, setSentAt] = useState<string | null>(null);
+
+  useEffect(() => {
+    const email = c?.email?.trim().toLowerCase();
+    if (job.stage !== "QUOTE" || !email) return;
+    getSentMap()
+      .then((map) => {
+        if (map[email]) setSentAt(map[email]);
+      })
+      .catch(() => {});
+  }, [job.stage, c?.email]);
+
   const leadStatusRaw = (job.lead?.leadStatus || "NEW").toUpperCase();
   const leadStatus = leadStatusRaw === "ON_HOLD" ? "CALLBACK" : leadStatusRaw;
   const quoteStatus = (job.quote?.status || "UNSET").toUpperCase();
@@ -158,8 +188,6 @@ export default function JobCard({ job }: { job: Job }) {
   const isCallbackOverdue = (leadStatus === "CALLBACK" || quoteState === "CALLBACK") && Boolean(callbackTime && callbackTime < now);
   const quoteBookingTime = job.lead?.quoteBookingDate ? new Date(job.lead.quoteBookingDate).getTime() : null;
   const isQuoteBookingOverdue = Boolean(quoteBookingTime && quoteBookingTime < now);
-  const sentAt = job.quoteLastSentAt;
-
 
   return (
     <Link href={`/jobs/${job._id}`}>
