@@ -57,6 +57,7 @@ function formatDateTime(iso?: string | null) {
     timeZone: "Pacific/Auckland",
     day: "numeric",
     month: "short",
+    year: "numeric",
     hour: "numeric",
     minute: "2-digit",
   });
