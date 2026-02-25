@@ -332,7 +332,39 @@ function JobsPageContent() {
     };
     const leadSortTs = (job: Job) => new Date(job.createdAt || job.updatedAt).getTime();
 
+    const futureFirst = (aTime: number | null, bTime: number | null) => {
+      const now = Date.now();
+      const aFuture = aTime != null && aTime >= now;
+      const bFuture = bTime != null && bTime >= now;
+      if (aFuture && !bFuture) return -1;
+      if (!aFuture && bFuture) return 1;
+      if (aTime == null && bTime != null) return 1;
+      if (aTime != null && bTime == null) return -1;
+      if (aTime == null && bTime == null) return 0;
+      return (aTime as number) - (bTime as number); // nearest upcoming first
+    };
+
     return [...filtered].sort((a, b) => {
+      // Lead tab: Quote booked should sort by quote booking date (next upcoming first)
+      if (activeStage === "LEAD" && subTab === "QUOTE_BOOKED") {
+        const aTime = a.lead?.quoteBookingDate ? new Date(a.lead.quoteBookingDate).getTime() : null;
+        const bTime = b.lead?.quoteBookingDate ? new Date(b.lead.quoteBookingDate).getTime() : null;
+        return futureFirst(aTime, bTime);
+      }
+
+      // Callback tabs (both Leads + Quotes): sort by callback/deferral date next upcoming first
+      if (subTab === "CALLBACK") {
+        const aCb = activeStage === "QUOTE"
+          ? (a.quote?.deferralDate || a.lead?.callbackDate)
+          : a.lead?.callbackDate;
+        const bCb = activeStage === "QUOTE"
+          ? (b.quote?.deferralDate || b.lead?.callbackDate)
+          : b.lead?.callbackDate;
+        const aTime = aCb ? new Date(aCb).getTime() : null;
+        const bTime = bCb ? new Date(bCb).getTime() : null;
+        return futureFirst(aTime, bTime);
+      }
+
       if (activeStage === "QUOTE") {
         const aHasDate = Boolean(a.quote?.date);
         const bHasDate = Boolean(b.quote?.date);
@@ -347,7 +379,7 @@ function JobsPageContent() {
       const bTime = leadSortTs(b);
       return sortOrder === "newest" ? bTime - aTime : aTime - bTime;
     });
-  }, [filtered, sortOrder, activeStage]);
+  }, [filtered, sortOrder, activeStage, subTab]);
 
   const showSubTabs = !searchMode && (activeStage === "LEAD" || activeStage === "QUOTE");
 
