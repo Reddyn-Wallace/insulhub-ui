@@ -73,6 +73,7 @@ function JobsPageContent() {
   const [salespersonFilter, setSalespersonFilter] = useState<string>("ALL");
   const [loading, setLoading] = useState(true);
   const [isFetchingStage, setIsFetchingStage] = useState(false);
+  const [quoteSentByEmail, setQuoteSentByEmail] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -168,7 +169,11 @@ function JobsPageContent() {
       // Filter out archived jobs as requested
       const activeJobs = allFetched.filter(j => !j.archivedAt);
 
-      setJobs(activeJobs);
+      setJobs(activeJobs.map((j) => {
+        const email = j.client?.contactDetails?.email?.trim().toLowerCase();
+        const sentAt = email ? quoteSentByEmail[email] : undefined;
+        return sentAt ? { ...j, quoteLastSentAt: sentAt } : j;
+      }));
       setTotal(data.jobs.total);
       setStageHydrated(true);
 
@@ -208,7 +213,7 @@ function JobsPageContent() {
         setIsFetchingStage(false);
       }
     }
-  }, [activeStage, page, search, searchMode, jobs.length, writeStageCache]);
+  }, [activeStage, page, search, searchMode, jobs.length, writeStageCache, quoteSentByEmail]);
 
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
@@ -257,6 +262,63 @@ function JobsPageContent() {
     gql<{ users: { results: User[] } }>(USERS_QUERY)
       .then((d) => setUsers((d.users?.results || []).filter((u) => (u.role || "").toUpperCase() !== "INSTALLER")))
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    if (!token) return;
+
+    const cacheKey = "quote-sent-email-map";
+    const cached = typeof window !== "undefined" ? sessionStorage.getItem(cacheKey) : null;
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached) as { ts: number; map: Record<string, string> };
+        if (Date.now() - parsed.ts < 10 * 60 * 1000) {
+          setQuoteSentByEmail(parsed.map || {});
+          return;
+        }
+      } catch {}
+    }
+
+    (async () => {
+      try {
+        let skip = 0;
+        const limit = 500;
+        let total = Number.MAX_SAFE_INTEGER;
+        const map: Record<string, string> = {};
+
+        while (skip < total) {
+          const data = await gql<{ listEmailLogs: { total: number; results: Array<{ createdAt: string; type?: string; subject?: string; to_email?: string }> } }>(
+            `query($skip:Int,$limit:Int){listEmailLogs(skip:$skip,limit:$limit){total results{createdAt type subject to_email}}}`,
+            { skip, limit }
+          );
+
+          total = data.listEmailLogs.total;
+          const batch = data.listEmailLogs.results || [];
+          for (const row of batch) {
+            const to = (row.to_email || "").trim().toLowerCase();
+            const subject = (row.subject || "").toLowerCase();
+            const type = (row.type || "").toLowerCase();
+            if (!to) continue;
+            if (!(subject.includes("quote") || type === "quote")) continue;
+            const curr = map[to];
+            if (!curr || new Date(row.createdAt).getTime() > new Date(curr).getTime()) {
+              map[to] = row.createdAt;
+            }
+          }
+
+          skip += batch.length;
+          if (batch.length === 0) break;
+        }
+
+        setQuoteSentByEmail(map);
+        if (typeof window !== "undefined") {
+          sessionStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), map }));
+        }
+      } catch {
+        // best-effort only
+      }
+    })();
   }, []);
 
   // Debounced search
