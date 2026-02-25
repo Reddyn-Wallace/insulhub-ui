@@ -110,7 +110,10 @@ function normalizeEmailHtml(input: string) {
   // Signature tidy-up: remove extra gap between sign-off line and name/phone line.
   html = html
     .replace(/(<p[^>]*>\s*(?:Warm regards|Kind regards|Regards|Thanks|Thank you),?\s*<\/p>)\s*<p[^>]*>([\s\S]*?)<\/p>/gi, (_m, signoff, nameLine) => {
-      const merged = signoff.replace(/<\/p>$/i, `<br>${nameLine}</p>`);
+      const withGap = /style\s*=/.test(signoff)
+        ? signoff.replace(/style\s*=\s*(["'])/i, 'style=$1margin-top:12px;')
+        : signoff.replace(/^<p/i, '<p style="margin-top:12px;"');
+      const merged = withGap.replace(/<\/p>$/i, `<br>${nameLine}</p>`);
       return merged;
     });
 
