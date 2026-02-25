@@ -147,139 +147,60 @@ function JobsPageContent() {
     const currentFetchId = ++fetchIdRef.current;
     setError("");
     setIsFetchingStage(true);
-    if (!stageHydrated) setLoading(true);
+    if (jobs.length === 0) setLoading(true);
 
     const isSearching = searchMode;
     const q = search;
 
     try {
-      const isMainStage = activeStage === "LEAD" || activeStage === "QUOTE";
-      const progressiveInitial = !isSearching && isMainStage && page === 0;
-
+      const shouldFetchAllForStage = !isSearching && (activeStage === "LEAD" || activeStage === "QUOTE");
       const data = await gql<JobsData>(JOBS_QUERY, {
         ...(isSearching ? {} : { stages: [activeStage] }),
-        skip: !isSearching && isMainStage ? 0 : page * PAGE_SIZE,
-        limit: PAGE_SIZE,
+        skip: shouldFetchAllForStage ? 0 : page * PAGE_SIZE,
+        limit: shouldFetchAllForStage ? 5000 : PAGE_SIZE,
         ...(q ? { search: q } : {}),
       });
 
       // Ignore stale responses
       if (currentFetchId !== fetchIdRef.current) return;
 
-      const isQuoteBooked = (job: Job) => Boolean(job.lead?.quoteBookingDate);
-      const isCallbackLead = (job: Job) => ["CALLBACK", "ON_HOLD"].includes((job.lead?.leadStatus || "").toUpperCase());
-      const isNewLead = (job: Job) => (!job.lead?.leadStatus || job.lead.leadStatus === "NEW") && !isQuoteBooked(job);
-      const quoteState = (job: Job) => {
-        if (job.lead?.leadStatus === "DEAD" || job.quote?.status === "DECLINED") return "DEAD";
-        if (job.quote?.status === "DEFERRED" || isCallbackLead(job)) return "CALLBACK";
-        return "OPEN";
-      };
-      const firstBatch = data.jobs.results.filter((j) => !j.archivedAt);
-      const byId = new Map<string, Job>(firstBatch.map((j) => [j._id, j]));
-      const nextSkip = PAGE_SIZE;
+      const allFetched = data.jobs.results;
+      // Filter out archived jobs as requested
+      const activeJobs = allFetched.filter(j => !j.archivedAt);
 
-      // For default QUOTE/OPEN experience, also seed from the tail where recent opens are more likely.
-      if (progressiveInitial && activeStage === "QUOTE" && subTab === "OPEN" && data.jobs.total > PAGE_SIZE) {
-        const chunk = 300;
-        const tailSkips = [
-          Math.max(data.jobs.total - chunk, 0),
-          Math.max(data.jobs.total - chunk * 2, 0),
-          Math.max(data.jobs.total - chunk * 3, 0),
-        ].filter((s, i, arr) => s > 0 && arr.indexOf(s) === i);
-
-        if (tailSkips.length > 0) {
-          try {
-            const tailBurst = await Promise.all(
-              tailSkips.map((s) => gql<JobsData>(JOBS_QUERY, { stages: [activeStage], skip: s, limit: chunk }))
-            );
-            for (const res of tailBurst) {
-              const batch = (res.jobs.results || []).filter((j) => !j.archivedAt);
-              for (const j of batch) byId.set(j._id, j);
-            }
-          } catch {
-            // best effort only
-          }
-        }
-      }
-
-      const seededJobs = Array.from(byId.values());
-      setJobs(seededJobs);
+      setJobs(activeJobs.map((j) => {
+        const email = j.client?.contactDetails?.email?.trim().toLowerCase();
+        const sentAt = email ? quoteSentByEmail[email] : undefined;
+        return sentAt ? { ...j, quoteLastSentAt: sentAt } : j;
+      }));
       setTotal(data.jobs.total);
       setStageHydrated(true);
 
-      // Update lightweight cache immediately for fast first paint.
-      if (!isSearching && page === 0) {
-        cacheRef.current[activeStage] = { jobs: seededJobs, total: data.jobs.total };
-      }
-
-      // If everything relevant is already seeded, compute counts immediately.
-      if (!isSearching && isMainStage && data.jobs.total <= byId.size) {
+      if (!isSearching && (activeStage === "LEAD" || activeStage === "QUOTE")) {
+        const stageJobs = activeJobs;
+        const isQuoteBooked = (job: Job) => Boolean(job.lead?.quoteBookingDate);
+        const isCallbackLead = (job: Job) => ["CALLBACK", "ON_HOLD"].includes((job.lead?.leadStatus || "").toUpperCase());
+        const isNewLead = (job: Job) => (!job.lead?.leadStatus || job.lead.leadStatus === "NEW") && !isQuoteBooked(job);
+        const quoteState = (job: Job) => {
+          if (job.lead?.leadStatus === "DEAD" || job.quote?.status === "DECLINED") return "DEAD";
+          if (job.quote?.status === "DEFERRED" || isCallbackLead(job)) return "CALLBACK";
+          return "OPEN";
+        };
         const computedCounts = {
-          ALL: seededJobs.length,
-          NEW: seededJobs.filter((j) => isNewLead(j)).length,
-          CALLBACK: seededJobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "CALLBACK" : isCallbackLead(j)).length,
-          QUOTE_BOOKED: seededJobs.filter((j) => isQuoteBooked(j)).length,
-          OPEN: seededJobs.filter((j) => quoteState(j) === "OPEN").length,
-          DEAD: seededJobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "DEAD" : j.lead?.leadStatus === "DEAD").length,
+          ALL: stageJobs.length,
+          NEW: stageJobs.filter((j) => isNewLead(j)).length,
+          CALLBACK: stageJobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "CALLBACK" : isCallbackLead(j)).length,
+          QUOTE_BOOKED: stageJobs.filter((j) => isQuoteBooked(j)).length,
+          OPEN: stageJobs.filter((j) => quoteState(j) === "OPEN").length,
+          DEAD: stageJobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "DEAD" : j.lead?.leadStatus === "DEAD").length,
         };
         setGlobalCounts(computedCounts);
-        writeStageCache(activeStage, { jobs: seededJobs, total: data.jobs.total, counts: computedCounts });
+        writeStageCache(activeStage, { jobs: activeJobs, total: data.jobs.total, counts: computedCounts });
       }
 
-      // Progressive background hydration for main stages on initial load.
-      if (progressiveInitial && nextSkip < data.jobs.total) {
-        (async () => {
-          try {
-            const chunk = 300;
-            let skip = nextSkip;
-
-            // Quick burst: grab several chunks in parallel so active sub-tabs populate fast.
-            const burstSkips = [skip, skip + chunk, skip + chunk * 2].filter((s) => s < data.jobs.total);
-            if (burstSkips.length > 0) {
-              const burst = await Promise.all(
-                burstSkips.map((s) => gql<JobsData>(JOBS_QUERY, { stages: [activeStage], skip: s, limit: chunk }))
-              );
-              for (const res of burst) {
-                const batch = (res.jobs.results || []).filter((j) => !j.archivedAt);
-                for (const j of batch) byId.set(j._id, j);
-              }
-              setJobs(Array.from(byId.values()));
-              skip = skip + chunk * burstSkips.length;
-            }
-
-            while (skip < data.jobs.total) {
-              if (currentFetchId !== fetchIdRef.current) return;
-              const more = await gql<JobsData>(JOBS_QUERY, {
-                stages: [activeStage],
-                skip,
-                limit: chunk,
-              });
-              const batch = (more.jobs.results || []).filter((j) => !j.archivedAt);
-              for (const j of batch) byId.set(j._id, j);
-
-              // Apply incrementally so lists/sub-tabs populate without waiting for full scan.
-              setJobs(Array.from(byId.values()));
-              skip += chunk;
-              if (batch.length === 0) break;
-            }
-
-            if (currentFetchId !== fetchIdRef.current) return;
-
-            const allJobs = Array.from(byId.values());
-            const computedCounts = {
-              ALL: allJobs.length,
-              NEW: allJobs.filter((j) => isNewLead(j)).length,
-              CALLBACK: allJobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "CALLBACK" : isCallbackLead(j)).length,
-              QUOTE_BOOKED: allJobs.filter((j) => isQuoteBooked(j)).length,
-              OPEN: allJobs.filter((j) => quoteState(j) === "OPEN").length,
-              DEAD: allJobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "DEAD" : j.lead?.leadStatus === "DEAD").length,
-            };
-            setGlobalCounts(computedCounts);
-            writeStageCache(activeStage, { jobs: allJobs, total: data.jobs.total, counts: computedCounts });
-          } catch {
-            // best effort only
-          }
-        })();
+      // Update cache for stage first page
+      if (!isSearching && page === 0) {
+        cacheRef.current[activeStage] = { jobs: activeJobs, total: data.jobs.total };
       }
     } catch (err) {
       if (currentFetchId !== fetchIdRef.current) return;
@@ -291,7 +212,7 @@ function JobsPageContent() {
         setIsFetchingStage(false);
       }
     }
-  }, [activeStage, subTab, page, search, searchMode, stageHydrated, writeStageCache]);
+  }, [activeStage, page, search, searchMode, jobs.length, writeStageCache, quoteSentByEmail]);
 
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
@@ -335,7 +256,7 @@ function JobsPageContent() {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (!token) return;
 
-    const cacheKey = "quote-sent-email-map-v2";
+    const cacheKey = "quote-sent-email-map";
     const cached = typeof window !== "undefined" ? sessionStorage.getItem(cacheKey) : null;
     if (cached) {
       try {
@@ -362,7 +283,6 @@ function JobsPageContent() {
 
           total = data.listEmailLogs.total;
           const batch = data.listEmailLogs.results || [];
-          let changed = false;
           for (const row of batch) {
             const to = (row.to_email || "").trim().toLowerCase();
             const subject = (row.subject || "").toLowerCase();
@@ -372,11 +292,8 @@ function JobsPageContent() {
             const curr = map[to];
             if (!curr || new Date(row.createdAt).getTime() > new Date(curr).getTime()) {
               map[to] = row.createdAt;
-              changed = true;
             }
           }
-
-          if (changed) setQuoteSentByEmail((prev) => ({ ...prev, ...map }));
 
           skip += batch.length;
           if (batch.length === 0) break;
@@ -444,16 +361,8 @@ function JobsPageContent() {
     DEAD: jobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "DEAD" : j.lead?.leadStatus === "DEAD").length,
   };
 
-  const decoratedJobs = useMemo(() => (
-    jobs.map((j) => {
-      const email = j.client?.contactDetails?.email?.trim().toLowerCase();
-      const sentAt = email ? quoteSentByEmail[email] : undefined;
-      return sentAt ? { ...j, quoteLastSentAt: sentAt } : j;
-    })
-  ), [jobs, quoteSentByEmail]);
-
   // Client-side sub-tab filter
-  const filtered = decoratedJobs.filter((job) => {
+  const filtered = jobs.filter((job) => {
     if (salespersonFilter !== "ALL" && job.lead?.allocatedTo?._id !== salespersonFilter) return false;
     if (!searchMode && subTab !== "ALL" && (activeStage === "LEAD" || activeStage === "QUOTE")) {
       if (activeStage === "QUOTE") return quoteState(job) === subTab;
@@ -541,8 +450,6 @@ function JobsPageContent() {
     if (loading || error || searchMode) return;
     if (salespersonFilter !== "ALL") return;
     if (!(activeStage === "LEAD" || activeStage === "QUOTE")) return;
-    // Avoid refetch loops while progressive hydration is still filling background data.
-    if (jobs.length < total) return;
 
     const expected = globalCounts?.[subTab as keyof typeof globalCounts];
     if (typeof expected === "number" && expected > 0 && sortedJobs.length === 0) {
@@ -557,12 +464,8 @@ function JobsPageContent() {
     subTab,
     globalCounts,
     sortedJobs.length,
-    jobs.length,
-    total,
     fetchJobs,
   ]);
-
-  const waitingForSubtabData = isFetchingStage && !searchMode && (activeStage === "LEAD" || activeStage === "QUOTE") && page === 0 && sortedJobs.length === 0;
 
   // Client-side paginate after filtering/sorting.
   const paginatedResults = sortedJobs.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -687,7 +590,7 @@ function JobsPageContent() {
 
       {/* Content */}
       <div className={`flex-1 transition-opacity duration-200 ${loading ? "opacity-50 pointer-events-none" : "opacity-100"}`}>
-        {((isFetchingStage || waitingForSubtabData) && paginatedResults.length === 0 && !error) ? (
+        {(isFetchingStage && paginatedResults.length === 0 && !error) ? (
           <div className="px-4 pt-10 flex flex-col items-center gap-3 text-gray-400 text-sm">
             <div className="w-7 h-7 border-2 border-gray-200 border-t-[#e85d04] rounded-full animate-spin" />
             <span>Loading jobs...</span>

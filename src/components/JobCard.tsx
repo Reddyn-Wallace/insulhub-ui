@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
@@ -21,7 +21,6 @@ interface Job {
     deferralDate?: string;
     c_total?: number;
   };
-  quoteLastSentAt?: string;
   client?: {
     contactDetails?: {
       name?: string;
@@ -90,6 +89,77 @@ const STATUS_STYLE: Record<string, { pill: string; border: string; label: string
   DEAD: { pill: "bg-rose-50 text-rose-700 border border-rose-100", border: "border-l-rose-300", label: "Dead" },
 };
 
+let sentMapCache: Record<string, string> | null = null;
+let sentMapPromise: Promise<Record<string, string>> | null = null;
+
+async function getSentMap(): Promise<Record<string, string>> {
+  if (sentMapCache) return sentMapCache;
+  if (sentMapPromise) return sentMapPromise;
+
+  sentMapPromise = (async () => {
+    if (typeof window === "undefined") return {};
+
+    const cacheKey = "quote-sent-email-map-v2";
+    const cachedRaw = sessionStorage.getItem(cacheKey);
+    if (cachedRaw) {
+      try {
+        const parsed = JSON.parse(cachedRaw) as { ts: number; map: Record<string, string> };
+        if (Date.now() - parsed.ts < 10 * 60 * 1000 && Object.keys(parsed.map || {}).length > 0) {
+          sentMapCache = parsed.map;
+          return parsed.map;
+        }
+      } catch {
+        // ignore cache parse issues
+      }
+    }
+
+    const token = localStorage.getItem("token") || "";
+    if (!token) return {};
+
+    let skip = 0;
+    const limit = 500;
+    let total = Number.MAX_SAFE_INTEGER;
+    const map: Record<string, string> = {};
+
+    while (skip < total) {
+      const res = await fetch("https://api.insulhub.nz/graphql", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-access-token": token },
+        body: JSON.stringify({
+          query: `query($skip:Int,$limit:Int){listEmailLogs(skip:$skip,limit:$limit){total results{createdAt type subject to_email}}}`,
+          variables: { skip, limit },
+        }),
+      });
+      const json = await res.json();
+      const data = json?.data?.listEmailLogs;
+      if (!data) break;
+
+      total = data.total;
+      const batch = data.results || [];
+      for (const row of batch) {
+        const to = (row.to_email || "").trim().toLowerCase();
+        const subject = (row.subject || "").toLowerCase();
+        const type = (row.type || "").toLowerCase();
+        if (!to) continue;
+        if (!(subject.includes("quote") || type === "quote")) continue;
+        const curr = map[to];
+        if (!curr || new Date(row.createdAt).getTime() > new Date(curr).getTime()) {
+          map[to] = row.createdAt;
+        }
+      }
+
+      skip += batch.length;
+      if (batch.length === 0) break;
+    }
+
+    sentMapCache = map;
+    sessionStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), map }));
+    return map;
+  })();
+
+  return sentMapPromise;
+}
+
 export default function JobCard({ job }: { job: Job }) {
   const c = job.client?.contactDetails;
   const addressParts = [c?.streetAddress, c?.suburb, c?.city].filter(Boolean).join(", ");
@@ -97,7 +167,17 @@ export default function JobCard({ job }: { job: Job }) {
   const returnTo = `/jobs${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
 
   const [now] = useState(() => Date.now());
-  const sentAt = job.quoteLastSentAt || null;
+  const [sentAt, setSentAt] = useState<string | null>(null);
+
+  useEffect(() => {
+    const email = c?.email?.trim().toLowerCase();
+    if (job.stage !== "QUOTE" || !email) return;
+    getSentMap()
+      .then((map) => {
+        if (map[email]) setSentAt(map[email]);
+      })
+      .catch(() => {});
+  }, [job.stage, c?.email]);
 
   const leadStatusRaw = (job.lead?.leadStatus || "NEW").toUpperCase();
   const leadStatus = leadStatusRaw === "ON_HOLD" ? "CALLBACK" : leadStatusRaw;
