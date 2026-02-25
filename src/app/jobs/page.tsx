@@ -166,45 +166,83 @@ function JobsPageContent() {
       // Ignore stale responses
       if (currentFetchId !== fetchIdRef.current) return;
 
+      const isQuoteBooked = (job: Job) => Boolean(job.lead?.quoteBookingDate);
+      const isCallbackLead = (job: Job) => ["CALLBACK", "ON_HOLD"].includes((job.lead?.leadStatus || "").toUpperCase());
+      const isNewLead = (job: Job) => (!job.lead?.leadStatus || job.lead.leadStatus === "NEW") && !isQuoteBooked(job);
+      const quoteState = (job: Job) => {
+        if (job.lead?.leadStatus === "DEAD" || job.quote?.status === "DECLINED") return "DEAD";
+        if (job.quote?.status === "DEFERRED" || isCallbackLead(job)) return "CALLBACK";
+        return "OPEN";
+      };
+      const inCurrentSubTab = (job: Job) => {
+        if (activeStage === "QUOTE") {
+          if (subTab === "ALL") return true;
+          return quoteState(job) === subTab;
+        }
+        if (activeStage === "LEAD") {
+          if (subTab === "ALL") return true;
+          if (subTab === "QUOTE_BOOKED") return isQuoteBooked(job);
+          if (subTab === "NEW") return isNewLead(job);
+          const statusRaw = (job.lead?.leadStatus || "NEW").toUpperCase();
+          const status = statusRaw === "ON_HOLD" ? "CALLBACK" : statusRaw;
+          return subTab === status;
+        }
+        return true;
+      };
+
       const firstBatch = data.jobs.results.filter((j) => !j.archivedAt);
-      setJobs(firstBatch);
+      const byId = new Map<string, Job>(firstBatch.map((j) => [j._id, j]));
+      let nextSkip = PAGE_SIZE;
+
+      // Ensure current tab has enough rows before we stop the initial fetch cycle.
+      if (progressiveInitial) {
+        while (nextSkip < data.jobs.total) {
+          const current = Array.from(byId.values());
+          const visibleCount = current.filter(inCurrentSubTab).length;
+          if (visibleCount >= PAGE_SIZE) break;
+
+          const seedMore = await gql<JobsData>(JOBS_QUERY, {
+            stages: [activeStage],
+            skip: nextSkip,
+            limit: 500,
+          });
+          const batch = (seedMore.jobs.results || []).filter((j) => !j.archivedAt);
+          for (const j of batch) byId.set(j._id, j);
+          nextSkip += 500;
+          if (batch.length === 0) break;
+        }
+      }
+
+      const seededJobs = Array.from(byId.values());
+      setJobs(seededJobs);
       setTotal(data.jobs.total);
       setStageHydrated(true);
 
       // Update lightweight cache immediately for fast first paint.
       if (!isSearching && page === 0) {
-        cacheRef.current[activeStage] = { jobs: firstBatch, total: data.jobs.total };
+        cacheRef.current[activeStage] = { jobs: seededJobs, total: data.jobs.total };
       }
 
-      // If everything fits in first page, compute counts immediately.
-      if (!isSearching && isMainStage && data.jobs.total <= PAGE_SIZE) {
-        const isQuoteBooked = (job: Job) => Boolean(job.lead?.quoteBookingDate);
-        const isCallbackLead = (job: Job) => ["CALLBACK", "ON_HOLD"].includes((job.lead?.leadStatus || "").toUpperCase());
-        const isNewLead = (job: Job) => (!job.lead?.leadStatus || job.lead.leadStatus === "NEW") && !isQuoteBooked(job);
-        const quoteState = (job: Job) => {
-          if (job.lead?.leadStatus === "DEAD" || job.quote?.status === "DECLINED") return "DEAD";
-          if (job.quote?.status === "DEFERRED" || isCallbackLead(job)) return "CALLBACK";
-          return "OPEN";
-        };
+      // If everything relevant is already seeded, compute counts immediately.
+      if (!isSearching && isMainStage && data.jobs.total <= byId.size) {
         const computedCounts = {
-          ALL: firstBatch.length,
-          NEW: firstBatch.filter((j) => isNewLead(j)).length,
-          CALLBACK: firstBatch.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "CALLBACK" : isCallbackLead(j)).length,
-          QUOTE_BOOKED: firstBatch.filter((j) => isQuoteBooked(j)).length,
-          OPEN: firstBatch.filter((j) => quoteState(j) === "OPEN").length,
-          DEAD: firstBatch.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "DEAD" : j.lead?.leadStatus === "DEAD").length,
+          ALL: seededJobs.length,
+          NEW: seededJobs.filter((j) => isNewLead(j)).length,
+          CALLBACK: seededJobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "CALLBACK" : isCallbackLead(j)).length,
+          QUOTE_BOOKED: seededJobs.filter((j) => isQuoteBooked(j)).length,
+          OPEN: seededJobs.filter((j) => quoteState(j) === "OPEN").length,
+          DEAD: seededJobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "DEAD" : j.lead?.leadStatus === "DEAD").length,
         };
         setGlobalCounts(computedCounts);
-        writeStageCache(activeStage, { jobs: firstBatch, total: data.jobs.total, counts: computedCounts });
+        writeStageCache(activeStage, { jobs: seededJobs, total: data.jobs.total, counts: computedCounts });
       }
 
       // Progressive background hydration for main stages on initial load.
-      if (progressiveInitial && data.jobs.total > PAGE_SIZE) {
+      if (progressiveInitial && nextSkip < data.jobs.total) {
         (async () => {
           try {
-            const byId = new Map<string, Job>(firstBatch.map((j) => [j._id, j]));
-            let skip = PAGE_SIZE;
             const chunk = 500;
+            let skip = nextSkip;
 
             while (skip < data.jobs.total) {
               if (currentFetchId !== fetchIdRef.current) return;
@@ -225,14 +263,6 @@ function JobsPageContent() {
             if (currentFetchId !== fetchIdRef.current) return;
 
             const allJobs = Array.from(byId.values());
-            const isQuoteBooked = (job: Job) => Boolean(job.lead?.quoteBookingDate);
-            const isCallbackLead = (job: Job) => ["CALLBACK", "ON_HOLD"].includes((job.lead?.leadStatus || "").toUpperCase());
-            const isNewLead = (job: Job) => (!job.lead?.leadStatus || job.lead.leadStatus === "NEW") && !isQuoteBooked(job);
-            const quoteState = (job: Job) => {
-              if (job.lead?.leadStatus === "DEAD" || job.quote?.status === "DECLINED") return "DEAD";
-              if (job.quote?.status === "DEFERRED" || isCallbackLead(job)) return "CALLBACK";
-              return "OPEN";
-            };
             const computedCounts = {
               ALL: allJobs.length,
               NEW: allJobs.filter((j) => isNewLead(j)).length,
@@ -258,7 +288,7 @@ function JobsPageContent() {
         setIsFetchingStage(false);
       }
     }
-  }, [activeStage, page, search, searchMode, stageHydrated, writeStageCache]);
+  }, [activeStage, subTab, page, search, searchMode, stageHydrated, writeStageCache]);
 
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
