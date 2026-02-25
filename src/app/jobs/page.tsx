@@ -174,44 +174,9 @@ function JobsPageContent() {
         if (job.quote?.status === "DEFERRED" || isCallbackLead(job)) return "CALLBACK";
         return "OPEN";
       };
-      const inCurrentSubTab = (job: Job) => {
-        if (activeStage === "QUOTE") {
-          if (subTab === "ALL") return true;
-          return quoteState(job) === subTab;
-        }
-        if (activeStage === "LEAD") {
-          if (subTab === "ALL") return true;
-          if (subTab === "QUOTE_BOOKED") return isQuoteBooked(job);
-          if (subTab === "NEW") return isNewLead(job);
-          const statusRaw = (job.lead?.leadStatus || "NEW").toUpperCase();
-          const status = statusRaw === "ON_HOLD" ? "CALLBACK" : statusRaw;
-          return subTab === status;
-        }
-        return true;
-      };
-
       const firstBatch = data.jobs.results.filter((j) => !j.archivedAt);
       const byId = new Map<string, Job>(firstBatch.map((j) => [j._id, j]));
-      let nextSkip = PAGE_SIZE;
-
-      // Ensure current tab has enough rows before we stop the initial fetch cycle.
-      if (progressiveInitial) {
-        while (nextSkip < data.jobs.total) {
-          const current = Array.from(byId.values());
-          const visibleCount = current.filter(inCurrentSubTab).length;
-          if (visibleCount >= PAGE_SIZE) break;
-
-          const seedMore = await gql<JobsData>(JOBS_QUERY, {
-            stages: [activeStage],
-            skip: nextSkip,
-            limit: 500,
-          });
-          const batch = (seedMore.jobs.results || []).filter((j) => !j.archivedAt);
-          for (const j of batch) byId.set(j._id, j);
-          nextSkip += 500;
-          if (batch.length === 0) break;
-        }
-      }
+      const nextSkip = PAGE_SIZE;
 
       const seededJobs = Array.from(byId.values());
       setJobs(seededJobs);
@@ -241,8 +206,22 @@ function JobsPageContent() {
       if (progressiveInitial && nextSkip < data.jobs.total) {
         (async () => {
           try {
-            const chunk = 500;
+            const chunk = 300;
             let skip = nextSkip;
+
+            // Quick burst: grab several chunks in parallel so active sub-tabs populate fast.
+            const burstSkips = [skip, skip + chunk, skip + chunk * 2].filter((s) => s < data.jobs.total);
+            if (burstSkips.length > 0) {
+              const burst = await Promise.all(
+                burstSkips.map((s) => gql<JobsData>(JOBS_QUERY, { stages: [activeStage], skip: s, limit: chunk }))
+              );
+              for (const res of burst) {
+                const batch = (res.jobs.results || []).filter((j) => !j.archivedAt);
+                for (const j of batch) byId.set(j._id, j);
+              }
+              setJobs(Array.from(byId.values()));
+              skip = skip + chunk * burstSkips.length;
+            }
 
             while (skip < data.jobs.total) {
               if (currentFetchId !== fetchIdRef.current) return;
@@ -288,7 +267,7 @@ function JobsPageContent() {
         setIsFetchingStage(false);
       }
     }
-  }, [activeStage, subTab, page, search, searchMode, stageHydrated, writeStageCache]);
+  }, [activeStage, page, search, searchMode, stageHydrated, writeStageCache]);
 
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
@@ -559,6 +538,8 @@ function JobsPageContent() {
     fetchJobs,
   ]);
 
+  const waitingForSubtabData = !searchMode && (activeStage === "LEAD" || activeStage === "QUOTE") && page === 0 && jobs.length < total && sortedJobs.length === 0;
+
   // Client-side paginate after filtering/sorting.
   const paginatedResults = sortedJobs.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const totalPages = Math.max(1, Math.ceil(sortedJobs.length / PAGE_SIZE));
@@ -682,7 +663,7 @@ function JobsPageContent() {
 
       {/* Content */}
       <div className={`flex-1 transition-opacity duration-200 ${loading ? "opacity-50 pointer-events-none" : "opacity-100"}`}>
-        {(isFetchingStage && paginatedResults.length === 0 && !error) ? (
+        {((isFetchingStage || waitingForSubtabData) && paginatedResults.length === 0 && !error) ? (
           <div className="px-4 pt-10 flex flex-col items-center gap-3 text-gray-400 text-sm">
             <div className="w-7 h-7 border-2 border-gray-200 border-t-[#e85d04] rounded-full animate-spin" />
             <span>Loading jobs...</span>
