@@ -52,6 +52,19 @@ function fmtCurrency(n?: number | null) {
   if (!n && n !== 0) return "-";
   return `$${n.toLocaleString("en-NZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
+function fmtDateTime(iso?: string | null) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("en-NZ", {
+    timeZone: "Pacific/Auckland",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 function toDatetimeLocal(iso?: string | null) {
   if (!iso) return "";
   return new Date(iso).toISOString().slice(0, 16);
@@ -165,6 +178,7 @@ export default function JobDetailPage() {
   const [quoteEmailBody, setQuoteEmailBody] = useState("Please find your insulation quote attached.");
   const [loadingQuoteEmailBody, setLoadingQuoteEmailBody] = useState(false);
   const quoteEmailEditorRef = useRef<HTMLDivElement | null>(null);
+  const [quoteSentAt, setQuoteSentAt] = useState<string | null>(null);
 
   // Load job + users
   const load = useCallback(async () => {
@@ -258,6 +272,70 @@ export default function JobDetailPage() {
     if (!localStorage.getItem("token")) { router.push("/login"); return; }
     load();
   }, [load, router]);
+
+  useEffect(() => {
+    const email = job?.client?.contactDetails?.email?.trim().toLowerCase();
+    if (!email || !(job?.stage === "QUOTE" || job?.stage === "SCHEDULED")) {
+      setQuoteSentAt(null);
+      return;
+    }
+
+    const cacheKey = "quote-sent-email-map-v2";
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
+    if (!token) return;
+
+    (async () => {
+      try {
+        const cachedRaw = sessionStorage.getItem(cacheKey);
+        if (cachedRaw) {
+          const parsed = JSON.parse(cachedRaw) as { ts: number; map: Record<string, string> };
+          if (Date.now() - parsed.ts < 10 * 60 * 1000 && parsed.map?.[email]) {
+            setQuoteSentAt(parsed.map[email]);
+            return;
+          }
+        }
+
+        let skip = 0;
+        const limit = 500;
+        let total = Number.MAX_SAFE_INTEGER;
+        const map: Record<string, string> = {};
+
+        while (skip < total) {
+          const res = await fetch("https://api.insulhub.nz/graphql", {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-access-token": token },
+            body: JSON.stringify({
+              query: `query($skip:Int,$limit:Int){listEmailLogs(skip:$skip,limit:$limit){total results{createdAt type subject to_email}}}`,
+              variables: { skip, limit },
+            }),
+          });
+          const json = await res.json();
+          const data = json?.data?.listEmailLogs;
+          if (!data) break;
+
+          total = data.total;
+          const batch = data.results || [];
+          for (const row of batch) {
+            const to = (row.to_email || "").trim().toLowerCase();
+            const subject = (row.subject || "").toLowerCase();
+            const type = (row.type || "").toLowerCase();
+            if (!to) continue;
+            if (!(subject.includes("quote") || type === "quote")) continue;
+            const curr = map[to];
+            if (!curr || new Date(row.createdAt).getTime() > new Date(curr).getTime()) map[to] = row.createdAt;
+          }
+
+          skip += batch.length;
+          if (batch.length === 0) break;
+        }
+
+        sessionStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), map }));
+        setQuoteSentAt(map[email] || null);
+      } catch {
+        // best effort only
+      }
+    })();
+  }, [job?.client?.contactDetails?.email, job?.stage]);
 
   // Removed sessionStorage handling. Next.js router.back() maintains URL query appropriately.
 
@@ -607,6 +685,7 @@ export default function JobDetailPage() {
       emailQuoteToCustomer: true,
       quotePDFEmailBodyTemplate: template,
     }));
+    setQuoteSentAt(new Date().toISOString());
     setNotice({ type: "success", text: "Quote sent to customer." });
   }
 
@@ -875,6 +954,7 @@ export default function JobDetailPage() {
             <div className="flex gap-2 mb-3 flex-wrap">
               {job.quote?.quoteNumber && <span className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded font-medium">#{job.quote.quoteNumber}</span>}
               {job.quote?.date && <span className="text-xs text-gray-400">{fmt(job.quote.date)}</span>}
+              {quoteSentAt && <span className="text-xs px-2 py-1 rounded bg-emerald-50 text-emerald-700 font-medium">Sent at {fmtDateTime(quoteSentAt)}</span>}
             </div>
 
             {quoteExpanded && (
