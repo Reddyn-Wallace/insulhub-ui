@@ -222,7 +222,12 @@ function JobsPageContent() {
     const cached = canUseWarmCache ? readStageCache(activeStage) : null;
 
     if (canUseWarmCache && cached && cached.jobs.length > 0) {
-      // Cache-first for snappy tab switches. Avoid immediate refetch/spinner thrash.
+      // Cache-first for snappy tab switches. Keep UI hydrated from cache immediately.
+      setJobs(cached.jobs);
+      setTotal(cached.total);
+      if (cached.counts) setGlobalCounts(cached.counts);
+      setStageHydrated(true);
+      setLoading(false);
       return;
     }
 
@@ -438,6 +443,29 @@ function JobsPageContent() {
   }, [loading, error, page, jobs.length, sortedJobs.length]);
 
   useEffect(() => { setPage(0); }, [subTab, salespersonFilter]);
+
+  // Self-heal: if tab counts say there should be rows but current filtered list is empty,
+  // force a refetch to resolve stale cache/list mismatches.
+  useEffect(() => {
+    if (loading || error || searchMode) return;
+    if (salespersonFilter !== "ALL") return;
+    if (!(activeStage === "LEAD" || activeStage === "QUOTE")) return;
+
+    const expected = globalCounts?.[subTab as keyof typeof globalCounts];
+    if (typeof expected === "number" && expected > 0 && sortedJobs.length === 0) {
+      fetchJobs();
+    }
+  }, [
+    loading,
+    error,
+    searchMode,
+    salespersonFilter,
+    activeStage,
+    subTab,
+    globalCounts,
+    sortedJobs.length,
+    fetchJobs,
+  ]);
 
   // Client-side paginate after filtering/sorting.
   const paginatedResults = sortedJobs.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
