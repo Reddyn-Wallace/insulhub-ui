@@ -353,14 +353,10 @@ function JobsPageContent() {
         return futureFirst(aTime, bTime);
       }
 
-      // Callback tabs (both Leads + Quotes): sort by callback/deferral date next upcoming first
+      // Callback tabs (both Leads + Quotes): sort strictly by callback date
       if (subTab === "CALLBACK") {
-        const aCb = activeStage === "QUOTE"
-          ? (a.quote?.deferralDate || a.lead?.callbackDate)
-          : a.lead?.callbackDate;
-        const bCb = activeStage === "QUOTE"
-          ? (b.quote?.deferralDate || b.lead?.callbackDate)
-          : b.lead?.callbackDate;
+        const aCb = a.lead?.callbackDate;
+        const bCb = b.lead?.callbackDate;
         const aTime = aCb ? new Date(aCb).getTime() : null;
         const bTime = bCb ? new Date(bCb).getTime() : null;
         return futureFirst(aTime, bTime);
