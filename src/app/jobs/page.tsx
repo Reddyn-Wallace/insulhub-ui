@@ -256,7 +256,7 @@ function JobsPageContent() {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (!token) return;
 
-    const cacheKey = "quote-sent-email-map";
+    const cacheKey = "quote-sent-email-map-v2";
     const cached = typeof window !== "undefined" ? sessionStorage.getItem(cacheKey) : null;
     if (cached) {
       try {
@@ -283,6 +283,7 @@ function JobsPageContent() {
 
           total = data.listEmailLogs.total;
           const batch = data.listEmailLogs.results || [];
+          let changed = false;
           for (const row of batch) {
             const to = (row.to_email || "").trim().toLowerCase();
             const subject = (row.subject || "").toLowerCase();
@@ -292,8 +293,11 @@ function JobsPageContent() {
             const curr = map[to];
             if (!curr || new Date(row.createdAt).getTime() > new Date(curr).getTime()) {
               map[to] = row.createdAt;
+              changed = true;
             }
           }
+
+          if (changed) setQuoteSentByEmail((prev) => ({ ...prev, ...map }));
 
           skip += batch.length;
           if (batch.length === 0) break;
