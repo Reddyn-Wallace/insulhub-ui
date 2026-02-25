@@ -238,6 +238,7 @@ export default function JobDetailPage() {
   const [leadSourceForm, setLeadSourceForm] = useState<string[]>([]);
   const [quoteExpanded, setQuoteExpanded] = useState(false);
   const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [quoteEmailBody, setQuoteEmailBody] = useState("Please find your insulation quote attached.");
   const [loadingQuoteEmailBody, setLoadingQuoteEmailBody] = useState(false);
   const quoteEmailEditorRef = useRef<HTMLDivElement | null>(null);
@@ -399,6 +400,12 @@ export default function JobDetailPage() {
       }
     })();
   }, [job?.client?.contactDetails?.email, job?.stage]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 4500);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   // Removed sessionStorage handling. Next.js router.back() maintains URL query appropriately.
 
@@ -698,11 +705,15 @@ export default function JobDetailPage() {
 
   async function sendEBA() {
     if (!job?.ebaForm?.complete) {
-      setNotice({ type: "error", text: "Complete the EBA first before sending." });
+      const msg = { type: "error" as const, text: "Complete the EBA first before sending." };
+      setNotice(msg);
+      setToast(msg);
       return;
     }
     await run(() => gql(SEND_EBA, { jobId: id }));
-    setNotice({ type: "success", text: "EBA email sent." });
+    const msg = { type: "success" as const, text: "EBA email sent." };
+    setNotice(msg);
+    setToast(msg);
   }
 
   async function loadQuoteEmailTemplate() {
@@ -745,7 +756,9 @@ export default function JobDetailPage() {
 
   async function sendQuoteToCustomerConfirmed(templateOverride?: string) {
     if (!quoteForm.quoteNumber || !quoteForm.date || (!quoteForm.hasWall && !quoteForm.hasCeiling)) {
-      setNotice({ type: "error", text: "Add quote data first (quote number, date, and wall/ceiling values)." });
+      const msg = { type: "error" as const, text: "Add quote data first (quote number, date, and wall/ceiling values)." };
+      setNotice(msg);
+      setToast(msg);
       return;
     }
 
@@ -758,7 +771,9 @@ export default function JobDetailPage() {
       quotePDFEmailBodyTemplate: template,
     }));
     setQuoteSentAt(new Date().toISOString());
-    setNotice({ type: "success", text: "Quote sent to customer." });
+    const msg = { type: "success" as const, text: "Quote sent to customer." };
+    setNotice(msg);
+    setToast(msg);
   }
 
   // ── Render ─────────────────────────────────────────────────────
@@ -1145,6 +1160,17 @@ export default function JobDetailPage() {
       </div>
 
       {/* ── Bottom Sheets ─────────────────────────────────────────── */}
+
+      {toast && (
+        <div className="fixed z-[70] left-1/2 -translate-x-1/2 bottom-4 md:left-auto md:translate-x-0 md:right-4 md:bottom-5 w-[92vw] md:w-auto md:max-w-md">
+          <div className={`rounded-xl shadow-lg border px-4 py-3 text-sm ${toast.type === "success" ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-amber-50 border-amber-200 text-amber-800"}`}>
+            <div className="flex items-start justify-between gap-3">
+              <span>{toast.text}</span>
+              <button onClick={() => setToast(null)} className="text-xs opacity-70 hover:opacity-100">✕</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add note */}
       <BottomSheet open={sheet === "addNote"} onClose={closeSheet} title="Add Note">
