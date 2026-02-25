@@ -89,15 +89,15 @@ function normalizeEmailHtml(input: string) {
   html = html
     .replace(/<p(\s[^>]*)?>/gi, (_m, attrs = "") => {
       if (/style\s*=/.test(attrs)) {
-        return `<p${attrs.replace(/style\s*=\s*(["'])/i, 'style=$1margin:0 0 7px 0;line-height:1.5;')}>`;
+        return `<p${attrs.replace(/style\s*=\s*(["'])/i, 'style=$1margin:0 0 6px 0;line-height:1.35;')}>`;
       }
-      return `<p${attrs} style="margin:0 0 7px 0;line-height:1.5;">`;
+      return `<p${attrs} style="margin:0 0 6px 0;line-height:1.35;">`;
     })
     .replace(/<li(\s[^>]*)?>/gi, (_m, attrs = "") => {
       if (/style\s*=/.test(attrs)) {
-        return `<li${attrs.replace(/style\s*=\s*(["'])/i, 'style=$1margin:0 0 4px 0;line-height:1.45;')}>`;
+        return `<li${attrs.replace(/style\s*=\s*(["'])/i, 'style=$1margin:0 0 3px 0;line-height:1.3;')}>`;
       }
-      return `<li${attrs} style="margin:0 0 4px 0;line-height:1.45;">`;
+      return `<li${attrs} style="margin:0 0 3px 0;line-height:1.3;">`;
     })
     .replace(/<h([1-6])(\s[^>]*)?>/gi, (_m, level, attrs = "") => {
       if (/style\s*=/.test(attrs)) {
@@ -125,7 +125,7 @@ function normalizeEmailHtml(input: string) {
 
 function prepareEmailHtmlForSend(input: string) {
   const body = normalizeEmailHtml(input);
-  return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.45;color:#1f2937;">${body}</div>`;
+  return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.35;color:#1f2937;">${body}</div>`;
 }
 
 function toDatetimeLocal(iso?: string | null) {
