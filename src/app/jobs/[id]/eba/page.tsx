@@ -979,11 +979,21 @@ export default function EbaPage() {
                       onTouchEnd={stopDraw}
                     />
                   </div>
-                  <div className="flex gap-2 mt-2">
+                  <div className="flex gap-2 mt-2 items-center flex-wrap">
                     <button type="button" onClick={clearSignaturePad} className="px-3 py-2 text-sm bg-gray-100 rounded-lg">Clear</button>
                     <button type="button" onClick={saveAssessorSignature} disabled={signing} className="px-3 py-2 text-sm bg-[#1a3a4a] text-white rounded-lg disabled:opacity-50">{signing ? 'Saving...' : 'Save Signature'}</button>
-                    <span className="text-sm text-gray-600 self-center">{job.ebaForm?.signature_assessor?.fileName ? "Signature uploaded" : "No signature saved yet"}</span>
+                    <span className="text-sm text-gray-600 self-center">{job.ebaForm?.signature_assessor?.fileName ? "Saved signature on file" : "No saved signature on file"}</span>
                   </div>
+                  {job.ebaForm?.signature_assessor?.fileName && (
+                    <div className="mt-2">
+                      <p className="text-xs text-gray-500">Current saved signature: {job.ebaForm.signature_assessor.fileName}</p>
+                      <img
+                        src={fileUrl(job.ebaForm.signature_assessor.fileName)}
+                        alt="Current assessor signature"
+                        className="mt-1 h-20 border border-gray-200 rounded bg-white"
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
