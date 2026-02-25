@@ -260,6 +260,39 @@ export default function EbaPage() {
     ctx.clearRect(0, 0, c.width, c.height);
   }
 
+  const drawSavedSignatureToCanvas = useCallback(async (fileName: string) => {
+    const c = canvasRef.current;
+    if (!c || !fileName) return;
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
+
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
+      const url = `https://api.insulhub.nz/files/documents/${encodeURIComponent(fileName)}?token=${token}`;
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const img = new Image();
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("Could not load signature image"));
+        img.src = objectUrl;
+      });
+
+      ctx.clearRect(0, 0, c.width, c.height);
+      const scale = Math.min(c.width / img.width, c.height / img.height);
+      const w = img.width * scale;
+      const h = img.height * scale;
+      const x = (c.width - w) / 2;
+      const y = (c.height - h) / 2;
+      ctx.drawImage(img, x, y, w, h);
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      // best effort only
+    }
+  }, []);
+
   async function uploadFiles(files: FileList | null) {
     if (!files || files.length === 0) return [] as string[];
     const formData = new FormData();
@@ -358,6 +391,17 @@ export default function EbaPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    const fileName = signatureFileName(job?.ebaForm?.signature_assessor);
+    if (!fileName) {
+      const c = canvasRef.current;
+      const ctx = c?.getContext("2d");
+      if (c && ctx) ctx.clearRect(0, 0, c.width, c.height);
+      return;
+    }
+    drawSavedSignatureToCanvas(fileName);
+  }, [job?.ebaForm?.signature_assessor, drawSavedSignatureToCanvas]);
 
   const address = useMemo(() => {
     const c = job?.client?.contactDetails;
@@ -990,18 +1034,7 @@ export default function EbaPage() {
                   <div className="flex gap-2 mt-2 items-center flex-wrap">
                     <button type="button" onClick={clearSignaturePad} className="px-3 py-2 text-sm bg-gray-100 rounded-lg">Clear</button>
                     <button type="button" onClick={saveAssessorSignature} disabled={signing} className="px-3 py-2 text-sm bg-[#1a3a4a] text-white rounded-lg disabled:opacity-50">{signing ? 'Saving...' : 'Save Signature'}</button>
-                    <span className="text-sm text-gray-600 self-center">{signatureFileName(job.ebaForm?.signature_assessor) ? "Saved signature on file" : "No saved signature on file"}</span>
                   </div>
-                  {signatureFileName(job.ebaForm?.signature_assessor) && (
-                    <div className="mt-2">
-                      <p className="text-xs text-gray-500">Current saved signature: {signatureFileName(job.ebaForm?.signature_assessor)}</p>
-                      <img
-                        src={fileUrl(signatureFileName(job.ebaForm?.signature_assessor))}
-                        alt="Current assessor signature"
-                        className="mt-1 h-20 border border-gray-200 rounded bg-white"
-                      />
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
