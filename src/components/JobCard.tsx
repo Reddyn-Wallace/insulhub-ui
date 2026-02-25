@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 
 interface Job {
   _id: string;
@@ -161,6 +162,8 @@ async function getSentMap(): Promise<Record<string, string>> {
 export default function JobCard({ job }: { job: Job }) {
   const c = job.client?.contactDetails;
   const addressParts = [c?.streetAddress, c?.suburb, c?.city].filter(Boolean).join(", ");
+  const searchParams = useSearchParams();
+  const returnTo = `/jobs${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
 
   const [now] = useState(() => Date.now());
   const [sentAt, setSentAt] = useState<string | null>(null);
@@ -203,7 +206,7 @@ export default function JobCard({ job }: { job: Job }) {
   const isQuoteBookingOverdue = Boolean(quoteBookingTime && quoteBookingTime < now);
 
   return (
-    <Link href={`/jobs/${job._id}`}>
+    <Link href={{ pathname: `/jobs/${job._id}`, query: returnTo ? { returnTo } : {} }}>
       <div className={`bg-white rounded-xl shadow-sm border border-gray-100 border-l-4 ${cardStyle.border} p-4 mb-3 active:bg-gray-50 transition-colors cursor-pointer`}>
         <div className="flex items-start justify-between gap-2 mb-1">
           <p className="font-semibold text-gray-900 text-base leading-tight">{c?.name || "Unknown"}</p>

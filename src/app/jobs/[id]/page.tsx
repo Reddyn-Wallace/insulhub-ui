@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { useRouter, useParams, useSearchParams } from "next/navigation";
 import { gql } from "@/lib/graphql";
 import { JOB_QUERY, USERS_QUERY } from "@/lib/queries";
 import {
@@ -106,7 +106,21 @@ function EditBtn({ onClick }: { onClick: () => void }) {
 export default function JobDetailPage() {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const id = params.id as string;
+  const returnTo = searchParams.get("returnTo");
+
+  const handleBack = useCallback(() => {
+    if (returnTo && returnTo.startsWith("/jobs")) {
+      router.push(returnTo);
+      return;
+    }
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+      return;
+    }
+    router.push("/jobs");
+  }, [router, returnTo]);
 
   const [job, setJob] = useState<Job | null>(null);
   const [users, setUsers] = useState<User[]>([]);
@@ -588,7 +602,7 @@ export default function JobDetailPage() {
   if (!job) return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <div className="bg-[#1a3a4a] px-4 py-4">
-        <button onClick={() => router.push("/jobs")} className="text-white text-sm">← Back</button>
+        <button onClick={handleBack} className="text-white text-sm">← Back</button>
       </div>
       <div className="px-4 pt-4">
         <div className="bg-red-50 text-red-700 text-sm px-4 py-3 rounded-xl">{error || "Job not found"}</div>
@@ -697,7 +711,7 @@ export default function JobDetailPage() {
     <div className="min-h-screen bg-gray-50 pb-10">
       {/* Header */}
       <div className="bg-[#1a3a4a] px-4 pt-3 pb-2">
-        <button onClick={() => router.push("/jobs")} className="text-gray-300 text-sm mb-1">← Back</button>
+        <button onClick={handleBack} className="text-gray-300 text-sm mb-1">← Back</button>
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-white font-bold text-lg leading-tight">{c?.name || "Unknown"}</h1>
