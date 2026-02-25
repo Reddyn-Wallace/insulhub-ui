@@ -48,6 +48,19 @@ function formatCurrency(n?: number) {
   return `$${n.toLocaleString("en-NZ")}`;
 }
 
+function formatDateTime(iso?: string | null) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("en-NZ", {
+    timeZone: "Pacific/Auckland",
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 const STAGE_BADGE: Record<string, string> = {
   LEAD: "bg-orange-100 text-orange-700",
   QUOTE: "bg-blue-100 text-blue-700",
@@ -207,7 +220,7 @@ export default function JobCard({ job }: { job: Job }) {
           <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">Job #{job.jobNumber}</span>
           {job.quote?.quoteNumber && <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-medium">#{job.quote.quoteNumber} {job.quote.c_total ? formatCurrency(job.quote.c_total) : ""}</span>}
           {job.stage === "QUOTE" && sentAt && (
-            <span className="text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">Sent to customer</span>
+            <span className="text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">Sent at {formatDateTime(sentAt)}</span>
           )}
         </div>
 
