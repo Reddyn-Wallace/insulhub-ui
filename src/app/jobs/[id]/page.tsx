@@ -757,6 +757,9 @@ export default function JobDetailPage() {
             <div className="mt-1.5 flex items-center gap-2">
               <span className="text-sm text-gray-800">{job.lead?.quoteBookingDate ? fmt(job.lead.quoteBookingDate) : "Not set"}</span>
               <button onClick={() => openSheet("booking")} className="text-xs text-[#e85d04] font-medium">{job.lead?.quoteBookingDate ? "Edit" : "Set"}</button>
+              {job.lead?.quoteBookingDate && (
+                <button onClick={clearQuoteBookingDate} className="text-xs text-red-600 font-medium">Remove</button>
+              )}
             </div>
           </div>
 
