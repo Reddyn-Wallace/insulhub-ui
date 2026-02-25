@@ -178,6 +178,30 @@ function JobsPageContent() {
       const byId = new Map<string, Job>(firstBatch.map((j) => [j._id, j]));
       const nextSkip = PAGE_SIZE;
 
+      // For default QUOTE/OPEN experience, also seed from the tail where recent opens are more likely.
+      if (progressiveInitial && activeStage === "QUOTE" && subTab === "OPEN" && data.jobs.total > PAGE_SIZE) {
+        const chunk = 300;
+        const tailSkips = [
+          Math.max(data.jobs.total - chunk, 0),
+          Math.max(data.jobs.total - chunk * 2, 0),
+          Math.max(data.jobs.total - chunk * 3, 0),
+        ].filter((s, i, arr) => s > 0 && arr.indexOf(s) === i);
+
+        if (tailSkips.length > 0) {
+          try {
+            const tailBurst = await Promise.all(
+              tailSkips.map((s) => gql<JobsData>(JOBS_QUERY, { stages: [activeStage], skip: s, limit: chunk }))
+            );
+            for (const res of tailBurst) {
+              const batch = (res.jobs.results || []).filter((j) => !j.archivedAt);
+              for (const j of batch) byId.set(j._id, j);
+            }
+          } catch {
+            // best effort only
+          }
+        }
+      }
+
       const seededJobs = Array.from(byId.values());
       setJobs(seededJobs);
       setTotal(data.jobs.total);
@@ -267,7 +291,7 @@ function JobsPageContent() {
         setIsFetchingStage(false);
       }
     }
-  }, [activeStage, page, search, searchMode, stageHydrated, writeStageCache]);
+  }, [activeStage, subTab, page, search, searchMode, stageHydrated, writeStageCache]);
 
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
@@ -538,7 +562,7 @@ function JobsPageContent() {
     fetchJobs,
   ]);
 
-  const waitingForSubtabData = !searchMode && (activeStage === "LEAD" || activeStage === "QUOTE") && page === 0 && jobs.length < total && sortedJobs.length === 0;
+  const waitingForSubtabData = isFetchingStage && !searchMode && (activeStage === "LEAD" || activeStage === "QUOTE") && page === 0 && sortedJobs.length === 0;
 
   // Client-side paginate after filtering/sorting.
   const paginatedResults = sortedJobs.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
