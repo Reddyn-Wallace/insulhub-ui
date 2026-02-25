@@ -391,11 +391,18 @@ function JobsPageContent() {
     };
 
     return [...filtered].sort((a, b) => {
-      // Lead tab: Quote booked should sort by quote booking date (next upcoming first)
+      // Lead tab: Quote booked should sort strictly by quote booking date
+      // and honor selected sort direction.
       if (activeStage === "LEAD" && subTab === "QUOTE_BOOKED") {
         const aTime = a.lead?.quoteBookingDate ? new Date(a.lead.quoteBookingDate).getTime() : null;
         const bTime = b.lead?.quoteBookingDate ? new Date(b.lead.quoteBookingDate).getTime() : null;
-        return futureFirst(aTime, bTime);
+
+        if (aTime == null && bTime != null) return 1;
+        if (aTime != null && bTime == null) return -1;
+        if (aTime == null && bTime == null) return 0;
+
+        const asc = (aTime as number) - (bTime as number);
+        return sortOrder === "oldest" ? asc : -asc;
       }
 
       // Callback tabs (both Leads + Quotes): sort strictly by callback date
