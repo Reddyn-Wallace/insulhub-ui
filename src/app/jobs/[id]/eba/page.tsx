@@ -440,11 +440,11 @@ export default function EbaPage() {
 
 
 
-  const YesNoRow = ({ keyName, label, notApplicable = false, noIsGreen = false }: { keyName: string; label: string; notApplicable?: boolean; noIsGreen?: boolean }) => (
+  const YesNoRow = ({ keyName, label, notApplicable = false, noIsGreen = false, yesIsGreenText = false }: { keyName: string; label: string; notApplicable?: boolean; noIsGreen?: boolean; yesIsGreenText?: boolean }) => (
     <div>
       <p className="text-sm text-gray-700">{label}</p>
       <div className="flex gap-3 mt-1">
-        <label className={`text-sm ${noIsGreen ? "text-red-700" : ""}`}><input type="radio" name={keyName} className={`mr-2 ${noIsGreen ? "accent-red-600" : "accent-green-600"}`} checked={form[keyName] === true} onChange={() => setField(keyName, true)} />Yes</label>
+        <label className={`text-sm ${noIsGreen ? "text-red-700" : yesIsGreenText ? "text-green-700" : ""}`}><input type="radio" name={keyName} className={`mr-2 ${noIsGreen ? "accent-red-600" : "accent-green-600"}`} checked={form[keyName] === true} onChange={() => setField(keyName, true)} />Yes</label>
         <label className={`text-sm ${noIsGreen ? "text-green-700" : "text-red-700"}`}><input type="radio" name={keyName} className={`mr-2 ${noIsGreen ? "accent-green-600" : "accent-red-600"}`} checked={form[keyName] === false} onChange={() => setField(keyName, false)} />No</label>
         {notApplicable && <label className="text-sm text-gray-600"><input type="radio" name={keyName} className="mr-2 accent-gray-500" checked={form[keyName] === "NOT_APPLICABLE"} onChange={() => setField(keyName, "NOT_APPLICABLE")} />Not Applicable</label>}
       </div>
@@ -777,8 +777,8 @@ export default function EbaPage() {
                     })}
                   </div>
                   <div className="space-y-3 mt-3">
-                    <YesNoRow keyName="masonryCladding_masonryCladUnderfloorVentsArePresentAndClear" label="Masonry clad home underfloor vents are present and clear?" notApplicable />
-                    <YesNoRow keyName="masonryCladding_windowOrMasonryVerticalJointsAreSealed" label="Window / masonry vertical joints are sealed?" notApplicable />
+                    <YesNoRow keyName="masonryCladding_masonryCladUnderfloorVentsArePresentAndClear" label="Masonry clad home underfloor vents are present and clear?" notApplicable yesIsGreenText />
+                    <YesNoRow keyName="masonryCladding_windowOrMasonryVerticalJointsAreSealed" label="Window / masonry vertical joints are sealed?" notApplicable yesIsGreenText />
                   </div>
 
                   {(() => {
@@ -931,68 +931,59 @@ export default function EbaPage() {
               </div>
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <h2 className="text-sm font-semibold text-gray-700 mb-3">Assessor Signature</h2>
-              <div className="border border-gray-300 rounded-lg bg-white overflow-hidden">
-                <canvas
-                  ref={canvasRef}
-                  width={900}
-                  height={220}
-                  className="w-full h-40 touch-none"
-                  onMouseDown={(e) => startDraw(e.nativeEvent.offsetX, e.nativeEvent.offsetY)}
-                  onMouseMove={(e) => drawTo(e.nativeEvent.offsetX, e.nativeEvent.offsetY)}
-                  onMouseUp={stopDraw}
-                  onMouseLeave={stopDraw}
-                  onTouchStart={(e) => {
-                    const rect = (e.target as HTMLCanvasElement).getBoundingClientRect();
-                    const t = e.touches[0];
-                    startDraw(t.clientX - rect.left, t.clientY - rect.top);
-                  }}
-                  onTouchMove={(e) => {
-                    const rect = (e.target as HTMLCanvasElement).getBoundingClientRect();
-                    const t = e.touches[0];
-                    drawTo(t.clientX - rect.left, t.clientY - rect.top);
-                  }}
-                  onTouchEnd={stopDraw}
-                />
+            <div className="border border-gray-200 rounded-xl overflow-hidden">
+              <div className="bg-gray-100 px-4 py-3 flex items-center gap-2">
+                <span className="w-6 h-6 rounded-full bg-[#1a3a4a] text-white text-xs font-bold flex items-center justify-center">6</span>
+                <h2 className="text-sm font-semibold text-gray-700 tracking-wide">DECLARATIONS</h2>
               </div>
-              <div className="flex gap-2 mt-2">
-                <button type="button" onClick={clearSignaturePad} className="px-3 py-2 text-sm bg-gray-100 rounded-lg">Clear</button>
-                <button type="button" onClick={saveAssessorSignature} disabled={signing} className="px-3 py-2 text-sm bg-[#1a3a4a] text-white rounded-lg disabled:opacity-50">{signing ? 'Saving...' : 'Save Signature'}</button>
-              </div>
-              {job.ebaForm?.signature_assessor?.fileName && (
-                <div className="mt-2">
-                  <p className="text-xs text-gray-500">Current signature: {job.ebaForm.signature_assessor.fileName}</p>
-                  <img
-                    src={fileUrl(job.ebaForm.signature_assessor.fileName)}
-                    alt="Current assessor signature"
-                    className="mt-1 h-20 border border-gray-200 rounded bg-white"
-                  />
-                </div>
-              )}
-            </div>
 
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <h2 className="text-sm font-semibold text-gray-700 mb-3">Assessor Declaration</h2>
+              <div className="p-4 grid grid-cols-1 md:grid-cols-[200px_1fr] gap-4 bg-white">
+                <div className="text-sm font-semibold text-gray-700">Assessment of Existing Building</div>
 
-              <p className="text-sm text-gray-700 mb-2">
-                Based on this assessment of the existing building I am satisfied that the property is suitable for the installation of Insulmax® retrofit wall insulation. In relation to S112, the ability of the existing building to comply with the applicable building code clauses including durability B2.3.1 (to the extent of the other clauses) will not be reduced by the installation of Insulmax® blown fibre existing wall insulation on the following provisions:
-              </p>
-              <ul className="list-disc ml-5 text-sm text-gray-700 mb-3 space-y-1">
-                <li>Work itemised to be completed prior to the installation of Insulmax® is completed</li>
-                <li>Insulmax® is installed according to the Insulmax® Installation Manual</li>
-                <li>Reparation of exterior cladding is completed according to the Insulmax® Installation Manual</li>
-                <li>Work itemised to be completed before the application of CCC / issue of Insulmax® certificate of completion is completed</li>
-              </ul>
+                <div className="border border-gray-200 rounded-lg p-4">
+                  <p className="text-sm text-gray-700 mb-2">
+                    Based on this assessment of the existing building I am satisfied that the property is suitable for the installation of Insulmax® retrofit wall insulation. In relation to S112, the ability of the existing building to comply with the applicable building code clauses including durability B2.3.1 (to the extent of the other clauses) will not be reduced by the installation of Insulmax® blown fibre existing wall insulation on the following provisions:
+                  </p>
+                  <ul className="list-disc ml-5 text-sm text-gray-700 mb-3 space-y-1">
+                    <li>Work itemised to be completed prior to the installation of Insulmax® is completed</li>
+                    <li>Insulmax® is installed according to the Insulmax® Installation Manual</li>
+                    <li>Reparation of exterior cladding is completed according to the Insulmax® Installation Manual</li>
+                    <li>Work itemised to be completed before the application of CCC / issue of Insulmax® certificate of completion is completed</li>
+                  </ul>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-gray-500">Licensed Building Assessor Name</label>
-                  <input value={(form.assessorName as string) || ""} onChange={(e) => setField("assessorName", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500">Assessor Signature</label>
-                  <div className="text-sm text-gray-700 mt-1">{job.ebaForm?.signature_assessor?.fileName ? "Uploaded" : "Not uploaded"}</div>
+                  <div>
+                    <label className="text-xs text-gray-500">Licensed Building Assessor Name</label>
+                    <input value={(form.assessorName as string) || ""} onChange={(e) => setField("assessorName", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" />
+                  </div>
+
+                  <div className="mt-3 border border-gray-300 rounded-lg bg-white overflow-hidden">
+                    <canvas
+                      ref={canvasRef}
+                      width={900}
+                      height={220}
+                      className="w-full h-40 touch-none"
+                      onMouseDown={(e) => startDraw(e.nativeEvent.offsetX, e.nativeEvent.offsetY)}
+                      onMouseMove={(e) => drawTo(e.nativeEvent.offsetX, e.nativeEvent.offsetY)}
+                      onMouseUp={stopDraw}
+                      onMouseLeave={stopDraw}
+                      onTouchStart={(e) => {
+                        const rect = (e.target as HTMLCanvasElement).getBoundingClientRect();
+                        const t = e.touches[0];
+                        startDraw(t.clientX - rect.left, t.clientY - rect.top);
+                      }}
+                      onTouchMove={(e) => {
+                        const rect = (e.target as HTMLCanvasElement).getBoundingClientRect();
+                        const t = e.touches[0];
+                        drawTo(t.clientX - rect.left, t.clientY - rect.top);
+                      }}
+                      onTouchEnd={stopDraw}
+                    />
+                  </div>
+                  <div className="flex gap-2 mt-2">
+                    <button type="button" onClick={clearSignaturePad} className="px-3 py-2 text-sm bg-gray-100 rounded-lg">Clear</button>
+                    <button type="button" onClick={saveAssessorSignature} disabled={signing} className="px-3 py-2 text-sm bg-[#1a3a4a] text-white rounded-lg disabled:opacity-50">{signing ? 'Saving...' : 'Save Signature'}</button>
+                    <span className="text-sm text-gray-600 self-center">{job.ebaForm?.signature_assessor?.fileName ? "Signature uploaded" : "No signature saved yet"}</span>
+                  </div>
                 </div>
               </div>
             </div>
