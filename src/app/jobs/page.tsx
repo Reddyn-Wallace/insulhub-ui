@@ -64,7 +64,7 @@ function JobsPageContent() {
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [searchMode, setSearchMode] = useState(false);
-  const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
+  const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("oldest");
   const [jobs, setJobs] = useState<Job[]>([]);
   const [total, setTotal] = useState(0);
   const [globalCounts, setGlobalCounts] = useState<Record<string, number> | null>(null);
@@ -336,12 +336,13 @@ function JobsPageContent() {
       const now = Date.now();
       const aFuture = aTime != null && aTime >= now;
       const bFuture = bTime != null && bTime >= now;
-      if (aFuture && !bFuture) return -1;
-      if (!aFuture && bFuture) return 1;
-      if (aTime == null && bTime != null) return 1;
-      if (aTime != null && bTime == null) return -1;
+      if (aFuture && !bFuture) return sortOrder === "oldest" ? -1 : 1;
+      if (!aFuture && bFuture) return sortOrder === "oldest" ? 1 : -1;
+      if (aTime == null && bTime != null) return sortOrder === "oldest" ? 1 : -1;
+      if (aTime != null && bTime == null) return sortOrder === "oldest" ? -1 : 1;
       if (aTime == null && bTime == null) return 0;
-      return (aTime as number) - (bTime as number); // nearest upcoming first
+      const asc = (aTime as number) - (bTime as number);
+      return sortOrder === "oldest" ? asc : -asc;
     };
 
     return [...filtered].sort((a, b) => {
@@ -466,7 +467,7 @@ function JobsPageContent() {
             onClick={() => setSortOrder((prev) => (prev === "newest" ? "oldest" : "newest"))}
             className="text-xs bg-white border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg font-medium hover:bg-gray-50"
           >
-            Sort: {activeStage === "QUOTE" ? "Quote date" : "Created"} {sortOrder === "newest" ? "Newest first" : "Oldest first"}
+            Sort: {activeStage === "QUOTE" ? "Quote date" : "Created"} {sortOrder === "newest" ? "Latest first" : "Earliest first"}
           </button>
         </div>
       </div>
