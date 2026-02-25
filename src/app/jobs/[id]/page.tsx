@@ -85,19 +85,33 @@ function normalizeEmailHtml(input: string) {
     .replace(/(?:<br\s*\/?>\s*){3,}/gi, "<br><br>")
     .trim();
 
-  // Tighten paragraph/list spacing so old CRM paragraph-heavy templates render cleaner
+  // Tighten spacing so old CRM paragraph-heavy templates render cleaner
   html = html
     .replace(/<p(\s[^>]*)?>/gi, (_m, attrs = "") => {
       if (/style\s*=/.test(attrs)) {
-        return `<p${attrs.replace(/style\s*=\s*(["'])/i, 'style=$1margin:0 0 8px 0;line-height:1.45;')}>`;
+        return `<p${attrs.replace(/style\s*=\s*(["'])/i, 'style=$1margin:0 0 6px 0;line-height:1.4;')}>`;
       }
-      return `<p${attrs} style="margin:0 0 8px 0;line-height:1.45;">`;
+      return `<p${attrs} style="margin:0 0 6px 0;line-height:1.4;">`;
     })
     .replace(/<li(\s[^>]*)?>/gi, (_m, attrs = "") => {
       if (/style\s*=/.test(attrs)) {
-        return `<li${attrs.replace(/style\s*=\s*(["'])/i, 'style=$1margin:0 0 4px 0;line-height:1.45;')}>`;
+        return `<li${attrs.replace(/style\s*=\s*(["'])/i, 'style=$1margin:0 0 3px 0;line-height:1.4;')}>`;
       }
-      return `<li${attrs} style="margin:0 0 4px 0;line-height:1.45;">`;
+      return `<li${attrs} style="margin:0 0 3px 0;line-height:1.4;">`;
+    })
+    .replace(/<h([1-6])(\s[^>]*)?>/gi, (_m, level, attrs = "") => {
+      const size = level === "1" ? "24" : level === "2" ? "20" : level === "3" ? "18" : "16";
+      if (/style\s*=/.test(attrs)) {
+        return `<h${level}${attrs.replace(/style\s*=\s*(["'])/i, `style=$1margin:12px 0 4px 0;line-height:1.25;font-size:${size}px;`)}>`;
+      }
+      return `<h${level}${attrs} style="margin:12px 0 4px 0;line-height:1.25;font-size:${size}px;">`;
+    });
+
+  // Signature tidy-up: remove extra gap between sign-off line and name/phone line.
+  html = html
+    .replace(/(<p[^>]*>\s*(?:Warm regards|Kind regards|Regards|Thanks|Thank you),?\s*<\/p>)\s*<p[^>]*>([\s\S]*?)<\/p>/gi, (_m, signoff, nameLine) => {
+      const merged = signoff.replace(/<\/p>$/i, `<br>${nameLine}</p>`);
+      return merged;
     });
 
   return html || `<p>${fallback}</p>`;
