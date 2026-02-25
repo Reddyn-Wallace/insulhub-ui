@@ -153,27 +153,31 @@ function JobsPageContent() {
     const q = search;
 
     try {
-      const shouldFetchAllForStage = !isSearching && (activeStage === "LEAD" || activeStage === "QUOTE");
+      const isMainStage = activeStage === "LEAD" || activeStage === "QUOTE";
+      const progressiveInitial = !isSearching && isMainStage && page === 0;
+
       const data = await gql<JobsData>(JOBS_QUERY, {
         ...(isSearching ? {} : { stages: [activeStage] }),
-        skip: shouldFetchAllForStage ? 0 : page * PAGE_SIZE,
-        limit: shouldFetchAllForStage ? 5000 : PAGE_SIZE,
+        skip: !isSearching && isMainStage ? 0 : page * PAGE_SIZE,
+        limit: PAGE_SIZE,
         ...(q ? { search: q } : {}),
       });
 
       // Ignore stale responses
       if (currentFetchId !== fetchIdRef.current) return;
 
-      const allFetched = data.jobs.results;
-      // Filter out archived jobs as requested
-      const activeJobs = allFetched.filter(j => !j.archivedAt);
-
-      setJobs(activeJobs);
+      const firstBatch = data.jobs.results.filter((j) => !j.archivedAt);
+      setJobs(firstBatch);
       setTotal(data.jobs.total);
       setStageHydrated(true);
 
-      if (!isSearching && (activeStage === "LEAD" || activeStage === "QUOTE")) {
-        const stageJobs = activeJobs;
+      // Update lightweight cache immediately for fast first paint.
+      if (!isSearching && page === 0) {
+        cacheRef.current[activeStage] = { jobs: firstBatch, total: data.jobs.total };
+      }
+
+      // If everything fits in first page, compute counts immediately.
+      if (!isSearching && isMainStage && data.jobs.total <= PAGE_SIZE) {
         const isQuoteBooked = (job: Job) => Boolean(job.lead?.quoteBookingDate);
         const isCallbackLead = (job: Job) => ["CALLBACK", "ON_HOLD"].includes((job.lead?.leadStatus || "").toUpperCase());
         const isNewLead = (job: Job) => (!job.lead?.leadStatus || job.lead.leadStatus === "NEW") && !isQuoteBooked(job);
@@ -183,20 +187,66 @@ function JobsPageContent() {
           return "OPEN";
         };
         const computedCounts = {
-          ALL: stageJobs.length,
-          NEW: stageJobs.filter((j) => isNewLead(j)).length,
-          CALLBACK: stageJobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "CALLBACK" : isCallbackLead(j)).length,
-          QUOTE_BOOKED: stageJobs.filter((j) => isQuoteBooked(j)).length,
-          OPEN: stageJobs.filter((j) => quoteState(j) === "OPEN").length,
-          DEAD: stageJobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "DEAD" : j.lead?.leadStatus === "DEAD").length,
+          ALL: firstBatch.length,
+          NEW: firstBatch.filter((j) => isNewLead(j)).length,
+          CALLBACK: firstBatch.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "CALLBACK" : isCallbackLead(j)).length,
+          QUOTE_BOOKED: firstBatch.filter((j) => isQuoteBooked(j)).length,
+          OPEN: firstBatch.filter((j) => quoteState(j) === "OPEN").length,
+          DEAD: firstBatch.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "DEAD" : j.lead?.leadStatus === "DEAD").length,
         };
         setGlobalCounts(computedCounts);
-        writeStageCache(activeStage, { jobs: activeJobs, total: data.jobs.total, counts: computedCounts });
+        writeStageCache(activeStage, { jobs: firstBatch, total: data.jobs.total, counts: computedCounts });
       }
 
-      // Update cache for stage first page
-      if (!isSearching && page === 0) {
-        cacheRef.current[activeStage] = { jobs: activeJobs, total: data.jobs.total };
+      // Progressive background hydration for main stages on initial load.
+      if (progressiveInitial && data.jobs.total > PAGE_SIZE) {
+        (async () => {
+          try {
+            const byId = new Map<string, Job>(firstBatch.map((j) => [j._id, j]));
+            let skip = PAGE_SIZE;
+            const chunk = 500;
+
+            while (skip < data.jobs.total) {
+              if (currentFetchId !== fetchIdRef.current) return;
+              const more = await gql<JobsData>(JOBS_QUERY, {
+                stages: [activeStage],
+                skip,
+                limit: chunk,
+              });
+              const batch = (more.jobs.results || []).filter((j) => !j.archivedAt);
+              for (const j of batch) byId.set(j._id, j);
+
+              // Apply incrementally so lists/sub-tabs populate without waiting for full scan.
+              setJobs(Array.from(byId.values()));
+              skip += chunk;
+              if (batch.length === 0) break;
+            }
+
+            if (currentFetchId !== fetchIdRef.current) return;
+
+            const allJobs = Array.from(byId.values());
+            const isQuoteBooked = (job: Job) => Boolean(job.lead?.quoteBookingDate);
+            const isCallbackLead = (job: Job) => ["CALLBACK", "ON_HOLD"].includes((job.lead?.leadStatus || "").toUpperCase());
+            const isNewLead = (job: Job) => (!job.lead?.leadStatus || job.lead.leadStatus === "NEW") && !isQuoteBooked(job);
+            const quoteState = (job: Job) => {
+              if (job.lead?.leadStatus === "DEAD" || job.quote?.status === "DECLINED") return "DEAD";
+              if (job.quote?.status === "DEFERRED" || isCallbackLead(job)) return "CALLBACK";
+              return "OPEN";
+            };
+            const computedCounts = {
+              ALL: allJobs.length,
+              NEW: allJobs.filter((j) => isNewLead(j)).length,
+              CALLBACK: allJobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "CALLBACK" : isCallbackLead(j)).length,
+              QUOTE_BOOKED: allJobs.filter((j) => isQuoteBooked(j)).length,
+              OPEN: allJobs.filter((j) => quoteState(j) === "OPEN").length,
+              DEAD: allJobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "DEAD" : j.lead?.leadStatus === "DEAD").length,
+            };
+            setGlobalCounts(computedCounts);
+            writeStageCache(activeStage, { jobs: allJobs, total: data.jobs.total, counts: computedCounts });
+          } catch {
+            // best effort only
+          }
+        })();
       }
     } catch (err) {
       if (currentFetchId !== fetchIdRef.current) return;
@@ -458,6 +508,8 @@ function JobsPageContent() {
     if (loading || error || searchMode) return;
     if (salespersonFilter !== "ALL") return;
     if (!(activeStage === "LEAD" || activeStage === "QUOTE")) return;
+    // Avoid refetch loops while progressive hydration is still filling background data.
+    if (jobs.length < total) return;
 
     const expected = globalCounts?.[subTab as keyof typeof globalCounts];
     if (typeof expected === "number" && expected > 0 && sortedJobs.length === 0) {
@@ -472,6 +524,8 @@ function JobsPageContent() {
     subTab,
     globalCounts,
     sortedJobs.length,
+    jobs.length,
+    total,
     fetchJobs,
   ]);
 
