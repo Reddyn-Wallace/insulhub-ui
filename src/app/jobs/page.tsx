@@ -147,7 +147,7 @@ function JobsPageContent() {
     const currentFetchId = ++fetchIdRef.current;
     setError("");
     setIsFetchingStage(true);
-    if (jobs.length === 0) setLoading(true);
+    if (!stageHydrated) setLoading(true);
 
     const isSearching = searchMode;
     const q = search;
@@ -258,7 +258,7 @@ function JobsPageContent() {
         setIsFetchingStage(false);
       }
     }
-  }, [activeStage, page, search, searchMode, jobs.length, writeStageCache]);
+  }, [activeStage, page, search, searchMode, stageHydrated, writeStageCache]);
 
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
