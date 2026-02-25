@@ -377,19 +377,6 @@ function JobsPageContent() {
     };
     const leadSortTs = (job: Job) => new Date(job.createdAt || job.updatedAt).getTime();
 
-    const futureFirst = (aTime: number | null, bTime: number | null) => {
-      const now = Date.now();
-      const aFuture = aTime != null && aTime >= now;
-      const bFuture = bTime != null && bTime >= now;
-      if (aFuture && !bFuture) return sortOrder === "oldest" ? -1 : 1;
-      if (!aFuture && bFuture) return sortOrder === "oldest" ? 1 : -1;
-      if (aTime == null && bTime != null) return sortOrder === "oldest" ? 1 : -1;
-      if (aTime != null && bTime == null) return sortOrder === "oldest" ? -1 : 1;
-      if (aTime == null && bTime == null) return 0;
-      const asc = (aTime as number) - (bTime as number);
-      return sortOrder === "oldest" ? asc : -asc;
-    };
-
     return [...filtered].sort((a, b) => {
       // Lead tab: Quote booked should sort strictly by quote booking date
       // and honor selected sort direction.
