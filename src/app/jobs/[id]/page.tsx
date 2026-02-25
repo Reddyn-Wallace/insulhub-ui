@@ -708,6 +708,14 @@ export default function JobDetailPage() {
     await loadQuoteEmailTemplate();
   }
 
+  useEffect(() => {
+    if (sheet !== "sendQuoteConfirm" || loadingQuoteEmailBody) return;
+    if (!quoteEmailEditorRef.current) return;
+    if (quoteEmailEditorRef.current.innerHTML !== quoteEmailBody) {
+      quoteEmailEditorRef.current.innerHTML = quoteEmailBody;
+    }
+  }, [sheet, loadingQuoteEmailBody, quoteEmailBody]);
+
   function applyEmailFormat(command: string) {
     if (!quoteEmailEditorRef.current) return;
     quoteEmailEditorRef.current.focus();
@@ -1297,9 +1305,7 @@ export default function JobDetailPage() {
               ref={quoteEmailEditorRef}
               contentEditable
               suppressContentEditableWarning
-              onInput={(e) => setQuoteEmailBody((e.currentTarget as HTMLDivElement).innerHTML)}
               className="min-h-[180px] max-h-[320px] overflow-auto border border-gray-200 rounded-lg p-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
-              dangerouslySetInnerHTML={{ __html: quoteEmailBody }}
             />
           )}
         </div>
