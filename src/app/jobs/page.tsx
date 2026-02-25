@@ -10,7 +10,7 @@ import JobCard from "@/components/JobCard";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 
 const PAGE_SIZE = 40;
-const STAGE_CACHE_TTL_MS = 5 * 60 * 1000;
+const STAGE_CACHE_TTL_MS = 30 * 60 * 1000;
 
 
 interface User {
@@ -106,15 +106,33 @@ function JobsPageContent() {
       const data = await gql<JobsData>(JOBS_QUERY, {
         stages: [stage],
         skip: 0,
-        limit: PAGE_SIZE,
+        limit: 5000,
       });
       const activeJobs = data.jobs.results.filter((j) => !j.archivedAt);
       cacheRef.current[stage] = { jobs: activeJobs, total: data.jobs.total };
+
+      const isQuoteBooked = (job: Job) => Boolean(job.lead?.quoteBookingDate);
+      const isCallbackLead = (job: Job) => ["CALLBACK", "ON_HOLD"].includes((job.lead?.leadStatus || "").toUpperCase());
+      const isNewLead = (job: Job) => (!job.lead?.leadStatus || job.lead.leadStatus === "NEW") && !isQuoteBooked(job);
+      const quoteState = (job: Job) => {
+        if (job.lead?.leadStatus === "DEAD" || job.quote?.status === "DECLINED") return "DEAD";
+        if (job.quote?.status === "DEFERRED" || isCallbackLead(job)) return "CALLBACK";
+        return "OPEN";
+      };
+      const counts = {
+        ALL: activeJobs.length,
+        NEW: activeJobs.filter((j) => isNewLead(j)).length,
+        CALLBACK: activeJobs.filter((j) => stage === "QUOTE" ? quoteState(j) === "CALLBACK" : isCallbackLead(j)).length,
+        QUOTE_BOOKED: activeJobs.filter((j) => isQuoteBooked(j)).length,
+        OPEN: activeJobs.filter((j) => quoteState(j) === "OPEN").length,
+        DEAD: activeJobs.filter((j) => stage === "QUOTE" ? quoteState(j) === "DEAD" : j.lead?.leadStatus === "DEAD").length,
+      };
+      writeStageCache(stage, { jobs: activeJobs, total: data.jobs.total, counts });
       return cacheRef.current[stage];
     } catch (err) {
       console.warn(`[Prefetch] Failed for ${stage}:`, err);
     }
-  }, []);
+  }, [writeStageCache]);
 
   // Sync state with URL changes (back/forward or tab click)
   // Only dependent on initStage to prevent toggle-back loops
@@ -147,7 +165,7 @@ function JobsPageContent() {
     const currentFetchId = ++fetchIdRef.current;
     setError("");
     setIsFetchingStage(true);
-    if (jobs.length === 0) setLoading(true);
+    if (!stageHydrated) setLoading(true);
 
     const isSearching = searchMode;
     const q = search;
@@ -168,11 +186,7 @@ function JobsPageContent() {
       // Filter out archived jobs as requested
       const activeJobs = allFetched.filter(j => !j.archivedAt);
 
-      setJobs(activeJobs.map((j) => {
-        const email = j.client?.contactDetails?.email?.trim().toLowerCase();
-        const sentAt = email ? quoteSentByEmail[email] : undefined;
-        return sentAt ? { ...j, quoteLastSentAt: sentAt } : j;
-      }));
+      setJobs(activeJobs);
       setTotal(data.jobs.total);
       setStageHydrated(true);
 
@@ -212,7 +226,7 @@ function JobsPageContent() {
         setIsFetchingStage(false);
       }
     }
-  }, [activeStage, page, search, searchMode, jobs.length, writeStageCache, quoteSentByEmail]);
+  }, [activeStage, page, search, searchMode, stageHydrated, writeStageCache]);
 
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
@@ -222,12 +236,14 @@ function JobsPageContent() {
     const cached = canUseWarmCache ? readStageCache(activeStage) : null;
 
     if (canUseWarmCache && cached && cached.jobs.length > 0) {
-      // Cache-first for snappy tab switches. Keep UI hydrated from cache immediately.
+      // Cache-first for snappy tab switches.
       setJobs(cached.jobs);
       setTotal(cached.total);
       if (cached.counts) setGlobalCounts(cached.counts);
       setStageHydrated(true);
       setLoading(false);
+      // Stale-while-revalidate: refresh quietly in background.
+      fetchJobs();
       return;
     }
 
@@ -256,24 +272,31 @@ function JobsPageContent() {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (!token) return;
 
-    const cacheKey = "quote-sent-email-map";
-    const cached = typeof window !== "undefined" ? sessionStorage.getItem(cacheKey) : null;
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached) as { ts: number; map: Record<string, string> };
-        if (Date.now() - parsed.ts < 10 * 60 * 1000) {
-          setQuoteSentByEmail(parsed.map || {});
-          return;
-        }
-      } catch {}
-    }
+    const cacheKey = "quote-sent-email-map-v2";
+    const cacheTtlMs = 30 * 60 * 1000;
 
+    let cachedMap: Record<string, string> = {};
+    try {
+      const fromSession = sessionStorage.getItem(cacheKey);
+      const fromLocal = localStorage.getItem(cacheKey);
+      const raw = fromSession || fromLocal;
+      if (raw) {
+        const parsed = JSON.parse(raw) as { ts: number; map: Record<string, string> };
+        if (Date.now() - parsed.ts < cacheTtlMs) {
+          cachedMap = parsed.map || {};
+          setQuoteSentByEmail(cachedMap);
+        }
+      }
+    } catch {}
+
+    let cancelled = false;
     (async () => {
       try {
         let skip = 0;
         const limit = 500;
         let total = Number.MAX_SAFE_INTEGER;
-        const map: Record<string, string> = {};
+        const map: Record<string, string> = { ...cachedMap };
+        let changed = false;
 
         while (skip < total) {
           const data = await gql<{ listEmailLogs: { total: number; results: Array<{ createdAt: string; type?: string; subject?: string; to_email?: string }> } }>(
@@ -292,21 +315,32 @@ function JobsPageContent() {
             const curr = map[to];
             if (!curr || new Date(row.createdAt).getTime() > new Date(curr).getTime()) {
               map[to] = row.createdAt;
+              changed = true;
             }
+          }
+
+          if (!cancelled && changed) {
+            setQuoteSentByEmail({ ...map });
           }
 
           skip += batch.length;
           if (batch.length === 0) break;
         }
 
-        setQuoteSentByEmail(map);
-        if (typeof window !== "undefined") {
-          sessionStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), map }));
+        if (!cancelled && changed) {
+          setQuoteSentByEmail({ ...map });
+          const payload = JSON.stringify({ ts: Date.now(), map });
+          sessionStorage.setItem(cacheKey, payload);
+          localStorage.setItem(cacheKey, payload);
         }
       } catch {
         // best-effort only
       }
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Debounced search
@@ -361,8 +395,16 @@ function JobsPageContent() {
     DEAD: jobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "DEAD" : j.lead?.leadStatus === "DEAD").length,
   };
 
+  const decoratedJobs = useMemo(() => (
+    jobs.map((j) => {
+      const email = j.client?.contactDetails?.email?.trim().toLowerCase();
+      const sentAt = email ? quoteSentByEmail[email] : undefined;
+      return sentAt ? { ...j, quoteLastSentAt: sentAt } : j;
+    })
+  ), [jobs, quoteSentByEmail]);
+
   // Client-side sub-tab filter
-  const filtered = jobs.filter((job) => {
+  const filtered = decoratedJobs.filter((job) => {
     if (salespersonFilter !== "ALL" && job.lead?.allocatedTo?._id !== salespersonFilter) return false;
     if (!searchMode && subTab !== "ALL" && (activeStage === "LEAD" || activeStage === "QUOTE")) {
       if (activeStage === "QUOTE") return quoteState(job) === subTab;

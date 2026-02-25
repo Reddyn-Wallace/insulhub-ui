@@ -37,6 +37,33 @@ export default function LoginPage() {
       });
       localStorage.setItem("token", data.loginUser.token);
       localStorage.setItem("me", JSON.stringify(data.loginUser.user));
+
+      // Warm jobs caches immediately after login so first Jobs screen is snappier.
+      const warm = async (stage: "LEAD" | "QUOTE") => {
+        try {
+          const res = await fetch("https://api.insulhub.nz/graphql", {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-access-token": data.loginUser.token,
+            },
+            body: JSON.stringify({
+              query: `query Jobs($stages:[JobStage!],$skip:Int,$limit:Int){jobs(stages:$stages,skip:$skip,limit:$limit){total results{_id jobNumber stage createdAt updatedAt archivedAt lead{leadStatus allocatedTo{_id firstname lastname} callbackDate quoteBookingDate} quote{quoteNumber date status deferralDate c_total} client{contactDetails{name email phoneMobile streetAddress suburb city postCode}}}}}`,
+              variables: { stages: [stage], skip: 0, limit: 5000 },
+            }),
+          });
+          const json = await res.json();
+          const jobs = (json?.data?.jobs?.results || []).filter((j: { archivedAt?: string }) => !j.archivedAt);
+          const total = json?.data?.jobs?.total || jobs.length;
+          const payload = JSON.stringify({ jobs, total, ts: Date.now() });
+          sessionStorage.setItem(`jobs-cache:${stage}`, payload);
+        } catch {
+          // best effort only
+        }
+      };
+      void warm("LEAD");
+      void warm("QUOTE");
+
       router.push("/jobs");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
