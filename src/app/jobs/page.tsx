@@ -168,11 +168,7 @@ function JobsPageContent() {
       // Filter out archived jobs as requested
       const activeJobs = allFetched.filter(j => !j.archivedAt);
 
-      setJobs(activeJobs.map((j) => {
-        const email = j.client?.contactDetails?.email?.trim().toLowerCase();
-        const sentAt = email ? quoteSentByEmail[email] : undefined;
-        return sentAt ? { ...j, quoteLastSentAt: sentAt } : j;
-      }));
+      setJobs(activeJobs);
       setTotal(data.jobs.total);
       setStageHydrated(true);
 
@@ -212,7 +208,7 @@ function JobsPageContent() {
         setIsFetchingStage(false);
       }
     }
-  }, [activeStage, page, search, searchMode, jobs.length, writeStageCache, quoteSentByEmail]);
+  }, [activeStage, page, search, searchMode, jobs.length, writeStageCache]);
 
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
@@ -365,8 +361,16 @@ function JobsPageContent() {
     DEAD: jobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "DEAD" : j.lead?.leadStatus === "DEAD").length,
   };
 
+  const decoratedJobs = useMemo(() => (
+    jobs.map((j) => {
+      const email = j.client?.contactDetails?.email?.trim().toLowerCase();
+      const sentAt = email ? quoteSentByEmail[email] : undefined;
+      return sentAt ? { ...j, quoteLastSentAt: sentAt } : j;
+    })
+  ), [jobs, quoteSentByEmail]);
+
   // Client-side sub-tab filter
-  const filtered = jobs.filter((job) => {
+  const filtered = decoratedJobs.filter((job) => {
     if (salespersonFilter !== "ALL" && job.lead?.allocatedTo?._id !== salespersonFilter) return false;
     if (!searchMode && subTab !== "ALL" && (activeStage === "LEAD" || activeStage === "QUOTE")) {
       if (activeStage === "QUOTE") return quoteState(job) === subTab;
