@@ -453,7 +453,7 @@ export default function EbaPage() {
   return (
     <div className="min-h-screen bg-[#f8f7f4]">
       <div className="sticky top-0 z-20 bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between">
-        <button onClick={() => router.push(`/jobs/${id}`)} className="text-sm text-gray-600">← Back to Job</button>
+        <button onClick={() => router.replace(`/jobs/${id}`)} className="text-sm text-gray-600">← Back to Job</button>
         <h1 className="text-sm font-semibold text-gray-800">EBA</h1>
         <span
           className={`text-xs px-2 py-1 rounded-full ${
