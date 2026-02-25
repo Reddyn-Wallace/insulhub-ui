@@ -405,6 +405,12 @@ export default function JobDetailPage() {
     }));
   }
 
+  async function clearQuoteBookingDate() {
+    await run(() => gql(UPDATE_JOB_LEAD, {
+      input: { _id: id, lead: buildLeadInput({ quoteBookingDate: null }) },
+    }));
+  }
+
 
   async function markAccepted() {
     await run(() => gql(UPDATE_JOB_QUOTE, {
@@ -1133,18 +1139,7 @@ export default function JobDetailPage() {
                 className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#e85d04]" />
             </div>
             <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs text-gray-500 font-medium">Quote Date</label>
-                {quoteForm.date && (
-                  <button
-                    type="button"
-                    onClick={() => setQuoteForm((f) => ({ ...f, date: "" }))}
-                    className="text-xs text-red-600 font-medium"
-                  >
-                    Remove date
-                  </button>
-                )}
-              </div>
+              <label className="text-xs text-gray-500 font-medium mb-1 block">Quote Date</label>
               <input type="datetime-local" value={quoteForm.date} onChange={(e) => setQuoteForm((f) => ({ ...f, date: e.target.value }))}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#e85d04]" />
             </div>
