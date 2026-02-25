@@ -65,6 +65,49 @@ function fmtDateTime(iso?: string | null) {
     minute: "2-digit",
   });
 }
+
+function normalizeEmailHtml(input: string) {
+  const fallback = "Please find your insulation quote attached.";
+  const raw = (input || "").trim();
+  if (!raw) return `<p>${fallback}</p>`;
+
+  // Plain text -> paragraph + line break HTML
+  if (!/<[a-z][\s\S]*>/i.test(raw)) {
+    return raw
+      .split(/\n{2,}/)
+      .map((block) => `<p>${block.replace(/\n/g, "<br>")}</p>`)
+      .join("");
+  }
+
+  // HTML path
+  let html = raw
+    .replace(/<p>(?:\s|&nbsp;|<br\s*\/?>)*<\/p>/gi, "")
+    .replace(/(?:<br\s*\/?>\s*){3,}/gi, "<br><br>")
+    .trim();
+
+  // Tighten paragraph/list spacing so old CRM paragraph-heavy templates render cleaner
+  html = html
+    .replace(/<p(\s[^>]*)?>/gi, (_m, attrs = "") => {
+      if (/style\s*=/.test(attrs)) {
+        return `<p${attrs.replace(/style\s*=\s*(["'])/i, 'style=$1margin:0 0 8px 0;line-height:1.45;')}>`;
+      }
+      return `<p${attrs} style="margin:0 0 8px 0;line-height:1.45;">`;
+    })
+    .replace(/<li(\s[^>]*)?>/gi, (_m, attrs = "") => {
+      if (/style\s*=/.test(attrs)) {
+        return `<li${attrs.replace(/style\s*=\s*(["'])/i, 'style=$1margin:0 0 4px 0;line-height:1.45;')}>`;
+      }
+      return `<li${attrs} style="margin:0 0 4px 0;line-height:1.45;">`;
+    });
+
+  return html || `<p>${fallback}</p>`;
+}
+
+function prepareEmailHtmlForSend(input: string) {
+  const body = normalizeEmailHtml(input);
+  return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.45;color:#1f2937;">${body}</div>`;
+}
+
 function toDatetimeLocal(iso?: string | null) {
   if (!iso) return "";
   return new Date(iso).toISOString().slice(0, 16);
@@ -657,7 +700,7 @@ export default function JobDetailPage() {
     } finally {
       setLoadingQuoteEmailBody(false);
     }
-    setQuoteEmailBody(template);
+    setQuoteEmailBody(normalizeEmailHtml(template));
   }
 
   async function openSendQuoteSheet() {
@@ -678,7 +721,8 @@ export default function JobDetailPage() {
       return;
     }
 
-    const template = templateOverride || quoteEmailBody || "Please find your insulation quote attached.";
+    const rawTemplate = templateOverride || quoteEmailBody || "Please find your insulation quote attached.";
+    const template = prepareEmailHtmlForSend(rawTemplate);
 
     await run(() => gql(UPDATE_JOB_QUOTE, {
       input: buildQuoteUpdateInput(false),
