@@ -7,6 +7,7 @@ interface Job {
   stage: string;
   createdAt?: string;
   updatedAt: string;
+  quoteLastSentAt?: string;
   lead?: {
     leadStatus?: string;
     allocatedTo?: { _id: string; firstname: string; lastname: string };
@@ -105,6 +106,7 @@ export default function JobCard({ job }: { job: Job }) {
   const isCallbackOverdue = (leadStatus === "CALLBACK" || quoteState === "CALLBACK") && Boolean(callbackTime && callbackTime < now);
   const quoteBookingTime = job.lead?.quoteBookingDate ? new Date(job.lead.quoteBookingDate).getTime() : null;
   const isQuoteBookingOverdue = Boolean(quoteBookingTime && quoteBookingTime < now);
+  const sentAt = job.quoteLastSentAt;
 
 
   return (
@@ -124,6 +126,9 @@ export default function JobCard({ job }: { job: Job }) {
         <div className="flex flex-wrap gap-2 mb-2">
           <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">Job #{job.jobNumber}</span>
           {job.quote?.quoteNumber && <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-medium">#{job.quote.quoteNumber} {job.quote.c_total ? formatCurrency(job.quote.c_total) : ""}</span>}
+          {job.stage === "QUOTE" && sentAt && (
+            <span className="text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">Sent to customer</span>
+          )}
         </div>
 
         <div className="flex items-center justify-between text-xs text-gray-400">

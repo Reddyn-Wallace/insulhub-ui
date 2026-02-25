@@ -73,6 +73,7 @@ function JobsPageContent() {
   const [salespersonFilter, setSalespersonFilter] = useState<string>("ALL");
   const [loading, setLoading] = useState(true);
   const [isFetchingStage, setIsFetchingStage] = useState(false);
+  const [quoteEmailSentMap, setQuoteEmailSentMap] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -100,6 +101,57 @@ function JobsPageContent() {
     if (typeof window === "undefined") return;
     sessionStorage.setItem(cacheKey(stage), JSON.stringify({ ...data, ts: Date.now() }));
   }, [cacheKey]);
+
+  const loadQuoteEmailSentMap = useCallback(async () => {
+    if (typeof window === "undefined") return;
+    const sentCacheKey = 'quote-email-sent-map';
+    const cached = sessionStorage.getItem(sentCacheKey);
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached) as { ts: number; map: Record<string, string> };
+        if (Date.now() - parsed.ts < 10 * 60 * 1000) {
+          setQuoteEmailSentMap(parsed.map || {});
+          return;
+        }
+      } catch {}
+    }
+
+    try {
+      let skip = 0;
+      const limit = 500;
+      let total = Number.MAX_SAFE_INTEGER;
+      const map: Record<string, string> = {};
+
+      while (skip < total) {
+        const data = await gql<{ listEmailLogs: { total: number; results: Array<{ createdAt: string; type?: string; subject?: string; to_email?: string }> } }>(
+          `query($skip:Int,$limit:Int){listEmailLogs(skip:$skip,limit:$limit){total results{createdAt type subject to_email}}}`,
+          { skip, limit }
+        );
+
+        total = data.listEmailLogs.total;
+        const batch = data.listEmailLogs.results || [];
+        for (const row of batch) {
+          const subject = (row.subject || '').toLowerCase();
+          const type = (row.type || '').toLowerCase();
+          const to = (row.to_email || '').trim().toLowerCase();
+          if (!to) continue;
+          if (!(type === 'quote' || subject.includes('quote'))) continue;
+          const curr = map[to];
+          if (!curr || new Date(row.createdAt).getTime() > new Date(curr).getTime()) {
+            map[to] = row.createdAt;
+          }
+        }
+
+        skip += batch.length;
+        if (batch.length === 0) break;
+      }
+
+      setQuoteEmailSentMap(map);
+      sessionStorage.setItem(sentCacheKey, JSON.stringify({ ts: Date.now(), map }));
+    } catch {
+      // ignore; UI will omit sent proxy badge
+    }
+  }, []);
 
   const prefetchJobsForStage = useCallback(async (stage: string) => {
     try {
@@ -168,13 +220,27 @@ function JobsPageContent() {
       // Filter out archived jobs as requested
       const activeJobs = allFetched.filter(j => !j.archivedAt);
 
-      setJobs(activeJobs);
+      setJobs(activeJobs.map((j) => {
+        const email = j.client?.contactDetails?.email?.trim().toLowerCase();
+        const sentAt = email ? quoteEmailSentMap[email] : undefined;
+        return sentAt ? { ...j, quoteLastSentAt: sentAt } : j;
+      }));
       setTotal(data.jobs.total);
       setStageHydrated(true);
 
       if (!isSearching && (activeStage === "LEAD" || activeStage === "QUOTE")) {
         const stageJobs = activeJobs;
-        const isQuoteBooked = (job: Job) => Boolean(job.lead?.quoteBookingDate);
+      
+  useEffect(() => {
+    if (!Object.keys(quoteEmailSentMap).length) return;
+    setJobs((prev) => prev.map((j) => {
+      const email = j.client?.contactDetails?.email?.trim().toLowerCase();
+      const sentAt = email ? quoteEmailSentMap[email] : undefined;
+      return sentAt ? { ...j, quoteLastSentAt: sentAt } : j;
+    }));
+  }, [quoteEmailSentMap]);
+
+  const isQuoteBooked = (job: Job) => Boolean(job.lead?.quoteBookingDate);
         const isCallbackLead = (job: Job) => ["CALLBACK", "ON_HOLD"].includes((job.lead?.leadStatus || "").toUpperCase());
         const isNewLead = (job: Job) => (!job.lead?.leadStatus || job.lead.leadStatus === "NEW") && !isQuoteBooked(job);
         const quoteState = (job: Job) => {
@@ -208,7 +274,7 @@ function JobsPageContent() {
         setIsFetchingStage(false);
       }
     }
-  }, [activeStage, page, search, searchMode, jobs.length, writeStageCache]);
+  }, [activeStage, page, search, searchMode, jobs.length, writeStageCache, quoteEmailSentMap]);
 
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
