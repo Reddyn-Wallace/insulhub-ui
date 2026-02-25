@@ -399,12 +399,19 @@ function JobsPageContent() {
       }
 
       // Callback tabs (both Leads + Quotes): sort strictly by callback date
+      // and honor selected sort direction (no future-first special casing).
       if (subTab === "CALLBACK") {
         const aCb = a.lead?.callbackDate;
         const bCb = b.lead?.callbackDate;
         const aTime = aCb ? new Date(aCb).getTime() : null;
         const bTime = bCb ? new Date(bCb).getTime() : null;
-        return futureFirst(aTime, bTime);
+
+        if (aTime == null && bTime != null) return 1;
+        if (aTime != null && bTime == null) return -1;
+        if (aTime == null && bTime == null) return 0;
+
+        const asc = (aTime as number) - (bTime as number);
+        return sortOrder === "oldest" ? asc : -asc;
       }
 
       if (activeStage === "QUOTE") {
