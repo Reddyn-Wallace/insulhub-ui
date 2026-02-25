@@ -106,7 +106,7 @@ export default function JobCard({ job }: { job: Job }) {
   const quoteBookingTime = job.lead?.quoteBookingDate ? new Date(job.lead.quoteBookingDate).getTime() : null;
   const isQuoteBookingOverdue = Boolean(quoteBookingTime && quoteBookingTime < now);
 
-  const isQuoteSent = Boolean(job.quote?.quoteNumber && job.quote?.date);
+  const isQuoteSent = Boolean(job.quote?.status && job.quote.status !== "NEW");
 
   return (
     <Link href={`/jobs/${job._id}`}>
