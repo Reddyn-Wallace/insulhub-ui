@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 
 interface Job {
@@ -66,6 +66,58 @@ const STAGE_LABEL: Record<string, string> = {
   INVOICE: "Invoice",
   COMPLETED: "Completed",
 };
+
+let quoteSentMapCache: Record<string, string> | null = null;
+let quoteSentMapPromise: Promise<Record<string, string>> | null = null;
+
+async function loadQuoteSentMap(): Promise<Record<string, string>> {
+  if (quoteSentMapCache) return quoteSentMapCache;
+  if (quoteSentMapPromise) return quoteSentMapPromise;
+
+  quoteSentMapPromise = (async () => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
+    if (!token) return {};
+
+    let skip = 0;
+    const limit = 500;
+    let total = Number.MAX_SAFE_INTEGER;
+    const map: Record<string, string> = {};
+
+    while (skip < total) {
+      const res = await fetch("https://api.insulhub.nz/graphql", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-access-token": token },
+        body: JSON.stringify({
+          query: `query($skip:Int,$limit:Int){listEmailLogs(skip:$skip,limit:$limit){total results{createdAt type subject to_email}}}`,
+          variables: { skip, limit },
+        }),
+      });
+      const json = await res.json();
+      const data = json?.data?.listEmailLogs;
+      if (!data) break;
+      total = data.total;
+      const batch = data.results || [];
+      for (const row of batch) {
+        const to = (row.to_email || "").trim().toLowerCase();
+        const subject = (row.subject || "").toLowerCase();
+        const type = (row.type || "").toLowerCase();
+        if (!to) continue;
+        if (!(subject.includes("quote") || type === "quote")) continue;
+        const curr = map[to];
+        if (!curr || new Date(row.createdAt).getTime() > new Date(curr).getTime()) {
+          map[to] = row.createdAt;
+        }
+      }
+      skip += batch.length;
+      if (batch.length === 0) break;
+    }
+
+    quoteSentMapCache = map;
+    return map;
+  })();
+
+  return quoteSentMapPromise;
+}
 
 const STATUS_STYLE: Record<string, { pill: string; border: string; label: string }> = {
   NEW: { pill: "bg-sky-50 text-sky-700 border border-sky-100", border: "border-l-sky-300", label: "New" },
