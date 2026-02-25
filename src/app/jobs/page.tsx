@@ -426,8 +426,12 @@ function JobsPageContent() {
 
   const showSubTabs = !searchMode && (activeStage === "LEAD" || activeStage === "QUOTE");
 
-  // If current page has no rows after sub-filtering, jump back to page 1 for that view.
+  // If current page has no rows after filtering/pagination, jump back to page 1.
   useEffect(() => {
+    if (!loading && !error && page > 0 && sortedJobs.length > 0 && page * PAGE_SIZE >= sortedJobs.length) {
+      setPage(0);
+      return;
+    }
     if (!loading && !error && page > 0 && jobs.length > 0 && sortedJobs.length === 0) {
       setPage(0);
     }
