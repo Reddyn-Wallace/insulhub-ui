@@ -78,7 +78,6 @@ function JobsPageContent() {
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fetchIdRef = useRef(0);
-  const backgroundRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Cache for first page of stage jobs to enable instant switching
   const cacheRef = useRef<Record<string, { jobs: Job[]; total: number }>>({});
 
@@ -222,18 +221,8 @@ function JobsPageContent() {
     const canUseWarmCache = !searchMode && !search && page === 0 && (activeStage === "LEAD" || activeStage === "QUOTE");
     const cached = canUseWarmCache ? readStageCache(activeStage) : null;
 
-    if (canUseWarmCache && cached) {
-      // Keep navigation feeling instant when cache has data.
-      if (cached.jobs.length > 0) {
-        if (backgroundRefreshTimerRef.current) clearTimeout(backgroundRefreshTimerRef.current);
-        backgroundRefreshTimerRef.current = setTimeout(() => {
-          fetchJobs();
-        }, 500);
-        return;
-      }
-      // If cache is empty, show loading skeleton and fetch immediately.
-      setStageHydrated(false);
-      fetchJobs();
+    if (canUseWarmCache && cached && cached.jobs.length > 0) {
+      // Cache-first for snappy tab switches. Avoid immediate refetch/spinner thrash.
       return;
     }
 
@@ -249,12 +238,6 @@ function JobsPageContent() {
     }
   }, [prefetchJobsForStage]);
 
-
-  useEffect(() => {
-    return () => {
-      if (backgroundRefreshTimerRef.current) clearTimeout(backgroundRefreshTimerRef.current);
-    };
-  }, []);
 
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
