@@ -112,9 +112,9 @@ function normalizeEmailHtml(input: string) {
   html = html
     .replace(/<p([^>]*)>\s*((?:Warm regards|Kind regards|Regards|Thanks|Thank you),?)\s*<\/p>/gi, (_m, attrs = "", signoffText) => {
       if (/style\s*=/.test(attrs)) {
-        return `<p${attrs.replace(/style\s*=\s*(["'])/i, 'style=$1margin-top:12px;margin-bottom:0;line-height:1.5;')}>${signoffText}</p>`;
+        return `<p${attrs.replace(/style\s*=\s*(["'])/i, 'style=$1margin-top:20px;margin-bottom:0;line-height:1.5;')}>${signoffText}</p>`;
       }
-      return `<p${attrs} style="margin-top:12px;margin-bottom:0;line-height:1.5;">${signoffText}</p>`;
+      return `<p${attrs} style="margin-top:20px;margin-bottom:0;line-height:1.5;">${signoffText}</p>`;
     })
     .replace(/(<p[^>]*>\s*(?:Warm regards|Kind regards|Regards|Thanks|Thank you),?\s*<\/p>)\s*<p[^>]*>([\s\S]*?)<\/p>/gi, (_m, signoff, nameLine) => {
       return signoff.replace(/<\/p>$/i, `<br>${nameLine}</p>`);
