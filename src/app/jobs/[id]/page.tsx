@@ -89,32 +89,35 @@ function normalizeEmailHtml(input: string) {
   html = html
     .replace(/<p(\s[^>]*)?>/gi, (_m, attrs = "") => {
       if (/style\s*=/.test(attrs)) {
-        return `<p${attrs.replace(/style\s*=\s*(["'])/i, 'style=$1margin:0 0 6px 0;line-height:1.4;')}>`;
+        return `<p${attrs.replace(/style\s*=\s*(["'])/i, 'style=$1margin:0 0 7px 0;line-height:1.5;')}>`;
       }
-      return `<p${attrs} style="margin:0 0 6px 0;line-height:1.4;">`;
+      return `<p${attrs} style="margin:0 0 7px 0;line-height:1.5;">`;
     })
     .replace(/<li(\s[^>]*)?>/gi, (_m, attrs = "") => {
       if (/style\s*=/.test(attrs)) {
-        return `<li${attrs.replace(/style\s*=\s*(["'])/i, 'style=$1margin:0 0 3px 0;line-height:1.4;')}>`;
+        return `<li${attrs.replace(/style\s*=\s*(["'])/i, 'style=$1margin:0 0 4px 0;line-height:1.45;')}>`;
       }
-      return `<li${attrs} style="margin:0 0 3px 0;line-height:1.4;">`;
+      return `<li${attrs} style="margin:0 0 4px 0;line-height:1.45;">`;
     })
     .replace(/<h([1-6])(\s[^>]*)?>/gi, (_m, level, attrs = "") => {
-      const size = level === "1" ? "24" : level === "2" ? "20" : level === "3" ? "18" : "16";
       if (/style\s*=/.test(attrs)) {
-        return `<h${level}${attrs.replace(/style\s*=\s*(["'])/i, `style=$1margin:12px 0 4px 0;line-height:1.25;font-size:${size}px;`)}>`;
+        return `<h${level}${attrs.replace(/style\s*=\s*(["'])/i, 'style=$1margin:12px 0 4px 0;line-height:1.3;')}>`;
       }
-      return `<h${level}${attrs} style="margin:12px 0 4px 0;line-height:1.25;font-size:${size}px;">`;
+      return `<h${level}${attrs} style="margin:12px 0 4px 0;line-height:1.3;">`;
     });
 
-  // Signature tidy-up: remove extra gap between sign-off line and name/phone line.
+  // Signature tidy-up:
+  // 1) Ensure a visible gap above sign-off.
+  // 2) Keep sign-off and name/phone compact together.
   html = html
+    .replace(/<p([^>]*)>\s*((?:Warm regards|Kind regards|Regards|Thanks|Thank you),?)\s*<\/p>/gi, (_m, attrs = "", signoffText) => {
+      if (/style\s*=/.test(attrs)) {
+        return `<p${attrs.replace(/style\s*=\s*(["'])/i, 'style=$1margin-top:12px;margin-bottom:0;line-height:1.5;')}>${signoffText}</p>`;
+      }
+      return `<p${attrs} style="margin-top:12px;margin-bottom:0;line-height:1.5;">${signoffText}</p>`;
+    })
     .replace(/(<p[^>]*>\s*(?:Warm regards|Kind regards|Regards|Thanks|Thank you),?\s*<\/p>)\s*<p[^>]*>([\s\S]*?)<\/p>/gi, (_m, signoff, nameLine) => {
-      const withGap = /style\s*=/.test(signoff)
-        ? signoff.replace(/style\s*=\s*(["'])/i, 'style=$1margin-top:12px;')
-        : signoff.replace(/^<p/i, '<p style="margin-top:12px;"');
-      const merged = withGap.replace(/<\/p>$/i, `<br>${nameLine}</p>`);
-      return merged;
+      return signoff.replace(/<\/p>$/i, `<br>${nameLine}</p>`);
     });
 
   return html || `<p>${fallback}</p>`;
