@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
 import { gql } from "@/lib/graphql";
 import { JOB_QUERY, USERS_QUERY } from "@/lib/queries";
@@ -162,6 +162,9 @@ export default function JobDetailPage() {
   const [leadSourceForm, setLeadSourceForm] = useState<string[]>([]);
   const [quoteExpanded, setQuoteExpanded] = useState(false);
   const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [quoteEmailBody, setQuoteEmailBody] = useState("Please find your insulation quote attached.");
+  const [loadingQuoteEmailBody, setLoadingQuoteEmailBody] = useState(false);
+  const quoteEmailEditorRef = useRef<HTMLDivElement | null>(null);
 
   // Load job + users
   const load = useCallback(async () => {
@@ -561,12 +564,8 @@ export default function JobDetailPage() {
     setNotice({ type: "success", text: "EBA email sent." });
   }
 
-  async function sendQuoteToCustomerConfirmed() {
-    if (!quoteForm.quoteNumber || !quoteForm.date || (!quoteForm.hasWall && !quoteForm.hasCeiling)) {
-      setNotice({ type: "error", text: "Add quote data first (quote number, date, and wall/ceiling values)." });
-      return;
-    }
-
+  async function loadQuoteEmailTemplate() {
+    setLoadingQuoteEmailBody(true);
     let template = "Please find your insulation quote attached.";
     try {
       const input = buildQuoteUpdateInput(false);
@@ -577,7 +576,31 @@ export default function JobDetailPage() {
       if (data.getQuotePDFEmailBody) template = data.getQuotePDFEmailBody;
     } catch {
       // fallback template kept
+    } finally {
+      setLoadingQuoteEmailBody(false);
     }
+    setQuoteEmailBody(template);
+  }
+
+  async function openSendQuoteSheet() {
+    openSheet("sendQuoteConfirm");
+    await loadQuoteEmailTemplate();
+  }
+
+  function applyEmailFormat(command: string) {
+    if (!quoteEmailEditorRef.current) return;
+    quoteEmailEditorRef.current.focus();
+    document.execCommand(command, false);
+    setQuoteEmailBody(quoteEmailEditorRef.current.innerHTML);
+  }
+
+  async function sendQuoteToCustomerConfirmed(templateOverride?: string) {
+    if (!quoteForm.quoteNumber || !quoteForm.date || (!quoteForm.hasWall && !quoteForm.hasCeiling)) {
+      setNotice({ type: "error", text: "Add quote data first (quote number, date, and wall/ceiling values)." });
+      return;
+    }
+
+    const template = templateOverride || quoteEmailBody || "Please find your insulation quote attached.";
 
     await run(() => gql(UPDATE_JOB_QUOTE, {
       input: buildQuoteUpdateInput(false),
@@ -894,7 +917,7 @@ export default function JobDetailPage() {
                   ✓ Mark Accepted
                 </button>
               )}
-              <button onClick={() => openSheet("sendQuoteConfirm")} disabled={saving}
+              <button onClick={openSendQuoteSheet} disabled={saving}
                 className="flex-1 bg-indigo-600 text-white text-sm font-semibold py-2.5 rounded-xl disabled:opacity-50">
                 ✉️ Send Quote
               </button>
@@ -1129,16 +1152,45 @@ export default function JobDetailPage() {
 
 
       <BottomSheet open={sheet === "sendQuoteConfirm"} onClose={closeSheet} title="Send Quote">
-        <p className="text-sm text-gray-600 mb-3">Send this quote to the customer now?</p>
+        <p className="text-sm text-gray-600 mb-3">Review and edit the email before sending.</p>
         <div className="bg-gray-50 rounded-xl p-3 text-sm text-gray-700 mb-3 space-y-1">
           <p><span className="text-gray-500">Quote #:</span> {quoteForm.quoteNumber || "-"}</p>
           <p><span className="text-gray-500">Quote Date:</span> {quoteForm.date ? fmt(fromDatetimeLocal(quoteForm.date) || "") : "-"}</p>
           <p><span className="text-gray-500">Customer Email:</span> {job.client?.contactDetails?.email || "-"}</p>
         </div>
+
+        <div className="border border-gray-200 rounded-xl p-3 mb-3 bg-white">
+          <div className="flex items-center gap-2 mb-2">
+            <button type="button" onClick={() => applyEmailFormat("bold")} className="px-2 py-1 text-xs border border-gray-200 rounded">B</button>
+            <button type="button" onClick={() => applyEmailFormat("italic")} className="px-2 py-1 text-xs border border-gray-200 rounded italic">I</button>
+            <button type="button" onClick={() => applyEmailFormat("insertUnorderedList")} className="px-2 py-1 text-xs border border-gray-200 rounded">• List</button>
+            <button type="button" onClick={() => applyEmailFormat("insertOrderedList")} className="px-2 py-1 text-xs border border-gray-200 rounded">1. List</button>
+          </div>
+          {loadingQuoteEmailBody ? (
+            <div className="text-sm text-gray-500 py-6 text-center">Loading email template...</div>
+          ) : (
+            <div
+              ref={quoteEmailEditorRef}
+              contentEditable
+              suppressContentEditableWarning
+              onInput={(e) => setQuoteEmailBody((e.currentTarget as HTMLDivElement).innerHTML)}
+              className="min-h-[180px] max-h-[320px] overflow-auto border border-gray-200 rounded-lg p-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+              dangerouslySetInnerHTML={{ __html: quoteEmailBody }}
+            />
+          )}
+        </div>
+
         <div className="flex gap-2">
           <button onClick={closeSheet} className="flex-1 bg-gray-100 text-gray-700 font-semibold py-2.5 rounded-xl">Cancel</button>
-          <button onClick={() => { closeSheet(); sendQuoteToCustomerConfirmed(); }} disabled={saving}
-            className="flex-1 bg-indigo-600 text-white font-semibold py-2.5 rounded-xl disabled:opacity-50">
+          <button
+            onClick={() => {
+              const html = quoteEmailEditorRef.current?.innerHTML || quoteEmailBody;
+              closeSheet();
+              sendQuoteToCustomerConfirmed(html);
+            }}
+            disabled={saving || loadingQuoteEmailBody}
+            className="flex-1 bg-indigo-600 text-white font-semibold py-2.5 rounded-xl disabled:opacity-50"
+          >
             {saving ? "Sending..." : "Send Quote"}
           </button>
         </div>
