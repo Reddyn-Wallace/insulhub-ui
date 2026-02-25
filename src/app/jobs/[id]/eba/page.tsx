@@ -22,6 +22,9 @@ type Job = {
       lotDPNumber?: string;
     };
   };
+  lead?: {
+    allocatedTo?: { firstname?: string; lastname?: string };
+  };
 };
 
 const EBA_JOB_QUERY = `
@@ -37,6 +40,12 @@ const EBA_JOB_QUERY = `
           city
           postCode
           lotDPNumber
+        }
+      }
+      lead {
+        allocatedTo {
+          firstname
+          lastname
         }
       }
       ebaForm {
@@ -139,15 +148,47 @@ function fromDatetimeLocal(v?: string) {
 
 function listValue(v: unknown): string[] {
   if (Array.isArray(v)) return v.map((x) => String(x));
-  if (typeof v === "string") return v.split(",").map((x) => x.trim()).filter(Boolean);
+  if (typeof v === "string") {
+    if (v.includes(" | ")) return v.split("|").map((x) => x.trim()).filter(Boolean);
+    return v.split(",").map((x) => x.trim()).filter(Boolean);
+  }
   return [];
 }
 
 function toggleList(curr: unknown, item: string): string {
   const arr = listValue(curr);
   const next = arr.includes(item) ? arr.filter((x) => x !== item) : [...arr, item];
-  return next.join(", ");
+  return next.join(" | ");
 }
+
+function getOtherFromList(curr: unknown): string {
+  const arr = listValue(curr);
+  const other = arr.find((x) => x.toLowerCase().startsWith("other:"));
+  return other ? other.slice(other.indexOf(":") + 1).trim() : "";
+}
+
+function setOtherInList(curr: unknown, value: string): string {
+  const arr = listValue(curr).filter((x) => !x.toLowerCase().startsWith("other:"));
+  const next = value.trim();
+  if (next) arr.push(`Other: ${next}`);
+  return arr.join(" | ");
+}
+
+function parseKnownList(curr: unknown, knownOptions: string[]): string[] {
+  const arr = listValue(curr);
+  if (arr.length > 1 || typeof curr !== "string") return arr;
+
+  const raw = curr;
+  const found = knownOptions.filter((opt) => raw.includes(opt));
+  return found.length ? found : arr;
+}
+
+function toggleKnownList(curr: unknown, item: string, knownOptions: string[]): string {
+  const arr = parseKnownList(curr, knownOptions);
+  const next = arr.includes(item) ? arr.filter((x) => x !== item) : [...arr, item];
+  return next.join(" | ");
+}
+
 export default function EbaPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -286,11 +327,17 @@ export default function EbaPage() {
         try { setEbaPhotos(JSON.parse(cachedPhotos)); } catch {}
       }
 
+      const salespersonName = [
+        data.job.lead?.allocatedTo?.firstname,
+        data.job.lead?.allocatedTo?.lastname,
+      ].filter(Boolean).join(" ");
+
       setForm({
         ...(data.job.ebaForm || {}),
         nameOfOwners: (data.job.ebaForm?.nameOfOwners as string) || data.job.client?.contactDetails?.name || "",
         proofOfOwnership: (data.job.ebaForm?.proofOfOwnership as string) || "Certificate of Title",
         lotOrDPNumber: (data.job.ebaForm?.lotOrDPNumber as string) || data.job.client?.contactDetails?.lotDPNumber || "",
+        assessorName: (data.job.ebaForm?.assessorName as string) || salespersonName || "",
         date: toDatetimeLocal(data.job.ebaForm?.date as string | undefined),
       });
     } catch (err) {
@@ -393,12 +440,12 @@ export default function EbaPage() {
 
 
 
-  const YesNoRow = ({ keyName, label, notApplicable = false }: { keyName: string; label: string; notApplicable?: boolean }) => (
+  const YesNoRow = ({ keyName, label, notApplicable = false, noIsGreen = false }: { keyName: string; label: string; notApplicable?: boolean; noIsGreen?: boolean }) => (
     <div>
       <p className="text-sm text-gray-700">{label}</p>
       <div className="flex gap-3 mt-1">
-        <label className="text-sm"><input type="radio" name={keyName} className="mr-2 accent-green-600" checked={form[keyName] === true} onChange={() => setField(keyName, true)} />Yes</label>
-        <label className="text-sm text-red-700"><input type="radio" name={keyName} className="mr-2 accent-red-600" checked={form[keyName] === false} onChange={() => setField(keyName, false)} />No</label>
+        <label className={`text-sm ${noIsGreen ? "text-red-700" : ""}`}><input type="radio" name={keyName} className={`mr-2 ${noIsGreen ? "accent-red-600" : "accent-green-600"}`} checked={form[keyName] === true} onChange={() => setField(keyName, true)} />Yes</label>
+        <label className={`text-sm ${noIsGreen ? "text-green-700" : "text-red-700"}`}><input type="radio" name={keyName} className={`mr-2 ${noIsGreen ? "accent-green-600" : "accent-red-600"}`} checked={form[keyName] === false} onChange={() => setField(keyName, false)} />No</label>
         {notApplicable && <label className="text-sm text-gray-600"><input type="radio" name={keyName} className="mr-2 accent-gray-500" checked={form[keyName] === "NOT_APPLICABLE"} onChange={() => setField(keyName, "NOT_APPLICABLE")} />Not Applicable</label>}
       </div>
     </div>
@@ -521,11 +568,11 @@ export default function EbaPage() {
                 </div>
                 <div>
                   <label className="text-xs text-gray-500">Joinery</label>
-                  {["Timber","Aluminium (Single Glazed)","Aluminium (Double Glazed)","uPVC"].map((opt)=>(<label key={opt} className="text-sm block mt-1"><input type="checkbox" className="mr-2" checked={listValue(form.joinery).includes(opt)} onChange={() => setField("joinery", toggleList(form.joinery, opt))} />{opt}</label>))}
+                  {["Timber","Aluminium/steel","uPVC","Appears to be installed correctly"].map((opt)=>(<label key={opt} className="text-sm block mt-1"><input type="checkbox" className="mr-2" checked={listValue(form.joinery).includes(opt)} onChange={() => setField("joinery", toggleList(form.joinery, opt))} />{opt}</label>))}
                 </div>
                 <div>
                   <label className="text-xs text-gray-500">Lining</label>
-                  {["Plasterboard","Timber","Hardboard","Plaster"].map((opt)=>(<label key={opt} className="text-sm block mt-1"><input type="checkbox" className="mr-2" checked={listValue(form.lining).includes(opt)} onChange={() => setField("lining", toggleList(form.lining, opt))} />{opt}</label>))}
+                  {["Plasterboard","Hardboard","Sarked","Masonry"].map((opt)=>(<label key={opt} className="text-sm block mt-1"><input type="checkbox" className="mr-2" checked={listValue(form.lining).includes(opt)} onChange={() => setField("lining", toggleList(form.lining, opt))} />{opt}</label>))}
                 </div>
               </div>
             </div>
@@ -555,18 +602,42 @@ export default function EbaPage() {
               <h2 className="text-sm font-semibold text-gray-700 mb-3">3) Install Information</h2>
 
               <h3 className="text-sm font-semibold text-gray-700 mb-2">Cladding Type</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-1 mb-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-1 mb-2">
                 {["Timber","Cement Board","Rendered Plaster","Masonry Veneer","Masonry (Double brick)","EIFS","Palisade (plastic) weatherboard","Corrugated Steel"].map((opt)=>(
                   <label key={opt} className="text-sm"><input type="checkbox" className="mr-2" checked={listValue(form.claddingType).includes(opt)} onChange={() => setField("claddingType", toggleList(form.claddingType, opt))} />{opt}</label>
                 ))}
+                <label className="text-sm"><input type="checkbox" className="mr-2" checked={listValue(form.claddingType).some((x) => x === "Other" || x.toLowerCase().startsWith("other:"))} onChange={(e) => {
+                  const arr = listValue(form.claddingType).filter((x) => x !== "Other" && !x.toLowerCase().startsWith("other:"));
+                  if (e.target.checked) arr.push("Other");
+                  setField("claddingType", arr.join(" | "));
+                }} />Other</label>
               </div>
+              <input
+                type="text"
+                placeholder="Other"
+                value={getOtherFromList(form.claddingType)}
+                onChange={(e) => setField("claddingType", setOtherInList(form.claddingType, e.target.value))}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-4"
+              />
 
               <p className="text-sm text-gray-700 font-medium mb-1">Installed Via:</p>
-              <div className="grid grid-cols-1 gap-1 mb-4">
+              <div className="grid grid-cols-1 gap-1 mb-2">
                 {["Cladding","Internal Lining mandatory for EIF, Palisade or Corrugated Steel"].map((opt)=>(
                   <label key={opt} className="text-sm"><input type="checkbox" className="mr-2" checked={listValue(form.claddingTypeInstalledVia).includes(opt)} onChange={() => setField("claddingTypeInstalledVia", toggleList(form.claddingTypeInstalledVia, opt))} />{opt}</label>
                 ))}
+                <label className="text-sm"><input type="checkbox" className="mr-2" checked={listValue(form.claddingTypeInstalledVia).some((x) => x === "Other" || x.toLowerCase().startsWith("other:"))} onChange={(e) => {
+                  const arr = listValue(form.claddingTypeInstalledVia).filter((x) => x !== "Other" && !x.toLowerCase().startsWith("other:"));
+                  if (e.target.checked) arr.push("Other");
+                  setField("claddingTypeInstalledVia", arr.join(" | "));
+                }} />Other</label>
               </div>
+              <input
+                type="text"
+                placeholder="Other"
+                value={getOtherFromList(form.claddingTypeInstalledVia)}
+                onChange={(e) => setField("claddingTypeInstalledVia", setOtherInList(form.claddingTypeInstalledVia, e.target.value))}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-4"
+              />
 
               <h3 className="text-sm font-semibold text-gray-700 mb-2">Installation</h3>
               <p className="text-sm text-gray-600 mb-4">
@@ -575,13 +646,17 @@ export default function EbaPage() {
 
               <h3 className="text-sm font-semibold text-gray-700 mb-2">Finishing of Cladding</h3>
               <div className="grid grid-cols-1 gap-2">
-                {[
-                  "Timber / Cement Board Holes filled with Turbo house filler, sand flush and holes sealed with exterior pant system",
-                  "Painted render / plaster / masonry Holes filled with Turbo house filler, sand flush and holes sealed with exterior pant system",
-                  "Unsealed masonry Holes filled with sand / cement mortar and exterior cladding sealed with appropriate Surfapor masonry surface sealer for concrete or clay based substrates. Clay brick http://www.pacificnanotech.co.nz/catalog/surfapore-range/surfapore-r Concrete block/brick http://www.pacificnanotech.co.nz/catalog/surfapore/surfapore-c",
-                ].map((opt)=>(
-                  <label key={opt} className="text-sm"><input type="checkbox" className="mr-2 align-top mt-1" checked={listValue(form.finishOfCladding).includes(opt)} onChange={() => setField("finishOfCladding", toggleList(form.finishOfCladding, opt))} />{opt}</label>
-                ))}
+                {(() => {
+                  const finishOptions = [
+                    "Timber / Cement Board Holes filled with Turbo house filler, sand flush and holes sealed with exterior paint system",
+                    "Painted render / plaster / masonry Holes filled with Turbo house filler, sand flush and holes sealed with exterior paint system",
+                    "Unsealed masonry Holes filled with sand / cement mortar and exterior cladding sealed with appropriate Surfapor masonry surface sealer for concrete or clay based substrates. Clay brick http://www.pacificnanotech.co.nz/catalog/surfapore-range/surfapore-r Concrete block/brick http://www.pacificnanotech.co.nz/catalog/surfapore/surfapore-c",
+                  ];
+                  const selectedFinish = parseKnownList(form.finishOfCladding, finishOptions);
+                  return finishOptions.map((opt)=>(
+                    <label key={opt} className="text-sm"><input type="checkbox" className="mr-2 align-top mt-1" checked={selectedFinish.includes(opt)} onChange={() => setField("finishOfCladding", toggleKnownList(form.finishOfCladding, opt, finishOptions))} />{opt}</label>
+                  ));
+                })()}
               </div>
             </div>
 
@@ -599,24 +674,65 @@ export default function EbaPage() {
                   ["Electricity G9.3.1","After removing a plug point on an exterior wall, wiring is observed to be TPS ?","g931_electricity","g931_electricity_priorToInstallationWorkRequired","g931_electricity_priorToCertificationWorkRequired"],
                   ["Energy Efficiency H1.3.1","Is Insulmax® insulation able to be installed so increasing the thermal resistance of the wall structure and limiting uncontrolled airflow?","h131_energyEfficiency",null,null],
                 ].map(([heading, question, key, installKey, certKey]) => {
-                  const isNo = form[key as string] === false;
+                  const selectedYes = form[key as string] === true;
+                  const selectedNo = form[key as string] === false;
+                  const isFireQuestion = key === "c22_preventionOfFireOccuring";
+
+                  const showWorkRequired = Boolean(
+                    installKey && ((isFireQuestion && selectedYes) || (!isFireQuestion && selectedNo))
+                  );
+
+                  const helpText = key === "b131_structure" && selectedNo
+                    ? "Indicate in work required prior to installation that linings should be attached more securely"
+                    : key === "c22_preventionOfFireOccuring" && selectedYes
+                      ? "Mark on site plan and DO NOT install in cavity containing a through wall flu or alternatively obtain written confirmation from flu installer that insulation may be installed around through wall flu"
+                      : key === "g931_electricity" && selectedNo
+                        ? "Indicate in work required prior to the installation of Insulmax® that wiring requires upgrading to TPS in walls proposed to be insulated with Insulmax®"
+                        : key === "h131_energyEfficiency" && selectedNo
+                          ? "Indicate on site plan areas of wall that are not able to be insulated with Insulmax®"
+                          : "";
+
                   return (
                     <div key={key as string} className="border border-gray-100 rounded-lg p-3">
                       <h3 className="text-sm font-semibold text-gray-700">{heading as string}</h3>
                       <p className="text-sm text-gray-700 mt-2">{question as string}</p>
                       <div className="flex gap-3 mt-2">
-                        <label className="text-sm"><input type="radio" name={key as string} className="mr-2 accent-green-600" checked={form[key as string] === true} onChange={() => setField(key as string, true)} />Yes</label>
-                        <label className="text-sm text-red-700"><input type="radio" name={key as string} className="mr-2 accent-red-600" checked={form[key as string] === false} onChange={() => setField(key as string, false)} />No</label>
+                        <label className={`text-sm ${isFireQuestion ? "text-red-700" : ""}`}>
+                          <input
+                            type="radio"
+                            name={key as string}
+                            className={`mr-2 ${isFireQuestion ? "accent-red-600" : "accent-green-600"}`}
+                            checked={selectedYes}
+                            onChange={() => setField(key as string, true)}
+                          />
+                          Yes
+                        </label>
+                        <label className={`text-sm ${isFireQuestion ? "text-green-700" : "text-red-700"}`}>
+                          <input
+                            type="radio"
+                            name={key as string}
+                            className={`mr-2 ${isFireQuestion ? "accent-green-600" : "accent-red-600"}`}
+                            checked={selectedNo}
+                            onChange={() => setField(key as string, false)}
+                          />
+                          No
+                        </label>
                       </div>
-                      {isNo && installKey && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-                          <div>
-                            <label className="text-xs text-gray-500">Prior to Installation Work Required</label>
-                            <textarea value={(form[installKey as string] as string) || ""} onChange={(e) => setField(installKey as string, e.target.value)} rows={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" />
-                          </div>
-                          <div>
-                            <label className="text-xs text-gray-500">Prior to Certification Work Required</label>
-                            <textarea value={(certKey ? (form[certKey as string] as string) : "") || ""} onChange={(e) => certKey && setField(certKey as string, e.target.value)} rows={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" />
+                      {!showWorkRequired && helpText && (
+                        <p className="text-sm text-red-700 mt-2">{helpText}</p>
+                      )}
+                      {showWorkRequired && installKey && (
+                        <div className="mt-3">
+                          {helpText && <p className="text-sm text-red-700 mb-2">{helpText}</p>}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div>
+                              <label className="text-xs text-gray-500">Prior to Installation Work Required</label>
+                              <textarea value={(form[installKey as string] as string) || ""} onChange={(e) => setField(installKey as string, e.target.value)} rows={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" />
+                            </div>
+                            <div>
+                              <label className="text-xs text-gray-500">Prior to Certification Work Required</label>
+                              <textarea value={(certKey ? (form[certKey as string] as string) : "") || ""} onChange={(e) => certKey && setField(certKey as string, e.target.value)} rows={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" />
+                            </div>
                           </div>
                         </div>
                       )}
@@ -627,46 +743,114 @@ export default function EbaPage() {
                 <div className="border border-gray-100 rounded-lg p-3">
                   <h3 className="text-sm font-semibold text-gray-700">External Moisture E2.3.3 E2.3.5</h3>
                   <div className="space-y-3 mt-2">
-                    {externalMoistureQuestions.map(([k, q]) => (
-                      <div key={k}>
-                        <p className="text-sm text-gray-700">{q}</p>
-                        <div className="flex gap-3 mt-1">
-                          <label className="text-sm"><input type="radio" name={k} className="mr-2 accent-green-600" checked={form[k] === true} onChange={() => setField(k, true)} />Yes</label>
-                          <label className="text-sm text-red-700"><input type="radio" name={k} className="mr-2 accent-red-600" checked={form[k] === false} onChange={() => setField(k, false)} />No</label>
+                    {externalMoistureQuestions.map(([k, q]) => {
+                      const noIsGreen = k === "c22_externalMoisture_exteriorCladdingAppearsToHaveDeteriorationToALevelThatMayAllowWaterIngress"
+                        || k === "c22_externalMoisture_isWaterAbleToPoolAgainstExteriorWall";
+
+                      return (
+                        <div key={k}>
+                          <p className="text-sm text-gray-700">{q}</p>
+                          <div className="flex gap-3 mt-1">
+                            <label className={`text-sm ${noIsGreen ? "text-red-700" : ""}`}>
+                              <input
+                                type="radio"
+                                name={k}
+                                className={`mr-2 ${noIsGreen ? "accent-red-600" : "accent-green-600"}`}
+                                checked={form[k] === true}
+                                onChange={() => setField(k, true)}
+                              />
+                              Yes
+                            </label>
+                            <label className={`text-sm ${noIsGreen ? "text-green-700" : "text-red-700"}`}>
+                              <input
+                                type="radio"
+                                name={k}
+                                className={`mr-2 ${noIsGreen ? "accent-green-600" : "accent-red-600"}`}
+                                checked={form[k] === false}
+                                onChange={() => setField(k, false)}
+                              />
+                              No
+                            </label>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                   <div className="space-y-3 mt-3">
                     <YesNoRow keyName="masonryCladding_masonryCladUnderfloorVentsArePresentAndClear" label="Masonry clad home underfloor vents are present and clear?" notApplicable />
                     <YesNoRow keyName="masonryCladding_windowOrMasonryVerticalJointsAreSealed" label="Window / masonry vertical joints are sealed?" notApplicable />
                   </div>
 
-                  {[
-                    ...externalMoistureQuestions.map(([k]) => k),
-                    "masonryCladding_masonryCladUnderfloorVentsArePresentAndClear",
-                    "masonryCladding_windowOrMasonryVerticalJointsAreSealed",
-                  ].some((k) => form[k] === false) && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-                      <div>
-                        <label className="text-xs text-gray-500">Prior to Installation Work Required</label>
-                        <textarea value={(form.c22_externalMoisture_priorToInstallationWorkRequired as string) || ""} onChange={(e) => setField("c22_externalMoisture_priorToInstallationWorkRequired", e.target.value)} rows={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" />
+                  {(() => {
+                    const redWhenYesKeys = new Set([
+                      "c22_externalMoisture_exteriorCladdingAppearsToHaveDeteriorationToALevelThatMayAllowWaterIngress",
+                      "c22_externalMoisture_isWaterAbleToPoolAgainstExteriorWall",
+                      "masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater",
+                      "masonryCladding_underfloorSpaceExcessivelyDamp",
+                    ]);
+
+                    const externalMoistureHasRed = [
+                      ...externalMoistureQuestions.map(([k]) => k),
+                      "masonryCladding_masonryCladUnderfloorVentsArePresentAndClear",
+                      "masonryCladding_windowOrMasonryVerticalJointsAreSealed",
+                    ].some((k) => redWhenYesKeys.has(k) ? form[k] === true : form[k] === false);
+
+                    if (!externalMoistureHasRed) return null;
+
+                    return (
+                      <div className="mt-3">
+                        <p className="text-sm text-red-700 mb-2">
+                          Itemise maintenance in work required section that is either required prior to the installation of Insulmax® for major maintenance areas or prior to issuing an Insulmax® Completion Certificate. Example: itemised major maintenance may be, prevent water from pooling against wall by removing deck from south wall as marked on site plan before the installation of Insulmax®.
+                        </p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-xs text-gray-500">Prior to Installation Work Required</label>
+                            <textarea value={(form.c22_externalMoisture_priorToInstallationWorkRequired as string) || ""} onChange={(e) => setField("c22_externalMoisture_priorToInstallationWorkRequired", e.target.value)} rows={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" />
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-500">Prior to Certification Work Required</label>
+                            <textarea value={(form.c22_externalMoisture_priorToCertificationWorkRequired as string) || ""} onChange={(e) => setField("c22_externalMoisture_priorToCertificationWorkRequired", e.target.value)} rows={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" />
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <label className="text-xs text-gray-500">Prior to Certification Work Required</label>
-                        <textarea value={(form.c22_externalMoisture_priorToCertificationWorkRequired as string) || ""} onChange={(e) => setField("c22_externalMoisture_priorToCertificationWorkRequired", e.target.value)} rows={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" />
-                      </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                 </div>
 
                 <div className="border border-gray-100 rounded-lg p-3">
                   <h3 className="text-sm font-semibold text-gray-700">Signs of Water Ingress</h3>
                   <div className="space-y-3 mt-2">
                     <YesNoRow keyName="masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls" label="Soffits appear to be sound with no water staining or bubbling paint which may indicate gutters or roof leaking into soffits and possibly walls?" />
-                    <YesNoRow keyName="masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater" label="Areas of lining / cladding appear to be damp / soft / discoloured / mouldy or rotten suggesting the accumulation of water?" />
-                    <YesNoRow keyName="masonryCladding_underfloorSpaceExcessivelyDamp" label="Underfloor space is excessively damp ?" notApplicable />
+                    <YesNoRow keyName="masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater" label="Areas of lining / cladding appear to be damp / soft / discoloured / mouldy or rotten suggesting the accumulation of water?" noIsGreen />
+                    <YesNoRow keyName="masonryCladding_underfloorSpaceExcessivelyDamp" label="Underfloor space is excessively damp ?" notApplicable noIsGreen />
                   </div>
+
+                  {(() => {
+                    const waterIngressHasRed =
+                      form.masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls === false ||
+                      form.masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater === true ||
+                      form.masonryCladding_underfloorSpaceExcessivelyDamp === true;
+
+                    if (!waterIngressHasRed) return null;
+
+                    return (
+                      <div className="mt-3">
+                        <p className="text-sm text-red-700 mb-2">
+                          Do not install Insulmax® until further investigations have been made to confirm that enclosed spaces have not accumulated moisture to a level that may cause fungal growth or the degradation of building elements. Framing moisture levels must be below 18% and the source of water ingress identified and remedied. Excessive underfloor moisture may be due to leaking in wall pipes, ground water or gutters leaking water in the wall soffit and wall cavity in the case of masonry veneer construction. Work required would be to repair leaking pipes before the installation of Insulmax® or check soffits for water staining or other signs of water ingress. Results of the investigation to be noted in work required prior to the installation of Insulmax®.
+                        </p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-xs text-gray-500">Prior to Installation Work Required</label>
+                            <textarea value={(form.c22_externalMoisture_priorToInstallationWorkRequired as string) || ""} onChange={(e) => setField("c22_externalMoisture_priorToInstallationWorkRequired", e.target.value)} rows={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" />
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-500">Prior to Certification Work Required</label>
+                            <textarea value={(form.c22_externalMoisture_priorToCertificationWorkRequired as string) || ""} onChange={(e) => setField("c22_externalMoisture_priorToCertificationWorkRequired", e.target.value)} rows={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
@@ -791,9 +975,19 @@ export default function EbaPage() {
             <div className="bg-white border border-gray-200 rounded-xl p-4">
               <h2 className="text-sm font-semibold text-gray-700 mb-3">Assessor Declaration</h2>
 
+              <p className="text-sm text-gray-700 mb-2">
+                Based on this assessment of the existing building I am satisfied that the property is suitable for the installation of Insulmax® retrofit wall insulation. In relation to S112, the ability of the existing building to comply with the applicable building code clauses including durability B2.3.1 (to the extent of the other clauses) will not be reduced by the installation of Insulmax® blown fibre existing wall insulation on the following provisions:
+              </p>
+              <ul className="list-disc ml-5 text-sm text-gray-700 mb-3 space-y-1">
+                <li>Work itemised to be completed prior to the installation of Insulmax® is completed</li>
+                <li>Insulmax® is installed according to the Insulmax® Installation Manual</li>
+                <li>Reparation of exterior cladding is completed according to the Insulmax® Installation Manual</li>
+                <li>Work itemised to be completed before the application of CCC / issue of Insulmax® certificate of completion is completed</li>
+              </ul>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-gray-500">Assessor Name</label>
+                  <label className="text-xs text-gray-500">Licensed Building Assessor Name</label>
                   <input value={(form.assessorName as string) || ""} onChange={(e) => setField("assessorName", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" />
                 </div>
                 <div>
