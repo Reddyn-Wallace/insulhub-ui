@@ -10,7 +10,7 @@ type Job = {
   ebaForm?: Record<string, unknown> & {
     complete?: boolean;
     clientApproved?: boolean;
-    signature_assessor?: { fileName?: string } | null;
+    signature_assessor?: { fileName?: string } | string | null;
   };
   client?: {
     contactDetails?: {
@@ -145,6 +145,14 @@ function fromDatetimeLocal(v?: string) {
   return v ? new Date(v).toISOString() : undefined;
 }
 
+function signatureFileName(v: unknown): string {
+  if (!v) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "object" && "fileName" in (v as Record<string, unknown>)) {
+    return String((v as Record<string, unknown>).fileName || "");
+  }
+  return "";
+}
 
 function listValue(v: unknown): string[] {
   if (Array.isArray(v)) return v.map((x) => String(x));
@@ -982,13 +990,13 @@ export default function EbaPage() {
                   <div className="flex gap-2 mt-2 items-center flex-wrap">
                     <button type="button" onClick={clearSignaturePad} className="px-3 py-2 text-sm bg-gray-100 rounded-lg">Clear</button>
                     <button type="button" onClick={saveAssessorSignature} disabled={signing} className="px-3 py-2 text-sm bg-[#1a3a4a] text-white rounded-lg disabled:opacity-50">{signing ? 'Saving...' : 'Save Signature'}</button>
-                    <span className="text-sm text-gray-600 self-center">{job.ebaForm?.signature_assessor?.fileName ? "Saved signature on file" : "No saved signature on file"}</span>
+                    <span className="text-sm text-gray-600 self-center">{signatureFileName(job.ebaForm?.signature_assessor) ? "Saved signature on file" : "No saved signature on file"}</span>
                   </div>
-                  {job.ebaForm?.signature_assessor?.fileName && (
+                  {signatureFileName(job.ebaForm?.signature_assessor) && (
                     <div className="mt-2">
-                      <p className="text-xs text-gray-500">Current saved signature: {job.ebaForm.signature_assessor.fileName}</p>
+                      <p className="text-xs text-gray-500">Current saved signature: {signatureFileName(job.ebaForm?.signature_assessor)}</p>
                       <img
-                        src={fileUrl(job.ebaForm.signature_assessor.fileName)}
+                        src={fileUrl(signatureFileName(job.ebaForm?.signature_assessor))}
                         alt="Current assessor signature"
                         className="mt-1 h-20 border border-gray-200 rounded bg-white"
                       />
