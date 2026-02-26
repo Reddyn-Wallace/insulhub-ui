@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { gql } from "@/lib/graphql";
 
@@ -209,6 +209,7 @@ export default function EbaPage() {
   const [job, setJob] = useState<Job | null>(null);
   const [form, setForm] = useState<Record<string, unknown>>({});
   const [ebaPhotos, setEbaPhotos] = useState<Record<string, string[]>>({});
+  const [uploadingPhotosBySection, setUploadingPhotosBySection] = useState<Record<string, number>>({});
   const [elevationSkip, setElevationSkip] = useState<Record<string, boolean>>({ north:false, east:false, south:false, west:false });
   const [signing, setSigning] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -223,7 +224,11 @@ export default function EbaPage() {
   const fileUrl = (fileName: string) => `https://api.insulhub.nz/files/documents/${encodeURIComponent(fileName)}?token=${getToken()}`;
 
   const persistPhotoCache = (next: Record<string, string[]>) => {
-    if (typeof window !== "undefined") sessionStorage.setItem(`eba-photos:${id}`, JSON.stringify(next));
+    if (typeof window !== "undefined") {
+      const payload = JSON.stringify(next);
+      sessionStorage.setItem(`eba-photos:${id}`, payload);
+      localStorage.setItem(`eba-photos:${id}`, payload);
+    }
   };
 
   function startDraw(x: number, y: number) {
@@ -345,16 +350,31 @@ export default function EbaPage() {
   }
 
   async function uploadEbaPhotos(section: string, files: FileList | null) {
-    if (!job) return;
+    if (!job || !files || files.length === 0) return;
+    const photoCount = files.length;
+    setUploadingPhotosBySection((p) => ({ ...p, [section]: (p[section] || 0) + photoCount }));
+    setNotice(`Uploading ${photoCount} photo${photoCount > 1 ? "s" : ""}...`);
+
     try {
       const fileNames = await uploadFiles(files);
       if (!fileNames.length) return;
       await gql(ADD_FILES_MUTATION, { _id: job._id, documentType: "EBA", fileNames });
       setEbaPhotos((p) => { const next = { ...p, [section]: [...(p[section] || []), ...fileNames] }; persistPhotoCache(next); return next; });
-      setNotice("EBA photos uploaded.");
+      setNotice(`Uploaded ${fileNames.length} photo${fileNames.length > 1 ? "s" : ""}.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Photo upload failed");
+    } finally {
+      setUploadingPhotosBySection((p) => {
+        const next = Math.max(0, (p[section] || 0) - photoCount);
+        return { ...p, [section]: next };
+      });
     }
+  }
+
+  function handlePhotoInputChange(section: string, e: ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    void uploadEbaPhotos(section, files);
+    e.target.value = "";
   }
   const load = useCallback(async () => {
     if (!id) return;
@@ -363,7 +383,9 @@ export default function EbaPage() {
     try {
       const data = await gql<{ job: Job }>(EBA_JOB_QUERY, { _id: id });
       setJob(data.job);
-      const cachedPhotos = typeof window !== "undefined" ? sessionStorage.getItem(`eba-photos:${id}`) : null;
+      const cachedPhotos = typeof window !== "undefined"
+        ? (sessionStorage.getItem(`eba-photos:${id}`) || localStorage.getItem(`eba-photos:${id}`))
+        : null;
       if (cachedPhotos) {
         try { setEbaPhotos(JSON.parse(cachedPhotos)); } catch {}
       }
@@ -927,11 +949,12 @@ export default function EbaPage() {
                     {!elevationSkip[dir] && (
                       <>
                         <div className="flex gap-2 mb-2">
-                          <button type="button" onClick={() => fileInputRef.current[`elevation_${dir}`]?.click()} className="text-xs bg-gray-100 text-gray-700 px-2.5 py-1.5 rounded">Add existing</button>
-                          <button type="button" onClick={() => cameraInputRef.current[`elevation_${dir}`]?.click()} className="text-xs bg-[#1a3a4a] text-white px-2.5 py-1.5 rounded">Take photo</button>
+                          <button type="button" disabled={!!uploadingPhotosBySection[`elevation_${dir}`]} onClick={() => fileInputRef.current[`elevation_${dir}`]?.click()} className="text-xs bg-gray-100 text-gray-700 px-2.5 py-1.5 rounded disabled:opacity-50">Add existing</button>
+                          <button type="button" disabled={!!uploadingPhotosBySection[`elevation_${dir}`]} onClick={() => cameraInputRef.current[`elevation_${dir}`]?.click()} className="text-xs bg-[#1a3a4a] text-white px-2.5 py-1.5 rounded disabled:opacity-50">Take photo</button>
                         </div>
-                        <input ref={(el)=>{ fileInputRef.current[`elevation_${dir}`]=el; }} type="file" accept="image/*" onChange={(e) => uploadEbaPhotos(`elevation_${dir}`, e.target.files)} className="hidden" />
-                        <input ref={(el)=>{ cameraInputRef.current[`elevation_${dir}`]=el; }} type="file" accept="image/*" capture="environment" onChange={(e) => uploadEbaPhotos(`elevation_${dir}`, e.target.files)} className="hidden" />
+                        {uploadingPhotosBySection[`elevation_${dir}`] > 0 && <p className="text-xs text-[#1a3a4a] mb-2">Uploading photo...</p>}
+                        <input ref={(el)=>{ fileInputRef.current[`elevation_${dir}`]=el; }} type="file" accept="image/*" onChange={(e) => handlePhotoInputChange(`elevation_${dir}`, e)} className="hidden" />
+                        <input ref={(el)=>{ cameraInputRef.current[`elevation_${dir}`]=el; }} type="file" accept="image/*" capture="environment" onChange={(e) => handlePhotoInputChange(`elevation_${dir}`, e)} className="hidden" />
                         {(ebaPhotos[`elevation_${dir}`] || []).length > 0 && (
                           <div className="mt-2 grid grid-cols-2 gap-2">
                             {(ebaPhotos[`elevation_${dir}`] || []).map((f) => (
@@ -955,11 +978,12 @@ export default function EbaPage() {
                 <div className="border border-gray-100 rounded-lg p-3">
                   <h3 className="text-sm font-semibold text-gray-700 mb-2">Foundation</h3>
                   <div className="flex gap-2 mb-2">
-                    <button type="button" onClick={() => fileInputRef.current.foundation?.click()} className="text-xs bg-gray-100 text-gray-700 px-2.5 py-1.5 rounded">Add existing</button>
-                    <button type="button" onClick={() => cameraInputRef.current.foundation?.click()} className="text-xs bg-[#1a3a4a] text-white px-2.5 py-1.5 rounded">Take photo</button>
+                    <button type="button" disabled={!!uploadingPhotosBySection.foundation} onClick={() => fileInputRef.current.foundation?.click()} className="text-xs bg-gray-100 text-gray-700 px-2.5 py-1.5 rounded disabled:opacity-50">Add existing</button>
+                    <button type="button" disabled={!!uploadingPhotosBySection.foundation} onClick={() => cameraInputRef.current.foundation?.click()} className="text-xs bg-[#1a3a4a] text-white px-2.5 py-1.5 rounded disabled:opacity-50">Take photo</button>
                   </div>
-                  <input ref={(el)=>{ fileInputRef.current.foundation=el; }} type="file" accept="image/*" onChange={(e) => uploadEbaPhotos('foundation', e.target.files)} className="hidden" />
-                  <input ref={(el)=>{ cameraInputRef.current.foundation=el; }} type="file" accept="image/*" capture="environment" onChange={(e) => uploadEbaPhotos('foundation', e.target.files)} className="hidden" />
+                  {uploadingPhotosBySection.foundation > 0 && <p className="text-xs text-[#1a3a4a] mb-2">Uploading photo...</p>}
+                  <input ref={(el)=>{ fileInputRef.current.foundation=el; }} type="file" accept="image/*" onChange={(e) => handlePhotoInputChange('foundation', e)} className="hidden" />
+                  <input ref={(el)=>{ cameraInputRef.current.foundation=el; }} type="file" accept="image/*" capture="environment" onChange={(e) => handlePhotoInputChange('foundation', e)} className="hidden" />
                   {(ebaPhotos.foundation || []).length > 0 && (
                     <div className="mt-2 grid grid-cols-2 gap-2">{(ebaPhotos.foundation || []).map((f) => (
                       <div key={f} className="border border-gray-200 rounded p-1"><a href={fileUrl(f)} target="_blank" rel="noreferrer"><img src={fileUrl(f)} alt={f} className="w-full h-20 object-cover rounded" /></a><div className="flex justify-between items-center mt-1"><span className="text-[10px] text-gray-500 truncate max-w-[70%]">{f}</span><button type="button" onClick={() => removeEbaPhoto('foundation', f)} className="text-[10px] text-red-600">Delete</button></div></div>
@@ -969,11 +993,12 @@ export default function EbaPage() {
                 <div className="border border-gray-100 rounded-lg p-3">
                   <h3 className="text-sm font-semibold text-gray-700 mb-2">Maintenance</h3>
                   <div className="flex gap-2 mb-2">
-                    <button type="button" onClick={() => fileInputRef.current.maintenance?.click()} className="text-xs bg-gray-100 text-gray-700 px-2.5 py-1.5 rounded">Add existing</button>
-                    <button type="button" onClick={() => cameraInputRef.current.maintenance?.click()} className="text-xs bg-[#1a3a4a] text-white px-2.5 py-1.5 rounded">Take photo</button>
+                    <button type="button" disabled={!!uploadingPhotosBySection.maintenance} onClick={() => fileInputRef.current.maintenance?.click()} className="text-xs bg-gray-100 text-gray-700 px-2.5 py-1.5 rounded disabled:opacity-50">Add existing</button>
+                    <button type="button" disabled={!!uploadingPhotosBySection.maintenance} onClick={() => cameraInputRef.current.maintenance?.click()} className="text-xs bg-[#1a3a4a] text-white px-2.5 py-1.5 rounded disabled:opacity-50">Take photo</button>
                   </div>
-                  <input ref={(el)=>{ fileInputRef.current.maintenance=el; }} type="file" accept="image/*" onChange={(e) => uploadEbaPhotos('maintenance', e.target.files)} className="hidden" />
-                  <input ref={(el)=>{ cameraInputRef.current.maintenance=el; }} type="file" accept="image/*" capture="environment" onChange={(e) => uploadEbaPhotos('maintenance', e.target.files)} className="hidden" />
+                  {uploadingPhotosBySection.maintenance > 0 && <p className="text-xs text-[#1a3a4a] mb-2">Uploading photo...</p>}
+                  <input ref={(el)=>{ fileInputRef.current.maintenance=el; }} type="file" accept="image/*" onChange={(e) => handlePhotoInputChange('maintenance', e)} className="hidden" />
+                  <input ref={(el)=>{ cameraInputRef.current.maintenance=el; }} type="file" accept="image/*" capture="environment" onChange={(e) => handlePhotoInputChange('maintenance', e)} className="hidden" />
                   {(ebaPhotos.maintenance || []).length > 0 && (
                     <div className="mt-2 grid grid-cols-2 gap-2">{(ebaPhotos.maintenance || []).map((f) => (
                       <div key={f} className="border border-gray-200 rounded p-1"><a href={fileUrl(f)} target="_blank" rel="noreferrer"><img src={fileUrl(f)} alt={f} className="w-full h-20 object-cover rounded" /></a><div className="flex justify-between items-center mt-1"><span className="text-[10px] text-gray-500 truncate max-w-[70%]">{f}</span><button type="button" onClick={() => removeEbaPhoto('maintenance', f)} className="text-[10px] text-red-600">Delete</button></div></div>
