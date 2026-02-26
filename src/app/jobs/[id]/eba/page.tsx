@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } f
 import { useParams, useRouter } from "next/navigation";
 import { gql } from "@/lib/graphql";
 
+type Photo = { fileName?: string; thumbnail?: string };
+
 type Job = {
   _id: string;
   jobNumber: number;
@@ -11,6 +13,12 @@ type Job = {
     complete?: boolean;
     clientApproved?: boolean;
     signature_assessor?: { fileName?: string } | string | null;
+    photos_elevation_north?: Photo[];
+    photos_elevation_east?: Photo[];
+    photos_elevation_south?: Photo[];
+    photos_elevation_west?: Photo[];
+    photos_foundation?: Photo[];
+    photos_maintenance?: Photo[];
   };
   client?: {
     contactDetails?: {
@@ -103,20 +111,14 @@ const EBA_JOB_QUERY = `
         c22_externalMoisture_priorToCertificationWorkRequired
         assessorName
         signature_assessor { fileName }
+        photos_elevation_north { fileName thumbnail }
+        photos_elevation_east { fileName thumbnail }
+        photos_elevation_south { fileName thumbnail }
+        photos_elevation_west { fileName thumbnail }
+        photos_foundation { fileName thumbnail }
+        photos_maintenance { fileName thumbnail }
       }
     }
-  }
-`;
-
-const ADD_FILES_MUTATION = `
-  mutation AddFiles($_id: ObjectId!, $documentType: UploadedFileType!, $fileNames: [String!]!) {
-    addFiles(_id: $_id, documentType: $documentType, fileNames: $fileNames)
-  }
-`;
-
-const REMOVE_FILE_MUTATION = `
-  mutation RemoveFile($_id: ObjectId!, $documentType: UploadedFileType!, $fileName: String!) {
-    removeFile(_id: $_id, documentType: $documentType, fileName: $fileName)
   }
 `;
 
@@ -129,6 +131,12 @@ const SAVE_EBA_MUTATION = `
         clientApproved
         assessorName
         signature_assessor { fileName }
+        photos_elevation_north { fileName thumbnail }
+        photos_elevation_east { fileName thumbnail }
+        photos_elevation_south { fileName thumbnail }
+        photos_elevation_west { fileName thumbnail }
+        photos_foundation { fileName thumbnail }
+        photos_maintenance { fileName thumbnail }
       }
     }
   }
@@ -223,13 +231,26 @@ export default function EbaPage() {
   const getToken = () => (typeof window !== "undefined" ? localStorage.getItem("token") || "" : "");
   const fileUrl = (fileName: string) => `https://api.insulhub.nz/files/documents/${encodeURIComponent(fileName)}?token=${getToken()}`;
 
-  const persistPhotoCache = (next: Record<string, string[]>) => {
+  const persistPhotoCache = useCallback((next: Record<string, string[]>) => {
     if (typeof window !== "undefined") {
       const payload = JSON.stringify(next);
       sessionStorage.setItem(`eba-photos:${id}`, payload);
       localStorage.setItem(`eba-photos:${id}`, payload);
     }
+  }, [id]);
+
+  const sectionToEbaField = (section: string) => {
+    if (section === "foundation") return "photos_foundation";
+    if (section === "maintenance") return "photos_maintenance";
+    if (section.startsWith("elevation_")) {
+      const dir = section.replace("elevation_", "");
+      return `photos_elevation_${dir}`;
+    }
+    return "";
   };
+
+  const toPhotoObjects = (fileNames: string[]) =>
+    fileNames.map((fileName) => ({ fileName, thumbnail: `thumb${fileName}` }));
 
   function startDraw(x: number, y: number) {
     const c = canvasRef.current;
@@ -313,10 +334,16 @@ export default function EbaPage() {
 
   async function removeEbaPhoto(section: string, fileName: string) {
     if (!job) return;
+    const field = sectionToEbaField(section);
+    if (!field) return;
     try {
-      await gql(REMOVE_FILE_MUTATION, { _id: job._id, documentType: "EBA", fileName });
+      const nextNames = (ebaPhotos[section] || []).filter((x) => x !== fileName);
+      await gql(SAVE_EBA_MUTATION, {
+        input: { _id: job._id, ebaForm: { [field]: toPhotoObjects(nextNames) } },
+        isDraft: true,
+      });
       setEbaPhotos((p) => {
-        const next = { ...p, [section]: (p[section] || []).filter((x) => x !== fileName) };
+        const next = { ...p, [section]: nextNames };
         persistPhotoCache(next);
         return next;
       });
@@ -358,8 +385,14 @@ export default function EbaPage() {
     try {
       const fileNames = await uploadFiles(files);
       if (!fileNames.length) return;
-      await gql(ADD_FILES_MUTATION, { _id: job._id, documentType: "EBA", fileNames });
-      setEbaPhotos((p) => { const next = { ...p, [section]: [...(p[section] || []), ...fileNames] }; persistPhotoCache(next); return next; });
+      const field = sectionToEbaField(section);
+      if (!field) return;
+      const mergedNames = [...(ebaPhotos[section] || []), ...fileNames];
+      await gql(SAVE_EBA_MUTATION, {
+        input: { _id: job._id, ebaForm: { [field]: toPhotoObjects(mergedNames) } },
+        isDraft: true,
+      });
+      setEbaPhotos((p) => { const next = { ...p, [section]: mergedNames }; persistPhotoCache(next); return next; });
       setNotice(`Uploaded ${fileNames.length} photo${fileNames.length > 1 ? "s" : ""}.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Photo upload failed");
@@ -403,12 +436,23 @@ export default function EbaPage() {
         assessorName: (data.job.ebaForm?.assessorName as string) || salespersonName || "",
         date: toDatetimeLocal(data.job.ebaForm?.date as string | undefined),
       });
+
+      const photosFromDb: Record<string, string[]> = {
+        elevation_north: (data.job.ebaForm?.photos_elevation_north || []).map((p) => p.fileName || "").filter(Boolean),
+        elevation_east: (data.job.ebaForm?.photos_elevation_east || []).map((p) => p.fileName || "").filter(Boolean),
+        elevation_south: (data.job.ebaForm?.photos_elevation_south || []).map((p) => p.fileName || "").filter(Boolean),
+        elevation_west: (data.job.ebaForm?.photos_elevation_west || []).map((p) => p.fileName || "").filter(Boolean),
+        foundation: (data.job.ebaForm?.photos_foundation || []).map((p) => p.fileName || "").filter(Boolean),
+        maintenance: (data.job.ebaForm?.photos_maintenance || []).map((p) => p.fileName || "").filter(Boolean),
+      };
+      setEbaPhotos(photosFromDb);
+      persistPhotoCache(photosFromDb);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load EBA");
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, persistPhotoCache]);
 
   useEffect(() => {
     load();
