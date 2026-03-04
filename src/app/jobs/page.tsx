@@ -516,25 +516,7 @@ function JobsPageContent() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      <div className="px-4 pt-3 pb-1 flex items-center justify-between">
-        <span className="text-gray-500 text-sm">{(globalCounts?.ALL ?? total)} jobs</span>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => router.push("/jobs/new")}
-            className="text-white bg-[#e85d04] text-sm px-3 py-1.5 rounded-lg font-medium"
-          >
-            + Lead
-          </button>
-          <button
-            onClick={handleLogout}
-            className="text-gray-500 hover:text-gray-700 text-sm px-2 py-1.5 rounded-lg border border-gray-300"
-          >
-            Out
-          </button>
-        </div>
-      </div>
-
-      {/* Tabs */}
+            {/* Tabs */}
       <StageTabs
         activeStage={activeStage}
         onStageChange={handleStageChange}
