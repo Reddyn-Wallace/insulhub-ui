@@ -38,16 +38,18 @@ const REMOVE_FILE = `
 `;
 
 const API_BASE = "https://api.insulhub.nz";
+// Locked to Site Plan Consent template (Version 2.0 8/5/16)
+// PDF coordinates (origin bottom-left)
 const GRID = {
-  left: 26,
-  top: 178,
-  right: 533,
-  bottom: 703,
-  width: 533 - 26,
-  height: 703 - 178,
+  left: 81.3701,
+  right: 676.6457,
+  bottom: 293.8101,
+  top: 889.0857,
+  width: 676.6457 - 81.3701,
+  height: 889.0857 - 293.8101,
 };
-const CELLS_X = 20;
-const CELLS_Y = 20;
+const CELLS_X = 15;
+const CELLS_Y = 15;
 const SNAP_STEP = 0.1;
 
 function snap(v: number) {
@@ -220,11 +222,10 @@ export default function DrawSitePlanPage() {
       const sourcePdfBytes = await fetch(`${API_BASE}/pdf/quote-siteplan?${params.toString()}`).then((r) => r.arrayBuffer());
       const pdfDoc = await PDFDocument.load(sourcePdfBytes);
       const page = pdfDoc.getPage(0);
-      const pageHeight = page.getHeight();
 
       const toPdf = (pt: Point) => ({
         x: GRID.left + (pt.x / CELLS_X) * GRID.width,
-        y: pageHeight - (GRID.top + (pt.y / CELLS_Y) * GRID.height),
+        y: GRID.top - (pt.y / CELLS_Y) * GRID.height,
       });
 
       for (const w of walls) {
@@ -241,11 +242,11 @@ export default function DrawSitePlanPage() {
 
       if (address) {
         page.drawText(address, {
-          x: 142,
-          y: pageHeight - 132,
+          x: 145,
+          y: 933,
           size: 10,
           color: rgb(0, 0, 0),
-          maxWidth: 330,
+          maxWidth: 540,
         });
       }
 
