@@ -64,7 +64,7 @@ const SNAP_STEP = 0.1;
 const ENDPOINT_SNAP_RADIUS = 0.32;
 const ORTHO_SNAP_THRESHOLD = 0.27;         // ~15°, was 0.14 (~8°)
 const ENDPOINT_DRAG_SNAP_RADIUS = 0.20;
-const ENDPOINT_DRAG_ORTHO_THRESHOLD = 0.15; // was 0.08
+const ENDPOINT_DRAG_ORTHO_THRESHOLD = 0.08;
 const ROTATE_SOFT_SNAP_DEG = 2.5;
 const ROTATE_RELEASE_SNAP_DEG = 3.0;
 
@@ -431,8 +431,8 @@ export default function DrawSitePlanPage() {
     }
 
     if ((draggingGroup || draggingWallId) && dragStartPoint && dragSnapshot.length) {
-      const dx = p.x - dragStartPoint.x;
-      const dy = p.y - dragStartPoint.y;
+      const dx = snap(p.x - dragStartPoint.x);
+      const dy = snap(p.y - dragStartPoint.y);
       setWalls((prev) => prev.map((w) => {
         const src = dragSnapshot.find((x) => x.id === w.id);
         if (!src) return w;
@@ -676,12 +676,13 @@ export default function DrawSitePlanPage() {
       )}
 
       {/* Canvas area */}
-      <div className="flex-1 flex items-center justify-center p-2 min-h-0">
+      <div className="flex-1 min-h-0 relative">
+        <div className="absolute inset-0 flex items-center justify-center p-2">
         <div
           className="relative rounded-xl overflow-hidden shadow border border-gray-300 bg-white"
           style={{
+            height: "100%",
             aspectRatio: `${CELLS_X} / ${CELLS_Y}`,
-            maxHeight: "100%",
             maxWidth: "100%",
             backgroundImage:
               "linear-gradient(to right, #c8d0da 1px, transparent 1px), linear-gradient(to bottom, #c8d0da 1px, transparent 1px)",
@@ -689,13 +690,17 @@ export default function DrawSitePlanPage() {
           }}
         >
           {/* Floating selection toolbar */}
-          {selectionBounds && mode === "select" && (
+          {selectionBounds && mode === "select" && (() => {
+            const aboveY = (selectionBounds.minY - 1.8) / CELLS_Y * 100;
+            const belowY = (selectionBounds.maxY + 0.3) / CELLS_Y * 100;
+            const showAbove = aboveY > 4;
+            return (
             <div
               className="absolute z-20 flex items-center gap-1.5 bg-white/96 backdrop-blur-sm border border-gray-200 rounded-xl shadow-lg px-2 py-1.5"
               style={{
-                left: `${Math.max(8, Math.min(92, (selectionBounds.cx / CELLS_X) * 100))}%`,
-                top: `${Math.max(2, ((selectionBounds.minY - 1.8) / CELLS_Y) * 100)}%`,
-                transform: "translate(-50%, -100%)",
+                left: `${Math.max(5, Math.min(95, (selectionBounds.cx / CELLS_X) * 100))}%`,
+                top: showAbove ? `${aboveY}%` : `${belowY}%`,
+                transform: showAbove ? "translate(-50%, -100%)" : "translate(-50%, 0%)",
               }}
             >
               <button
@@ -740,7 +745,8 @@ export default function DrawSitePlanPage() {
                 className="px-3 h-8 rounded-lg text-xs font-medium bg-red-50 text-red-600 active:bg-red-100"
               >Delete</button>
             </div>
-          )}
+            );
+          })()}
 
           {/* SVG drawing canvas */}
           <svg
@@ -894,6 +900,7 @@ export default function DrawSitePlanPage() {
             )}
           </svg>
         </div>
+        </div>
       </div>
 
       {/* Bottom toolbar */}
@@ -917,13 +924,31 @@ export default function DrawSitePlanPage() {
           </button>
         </div>
 
-        {/* Close Shape — contextual */}
-        {canCloseShape && (
+        {/* Contextual drawing actions */}
+        {mode === "trace" && drawStart && (
+          <>
+            {walls.length >= 3 && (
+              <button
+                onClick={closeShape}
+                className="h-10 px-4 rounded-xl text-sm font-medium bg-teal-600 text-white flex-shrink-0 active:bg-teal-700"
+              >
+                Close
+              </button>
+            )}
+            <button
+              onClick={() => { setDrawStart(null); setHoverPoint(null); setMode("select"); }}
+              className="h-10 px-4 rounded-xl text-sm font-medium bg-gray-200 text-gray-700 flex-shrink-0 active:bg-gray-300"
+            >
+              Finish
+            </button>
+          </>
+        )}
+        {mode === "select" && (
           <button
-            onClick={closeShape}
-            className="h-10 px-4 rounded-xl text-sm font-medium bg-teal-600 text-white flex-shrink-0 active:bg-teal-700"
+            onClick={() => { setMode("single"); setDrawStart(null); setHoverPoint(null); }}
+            className="h-10 px-4 rounded-xl text-sm font-medium bg-gray-100 text-gray-700 flex-shrink-0 active:bg-gray-200"
           >
-            Close Shape
+            + Wall
           </button>
         )}
 
