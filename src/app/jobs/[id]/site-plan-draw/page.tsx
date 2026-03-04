@@ -41,15 +41,15 @@ const API_BASE = "https://api.insulhub.nz";
 
 // Locked to Site Plan Consent template (Version 2.0 8/5/16)
 const GRID = {
-  left: 81.3701,
-  right: 676.6457,
-  bottom: 293.8101,
-  top: 889.0857,
-  width: 676.6457 - 81.3701,
-  height: 889.0857 - 293.8101,
+  left: 41.68504,
+  right: 716.8307,
+  bottom: 253.6251,
+  top: 929.2708,
+  width: 716.8307 - 41.68504,
+  height: 929.2708 - 253.6251,
 };
-const CELLS_X = 15;
-const CELLS_Y = 15;
+const CELLS_X = 17;
+const CELLS_Y = 17;
 const SNAP_STEP = 0.1;
 
 function snap(v: number) {
@@ -286,6 +286,15 @@ export default function DrawSitePlanPage() {
       const toPdf = (pt: Point) => ({
         x: GRID.left + (pt.x / CELLS_X) * GRID.width,
         y: GRID.top - (pt.y / CELLS_Y) * GRID.height,
+      });
+
+      // White backing to fully cover original printed grid.
+      page.drawRectangle({
+        x: GRID.left,
+        y: GRID.bottom,
+        width: GRID.width,
+        height: GRID.height,
+        color: rgb(1, 1, 1),
       });
 
       // Overlay a fresh locked grid exactly on top of the template grid.
