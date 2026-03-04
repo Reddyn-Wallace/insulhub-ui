@@ -278,6 +278,18 @@ export default function EbaPage() {
     drawingRef.current = false;
   }
 
+  function canvasPointFromClient(clientX: number, clientY: number) {
+    const c = canvasRef.current;
+    if (!c) return { x: 0, y: 0 };
+    const rect = c.getBoundingClientRect();
+    const scaleX = c.width / rect.width;
+    const scaleY = c.height / rect.height;
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY,
+    };
+  }
+
   function clearSignaturePad() {
     const c = canvasRef.current;
     if (!c) return;
@@ -1091,21 +1103,17 @@ export default function EbaPage() {
                       width={900}
                       height={220}
                       className="w-full h-40 touch-none"
-                      onMouseDown={(e) => startDraw(e.nativeEvent.offsetX, e.nativeEvent.offsetY)}
-                      onMouseMove={(e) => drawTo(e.nativeEvent.offsetX, e.nativeEvent.offsetY)}
-                      onMouseUp={stopDraw}
-                      onMouseLeave={stopDraw}
-                      onTouchStart={(e) => {
-                        const rect = (e.target as HTMLCanvasElement).getBoundingClientRect();
-                        const t = e.touches[0];
-                        startDraw(t.clientX - rect.left, t.clientY - rect.top);
+                      onPointerDown={(e) => {
+                        const p = canvasPointFromClient(e.clientX, e.clientY);
+                        startDraw(p.x, p.y);
                       }}
-                      onTouchMove={(e) => {
-                        const rect = (e.target as HTMLCanvasElement).getBoundingClientRect();
-                        const t = e.touches[0];
-                        drawTo(t.clientX - rect.left, t.clientY - rect.top);
+                      onPointerMove={(e) => {
+                        const p = canvasPointFromClient(e.clientX, e.clientY);
+                        drawTo(p.x, p.y);
                       }}
-                      onTouchEnd={stopDraw}
+                      onPointerUp={stopDraw}
+                      onPointerLeave={stopDraw}
+                      onPointerCancel={stopDraw}
                     />
                   </div>
                   <div className="flex gap-2 mt-2 items-center flex-wrap">
