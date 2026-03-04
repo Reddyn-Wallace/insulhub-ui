@@ -250,7 +250,7 @@ export default function EbaPage() {
   };
 
   const toPhotoObjects = (fileNames: string[]) =>
-    fileNames.map((fileName) => ({ fileName, thumbnail: `thumb${fileName}` }));
+    fileNames.map((fileName) => ({ fileName, thumbnail: fileName }));
 
   function startDraw(x: number, y: number) {
     const c = canvasRef.current;
@@ -365,7 +365,7 @@ export default function EbaPage() {
       const fileNames = await uploadFiles({ 0: files, length: 1, item: (i: number) => (i === 0 ? files : null) } as unknown as FileList);
       if (!fileNames.length) throw new Error("Signature upload failed");
       const fileName = fileNames[0];
-      const thumbnail = `thumb${fileName}`;
+      const thumbnail = fileName;
       await gql(SAVE_EBA_MUTATION, { input: { _id: job._id, ebaForm: { signature_assessor: { fileName, thumbnail } } }, isDraft: true });
       setJob((prev) => prev ? ({ ...prev, ebaForm: { ...(prev.ebaForm || {}), signature_assessor: { fileName, thumbnail } } }) : prev);
       setNotice("Assessor signature saved.");
