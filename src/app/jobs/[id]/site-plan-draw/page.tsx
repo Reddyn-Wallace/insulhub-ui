@@ -40,15 +40,34 @@ const REMOVE_FILE = `
 const API_BASE = "https://api.insulhub.nz";
 
 // Locked to Site Plan Consent template (Version 2.0 8/5/16)
-const GRID = {
+const BASE_GRID = {
   left: 41.68504,
   right: 716.8307,
   bottom: 254.1251,
   top: 928.7708,
-  width: 716.8307 - 41.68504,
-  height: 928.7708 - 254.1251,
 };
-const CELLS_X = 17;
+
+const BASE_COLS = 17;
+const BASE_ROWS = 17;
+const BASE_CELL_X = (BASE_GRID.right - BASE_GRID.left) / BASE_COLS;
+const BASE_CELL_Y = (BASE_GRID.top - BASE_GRID.bottom) / BASE_ROWS;
+
+// User-calibrated correction:
+// - move overlay right by 0.8 cells
+// - move overlay down by 3 cells
+// - add 1 extra column on right
+const CAL_X_CELLS = 0.8;
+const CAL_Y_CELLS = -3.0;
+
+const GRID = {
+  left: BASE_GRID.left + CAL_X_CELLS * BASE_CELL_X,
+  right: BASE_GRID.right + CAL_X_CELLS * BASE_CELL_X + BASE_CELL_X,
+  bottom: BASE_GRID.bottom + CAL_Y_CELLS * BASE_CELL_Y,
+  top: BASE_GRID.top + CAL_Y_CELLS * BASE_CELL_Y,
+  width: (BASE_GRID.right - BASE_GRID.left) + BASE_CELL_X,
+  height: BASE_GRID.top - BASE_GRID.bottom,
+};
+const CELLS_X = 18;
 const CELLS_Y = 17;
 const SNAP_STEP = 0.1;
 
@@ -447,7 +466,14 @@ export default function DrawSitePlanPage() {
               <button onClick={() => { setWalls([]); setSelectedWallId(null); setDrawStart(null); }} className="px-3 py-1.5 rounded-lg text-sm bg-gray-100">Clear</button>
             </div>
 
-            <div className="aspect-square w-full max-w-[760px] border border-gray-300 rounded-lg overflow-hidden bg-[linear-gradient(to_right,#f3f4f6_1px,transparent_1px),linear-gradient(to_bottom,#f3f4f6_1px,transparent_1px)]" style={{ backgroundSize: `calc(100%/${CELLS_X}) calc(100%/${CELLS_Y})` }}>
+            <div
+              className="w-full max-w-[760px] border border-gray-300 rounded-lg overflow-hidden"
+              style={{
+                aspectRatio: `${CELLS_X} / ${CELLS_Y}`,
+                backgroundImage: "linear-gradient(to right, #f3f4f6 1px, transparent 1px), linear-gradient(to bottom, #f3f4f6 1px, transparent 1px)",
+                backgroundSize: `calc(100%/${CELLS_X}) calc(100%/${CELLS_Y})`,
+              }}
+            >
               <svg
                 ref={svgRef}
                 viewBox={`0 0 ${CELLS_X} ${CELLS_Y}`}
