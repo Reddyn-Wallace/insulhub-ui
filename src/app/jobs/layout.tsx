@@ -32,32 +32,35 @@ export default function JobsLayout({ children }: { children: ReactNode }) {
 
   return (
     <div>
-      <div className="bg-[#1a3a4a] px-4 py-3 flex items-center justify-between sticky top-0 z-50 border-b border-[#2f4b57]">
-        <p className="text-[#e85d04] text-lg font-bold tracking-widest leading-tight">INSULHUB</p>
-        <div className="flex items-center gap-2 flex-wrap justify-end">
+      <div className="bg-[#1a3a4a] px-3 py-2 sticky top-0 z-50 border-b border-[#2f4b57]">
+        <div className="flex items-center justify-between mb-2 md:mb-0">
+          <p className="text-[#e85d04] text-base md:text-lg font-bold tracking-widest leading-tight">INSULHUB</p>
+          <button
+            onClick={handleLogout}
+            className="px-2.5 py-1.5 rounded-lg text-xs md:text-sm font-semibold bg-white/10 text-gray-200"
+          >
+            Out
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-0.5 md:pb-0">
           <button
             onClick={() => goStage("LEAD")}
-            className={`px-3 py-1.5 rounded-lg text-sm font-semibold ${stage === "LEAD" ? "bg-[#e85d04] text-white" : "bg-white/10 text-gray-200"}`}
+            className={`shrink-0 px-3 py-1.5 rounded-lg text-xs md:text-sm font-semibold ${stage === "LEAD" ? "bg-[#e85d04] text-white" : "bg-white/10 text-gray-200"}`}
           >
             Leads
           </button>
           <button
             onClick={() => goStage("QUOTE")}
-            className={`px-3 py-1.5 rounded-lg text-sm font-semibold ${stage === "QUOTE" ? "bg-[#e85d04] text-white" : "bg-white/10 text-gray-200"}`}
+            className={`shrink-0 px-3 py-1.5 rounded-lg text-xs md:text-sm font-semibold ${stage === "QUOTE" ? "bg-[#e85d04] text-white" : "bg-white/10 text-gray-200"}`}
           >
             Quotes
           </button>
           <button
             onClick={() => router.push("/jobs/new")}
-            className="px-3 py-1.5 rounded-lg text-sm font-semibold bg-[#e85d04] text-white"
+            className="shrink-0 px-3 py-1.5 rounded-lg text-xs md:text-sm font-semibold bg-[#e85d04] text-white"
           >
             + Lead
-          </button>
-          <button
-            onClick={handleLogout}
-            className="px-3 py-1.5 rounded-lg text-sm font-semibold bg-white/10 text-gray-200"
-          >
-            Out
           </button>
         </div>
       </div>
