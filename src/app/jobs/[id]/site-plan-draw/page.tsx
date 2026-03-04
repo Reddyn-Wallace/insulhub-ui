@@ -42,25 +42,13 @@ const REMOVE_FILE = `
 const API_BASE = "https://api.insulhub.nz";
 
 // Locked to Site Plan Consent template (Version 2.0 8/5/16)
-const BASE_GRID = {
-  left: 41.68504,
-  right: 716.8307,
-  bottom: 254.1251,
-  top: 928.7708,
-};
-
+const BASE_GRID = { left: 41.68504, right: 716.8307, bottom: 254.1251, top: 928.7708 };
 const BASE_COLS = 17;
 const BASE_ROWS = 17;
 const BASE_CELL_X = (BASE_GRID.right - BASE_GRID.left) / BASE_COLS;
 const BASE_CELL_Y = (BASE_GRID.top - BASE_GRID.bottom) / BASE_ROWS;
-
-// User-calibrated correction:
-// - move overlay right by 0.8 cells
-// - move overlay down by 3 cells
-// - add 1 extra column on right
 const CAL_X_CELLS = 0.8;
 const CAL_Y_CELLS = -3.0;
-
 const GRID = {
   left: BASE_GRID.left + CAL_X_CELLS * BASE_CELL_X,
   right: BASE_GRID.right + CAL_X_CELLS * BASE_CELL_X + BASE_CELL_X,
@@ -69,34 +57,24 @@ const GRID = {
   width: (BASE_GRID.right - BASE_GRID.left) + BASE_CELL_X,
   height: BASE_GRID.top - BASE_GRID.bottom,
 };
+
 const CELLS_X = 18;
 const CELLS_Y = 17;
 const SNAP_STEP = 0.1;
 const ENDPOINT_SNAP_RADIUS = 0.32;
-const ORTHO_SNAP_THRESHOLD = 0.14;
+const ORTHO_SNAP_THRESHOLD = 0.27;         // ~15°, was 0.14 (~8°)
 const ENDPOINT_DRAG_SNAP_RADIUS = 0.20;
-const ENDPOINT_DRAG_ORTHO_THRESHOLD = 0.08;
+const ENDPOINT_DRAG_ORTHO_THRESHOLD = 0.15; // was 0.08
 const ROTATE_SOFT_SNAP_DEG = 2.5;
 const ROTATE_RELEASE_SNAP_DEG = 3.0;
 
-function snap(v: number) {
-  return Math.round(v / SNAP_STEP) * SNAP_STEP;
-}
-function distance(a: Point, b: Point) {
-  return Math.hypot(a.x - b.x, a.y - b.y);
-}
-function makeId() {
-  return Math.random().toString(36).slice(2, 10);
-}
+function snap(v: number) { return Math.round(v / SNAP_STEP) * SNAP_STEP; }
+function distance(a: Point, b: Point) { return Math.hypot(a.x - b.x, a.y - b.y); }
+function makeId() { return Math.random().toString(36).slice(2, 10); }
 function clampPoint(p: Point): Point {
-  return {
-    x: Math.max(0, Math.min(CELLS_X, p.x)),
-    y: Math.max(0, Math.min(CELLS_Y, p.y)),
-  };
+  return { x: Math.max(0, Math.min(CELLS_X, p.x)), y: Math.max(0, Math.min(CELLS_Y, p.y)) };
 }
-function snapPoint(p: Point): Point {
-  return { x: snap(p.x), y: snap(p.y) };
-}
+function snapPoint(p: Point): Point { return { x: snap(p.x), y: snap(p.y) }; }
 function snapToExistingEndpoints(point: Point, walls: Wall[], excludeWallId?: string, radius: number = ENDPOINT_SNAP_RADIUS): Point {
   let best: Point | null = null;
   let bestD = Number.POSITIVE_INFINITY;
@@ -104,16 +82,12 @@ function snapToExistingEndpoints(point: Point, walls: Wall[], excludeWallId?: st
     if (excludeWallId && w.id === excludeWallId) continue;
     for (const pt of [w.start, w.end]) {
       const d = distance(point, pt);
-      if (d < bestD) {
-        bestD = d;
-        best = pt;
-      }
+      if (d < bestD) { bestD = d; best = pt; }
     }
   }
   if (best && bestD <= radius) return { ...best };
   return point;
 }
-
 function snapOrtho(start: Point, end: Point, threshold: number = ORTHO_SNAP_THRESHOLD): Point {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
@@ -138,6 +112,7 @@ export default function DrawSitePlanPage() {
 
   const [job, setJob] = useState<Job | null>(null);
   const [walls, setWalls] = useState<Wall[]>([]);
+  const [wallHistory, setWallHistory] = useState<Wall[][]>([]);
   const [selectedWallId, setSelectedWallId] = useState<string | null>(null);
   const [selectedWallIds, setSelectedWallIds] = useState<string[]>([]);
   const [mode, setMode] = useState<"trace" | "single" | "select">("trace");
@@ -145,7 +120,6 @@ export default function DrawSitePlanPage() {
   const [notice, setNotice] = useState("");
   const [showDimensions, setShowDimensions] = useState(true);
 
-  const [buildingRotation, setBuildingRotation] = useState(0);
   const [drawStart, setDrawStart] = useState<Point | null>(null);
   const [hoverPoint, setHoverPoint] = useState<Point | null>(null);
   const [draggingWallId, setDraggingWallId] = useState<string | null>(null);
@@ -164,9 +138,6 @@ export default function DrawSitePlanPage() {
   const [snapGuide, setSnapGuide] = useState<SnapGuide>(null);
   const [lengthEditValue, setLengthEditValue] = useState("");
 
-
-
-
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   const address = useMemo(() => {
@@ -176,14 +147,14 @@ export default function DrawSitePlanPage() {
 
   const selectedWall = useMemo(() => walls.find((w) => w.id === selectedWallId) || null, [walls, selectedWallId]);
   useEffect(() => {
-    if (!selectedWall) {
-      setLengthEditValue("");
-      return;
-    }
+    if (!selectedWall) { setLengthEditValue(""); return; }
     setLengthEditValue(wallLengthMeters(selectedWall).toFixed(1));
   }, [selectedWallId, walls.length]);
 
-  const activeSelectionIds = useMemo(() => (selectedWallIds.length ? selectedWallIds : (selectedWallId ? [selectedWallId] : [])), [selectedWallIds, selectedWallId]);
+  const activeSelectionIds = useMemo(
+    () => (selectedWallIds.length ? selectedWallIds : (selectedWallId ? [selectedWallId] : [])),
+    [selectedWallIds, selectedWallId]
+  );
   const selectionBounds = useMemo(() => {
     if (!activeSelectionIds.length) return null;
     const sel = walls.filter((w) => activeSelectionIds.includes(w.id));
@@ -198,7 +169,6 @@ export default function DrawSitePlanPage() {
       cy: pts.reduce((a, p) => a + p.y, 0) / pts.length,
     };
   }, [walls, activeSelectionIds]);
-
 
   useEffect(() => {
     if (!id) return;
@@ -232,10 +202,7 @@ export default function DrawSitePlanPage() {
       const t = Math.max(0, Math.min(1, ((p.x - ax) * (bx - ax) + (p.y - ay) * (by - ay)) / l2));
       const proj = { x: ax + t * (bx - ax), y: ay + t * (by - ay) };
       const d = distance(p, proj);
-      if (d < bestDist) {
-        bestDist = d;
-        best = w;
-      }
+      if (d < bestDist) { bestDist = d; best = w; }
     }
     return bestDist <= 0.6 ? best : null;
   }
@@ -253,9 +220,36 @@ export default function DrawSitePlanPage() {
   function findRotateHandleNear(p: Point): boolean {
     if (!selectionBounds) return false;
     const hx = selectionBounds.cx;
-    const hy = selectionBounds.minY - 0.8;
+    const hy = selectionBounds.minY - 0.9;
     const hitRadius = activePointerType === "touch" ? 0.85 : activePointerType === "pen" ? 0.65 : 0.45;
     return distance(p, { x: hx, y: hy }) <= hitRadius;
+  }
+
+  function pushHistory() {
+    setWallHistory(prev => [...prev.slice(-50), walls]);
+  }
+
+  function undo() {
+    if (!wallHistory.length) return;
+    const previous = wallHistory[wallHistory.length - 1];
+    setWalls(previous);
+    setWallHistory(prev => prev.slice(0, -1));
+    setSelectedWallId(null);
+    setSelectedWallIds([]);
+    setDrawStart(null);
+    setHoverPoint(null);
+  }
+
+  function closeShape() {
+    if (!drawStart || walls.length < 3) return;
+    const first = walls[0].start;
+    pushHistory();
+    if (distance(drawStart, first) >= 0.25) {
+      setWalls(prev => [...prev, { id: makeId(), start: drawStart, end: first, style: "solid" }]);
+    }
+    setDrawStart(null);
+    setHoverPoint(null);
+    setMode("select");
   }
 
   function pointerDown(e: React.PointerEvent<SVGSVGElement>) {
@@ -281,6 +275,7 @@ export default function DrawSitePlanPage() {
       }
 
       if (distance(drawStart, endPoint) >= 0.25) {
+        pushHistory();
         setWalls((prev) => [...prev, { id: makeId(), start: drawStart, end: endPoint, style: "solid" }]);
       }
 
@@ -304,8 +299,8 @@ export default function DrawSitePlanPage() {
       return;
     }
 
-    // rotate drag handle for selected walls
     if (activeSelectionIds.length > 0 && findRotateHandleNear(p) && selectionBounds) {
+      pushHistory();
       const snap = walls
         .filter((w) => activeSelectionIds.includes(w.id))
         .map((w) => ({ id: w.id, start: { ...w.start }, end: { ...w.end } }));
@@ -319,6 +314,7 @@ export default function DrawSitePlanPage() {
 
     const endpoint = findEndpointNearSelected(p);
     if (endpoint) {
+      pushHistory();
       setSelectedWallId(endpoint.wallId);
       setDraggingEndpoint(endpoint);
       return;
@@ -336,6 +332,7 @@ export default function DrawSitePlanPage() {
           .filter((w) => moveIds.includes(w.id))
           .map((w) => ({ id: w.id, start: { ...w.start }, end: { ...w.end } }))
       );
+      pushHistory();
       if (moveIds.length > 1) {
         setDraggingGroup(true);
       } else {
@@ -389,7 +386,6 @@ export default function DrawSitePlanPage() {
         delta = (deg * Math.PI) / 180;
       }
       setRotateDeltaDeg(deg);
-
       setWalls((prev) => prev.map((w) => {
         const src = rotateSnapshot.find((x) => x.id === w.id);
         if (!src) return w;
@@ -458,7 +454,6 @@ export default function DrawSitePlanPage() {
     setDragSnapshot([]);
 
     if (rotating) {
-      // Gentle snap to orthogonal angles on release only (not during drag)
       const nearest = Math.round(rotateDeltaDeg / 90) * 90;
       if (Math.abs(rotateDeltaDeg - nearest) <= ROTATE_RELEASE_SNAP_DEG && rotateOrigin && rotateSnapshot.length) {
         const rad = (nearest * Math.PI) / 180;
@@ -497,7 +492,6 @@ export default function DrawSitePlanPage() {
       setSelectedWallId(ids[0] || null);
     }
 
-    // final snap to 1m grid for clean geometry after move/rotate
     setWalls((prev) => prev.map((w) => ({
       ...w,
       start: snapPoint(w.start),
@@ -509,27 +503,21 @@ export default function DrawSitePlanPage() {
     setSnapGuide(null);
   }
 
-
-  function addSingleWall() {
-    setMode("single");
-    setDrawStart(null);
-    setHoverPoint(null);
-  }
-
   function removeSelectedWall() {
     const ids = selectedWallIds.length ? selectedWallIds : (selectedWallId ? [selectedWallId] : []);
     if (!ids.length) return;
+    pushHistory();
     setWalls((prev) => prev.filter((w) => !ids.includes(w.id)));
     setSelectedWallId(null);
     setSelectedWallIds([]);
   }
-
 
   function wallLengthMeters(w: Wall) {
     return w.lengthOverride ?? Number(distance(w.start, w.end).toFixed(2));
   }
 
   function applyLengthOverride(wallId: string, lengthMeters: number) {
+    pushHistory();
     setWalls((prev) => prev.map((w) => {
       if (w.id !== wallId) return w;
       const dx = w.end.x - w.start.x;
@@ -547,7 +535,6 @@ export default function DrawSitePlanPage() {
       setNotice("Draw at least one wall.");
       return;
     }
-
     setSaving(true);
     setNotice("");
     try {
@@ -563,7 +550,6 @@ export default function DrawSitePlanPage() {
         y: GRID.top - (pt.y / CELLS_Y) * GRID.height,
       });
 
-      // White backing to fully cover original printed grid.
       const MASK_BLEED = 2.0;
       page.drawRectangle({
         x: GRID.left - MASK_BLEED,
@@ -573,7 +559,6 @@ export default function DrawSitePlanPage() {
         color: rgb(1, 1, 1),
       });
 
-      // Overlay a fresh locked grid exactly on top of the template grid.
       for (let i = 0; i <= CELLS_X; i += 1) {
         const x = GRID.left + (i / CELLS_X) * GRID.width;
         page.drawLine({
@@ -646,7 +631,7 @@ export default function DrawSitePlanPage() {
       }
       await gql(ADD_FILES, { _id: id, documentType: "QUOTE_SITE_PLAN", fileNames: [uploaded[0]] });
 
-      setNotice("Site plan saved and overwritten successfully.");
+      setNotice("Site plan saved successfully.");
       setTimeout(() => router.push(`/jobs/${id}`), 400);
     } catch (e) {
       setNotice(e instanceof Error ? e.message : "Failed to save site plan");
@@ -655,202 +640,329 @@ export default function DrawSitePlanPage() {
     }
   }
 
+  const canCloseShape = mode === "trace" && !!drawStart && walls.length >= 3;
+
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-6">
-      <div className="max-w-6xl mx-auto">
-        <div className="flex items-center justify-between mb-4">
-          <button onClick={() => router.push(`/jobs/${id}`)} className="text-sm text-gray-600">← Back to Job</button>
-          <h1 className="text-lg font-bold text-[#1a3a4a]">Draw Site Plan</h1>
-          <button
-            onClick={saveCompletedSitePlan}
-            disabled={saving}
-            className="bg-[#1a3a4a] text-white px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-60"
+    <div className="fixed inset-0 flex flex-col bg-[#eef0f3] overflow-hidden">
+
+      {/* Top bar */}
+      <div className="relative flex items-center justify-between px-4 bg-white border-b border-gray-200 z-30 flex-shrink-0" style={{ height: 56 }}>
+        <button
+          onClick={() => router.push(`/jobs/${id}`)}
+          className="text-sm font-medium text-gray-500 -ml-1 px-2 h-10 rounded-lg flex items-center gap-1 active:bg-gray-100"
+        >
+          ← Back
+        </button>
+        <span className="absolute left-1/2 -translate-x-1/2 text-sm font-semibold text-[#1a3a4a] pointer-events-none">
+          Site Plan
+        </span>
+        <button
+          onClick={saveCompletedSitePlan}
+          disabled={saving}
+          className="bg-[#1a3a4a] text-white px-4 h-10 rounded-xl text-sm font-semibold disabled:opacity-60 active:opacity-80"
+        >
+          {saving ? "Saving…" : "Save & Done"}
+        </button>
+      </div>
+
+      {/* Notice toast */}
+      {notice && (
+        <div
+          className="absolute left-4 right-4 z-50 text-sm bg-amber-50 text-amber-800 border border-amber-200 rounded-xl px-4 py-2.5 shadow-lg"
+          style={{ top: 64 }}
+        >
+          {notice}
+        </div>
+      )}
+
+      {/* Canvas area */}
+      <div className="flex-1 flex items-center justify-center p-2 min-h-0">
+        <div
+          className="relative rounded-xl overflow-hidden shadow border border-gray-300 bg-white"
+          style={{
+            aspectRatio: `${CELLS_X} / ${CELLS_Y}`,
+            maxHeight: "100%",
+            maxWidth: "100%",
+            backgroundImage:
+              "linear-gradient(to right, #c8d0da 1px, transparent 1px), linear-gradient(to bottom, #c8d0da 1px, transparent 1px)",
+            backgroundSize: `calc(100%/${CELLS_X}) calc(100%/${CELLS_Y})`,
+          }}
+        >
+          {/* Floating selection toolbar */}
+          {selectionBounds && mode === "select" && (
+            <div
+              className="absolute z-20 flex items-center gap-1.5 bg-white/96 backdrop-blur-sm border border-gray-200 rounded-xl shadow-lg px-2 py-1.5"
+              style={{
+                left: `${Math.max(8, Math.min(92, (selectionBounds.cx / CELLS_X) * 100))}%`,
+                top: `${Math.max(2, ((selectionBounds.minY - 1.8) / CELLS_Y) * 100)}%`,
+                transform: "translate(-50%, -100%)",
+              }}
+            >
+              <button
+                onClick={() => {
+                  const ids = activeSelectionIds;
+                  setWalls((prev) => prev.map((w) => ids.includes(w.id) ? { ...w, style: "solid" } : w));
+                }}
+                className="px-3 h-8 rounded-lg text-xs font-medium bg-gray-100 active:bg-gray-200"
+              >Solid</button>
+              <button
+                onClick={() => {
+                  const ids = activeSelectionIds;
+                  setWalls((prev) => prev.map((w) => ids.includes(w.id) ? { ...w, style: "dotted" } : w));
+                }}
+                className="px-3 h-8 rounded-lg text-xs font-medium bg-gray-100 active:bg-gray-200"
+              >Dotted</button>
+
+              {selectedWall && (
+                <input
+                  value={lengthEditValue}
+                  onChange={(e) => setLengthEditValue(e.target.value)}
+                  onBlur={() => {
+                    const v = Number(lengthEditValue);
+                    if (!Number.isFinite(v) || v <= 0 || !selectedWallId) return;
+                    applyLengthOverride(selectedWallId, v);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      const v = Number(lengthEditValue);
+                      if (!Number.isFinite(v) || v <= 0 || !selectedWallId) return;
+                      applyLengthOverride(selectedWallId, v);
+                    }
+                  }}
+                  className="w-16 h-8 text-xs border border-gray-300 rounded-lg px-2 text-center"
+                  inputMode="decimal"
+                  placeholder="m"
+                />
+              )}
+
+              <button
+                onClick={removeSelectedWall}
+                className="px-3 h-8 rounded-lg text-xs font-medium bg-red-50 text-red-600 active:bg-red-100"
+              >Delete</button>
+            </div>
+          )}
+
+          {/* SVG drawing canvas */}
+          <svg
+            ref={svgRef}
+            viewBox={`0 0 ${CELLS_X} ${CELLS_Y}`}
+            className="w-full h-full touch-none"
+            onPointerDown={pointerDown}
+            onPointerMove={pointerMove}
+            onPointerUp={pointerUp}
+            onPointerLeave={pointerUp}
           >
-            {saving ? "Saving..." : "Save Completed Site Plan"}
+            {/* Walls */}
+            {walls.map((w) => {
+              const midX = (w.start.x + w.end.x) / 2;
+              const midY = (w.start.y + w.end.y) / 2;
+              const isSelected = selectedWallIds.includes(w.id) || w.id === selectedWallId;
+              const labelText = `${wallLengthMeters(w).toFixed(1)}m`;
+              const labelW = labelText.length * 0.21 + 0.14;
+              return (
+                <g key={w.id}>
+                  <line
+                    x1={w.start.x} y1={w.start.y}
+                    x2={w.end.x} y2={w.end.y}
+                    stroke={isSelected ? "#0f766e" : "#1e293b"}
+                    strokeWidth={0.12}
+                    strokeDasharray={w.style === "dotted" ? "0.35 0.24" : undefined}
+                    strokeLinecap="round"
+                  />
+                  {showDimensions && (
+                    <>
+                      <rect
+                        x={midX - labelW / 2}
+                        y={midY - 0.46}
+                        width={labelW}
+                        height={0.37}
+                        fill="white"
+                        rx={0.05}
+                        opacity={0.92}
+                      />
+                      <text
+                        x={midX}
+                        y={midY - 0.15}
+                        fontSize={0.31}
+                        fill={isSelected ? "#0f766e" : "#475569"}
+                        textAnchor="middle"
+                      >
+                        {labelText}
+                      </text>
+                    </>
+                  )}
+                  {isSelected && (
+                    <>
+                      <circle cx={w.start.x} cy={w.start.y} r={0.22} fill="white" stroke="#0f766e" strokeWidth={0.09} />
+                      <circle cx={w.end.x} cy={w.end.y} r={0.22} fill="white" stroke="#0f766e" strokeWidth={0.09} />
+                    </>
+                  )}
+                </g>
+              );
+            })}
+
+            {/* Draw start dot */}
+            {drawStart && (mode === "trace" || mode === "single") && (
+              <circle cx={drawStart.x} cy={drawStart.y} r={0.18} fill="#0f766e" />
+            )}
+
+            {/* Preview line */}
+            {drawStart && hoverPoint && (mode === "trace" || mode === "single") && (
+              <line
+                x1={drawStart.x} y1={drawStart.y}
+                x2={hoverPoint.x} y2={hoverPoint.y}
+                stroke="#0f766e"
+                strokeWidth={0.1}
+                strokeDasharray="0.22 0.18"
+                strokeLinecap="round"
+              />
+            )}
+
+            {/* Snap guides */}
+            {snapGuide?.kind === "horizontal" && snapGuide.lineValue != null && (
+              <line x1={0} y1={snapGuide.lineValue} x2={CELLS_X} y2={snapGuide.lineValue} stroke="rgba(20,184,166,0.55)" strokeDasharray="0.2 0.18" strokeWidth={0.07} />
+            )}
+            {snapGuide?.kind === "vertical" && snapGuide.lineValue != null && (
+              <line x1={snapGuide.lineValue} y1={0} x2={snapGuide.lineValue} y2={CELLS_Y} stroke="rgba(20,184,166,0.55)" strokeDasharray="0.2 0.18" strokeWidth={0.07} />
+            )}
+            {snapGuide?.kind === "endpoint" && snapGuide.point && (
+              <circle cx={snapGuide.point.x} cy={snapGuide.point.y} r={0.22} fill="rgba(20,184,166,0.15)" stroke="#14b8a6" strokeWidth={0.09} />
+            )}
+
+            {/* Drag selection box */}
+            {selectionStart && selectionCurrent && (
+              <rect
+                x={Math.min(selectionStart.x, selectionCurrent.x)}
+                y={Math.min(selectionStart.y, selectionCurrent.y)}
+                width={Math.abs(selectionCurrent.x - selectionStart.x)}
+                height={Math.abs(selectionCurrent.y - selectionStart.y)}
+                fill="rgba(15,118,110,0.08)"
+                stroke="#0f766e"
+                strokeDasharray="0.25 0.2"
+                strokeWidth={0.07}
+              />
+            )}
+
+            {/* Selection bounds + rotate handle */}
+            {selectionBounds && (
+              <>
+                <rect
+                  x={selectionBounds.minX - 0.12}
+                  y={selectionBounds.minY - 0.12}
+                  width={selectionBounds.maxX - selectionBounds.minX + 0.24}
+                  height={selectionBounds.maxY - selectionBounds.minY + 0.24}
+                  fill="none"
+                  stroke="rgba(15,118,110,0.5)"
+                  strokeDasharray="0.3 0.22"
+                  strokeWidth={0.07}
+                  rx={0.1}
+                />
+                <line
+                  x1={selectionBounds.cx}
+                  y1={selectionBounds.minY - 0.12}
+                  x2={selectionBounds.cx}
+                  y2={selectionBounds.minY - 0.9}
+                  stroke="#0f766e"
+                  strokeWidth={0.07}
+                />
+                <circle
+                  cx={selectionBounds.cx}
+                  cy={selectionBounds.minY - 0.9}
+                  r={0.3}
+                  fill="white"
+                  stroke="#0f766e"
+                  strokeWidth={0.08}
+                />
+                <text
+                  x={selectionBounds.cx - 0.14}
+                  y={selectionBounds.minY - 0.78}
+                  fontSize={0.32}
+                  fill="#0f766e"
+                >⟲</text>
+              </>
+            )}
+
+            {/* Rotation crosshair + angle */}
+            {rotating && rotateOrigin && (
+              <>
+                <line x1={0} y1={rotateOrigin.y} x2={CELLS_X} y2={rotateOrigin.y} stroke="rgba(14,116,144,0.3)" strokeDasharray="0.28 0.2" strokeWidth={0.06} />
+                <line x1={rotateOrigin.x} y1={0} x2={rotateOrigin.x} y2={CELLS_Y} stroke="rgba(14,116,144,0.3)" strokeDasharray="0.28 0.2" strokeWidth={0.06} />
+                <text x={rotateOrigin.x + 0.3} y={rotateOrigin.y - 0.3} fontSize={0.38} fill="#0f766e">
+                  {rotateDeltaDeg.toFixed(0)}°
+                </text>
+              </>
+            )}
+          </svg>
+        </div>
+      </div>
+
+      {/* Bottom toolbar */}
+      <div
+        className="flex items-center gap-2 px-4 bg-white border-t border-gray-200 z-30 flex-shrink-0"
+        style={{ height: 64 }}
+      >
+        {/* Mode segmented control */}
+        <div className="flex rounded-xl overflow-hidden border border-gray-200 flex-shrink-0">
+          <button
+            onClick={() => { setMode("trace"); setDrawStart(null); setHoverPoint(null); }}
+            className={`px-4 h-10 text-sm font-medium transition-colors ${mode === "trace" ? "bg-[#1a3a4a] text-white" : "bg-white text-gray-600 active:bg-gray-50"}`}
+          >
+            Outline
+          </button>
+          <button
+            onClick={() => { setMode("select"); setDrawStart(null); setHoverPoint(null); }}
+            className={`px-4 h-10 text-sm font-medium border-l border-gray-200 transition-colors ${mode === "select" ? "bg-[#1a3a4a] text-white" : "bg-white text-gray-600 active:bg-gray-50"}`}
+          >
+            Edit
           </button>
         </div>
 
-        {notice && <div className="mb-3 text-sm bg-amber-50 text-amber-800 border border-amber-200 rounded-lg px-3 py-2">{notice}</div>}
+        {/* Close Shape — contextual */}
+        {canCloseShape && (
+          <button
+            onClick={closeShape}
+            className="h-10 px-4 rounded-xl text-sm font-medium bg-teal-600 text-white flex-shrink-0 active:bg-teal-700"
+          >
+            Close Shape
+          </button>
+        )}
 
-        <div className="grid grid-cols-1 gap-4">
-          <div className="bg-white rounded-2xl border border-gray-200 p-3">
-            <div className="flex gap-2 mb-3 flex-wrap">
-              <button onClick={() => { setMode("trace"); setDrawStart(null); setHoverPoint(null); }} className={`px-3 py-1.5 rounded-lg text-sm ${mode === "trace" ? "bg-[#1a3a4a] text-white" : "bg-gray-100"}`}>Outline</button>
-              <button onClick={() => { setMode("select"); setDrawStart(null); setHoverPoint(null); }} className={`px-3 py-1.5 rounded-lg text-sm ${mode === "select" ? "bg-[#1a3a4a] text-white" : "bg-gray-100"}`}>Edit</button>
-              <button onClick={addSingleWall} className="px-3 py-1.5 rounded-lg text-sm bg-gray-100">Add Wall</button>
-              <button onClick={() => setShowDimensions((v) => !v)} className="px-3 py-1.5 rounded-lg text-sm bg-gray-100">{showDimensions ? "Hide" : "Show"} Dimensions</button>
-              <button onClick={() => { setWalls([]); setSelectedWallId(null); setSelectedWallIds([]); setDrawStart(null); }} className="px-3 py-1.5 rounded-lg text-sm bg-gray-100">Clear</button>
-            </div>
+        <div className="flex-1" />
 
-            <div
-              className="relative w-full max-w-[760px] border border-gray-300 rounded-lg overflow-hidden"
-              style={{
-                aspectRatio: `${CELLS_X} / ${CELLS_Y}`,
-                backgroundImage: "linear-gradient(to right, #f3f4f6 1px, transparent 1px), linear-gradient(to bottom, #f3f4f6 1px, transparent 1px)",
-                backgroundSize: `calc(100%/${CELLS_X}) calc(100%/${CELLS_Y})`,
-              }}
-            >
+        {/* Undo */}
+        <button
+          onClick={undo}
+          disabled={!wallHistory.length}
+          className="h-10 w-10 rounded-xl flex items-center justify-center bg-gray-100 text-gray-700 disabled:opacity-30 flex-shrink-0 active:bg-gray-200 text-base"
+          title="Undo"
+        >
+          ↩
+        </button>
 
-              {selectionBounds && (
-                <div
-                  className="absolute z-20 flex items-center gap-1 bg-white/95 backdrop-blur border border-gray-200 rounded-lg shadow px-1.5 py-1 max-w-[95%]"
-                  style={{
-                    left: `${Math.max(8, Math.min(92, (selectionBounds.cx / CELLS_X) * 100))}%`,
-                    top: `${Math.max(6, ((selectionBounds.minY - 1.3) / CELLS_Y) * 100)}%`,
-                    transform: "translate(-50%, -100%)",
-                  }}
-                >
-                  <button
-                    onClick={() => {
-                      const ids = activeSelectionIds;
-                      setWalls((prev) => prev.map((w) => ids.includes(w.id) ? { ...w, style: "solid" } : w));
-                    }}
-                    className="text-[11px] px-2 py-1 rounded bg-gray-100"
-                  >Solid</button>
-                  <button
-                    onClick={() => {
-                      const ids = activeSelectionIds;
-                      setWalls((prev) => prev.map((w) => ids.includes(w.id) ? { ...w, style: "dotted" } : w));
-                    }}
-                    className="text-[11px] px-2 py-1 rounded bg-gray-100"
-                  >Dotted</button>
+        {/* Dims toggle */}
+        <button
+          onClick={() => setShowDimensions((v) => !v)}
+          className={`h-10 px-3 rounded-xl text-sm font-medium flex-shrink-0 transition-colors ${showDimensions ? "bg-[#1a3a4a] text-white" : "bg-gray-100 text-gray-600 active:bg-gray-200"}`}
+        >
+          Dims
+        </button>
 
-                  {selectedWall && (
-                    <div className="flex items-center gap-1 px-1">
-                      <span className="text-[10px] text-gray-500">m</span>
-                      <input
-                        value={lengthEditValue}
-                        onChange={(e) => setLengthEditValue(e.target.value)}
-                        onBlur={() => {
-                          const v = Number(lengthEditValue);
-                          if (!Number.isFinite(v) || v <= 0 || !selectedWallId) return;
-                          applyLengthOverride(selectedWallId, v);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            const v = Number(lengthEditValue);
-                            if (!Number.isFinite(v) || v <= 0 || !selectedWallId) return;
-                            applyLengthOverride(selectedWallId, v);
-                          }
-                        }}
-                        className="w-16 text-[11px] border border-gray-300 rounded px-1.5 py-1"
-                        inputMode="decimal"
-                      />
-                    </div>
-                  )}
-
-                  <button
-                    onClick={() => removeSelectedWall()}
-                    className="text-[11px] px-2 py-1 rounded bg-red-50 text-red-700"
-                  >Delete</button>
-                </div>
-              )}
-              <svg
-                ref={svgRef}
-                viewBox={`0 0 ${CELLS_X} ${CELLS_Y}`}
-                className="w-full h-full touch-none"
-                onPointerDown={pointerDown}
-                onPointerMove={pointerMove}
-                onPointerUp={pointerUp}
-                onPointerLeave={pointerUp}
-              >
-                {walls.map((w) => {
-                  const midX = (w.start.x + w.end.x) / 2;
-                  const midY = (w.start.y + w.end.y) / 2;
-                  return (
-                    <g key={w.id}>
-                      <line
-                        x1={w.start.x}
-                        y1={w.start.y}
-                        x2={w.end.x}
-                        y2={w.end.y}
-                        stroke={selectedWallIds.includes(w.id) || w.id === selectedWallId ? "#0f766e" : "#111827"}
-                        strokeWidth={0.08}
-                        strokeDasharray={w.style === "dotted" ? "0.35 0.24" : undefined}
-                        strokeLinecap="round"
-                      />
-                      {showDimensions && (
-                        <text x={midX + 0.1} y={midY - 0.12} fontSize={0.35} fill="#374151">
-                          {wallLengthMeters(w).toFixed(1)}m
-                        </text>
-                      )}
-                      {(selectedWallIds.includes(w.id) || w.id === selectedWallId) && (
-                        <>
-                          <circle cx={w.start.x} cy={w.start.y} r={0.18} fill="#0f766e" />
-                          <circle cx={w.end.x} cy={w.end.y} r={0.18} fill="#0f766e" />
-                        </>
-                      )}
-                    </g>
-                  );
-                })}
-                {drawStart && (mode === "trace" || mode === "single") && <circle cx={drawStart.x} cy={drawStart.y} r={0.16} fill="#0f766e" />}
-                {drawStart && hoverPoint && (mode === "trace" || mode === "single") && (
-                  <line x1={drawStart.x} y1={drawStart.y} x2={hoverPoint.x} y2={hoverPoint.y} stroke="#0f766e" strokeWidth={0.08} strokeDasharray="0.2 0.2" />
-                )}
-                {mode === "trace" && drawStart && walls.length >= 2 && distance(drawStart, walls[0].start) <= 0.9 && (
-                  <text x={drawStart.x + 0.2} y={drawStart.y - 0.2} fontSize={0.32} fill="#0f766e">Tap to close shape</text>
-                )}
-                {snapGuide?.kind === "horizontal" && snapGuide.lineValue != null && (
-                  <line x1={0} y1={snapGuide.lineValue} x2={CELLS_X} y2={snapGuide.lineValue} stroke="rgba(20,184,166,0.5)" strokeDasharray="0.2 0.18" strokeWidth={0.08} />
-                )}
-                {snapGuide?.kind === "vertical" && snapGuide.lineValue != null && (
-                  <line x1={snapGuide.lineValue} y1={0} x2={snapGuide.lineValue} y2={CELLS_Y} stroke="rgba(20,184,166,0.5)" strokeDasharray="0.2 0.18" strokeWidth={0.08} />
-                )}
-                {snapGuide?.kind === "endpoint" && snapGuide.point && (
-                  <circle cx={snapGuide.point.x} cy={snapGuide.point.y} r={0.2} fill="none" stroke="#14b8a6" strokeWidth={0.1} />
-                )}
-                {selectionStart && selectionCurrent && (
-                  <rect
-                    x={Math.min(selectionStart.x, selectionCurrent.x)}
-                    y={Math.min(selectionStart.y, selectionCurrent.y)}
-                    width={Math.abs(selectionCurrent.x - selectionStart.x)}
-                    height={Math.abs(selectionCurrent.y - selectionStart.y)}
-                    fill="rgba(15,118,110,0.10)"
-                    stroke="#0f766e"
-                    strokeDasharray="0.25 0.2"
-                    strokeWidth={0.08}
-                  />
-                )}
-
-                {selectionBounds && (
-                  <>
-                    <rect
-                      x={selectionBounds.minX}
-                      y={selectionBounds.minY}
-                      width={selectionBounds.maxX - selectionBounds.minX}
-                      height={selectionBounds.maxY - selectionBounds.minY}
-                      fill="none"
-                      stroke="rgba(15,118,110,0.65)"
-                      strokeDasharray="0.3 0.22"
-                      strokeWidth={0.08}
-                    />
-                    <line
-                      x1={selectionBounds.cx}
-                      y1={selectionBounds.minY}
-                      x2={selectionBounds.cx}
-                      y2={selectionBounds.minY - 0.8}
-                      stroke="#0f766e"
-                      strokeWidth={0.08}
-                    />
-                    <circle cx={selectionBounds.cx} cy={selectionBounds.minY - 0.8} r={0.24} fill="white" stroke="#0f766e" strokeWidth={0.08} />
-                    <text x={selectionBounds.cx - 0.11} y={selectionBounds.minY - 0.73} fontSize={0.28} fill="#0f766e">⟲</text>
-                  </>
-                )}
-
-                {rotating && rotateOrigin && (
-                  <>
-                    <line x1={0} y1={rotateOrigin.y} x2={CELLS_X} y2={rotateOrigin.y} stroke="rgba(14,116,144,0.35)" strokeDasharray="0.28 0.2" strokeWidth={0.08} />
-                    <line x1={rotateOrigin.x} y1={0} x2={rotateOrigin.x} y2={CELLS_Y} stroke="rgba(14,116,144,0.35)" strokeDasharray="0.28 0.2" strokeWidth={0.08} />
-                    <text x={rotateOrigin.x + 0.25} y={rotateOrigin.y - 0.25} fontSize={0.35} fill="#0f766e">{rotateDeltaDeg.toFixed(0)}°</text>
-                  </>
-                )}
-              </svg>
-            </div>
-          </div>
-
-        </div>
+        {/* Clear */}
+        <button
+          onClick={() => {
+            if (!walls.length) return;
+            pushHistory();
+            setWalls([]);
+            setSelectedWallId(null);
+            setSelectedWallIds([]);
+            setDrawStart(null);
+            setHoverPoint(null);
+          }}
+          className="h-10 px-3 rounded-xl text-sm font-medium bg-gray-100 text-gray-400 flex-shrink-0 active:bg-gray-200"
+        >
+          Clear
+        </button>
       </div>
     </div>
   );
 }
-
