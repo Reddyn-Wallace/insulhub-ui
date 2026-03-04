@@ -73,12 +73,16 @@ export default function AddressAutocomplete({
                 // filter for New Zealand to improve accuracy, remove `&lat...&lon...` to make it general, but photon allows location bounds
                 // For now, simple text search. We can append `&lat=-40.9006&lon=174.8860` for NZ bias or `&layer=house` for addresses
                 // Using komoot photon open-source geocoder
-                const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=5`);
+                const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=10`);
                 const data = await res.json();
 
                 if (data && data.features) {
-                    setResults(data.features);
-                    setIsOpen(true);
+                    const nzOnly = data.features.filter((f: PhotonFeature) => {
+                        const country = (f.properties?.country || "").toLowerCase();
+                        return country.includes("new zealand") || country === "nz";
+                    });
+                    setResults(nzOnly.slice(0, 5));
+                    setIsOpen(nzOnly.length > 0);
                 }
             } catch (err) {
                 console.error("Failed to fetch address:", err);
