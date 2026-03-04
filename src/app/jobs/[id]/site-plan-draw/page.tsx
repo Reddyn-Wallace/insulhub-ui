@@ -83,9 +83,12 @@ function makeId() {
 }
 function clampPoint(p: Point): Point {
   return {
-    x: Math.max(0, Math.min(CELLS_X, snap(p.x))),
-    y: Math.max(0, Math.min(CELLS_Y, snap(p.y))),
+    x: Math.max(0, Math.min(CELLS_X, p.x)),
+    y: Math.max(0, Math.min(CELLS_Y, p.y)),
   };
+}
+function snapPoint(p: Point): Point {
+  return { x: snap(p.x), y: snap(p.y) };
 }
 
 export default function DrawSitePlanPage() {
@@ -153,7 +156,7 @@ export default function DrawSitePlanPage() {
     })().catch((e) => setNotice(e instanceof Error ? e.message : "Failed to load"));
   }, [id]);
 
-  const toGridPoint = useCallback((clientX: number, clientY: number): Point | null => {
+  const toGridPointRaw = useCallback((clientX: number, clientY: number): Point | null => {
     const svg = svgRef.current;
     if (!svg) return null;
     const rect = svg.getBoundingClientRect();
@@ -161,6 +164,11 @@ export default function DrawSitePlanPage() {
     const y = ((clientY - rect.top) / rect.height) * CELLS_Y;
     return clampPoint({ x, y });
   }, []);
+
+  const toGridPointSnapped = useCallback((clientX: number, clientY: number): Point | null => {
+    const p = toGridPointRaw(clientX, clientY);
+    return p ? snapPoint(p) : null;
+  }, [toGridPointRaw]);
 
   function findWallNear(p: Point): Wall | null {
     let best: Wall | null = null;
@@ -201,7 +209,9 @@ export default function DrawSitePlanPage() {
   function pointerDown(e: React.PointerEvent<SVGSVGElement>) {
     const pt = (e.pointerType === "touch" || e.pointerType === "pen") ? e.pointerType : "mouse";
     setActivePointerType(pt);
-    const p = toGridPoint(e.clientX, e.clientY);
+    const p = (mode === "trace" || mode === "single")
+      ? toGridPointSnapped(e.clientX, e.clientY)
+      : toGridPointRaw(e.clientX, e.clientY);
     if (!p) return;
 
     if (mode === "trace" || mode === "single") {
@@ -287,24 +297,20 @@ export default function DrawSitePlanPage() {
   }
 
   function pointerMove(e: React.PointerEvent<SVGSVGElement>) {
-    const p = toGridPoint(e.clientX, e.clientY);
+    const p = (mode === "trace" || mode === "single")
+      ? toGridPointSnapped(e.clientX, e.clientY)
+      : toGridPointRaw(e.clientX, e.clientY);
     if (!p) return;
 
     if (mode === "trace" || mode === "single") {
-      setHoverPoint(p);
+      setHoverPoint(snapPoint(p));
       return;
     }
 
     if (rotating && rotateOrigin && rotateSnapshot.length) {
       const currentAngle = Math.atan2(p.y - rotateOrigin.y, p.x - rotateOrigin.x);
-      let delta = currentAngle - rotateStartAngle;
-      let deg = (delta * 180) / Math.PI;
-      const snapStep = 90;
-      const nearest = Math.round(deg / snapStep) * snapStep;
-      if (Math.abs(deg - nearest) <= 6) {
-        deg = nearest;
-        delta = (deg * Math.PI) / 180;
-      }
+      const delta = currentAngle - rotateStartAngle;
+      const deg = (delta * 180) / Math.PI;
       setRotateDeltaDeg(deg);
 
       setWalls((prev) => prev.map((w) => {
@@ -361,8 +367,27 @@ export default function DrawSitePlanPage() {
     setDragSnapshot([]);
 
     if (rotating) {
+      // Gentle snap to orthogonal angles on release only (not during drag)
+      const nearest = Math.round(rotateDeltaDeg / 90) * 90;
+      if (Math.abs(rotateDeltaDeg - nearest) <= 4 && rotateOrigin && rotateSnapshot.length) {
+        const rad = (nearest * Math.PI) / 180;
+        setWalls((prev) => prev.map((w) => {
+          const src = rotateSnapshot.find((x) => x.id === w.id);
+          if (!src) return w;
+          const rot = (pt: Point) => {
+            const dx = pt.x - rotateOrigin.x;
+            const dy = pt.y - rotateOrigin.y;
+            return clampPoint({
+              x: rotateOrigin.x + dx * Math.cos(rad) - dy * Math.sin(rad),
+              y: rotateOrigin.y + dx * Math.sin(rad) + dy * Math.cos(rad),
+            });
+          };
+          return { ...w, start: rot(src.start), end: rot(src.end) };
+        }));
+      }
       setRotating(false);
       setRotateSnapshot([]);
+      setRotateDeltaDeg(0);
       return;
     }
 
