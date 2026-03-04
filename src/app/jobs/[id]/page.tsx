@@ -593,43 +593,55 @@ export default function JobDetailPage() {
 
   function buildQuoteUpdateInput(andProgress = false, quoteOverrides: Record<string, unknown> = {}) {
     const q = quoteForm;
-    const currentStatus = job?.quote?.status || "UNSET";
-    const safeStatus = (!andProgress && job?.stage === "QUOTE" && currentStatus === "ACCEPTED")
-      ? "UNSET"
-      : currentStatus;
+    const existing = job?.quote || {} as Record<string, unknown>;
+    const existingWall = (job?.quote?.wall || {}) as Record<string, unknown>;
+    const existingCeiling = (job?.quote?.ceiling || {}) as Record<string, unknown>;
+
+    const quotePayload = {
+      ...existing,
+      quoteNote: q.quoteNote,
+      quoteResultNote: q.quoteResultNote,
+      extras: (q.extras || []).filter((e) => e.name || e.price).map((e) => ({
+        name: e.name,
+        price: parseFloat(e.price || "0") || 0,
+      })),
+      quoteNumber: q.quoteNumber,
+      status: (job?.quote?.status || "UNSET"),
+      date: fromDatetimeLocal(q.date),
+      consentFee: q.consentFee ? parseFloat(q.consentFee) : null,
+      depositPercentage: q.depositPercentage ? parseFloat(q.depositPercentage) : 25,
+      c_contractPrice: quoteCalc.contractPrice,
+      c_gst: quoteCalc.gst,
+      c_total: quoteCalc.total,
+      c_deposit: quoteCalc.deposit,
+      totalOverridden: !!(quoteForm.totalManual && parseFloat(quoteForm.totalManual) > 0),
+      depositOverridden: !!(quoteForm.depositManual && parseFloat(quoteForm.depositManual) > 0),
+      wall: q.hasWall ? {
+        ...existingWall,
+        SQMPrice: q.wallSQMPrice ? parseFloat(q.wallSQMPrice) : null,
+        SQM: q.wallSQM ? parseFloat(q.wallSQM) : null,
+        cavityDepthMeters: q.wallCavityDepth ? parseFloat(q.wallCavityDepth) : 0.1,
+        c_RValue: quoteCalc.wallR,
+        c_bagCount: quoteCalc.wallBags,
+        internal: !!job?.quote?.wall?.internal,
+      } : {},
+      ceiling: q.hasCeiling ? {
+        ...existingCeiling,
+        SQMPrice: q.ceilingSQMPrice ? parseFloat(q.ceilingSQMPrice) : null,
+        SQM: q.ceilingSQM ? parseFloat(q.ceilingSQM) : null,
+        RValue: q.ceilingRValue ? parseFloat(q.ceilingRValue) : null,
+        downlights: q.ceilingDownlights ? parseFloat(q.ceilingDownlights) : null,
+        c_thickness: quoteCalc.ceilingThickness,
+        c_bagCount: quoteCalc.ceilingBags,
+      } : {},
+      ...quoteOverrides,
+    };
 
     return {
       _id: id,
-      ...(andProgress ? { stage: "QUOTE" } : {}),
-      quote: {
-        quoteNote: q.quoteNote,
-        quoteResultNote: q.quoteResultNote,
-        extras: (q.extras || []).filter((e) => e.name || e.price).map((e) => ({ name: e.name, price: parseFloat(e.price || "0") || 0 })),
-        quoteNumber: q.quoteNumber,
-        status: safeStatus,
-        date: fromDatetimeLocal(q.date),
-        consentFee: q.consentFee ? parseFloat(q.consentFee) : undefined,
-        depositPercentage: q.depositPercentage ? parseFloat(q.depositPercentage) : 25,
-        c_contractPrice: quoteCalc.contractPrice,
-        c_gst: quoteCalc.gst,
-        c_total: quoteCalc.total,
-        c_deposit: quoteCalc.deposit,
-        wall: q.hasWall ? {
-          SQMPrice: q.wallSQMPrice ? parseFloat(q.wallSQMPrice) : undefined,
-          SQM: q.wallSQM ? parseFloat(q.wallSQM) : undefined,
-          cavityDepthMeters: q.wallCavityDepth ? parseFloat(q.wallCavityDepth) : 0.1,
-          c_RValue: quoteCalc.wallR,
-          c_bagCount: quoteCalc.wallBags,
-        } : {},
-        ceiling: q.hasCeiling ? {
-          SQMPrice: q.ceilingSQMPrice ? parseFloat(q.ceilingSQMPrice) : undefined,
-          SQM: q.ceilingSQM ? parseFloat(q.ceilingSQM) : undefined,
-          RValue: q.ceilingRValue ? parseFloat(q.ceilingRValue) : undefined,
-          downlights: q.ceilingDownlights ? parseFloat(q.ceilingDownlights) : undefined,
-          c_bagCount: quoteCalc.ceilingBags,
-        } : {},
-        ...quoteOverrides,
-      },
+      stage: andProgress ? "SCHEDULED" : "QUOTE",
+      quote: quotePayload,
+      sitePlanNotes: job?.sitePlanNotes || "",
     };
   }
 
@@ -780,7 +792,7 @@ export default function JobDetailPage() {
     const template = prepareEmailHtmlForSend(rawTemplate);
 
     await run(() => gql(UPDATE_JOB_QUOTE, {
-      input: buildQuoteUpdateInput(false, { status: "UNSET" }),
+      input: buildQuoteUpdateInput(false),
       emailQuoteToCustomer: true,
       quotePDFEmailBodyTemplate: template,
     }));
