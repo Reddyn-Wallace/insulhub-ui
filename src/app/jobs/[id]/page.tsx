@@ -583,8 +583,13 @@ export default function JobDetailPage() {
     }));
   }
 
-  function buildQuoteUpdateInput(andProgress = false) {
+  function buildQuoteUpdateInput(andProgress = false, quoteOverrides: Record<string, unknown> = {}) {
     const q = quoteForm;
+    const currentStatus = job?.quote?.status || "UNSET";
+    const safeStatus = (!andProgress && job?.stage === "QUOTE" && currentStatus === "ACCEPTED")
+      ? "UNSET"
+      : currentStatus;
+
     return {
       _id: id,
       ...(andProgress ? { stage: "QUOTE" } : {}),
@@ -593,7 +598,7 @@ export default function JobDetailPage() {
         quoteResultNote: q.quoteResultNote,
         extras: (q.extras || []).filter((e) => e.name || e.price).map((e) => ({ name: e.name, price: parseFloat(e.price || "0") || 0 })),
         quoteNumber: q.quoteNumber,
-        status: job?.quote?.status || "NEW",
+        status: safeStatus,
         date: fromDatetimeLocal(q.date),
         consentFee: q.consentFee ? parseFloat(q.consentFee) : undefined,
         depositPercentage: q.depositPercentage ? parseFloat(q.depositPercentage) : 25,
@@ -615,6 +620,7 @@ export default function JobDetailPage() {
           downlights: q.ceilingDownlights ? parseFloat(q.ceilingDownlights) : undefined,
           c_bagCount: quoteCalc.ceilingBags,
         } : {},
+        ...quoteOverrides,
       },
     };
   }
@@ -766,7 +772,7 @@ export default function JobDetailPage() {
     const template = prepareEmailHtmlForSend(rawTemplate);
 
     await run(() => gql(UPDATE_JOB_QUOTE, {
-      input: buildQuoteUpdateInput(false),
+      input: buildQuoteUpdateInput(false, { status: "UNSET" }),
       emailQuoteToCustomer: true,
       quotePDFEmailBodyTemplate: template,
     }));
