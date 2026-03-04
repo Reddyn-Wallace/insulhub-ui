@@ -71,6 +71,8 @@ const GRID = {
 const CELLS_X = 18;
 const CELLS_Y = 17;
 const SNAP_STEP = 0.1;
+const ENDPOINT_SNAP_RADIUS = 0.45;
+const ORTHO_SNAP_THRESHOLD = 0.22;
 
 function snap(v: number) {
   return Math.round(v / SNAP_STEP) * SNAP_STEP;
@@ -89,6 +91,31 @@ function clampPoint(p: Point): Point {
 }
 function snapPoint(p: Point): Point {
   return { x: snap(p.x), y: snap(p.y) };
+}
+function snapToExistingEndpoints(point: Point, walls: Wall[], excludeWallId?: string): Point {
+  let best: Point | null = null;
+  let bestD = Number.POSITIVE_INFINITY;
+  for (const w of walls) {
+    if (excludeWallId && w.id === excludeWallId) continue;
+    for (const pt of [w.start, w.end]) {
+      const d = distance(point, pt);
+      if (d < bestD) {
+        bestD = d;
+        best = pt;
+      }
+    }
+  }
+  if (best && bestD <= ENDPOINT_SNAP_RADIUS) return { ...best };
+  return point;
+}
+
+function snapOrtho(start: Point, end: Point): Point {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) return end;
+  if (Math.abs(dy) <= Math.abs(dx) * ORTHO_SNAP_THRESHOLD) return { x: end.x, y: start.y };
+  if (Math.abs(dx) <= Math.abs(dy) * ORTHO_SNAP_THRESHOLD) return { x: start.x, y: end.y };
+  return end;
 }
 
 export default function DrawSitePlanPage() {
@@ -303,7 +330,7 @@ export default function DrawSitePlanPage() {
     if (!p) return;
 
     if (mode === "trace" || mode === "single") {
-      setHoverPoint(snapPoint(p));
+      setHoverPoint(drawStart ? snapOrtho(drawStart, snapPoint(p)) : snapPoint(p));
       return;
     }
 
@@ -332,8 +359,12 @@ export default function DrawSitePlanPage() {
     if (draggingEndpoint) {
       setWalls((prev) => prev.map((w) => {
         if (w.id !== draggingEndpoint.wallId) return w;
-        if (draggingEndpoint.end === "start") return { ...w, start: p, lengthOverride: null };
-        return { ...w, end: p, lengthOverride: null };
+        const anchor = draggingEndpoint.end === "start" ? w.end : w.start;
+        let candidate = snapPoint(p);
+        candidate = snapOrtho(anchor, candidate);
+        candidate = snapToExistingEndpoints(candidate, prev, w.id);
+        if (draggingEndpoint.end === "start") return { ...w, start: clampPoint(candidate), lengthOverride: null };
+        return { ...w, end: clampPoint(candidate), lengthOverride: null };
       }));
       return;
     }
@@ -405,6 +436,13 @@ export default function DrawSitePlanPage() {
       setSelectedWallIds(ids);
       setSelectedWallId(ids[0] || null);
     }
+
+    // final snap to 1m grid for clean geometry after move/rotate
+    setWalls((prev) => prev.map((w) => ({
+      ...w,
+      start: snapPoint(w.start),
+      end: snapPoint(w.end),
+    })));
 
     setSelectionStart(null);
     setSelectionCurrent(null);
