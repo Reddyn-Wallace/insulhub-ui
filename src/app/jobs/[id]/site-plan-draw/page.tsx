@@ -74,6 +74,8 @@ const CELLS_Y = 17;
 const SNAP_STEP = 0.1;
 const ENDPOINT_SNAP_RADIUS = 0.32;
 const ORTHO_SNAP_THRESHOLD = 0.14;
+const ENDPOINT_DRAG_SNAP_RADIUS = 0.20;
+const ENDPOINT_DRAG_ORTHO_THRESHOLD = 0.08;
 const ROTATE_SOFT_SNAP_DEG = 2.5;
 const ROTATE_RELEASE_SNAP_DEG = 3.0;
 
@@ -95,7 +97,7 @@ function clampPoint(p: Point): Point {
 function snapPoint(p: Point): Point {
   return { x: snap(p.x), y: snap(p.y) };
 }
-function snapToExistingEndpoints(point: Point, walls: Wall[], excludeWallId?: string): Point {
+function snapToExistingEndpoints(point: Point, walls: Wall[], excludeWallId?: string, radius: number = ENDPOINT_SNAP_RADIUS): Point {
   let best: Point | null = null;
   let bestD = Number.POSITIVE_INFINITY;
   for (const w of walls) {
@@ -108,24 +110,24 @@ function snapToExistingEndpoints(point: Point, walls: Wall[], excludeWallId?: st
       }
     }
   }
-  if (best && bestD <= ENDPOINT_SNAP_RADIUS) return { ...best };
+  if (best && bestD <= radius) return { ...best };
   return point;
 }
 
-function snapOrtho(start: Point, end: Point): Point {
+function snapOrtho(start: Point, end: Point, threshold: number = ORTHO_SNAP_THRESHOLD): Point {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
   if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) return end;
-  if (Math.abs(dy) <= Math.abs(dx) * ORTHO_SNAP_THRESHOLD) return { x: end.x, y: start.y };
-  if (Math.abs(dx) <= Math.abs(dy) * ORTHO_SNAP_THRESHOLD) return { x: start.x, y: end.y };
+  if (Math.abs(dy) <= Math.abs(dx) * threshold) return { x: end.x, y: start.y };
+  if (Math.abs(dx) <= Math.abs(dy) * threshold) return { x: start.x, y: end.y };
   return end;
 }
-function orthoKind(start: Point, end: Point): "horizontal" | "vertical" | null {
+function orthoKind(start: Point, end: Point, threshold: number = ORTHO_SNAP_THRESHOLD): "horizontal" | "vertical" | null {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
   if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) return null;
-  if (Math.abs(dy) <= Math.abs(dx) * ORTHO_SNAP_THRESHOLD) return "horizontal";
-  if (Math.abs(dx) <= Math.abs(dy) * ORTHO_SNAP_THRESHOLD) return "vertical";
+  if (Math.abs(dy) <= Math.abs(dx) * threshold) return "horizontal";
+  if (Math.abs(dx) <= Math.abs(dy) * threshold) return "vertical";
   return null;
 }
 
@@ -409,9 +411,9 @@ export default function DrawSitePlanPage() {
         if (w.id !== draggingEndpoint.wallId) return w;
         const anchor = draggingEndpoint.end === "start" ? w.end : w.start;
         let candidate = snapPoint(p);
-        const kind = orthoKind(anchor, candidate);
-        candidate = snapOrtho(anchor, candidate);
-        const endpointSnapped = snapToExistingEndpoints(candidate, prev, w.id);
+        const kind = orthoKind(anchor, candidate, ENDPOINT_DRAG_ORTHO_THRESHOLD);
+        candidate = snapOrtho(anchor, candidate, ENDPOINT_DRAG_ORTHO_THRESHOLD);
+        const endpointSnapped = snapToExistingEndpoints(candidate, prev, w.id, ENDPOINT_DRAG_SNAP_RADIUS);
         if (endpointSnapped.x !== candidate.x || endpointSnapped.y !== candidate.y) {
           setSnapGuide({ kind: "endpoint", point: endpointSnapped });
         } else if (kind === "horizontal") {
@@ -745,17 +747,21 @@ export default function DrawSitePlanPage() {
                       <input
                         value={lengthEditValue}
                         onChange={(e) => setLengthEditValue(e.target.value)}
-                        className="w-14 text-[11px] border border-gray-300 rounded px-1.5 py-1"
-                        inputMode="decimal"
-                      />
-                      <button
-                        onClick={() => {
+                        onBlur={() => {
                           const v = Number(lengthEditValue);
                           if (!Number.isFinite(v) || v <= 0 || !selectedWallId) return;
                           applyLengthOverride(selectedWallId, v);
                         }}
-                        className="text-[11px] px-2 py-1 rounded bg-blue-50 text-blue-700"
-                      >Set</button>
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            const v = Number(lengthEditValue);
+                            if (!Number.isFinite(v) || v <= 0 || !selectedWallId) return;
+                            applyLengthOverride(selectedWallId, v);
+                          }
+                        }}
+                        className="w-16 text-[11px] border border-gray-300 rounded px-1.5 py-1"
+                        inputMode="decimal"
+                      />
                     </div>
                   )}
 
@@ -852,7 +858,8 @@ export default function DrawSitePlanPage() {
                       stroke="#0f766e"
                       strokeWidth={0.08}
                     />
-                    <circle cx={selectionBounds.cx} cy={selectionBounds.minY - 0.8} r={0.2} fill="#0f766e" />
+                    <circle cx={selectionBounds.cx} cy={selectionBounds.minY - 0.8} r={0.24} fill="white" stroke="#0f766e" strokeWidth={0.08} />
+                    <text x={selectionBounds.cx - 0.11} y={selectionBounds.minY - 0.73} fontSize={0.28} fill="#0f766e">⟲</text>
                   </>
                 )}
 
