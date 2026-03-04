@@ -430,7 +430,7 @@ export default function DrawSitePlanPage() {
         page.drawLine({
           start: { x: a.x, y: a.y },
           end: { x: b.x, y: b.y },
-          thickness: 1.6,
+          thickness: 1.9,
           color: rgb(0, 0, 0),
           dashArray: w.style === "dotted" ? [5, 4] : undefined,
         });
@@ -450,7 +450,7 @@ export default function DrawSitePlanPage() {
         page.drawText(address, {
           x: 145,
           y: 953,
-          size: 10,
+          size: 11,
           color: rgb(0, 0, 0),
           maxWidth: 540,
         });
@@ -545,7 +545,7 @@ export default function DrawSitePlanPage() {
                         x2={w.end.x}
                         y2={w.end.y}
                         stroke={selectedWallIds.includes(w.id) || w.id === selectedWallId ? "#0f766e" : "#111827"}
-                        strokeWidth={0.1}
+                        strokeWidth={0.08}
                         strokeDasharray={w.style === "dotted" ? "0.35 0.24" : undefined}
                         strokeLinecap="round"
                       />
@@ -565,7 +565,7 @@ export default function DrawSitePlanPage() {
                 })}
                 {drawStart && (mode === "trace" || mode === "single") && <circle cx={drawStart.x} cy={drawStart.y} r={0.16} fill="#0f766e" />}
                 {drawStart && hoverPoint && (mode === "trace" || mode === "single") && (
-                  <line x1={drawStart.x} y1={drawStart.y} x2={hoverPoint.x} y2={hoverPoint.y} stroke="#0f766e" strokeWidth={0.1} strokeDasharray="0.2 0.2" />
+                  <line x1={drawStart.x} y1={drawStart.y} x2={hoverPoint.x} y2={hoverPoint.y} stroke="#0f766e" strokeWidth={0.08} strokeDasharray="0.2 0.2" />
                 )}
                 {selectionStart && selectionCurrent && (
                   <rect
