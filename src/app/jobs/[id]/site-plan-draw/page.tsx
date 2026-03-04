@@ -160,6 +160,8 @@ export default function DrawSitePlanPage() {
   const [rotateDeltaDeg, setRotateDeltaDeg] = useState(0);
   const [activePointerType, setActivePointerType] = useState<"mouse" | "touch" | "pen">("mouse");
   const [snapGuide, setSnapGuide] = useState<SnapGuide>(null);
+  const [lengthEditValue, setLengthEditValue] = useState("");
+
 
 
 
@@ -171,6 +173,14 @@ export default function DrawSitePlanPage() {
   }, [job]);
 
   const selectedWall = useMemo(() => walls.find((w) => w.id === selectedWallId) || null, [walls, selectedWallId]);
+  useEffect(() => {
+    if (!selectedWall) {
+      setLengthEditValue("");
+      return;
+    }
+    setLengthEditValue(wallLengthMeters(selectedWall).toFixed(1));
+  }, [selectedWallId, walls.length]);
+
   const activeSelectionIds = useMemo(() => (selectedWallIds.length ? selectedWallIds : (selectedWallId ? [selectedWallId] : [])), [selectedWallIds, selectedWallId]);
   const selectionBounds = useMemo(() => {
     if (!activeSelectionIds.length) return null;
@@ -707,10 +717,10 @@ export default function DrawSitePlanPage() {
 
               {selectionBounds && (
                 <div
-                  className="absolute z-20 flex items-center gap-1 bg-white/95 backdrop-blur border border-gray-200 rounded-lg shadow px-1.5 py-1"
+                  className="absolute z-20 flex items-center gap-1 bg-white/95 backdrop-blur border border-gray-200 rounded-lg shadow px-1.5 py-1 max-w-[95%]"
                   style={{
-                    left: `${(selectionBounds.cx / CELLS_X) * 100}%`,
-                    top: `${Math.max(2, ((selectionBounds.minY - 1.3) / CELLS_Y) * 100)}%`,
+                    left: `${Math.max(8, Math.min(92, (selectionBounds.cx / CELLS_X) * 100))}%`,
+                    top: `${Math.max(6, ((selectionBounds.minY - 1.3) / CELLS_Y) * 100)}%`,
                     transform: "translate(-50%, -100%)",
                   }}
                 >
@@ -728,21 +738,27 @@ export default function DrawSitePlanPage() {
                     }}
                     className="text-[11px] px-2 py-1 rounded bg-gray-100"
                   >Dotted</button>
-                  <button
-                    onClick={() => {
-                      const targetId = selectedWallId || activeSelectionIds[0];
-                      if (!targetId) return;
-                      const w = walls.find((x) => x.id === targetId);
-                      if (!w) return;
-                      const current = wallLengthMeters(w).toFixed(1);
-                      const raw = window.prompt("Set wall length (m)", current);
-                      if (!raw) return;
-                      const v = Number(raw);
-                      if (!Number.isFinite(v) || v <= 0) return;
-                      applyLengthOverride(targetId, v);
-                    }}
-                    className="text-[11px] px-2 py-1 rounded bg-gray-100"
-                  >Length</button>
+
+                  {selectedWall && (
+                    <div className="flex items-center gap-1 px-1">
+                      <span className="text-[10px] text-gray-500">m</span>
+                      <input
+                        value={lengthEditValue}
+                        onChange={(e) => setLengthEditValue(e.target.value)}
+                        className="w-14 text-[11px] border border-gray-300 rounded px-1.5 py-1"
+                        inputMode="decimal"
+                      />
+                      <button
+                        onClick={() => {
+                          const v = Number(lengthEditValue);
+                          if (!Number.isFinite(v) || v <= 0 || !selectedWallId) return;
+                          applyLengthOverride(selectedWallId, v);
+                        }}
+                        className="text-[11px] px-2 py-1 rounded bg-blue-50 text-blue-700"
+                      >Set</button>
+                    </div>
+                  )}
+
                   <button
                     onClick={() => removeSelectedWall()}
                     className="text-[11px] px-2 py-1 rounded bg-red-50 text-red-700"
