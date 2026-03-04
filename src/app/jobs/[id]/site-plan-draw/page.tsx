@@ -43,10 +43,10 @@ const API_BASE = "https://api.insulhub.nz";
 const GRID = {
   left: 41.68504,
   right: 716.8307,
-  bottom: 253.6251,
-  top: 929.2708,
+  bottom: 254.1251,
+  top: 928.7708,
   width: 716.8307 - 41.68504,
-  height: 929.2708 - 253.6251,
+  height: 928.7708 - 254.1251,
 };
 const CELLS_X = 17;
 const CELLS_Y = 17;
@@ -325,11 +325,12 @@ export default function DrawSitePlanPage() {
       });
 
       // White backing to fully cover original printed grid.
+      const MASK_BLEED = 2.0;
       page.drawRectangle({
-        x: GRID.left,
-        y: GRID.bottom,
-        width: GRID.width,
-        height: GRID.height,
+        x: GRID.left - MASK_BLEED,
+        y: GRID.bottom - MASK_BLEED,
+        width: GRID.width + MASK_BLEED * 2,
+        height: GRID.height + MASK_BLEED * 2,
         color: rgb(1, 1, 1),
       });
 
