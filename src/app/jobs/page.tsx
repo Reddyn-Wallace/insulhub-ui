@@ -519,7 +519,6 @@ function JobsPageContent() {
             {/* Tabs */}
       <StageTabs
         activeStage={activeStage}
-        onStageChange={handleStageChange}
         subTab={subTab}
         onSubTabChange={(tab) => { setSubTab(tab); setPage(0); router.replace(`/jobs?stage=${activeStage}&subTab=${tab}`); }}
         counts={showSubTabs ? counts : undefined}

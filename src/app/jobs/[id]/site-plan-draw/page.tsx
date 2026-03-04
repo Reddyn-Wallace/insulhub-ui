@@ -643,7 +643,7 @@ export default function DrawSitePlanPage() {
   const canCloseShape = mode === "trace" && !!drawStart && walls.length >= 3;
 
   return (
-    <div className="fixed inset-0 flex flex-col bg-[#eef0f3] overflow-hidden">
+    <div className="fixed inset-x-0 bottom-0 flex flex-col bg-[#eef0f3] overflow-hidden" style={{ top: "var(--nav-height, 0px)" }}>
 
       {/* Top bar */}
       <div className="relative flex items-center justify-between px-4 bg-white border-b border-gray-200 z-30 flex-shrink-0" style={{ height: 56 }}>
