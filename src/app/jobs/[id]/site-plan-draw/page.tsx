@@ -38,6 +38,7 @@ const REMOVE_FILE = `
 `;
 
 const API_BASE = "https://api.insulhub.nz";
+
 // Locked to Site Plan Consent template (Version 2.0 8/5/16)
 const GRID = {
   left: 81.3701,
@@ -267,10 +268,6 @@ export default function DrawSitePlanPage() {
   }
 
   async function saveCompletedSitePlan() {
-    if (!job?.quote?.date) {
-      setNotice("Quote date required before saving site plan.");
-      return;
-    }
     if (!walls.length) {
       setNotice("Draw at least one wall.");
       return;
@@ -279,8 +276,10 @@ export default function DrawSitePlanPage() {
     setSaving(true);
     setNotice("");
     try {
-      const params = new URLSearchParams({ jobId: id, quoteDate: job.quote.date, token: encodeURIComponent(token) });
-      const sourcePdfBytes = await fetch(`${API_BASE}/pdf/quote-siteplan?${params.toString()}`).then((r) => r.arrayBuffer());
+      const sourcePdfBytes = await fetch(`/site-plan-template-v2.pdf`).then((r) => {
+        if (!r.ok) throw new Error("Could not load locked site plan template PDF.");
+        return r.arrayBuffer();
+      });
       const pdfDoc = await PDFDocument.load(sourcePdfBytes);
       const page = pdfDoc.getPage(0);
 
@@ -337,7 +336,7 @@ export default function DrawSitePlanPage() {
       const uploaded = (uploadJson.fileNames || []) as string[];
       if (!uploaded.length) throw new Error("Upload failed");
 
-      for (const existing of job.quote.files_QuoteSitePlan || []) {
+      for (const existing of job?.quote?.files_QuoteSitePlan || []) {
         await gql(REMOVE_FILE, { _id: id, documentType: "QUOTE_SITE_PLAN", fileName: existing });
       }
       await gql(ADD_FILES, { _id: id, documentType: "QUOTE_SITE_PLAN", fileNames: [uploaded[0]] });
