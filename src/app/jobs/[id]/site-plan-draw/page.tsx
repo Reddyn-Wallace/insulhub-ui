@@ -95,6 +95,7 @@ export default function DrawSitePlanPage() {
   const [job, setJob] = useState<Job | null>(null);
   const [walls, setWalls] = useState<Wall[]>([]);
   const [selectedWallId, setSelectedWallId] = useState<string | null>(null);
+  const [selectedWallIds, setSelectedWallIds] = useState<string[]>([]);
   const [mode, setMode] = useState<"trace" | "single" | "select">("trace");
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
@@ -104,6 +105,9 @@ export default function DrawSitePlanPage() {
   const [drawStart, setDrawStart] = useState<Point | null>(null);
   const [hoverPoint, setHoverPoint] = useState<Point | null>(null);
   const [draggingWallId, setDraggingWallId] = useState<string | null>(null);
+  const [draggingGroup, setDraggingGroup] = useState(false);
+  const [selectionStart, setSelectionStart] = useState<Point | null>(null);
+  const [selectionCurrent, setSelectionCurrent] = useState<Point | null>(null);
   const [draggingEndpoint, setDraggingEndpoint] = useState<{ wallId: string; end: "start" | "end" } | null>(null);
 
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -150,22 +154,14 @@ export default function DrawSitePlanPage() {
     return bestDist <= 0.6 ? best : null;
   }
 
-  function findEndpointNear(p: Point): { wallId: string; end: "start" | "end" } | null {
-    let best: { wallId: string; end: "start" | "end" } | null = null;
-    let bestDist = 999;
-    for (const w of walls) {
-      const ds = distance(p, w.start);
-      if (ds < bestDist) {
-        bestDist = ds;
-        best = { wallId: w.id, end: "start" };
-      }
-      const de = distance(p, w.end);
-      if (de < bestDist) {
-        bestDist = de;
-        best = { wallId: w.id, end: "end" };
-      }
-    }
-    return bestDist <= 0.5 ? best : null;
+  function findEndpointNearSelected(p: Point): { wallId: string; end: "start" | "end" } | null {
+    if (!selectedWallId) return null;
+    const w = walls.find((x) => x.id === selectedWallId);
+    if (!w) return null;
+    const ds = distance(p, w.start);
+    const de = distance(p, w.end);
+    if (Math.min(ds, de) > 0.5) return null;
+    return ds <= de ? { wallId: w.id, end: "start" } : { wallId: w.id, end: "end" };
   }
 
   function pointerDown(e: React.PointerEvent<SVGSVGElement>) {
@@ -216,7 +212,7 @@ export default function DrawSitePlanPage() {
       return;
     }
 
-    const endpoint = findEndpointNear(p);
+    const endpoint = findEndpointNearSelected(p);
     if (endpoint) {
       setSelectedWallId(endpoint.wallId);
       setDraggingEndpoint(endpoint);
@@ -225,10 +221,23 @@ export default function DrawSitePlanPage() {
 
     const hit = findWallNear(p);
     if (hit) {
+      const alreadySelected = selectedWallIds.includes(hit.id);
+      if (!alreadySelected) {
+        setSelectedWallIds([hit.id]);
+      }
       setSelectedWallId(hit.id);
-      setDraggingWallId(hit.id);
+      // If multiple selected and clicked one of them, drag group
+      if (alreadySelected && selectedWallIds.length > 1) {
+        setDraggingGroup(true);
+      } else {
+        setDraggingWallId(hit.id);
+      }
     } else {
+      // Start marquee selection
+      setSelectionStart(p);
+      setSelectionCurrent(p);
       setSelectedWallId(null);
+      setSelectedWallIds([]);
     }
   }
   function pointerMove(e: React.PointerEvent<SVGSVGElement>) {
@@ -251,6 +260,25 @@ export default function DrawSitePlanPage() {
       return;
     }
 
+    if (selectionStart) {
+      setSelectionCurrent(p);
+      return;
+    }
+
+    if (draggingGroup && selectedWallIds.length > 0) {
+      const sel = walls.filter((w) => selectedWallIds.includes(w.id));
+      if (!sel.length) return;
+      const allPts = sel.flatMap((w) => [w.start, w.end]);
+      const cx = allPts.reduce((a, q) => a + q.x, 0) / allPts.length;
+      const cy = allPts.reduce((a, q) => a + q.y, 0) / allPts.length;
+      const dx = p.x - cx;
+      const dy = p.y - cy;
+      setWalls((prev) => prev.map((w) => selectedWallIds.includes(w.id)
+        ? { ...w, start: clampPoint({ x: w.start.x + dx, y: w.start.y + dy }), end: clampPoint({ x: w.end.x + dx, y: w.end.y + dy }) }
+        : w));
+      return;
+    }
+
     if (draggingWallId) {
       setWalls((prev) => prev.map((w) => {
         if (w.id !== draggingWallId) return w;
@@ -270,6 +298,25 @@ export default function DrawSitePlanPage() {
   function pointerUp() {
     setDraggingWallId(null);
     setDraggingEndpoint(null);
+    setDraggingGroup(false);
+
+    if (selectionStart && selectionCurrent) {
+      const minX = Math.min(selectionStart.x, selectionCurrent.x);
+      const maxX = Math.max(selectionStart.x, selectionCurrent.x);
+      const minY = Math.min(selectionStart.y, selectionCurrent.y);
+      const maxY = Math.max(selectionStart.y, selectionCurrent.y);
+      const ids = walls
+        .filter((w) => {
+          const pts = [w.start, w.end, { x: (w.start.x + w.end.x) / 2, y: (w.start.y + w.end.y) / 2 }];
+          return pts.some((pt) => pt.x >= minX && pt.x <= maxX && pt.y >= minY && pt.y <= maxY);
+        })
+        .map((w) => w.id);
+      setSelectedWallIds(ids);
+      setSelectedWallId(ids[0] || null);
+    }
+
+    setSelectionStart(null);
+    setSelectionCurrent(null);
   }
 
   function finishTrace() {
@@ -279,19 +326,23 @@ export default function DrawSitePlanPage() {
   }
 
   function removeSelectedWall() {
-    if (!selectedWallId) return;
-    setWalls((prev) => prev.filter((w) => w.id !== selectedWallId));
+    const ids = selectedWallIds.length ? selectedWallIds : (selectedWallId ? [selectedWallId] : []);
+    if (!ids.length) return;
+    setWalls((prev) => prev.filter((w) => !ids.includes(w.id)));
     setSelectedWallId(null);
+    setSelectedWallIds([]);
   }
 
   function rotateBuilding(deg: number) {
-    if (!walls.length) return;
+    const targets = selectedWallIds.length ? walls.filter((w) => selectedWallIds.includes(w.id)) : walls;
+    if (!targets.length) return;
     const radians = (deg * Math.PI) / 180;
-    const allPoints = walls.flatMap((w) => [w.start, w.end]);
+    const allPoints = targets.flatMap((w) => [w.start, w.end]);
     const cx = allPoints.reduce((a, p) => a + p.x, 0) / allPoints.length;
     const cy = allPoints.reduce((a, p) => a + p.y, 0) / allPoints.length;
 
     setWalls((prev) => prev.map((w) => {
+      if (selectedWallIds.length && !selectedWallIds.includes(w.id)) return w;
       const rot = (pt: Point) => {
         const dx = pt.x - cx;
         const dy = pt.y - cy;
@@ -463,7 +514,7 @@ export default function DrawSitePlanPage() {
               <button onClick={() => rotateBuilding(5)} className="px-3 py-1.5 rounded-lg text-sm bg-gray-100">Rotate +5°</button>
               <button onClick={removeSelectedWall} className="px-3 py-1.5 rounded-lg text-sm bg-red-50 text-red-700">Delete Wall</button>
               <button onClick={() => setShowDimensions((v) => !v)} className="px-3 py-1.5 rounded-lg text-sm bg-gray-100">{showDimensions ? "Hide" : "Show"} Dimensions</button>
-              <button onClick={() => { setWalls([]); setSelectedWallId(null); setDrawStart(null); }} className="px-3 py-1.5 rounded-lg text-sm bg-gray-100">Clear</button>
+              <button onClick={() => { setWalls([]); setSelectedWallId(null); setSelectedWallIds([]); setDrawStart(null); }} className="px-3 py-1.5 rounded-lg text-sm bg-gray-100">Clear</button>
             </div>
 
             <div
@@ -493,7 +544,7 @@ export default function DrawSitePlanPage() {
                         y1={w.start.y}
                         x2={w.end.x}
                         y2={w.end.y}
-                        stroke={w.id === selectedWallId ? "#0f766e" : "#111827"}
+                        stroke={selectedWallIds.includes(w.id) || w.id === selectedWallId ? "#0f766e" : "#111827"}
                         strokeWidth={0.1}
                         strokeDasharray={w.style === "dotted" ? "0.35 0.24" : undefined}
                         strokeLinecap="round"
@@ -503,7 +554,7 @@ export default function DrawSitePlanPage() {
                           {wallLengthMeters(w).toFixed(1)}m
                         </text>
                       )}
-                      {w.id === selectedWallId && (
+                      {(selectedWallIds.includes(w.id) || w.id === selectedWallId) && (
                         <>
                           <circle cx={w.start.x} cy={w.start.y} r={0.18} fill="#0f766e" />
                           <circle cx={w.end.x} cy={w.end.y} r={0.18} fill="#0f766e" />
@@ -516,13 +567,25 @@ export default function DrawSitePlanPage() {
                 {drawStart && hoverPoint && (mode === "trace" || mode === "single") && (
                   <line x1={drawStart.x} y1={drawStart.y} x2={hoverPoint.x} y2={hoverPoint.y} stroke="#0f766e" strokeWidth={0.1} strokeDasharray="0.2 0.2" />
                 )}
+                {selectionStart && selectionCurrent && (
+                  <rect
+                    x={Math.min(selectionStart.x, selectionCurrent.x)}
+                    y={Math.min(selectionStart.y, selectionCurrent.y)}
+                    width={Math.abs(selectionCurrent.x - selectionStart.x)}
+                    height={Math.abs(selectionCurrent.y - selectionStart.y)}
+                    fill="rgba(15,118,110,0.10)"
+                    stroke="#0f766e"
+                    strokeDasharray="0.25 0.2"
+                    strokeWidth={0.08}
+                  />
+                )}
               </svg>
             </div>
           </div>
 
           <div className="bg-white rounded-2xl border border-gray-200 p-4">
             <h2 className="font-semibold text-gray-800 mb-2">Wall Inspector</h2>
-            {!selectedWall && <p className="text-sm text-gray-500">Select a wall or endpoint to edit.</p>}
+            {!selectedWall && <p className="text-sm text-gray-500">Select wall(s) or drag a selection box. Endpoint move works only on the selected wall.</p>}
             {selectedWall && (
               <div className="space-y-3">
                 <div>
@@ -564,6 +627,7 @@ export default function DrawSitePlanPage() {
               <p className="text-sm text-gray-700">{address || "No address set"}</p>
               <p className="text-xs text-gray-500 mt-2">Rotation: {buildingRotation.toFixed(0)}°</p>
               <p className="text-xs text-gray-500">Walls: {walls.length}</p>
+              <p className="text-xs text-gray-500">Selected: {selectedWallIds.length || (selectedWallId ? 1 : 0)}</p>
               {mode === "trace" && <p className="text-xs text-emerald-700 mt-2">Trace mode: tap/click point-to-point. Closes loop automatically when near start.</p>}
               {mode === "single" && <p className="text-xs text-emerald-700 mt-2">Single wall mode: click start and end, then it returns to edit mode.</p>}
             </div>
