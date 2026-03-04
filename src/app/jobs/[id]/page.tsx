@@ -130,10 +130,18 @@ function prepareEmailHtmlForSend(input: string) {
 
 function toDatetimeLocal(iso?: string | null) {
   if (!iso) return "";
-  return new Date(iso).toISOString().slice(0, 16);
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  // Format as NZ local time for the datetime-local input (sv-SE gives "YYYY-MM-DD HH:MM:SS")
+  return d.toLocaleString("sv-SE", { timeZone: "Pacific/Auckland" }).slice(0, 16).replace(" ", "T");
 }
 function fromDatetimeLocal(val: string) {
-  return val ? new Date(val).toISOString() : null;
+  if (!val) return null;
+  // val is "YYYY-MM-DDTHH:mm" in Pacific/Auckland time — convert to UTC
+  const approx = new Date(val + ":00Z"); // treat as UTC temporarily to compute offset
+  const nzStr = approx.toLocaleString("sv-SE", { timeZone: "Pacific/Auckland" }).slice(0, 16);
+  const offsetMs = new Date(nzStr + ":00Z").getTime() - approx.getTime();
+  return new Date(approx.getTime() - offsetMs).toISOString();
 }
 
 const API_BASE = "https://api.insulhub.nz";
@@ -964,7 +972,7 @@ export default function JobDetailPage() {
           <div className="flex flex-col py-2 border-b border-gray-50">
             <span className="text-xs text-gray-400 uppercase tracking-wide font-medium">Quote Booking</span>
             <div className="mt-1.5 flex items-center gap-2">
-              <span className="text-sm text-gray-800">{job.lead?.quoteBookingDate ? fmt(job.lead.quoteBookingDate) : "Not set"}</span>
+              <span className="text-sm text-gray-800">{job.lead?.quoteBookingDate ? fmtDateTime(job.lead.quoteBookingDate) : "Not set"}</span>
               <button onClick={() => openSheet("booking")} className="text-xs text-[#e85d04] font-medium">{job.lead?.quoteBookingDate ? "Edit" : "Set"}</button>
               {job.lead?.quoteBookingDate && (
                 <button onClick={clearQuoteBookingDate} className="text-xs text-red-600 font-medium">Remove</button>
