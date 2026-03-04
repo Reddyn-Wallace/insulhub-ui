@@ -682,7 +682,7 @@ export default function DrawSitePlanPage() {
 
         {notice && <div className="mb-3 text-sm bg-amber-50 text-amber-800 border border-amber-200 rounded-lg px-3 py-2">{notice}</div>}
 
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
+        <div className="grid grid-cols-1 gap-4">
           <div className="bg-white rounded-2xl border border-gray-200 p-3">
             <div className="flex gap-2 mb-3 flex-wrap">
               <button onClick={() => { setMode("trace"); setDrawStart(null); setHoverPoint(null); }} className={`px-3 py-1.5 rounded-lg text-sm ${mode === "trace" ? "bg-[#1a3a4a] text-white" : "bg-gray-100"}`}>Trace Outline</button>
@@ -728,6 +728,21 @@ export default function DrawSitePlanPage() {
                     }}
                     className="text-[11px] px-2 py-1 rounded bg-gray-100"
                   >Dotted</button>
+                  <button
+                    onClick={() => {
+                      const targetId = selectedWallId || activeSelectionIds[0];
+                      if (!targetId) return;
+                      const w = walls.find((x) => x.id === targetId);
+                      if (!w) return;
+                      const current = wallLengthMeters(w).toFixed(1);
+                      const raw = window.prompt("Set wall length (m)", current);
+                      if (!raw) return;
+                      const v = Number(raw);
+                      if (!Number.isFinite(v) || v <= 0) return;
+                      applyLengthOverride(targetId, v);
+                    }}
+                    className="text-[11px] px-2 py-1 rounded bg-gray-100"
+                  >Length</button>
                   <button
                     onClick={() => removeSelectedWall()}
                     className="text-[11px] px-2 py-1 rounded bg-red-50 text-red-700"
@@ -836,61 +851,9 @@ export default function DrawSitePlanPage() {
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl border border-gray-200 p-4">
-            <h2 className="font-semibold text-gray-800 mb-2">Wall Inspector</h2>
-            {!selectedWall && <p className="text-sm text-gray-500">Select wall(s) or drag a selection box. Rotate using the top handle. Endpoint move only works on selected wall.</p>}
-            {selectedWall && (
-              <div className="space-y-3">
-                <div className="flex gap-2 flex-wrap">
-                  <button onClick={() => setWalls((prev) => prev.map((w) => (w.id === selectedWall.id ? { ...w, style: w.style === "solid" ? "dotted" : "solid" } : w)))} className="px-2.5 py-1 rounded text-xs bg-gray-100">Toggle Solid/Dotted</button>
-                  <button onClick={() => removeSelectedWall()} className="px-2.5 py-1 rounded text-xs bg-red-50 text-red-700">Delete</button>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500">Wall Style</p>
-                  <div className="flex gap-2 mt-1">
-                    <button
-                      onClick={() => setWalls((prev) => prev.map((w) => w.id === selectedWall.id ? { ...w, style: "solid" } : w))}
-                      className={`px-3 py-1.5 rounded text-sm ${selectedWall.style === "solid" ? "bg-[#1a3a4a] text-white" : "bg-gray-100"}`}
-                    >Solid (Insulated)</button>
-                    <button
-                      onClick={() => setWalls((prev) => prev.map((w) => w.id === selectedWall.id ? { ...w, style: "dotted" } : w))}
-                      className={`px-3 py-1.5 rounded text-sm ${selectedWall.style === "dotted" ? "bg-[#1a3a4a] text-white" : "bg-gray-100"}`}
-                    >Dotted (Not insulated)</button>
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-xs text-gray-500">Length (m)</p>
-                  <input
-                    type="number"
-                    step="0.1"
-                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm"
-                    value={selectedWall.lengthOverride ?? wallLengthMeters(selectedWall)}
-                    onChange={(e) => {
-                      const v = Number(e.target.value);
-                      if (Number.isFinite(v) && v > 0) applyLengthOverride(selectedWall.id, v);
-                    }}
-                  />
-                  <button
-                    className="mt-1 text-xs text-blue-700"
-                    onClick={() => setWalls((prev) => prev.map((w) => w.id === selectedWall.id ? { ...w, lengthOverride: null } : w))}
-                  >Reset to auto length ({distance(selectedWall.start, selectedWall.end).toFixed(2)}m)</button>
-                </div>
-              </div>
-            )}
-
-            <div className="mt-5 pt-4 border-t border-gray-100">
-              <p className="text-xs text-gray-500">Address (for PDF)</p>
-              <p className="text-sm text-gray-700">{address || "No address set"}</p>
-              <p className="text-xs text-gray-500 mt-2">Rotation: {buildingRotation.toFixed(0)}°</p>
-              <p className="text-xs text-gray-500">Walls: {walls.length}</p>
-              <p className="text-xs text-gray-500">Selected: {selectedWallIds.length || (selectedWallId ? 1 : 0)}</p>
-              {mode === "trace" && <p className="text-xs text-emerald-700 mt-2">Trace mode: tap/click point-to-point. Closes loop automatically when near start.</p>}
-              {mode === "single" && <p className="text-xs text-emerald-700 mt-2">Single wall mode: click start and end, then it returns to edit mode.</p>}
-            </div>
-          </div>
         </div>
       </div>
     </div>
   );
 }
+
