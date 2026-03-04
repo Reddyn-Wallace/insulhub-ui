@@ -623,7 +623,6 @@ export default function JobDetailPage() {
         cavityDepthMeters: q.wallCavityDepth ? parseFloat(q.wallCavityDepth) : 0.1,
         c_RValue: quoteCalc.wallR,
         c_bagCount: quoteCalc.wallBags,
-        internal: !!job?.quote?.wall?.internal,
       } : {},
       ceiling: q.hasCeiling ? {
         ...existingCeiling,
@@ -641,7 +640,7 @@ export default function JobDetailPage() {
       _id: id,
       stage: andProgress ? "SCHEDULED" : "QUOTE",
       quote: quotePayload,
-      sitePlanNotes: job?.sitePlanNotes || "",
+      sitePlanNotes: ((job as any)?.sitePlanNotes) || "",
     };
   }
 
