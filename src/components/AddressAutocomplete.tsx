@@ -73,16 +73,32 @@ export default function AddressAutocomplete({
                 // filter for New Zealand to improve accuracy, remove `&lat...&lon...` to make it general, but photon allows location bounds
                 // For now, simple text search. We can append `&lat=-40.9006&lon=174.8860` for NZ bias or `&layer=house` for addresses
                 // Using komoot photon open-source geocoder
-                const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=10`);
+                const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=12&lat=-41.2865&lon=174.7762`);
                 const data = await res.json();
 
                 if (data && data.features) {
-                    const nzOnly = data.features.filter((f: PhotonFeature) => {
-                        const country = (f.properties?.country || "").toLowerCase();
-                        return country.includes("new zealand") || country === "nz";
-                    });
-                    setResults(nzOnly.slice(0, 5));
-                    setIsOpen(nzOnly.length > 0);
+                    const looksNz = (f: PhotonFeature) => {
+                        const p = f.properties || {};
+                        const country = (p.country || "").toLowerCase();
+                        if (country.includes("new zealand") || country === "nz") return true;
+
+                        // If country is missing, keep likely NZ entries so search starts earlier.
+                        const postcode = (p.postcode || "").trim();
+                        const city = (p.city || p.county || p.state || "").toLowerCase();
+                        const hasNzPostcode = /^\d{4}$/.test(postcode);
+                        const nzCityHints = [
+                            "auckland", "wellington", "christchurch", "hamilton", "tauranga", "dunedin", "porirua",
+                            "lower hutt", "upper hutt", "new plymouth", "napier", "hastings", "palmerston north",
+                            "whangarei", "rotorua", "invercargill", "nelson", "queenstown"
+                        ];
+                        const hasNzCityHint = nzCityHints.some((c) => city.includes(c));
+                        return !country && (hasNzPostcode || hasNzCityHint);
+                    };
+
+                    const nzPreferred = data.features.filter(looksNz);
+                    const pool = nzPreferred.length > 0 ? nzPreferred : data.features;
+                    setResults(pool.slice(0, 5));
+                    setIsOpen(pool.length > 0);
                 }
             } catch (err) {
                 console.error("Failed to fetch address:", err);
