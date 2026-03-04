@@ -58,37 +58,16 @@ export default function StageTabs({
   const subTabs = activeStage === "LEAD" ? LEAD_SUB_TABS : activeStage === "QUOTE" ? QUOTE_SUB_TABS : null;
 
   return (
-    <div className="bg-white border-b border-gray-100 sticky top-0 z-40 shadow-[0_4px_20px_-10px_rgba(0,0,0,0.05)]">
+    <div className="bg-white border-b border-gray-100 sticky top-[64px] z-40 shadow-[0_4px_20px_-10px_rgba(0,0,0,0.05)]">
       {/* Stage tabs */}
       <div className="flex items-center justify-between px-2">
-        <div className="flex items-center overflow-x-auto no-scrollbar flex-1">
-          {!searchMode && STAGES.map((s) => {
-            const isMainTab = s.value === "LEAD" || s.value === "QUOTE";
-            const isActive = activeStage === s.value;
-
-            if (!isMainTab) return null;
-
-            return (
-              <button
-                key={s.value}
-                onClick={() => onStageChange(s.value)}
-                className={`relative flex-shrink-0 px-4 py-3 text-base font-bold whitespace-nowrap transition-all duration-300 ${isActive
-                  ? "text-[#e85d04]"
-                  : "text-gray-400 hover:text-gray-700 hover:bg-gray-50/50 rounded-t-xl"
-                  }`}
-              >
-                {s.label}
-                {/* Animated active indicator */}
-                {isActive && (
-                  <span className="absolute bottom-0 left-0 w-full h-[3px] bg-gradient-to-r from-[#e85d04] to-[#f48c06] rounded-t-sm" />
-                )}
-              </button>
-            );
-          })}
-          {searchMode && (
+        <div className="flex items-center overflow-x-auto no-scrollbar flex-1 min-h-[46px]">
+          {searchMode ? (
             <div className="px-4 py-3 text-sm font-medium text-[#e85d04] border-b-[3px] border-[#e85d04]">
               🔍 Search Results
             </div>
+          ) : (
+            <div className="px-4 py-2 text-xs text-gray-500">Stage filters</div>
           )}
         </div>
 

@@ -516,14 +516,9 @@ function JobsPageContent() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Header */}
-      <div className="bg-[#1a3a4a] px-4 py-3 flex items-center justify-between sticky top-0 z-50">
-        <div>
-          <p className="text-white text-xs font-semibold tracking-wide">InsulMAX</p>
-          <p className="text-[#e85d04] text-lg font-bold tracking-widest leading-tight">INSULHUB</p>
-        </div>
+      <div className="px-4 pt-3 pb-1 flex items-center justify-between">
+        <span className="text-gray-500 text-sm">{(globalCounts?.ALL ?? total)} jobs</span>
         <div className="flex items-center gap-2">
-          <span className="text-gray-300 text-sm">{(globalCounts?.ALL ?? total)} jobs</span>
           <button
             onClick={() => router.push("/jobs/new")}
             className="text-white bg-[#e85d04] text-sm px-3 py-1.5 rounded-lg font-medium"
@@ -532,26 +527,11 @@ function JobsPageContent() {
           </button>
           <button
             onClick={handleLogout}
-            className="text-gray-300 hover:text-white text-sm px-2 py-1.5 rounded-lg border border-gray-600"
+            className="text-gray-500 hover:text-gray-700 text-sm px-2 py-1.5 rounded-lg border border-gray-300"
           >
             Out
           </button>
         </div>
-      </div>
-
-      <div className="bg-[#12303d] px-4 py-2 flex items-center gap-2 sticky top-[64px] z-40 border-b border-[#27424d]">
-        <button
-          onClick={() => handleStageChange("LEAD")}
-          className={`px-3 py-1.5 rounded-lg text-sm font-semibold ${activeStage === "LEAD" ? "bg-[#e85d04] text-white" : "bg-white/10 text-gray-200"}`}
-        >
-          Leads
-        </button>
-        <button
-          onClick={() => handleStageChange("QUOTE")}
-          className={`px-3 py-1.5 rounded-lg text-sm font-semibold ${activeStage === "QUOTE" ? "bg-[#e85d04] text-white" : "bg-white/10 text-gray-200"}`}
-        >
-          Quotes
-        </button>
       </div>
 
       {/* Tabs */}
