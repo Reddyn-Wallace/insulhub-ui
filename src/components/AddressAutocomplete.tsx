@@ -96,9 +96,8 @@ export default function AddressAutocomplete({
                     };
 
                     const nzPreferred = data.features.filter(looksNz);
-                    const pool = nzPreferred.length > 0 ? nzPreferred : data.features;
-                    setResults(pool.slice(0, 5));
-                    setIsOpen(pool.length > 0);
+                    setResults(nzPreferred.slice(0, 5));
+                    setIsOpen(nzPreferred.length > 0);
                 }
             } catch (err) {
                 console.error("Failed to fetch address:", err);
