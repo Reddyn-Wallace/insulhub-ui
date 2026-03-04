@@ -72,8 +72,10 @@ const GRID = {
 const CELLS_X = 18;
 const CELLS_Y = 17;
 const SNAP_STEP = 0.1;
-const ENDPOINT_SNAP_RADIUS = 0.45;
-const ORTHO_SNAP_THRESHOLD = 0.22;
+const ENDPOINT_SNAP_RADIUS = 0.32;
+const ORTHO_SNAP_THRESHOLD = 0.14;
+const ROTATE_SOFT_SNAP_DEG = 2.5;
+const ROTATE_RELEASE_SNAP_DEG = 3.0;
 
 function snap(v: number) {
   return Math.round(v / SNAP_STEP) * SNAP_STEP;
@@ -367,8 +369,13 @@ export default function DrawSitePlanPage() {
 
     if (rotating && rotateOrigin && rotateSnapshot.length) {
       const currentAngle = Math.atan2(p.y - rotateOrigin.y, p.x - rotateOrigin.x);
-      const delta = currentAngle - rotateStartAngle;
-      const deg = (delta * 180) / Math.PI;
+      let delta = currentAngle - rotateStartAngle;
+      let deg = (delta * 180) / Math.PI;
+      const nearest = Math.round(deg / 90) * 90;
+      if (Math.abs(deg - nearest) <= ROTATE_SOFT_SNAP_DEG) {
+        deg = nearest;
+        delta = (deg * Math.PI) / 180;
+      }
       setRotateDeltaDeg(deg);
 
       setWalls((prev) => prev.map((w) => {
@@ -441,7 +448,7 @@ export default function DrawSitePlanPage() {
     if (rotating) {
       // Gentle snap to orthogonal angles on release only (not during drag)
       const nearest = Math.round(rotateDeltaDeg / 90) * 90;
-      if (Math.abs(rotateDeltaDeg - nearest) <= 4 && rotateOrigin && rotateSnapshot.length) {
+      if (Math.abs(rotateDeltaDeg - nearest) <= ROTATE_RELEASE_SNAP_DEG && rotateOrigin && rotateSnapshot.length) {
         const rad = (nearest * Math.PI) / 180;
         setWalls((prev) => prev.map((w) => {
           const src = rotateSnapshot.find((x) => x.id === w.id);
@@ -690,13 +697,43 @@ export default function DrawSitePlanPage() {
             </div>
 
             <div
-              className="w-full max-w-[760px] border border-gray-300 rounded-lg overflow-hidden"
+              className="relative w-full max-w-[760px] border border-gray-300 rounded-lg overflow-hidden"
               style={{
                 aspectRatio: `${CELLS_X} / ${CELLS_Y}`,
                 backgroundImage: "linear-gradient(to right, #f3f4f6 1px, transparent 1px), linear-gradient(to bottom, #f3f4f6 1px, transparent 1px)",
                 backgroundSize: `calc(100%/${CELLS_X}) calc(100%/${CELLS_Y})`,
               }}
             >
+
+              {selectionBounds && (
+                <div
+                  className="absolute z-20 flex items-center gap-1 bg-white/95 backdrop-blur border border-gray-200 rounded-lg shadow px-1.5 py-1"
+                  style={{
+                    left: `${(selectionBounds.cx / CELLS_X) * 100}%`,
+                    top: `${Math.max(2, ((selectionBounds.minY - 1.3) / CELLS_Y) * 100)}%`,
+                    transform: "translate(-50%, -100%)",
+                  }}
+                >
+                  <button
+                    onClick={() => {
+                      const ids = activeSelectionIds;
+                      setWalls((prev) => prev.map((w) => ids.includes(w.id) ? { ...w, style: "solid" } : w));
+                    }}
+                    className="text-[11px] px-2 py-1 rounded bg-gray-100"
+                  >Solid</button>
+                  <button
+                    onClick={() => {
+                      const ids = activeSelectionIds;
+                      setWalls((prev) => prev.map((w) => ids.includes(w.id) ? { ...w, style: "dotted" } : w));
+                    }}
+                    className="text-[11px] px-2 py-1 rounded bg-gray-100"
+                  >Dotted</button>
+                  <button
+                    onClick={() => removeSelectedWall()}
+                    className="text-[11px] px-2 py-1 rounded bg-red-50 text-red-700"
+                  >Delete</button>
+                </div>
+              )}
               <svg
                 ref={svgRef}
                 viewBox={`0 0 ${CELLS_X} ${CELLS_Y}`}
