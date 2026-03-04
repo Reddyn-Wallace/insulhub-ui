@@ -1038,7 +1038,6 @@ export default function JobDetailPage() {
           <Section title="Site Plan">
             <div className="flex gap-2 mb-3 flex-wrap">
               <button onClick={printQuoteSitePlanPDF} className="bg-gray-700 text-white text-sm font-semibold px-3 py-2.5 rounded-xl">🖨️ Print Site Plan PDF</button>
-              <button onClick={() => router.push(`/jobs/${id}/site-plan-draw`)} className="bg-[#1a3a4a] text-white text-sm font-semibold px-3 py-2.5 rounded-xl">✏️ Draw Site Plan</button>
             </div>
             <div className="border border-gray-200 rounded-xl p-3">
               <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Completed Site Plan</p>
