@@ -510,10 +510,10 @@ export default function DrawSitePlanPage() {
   }
 
 
-  function finishTrace() {
+  function addSingleWall() {
+    setMode("single");
     setDrawStart(null);
     setHoverPoint(null);
-    setMode("select");
   }
 
   function removeSelectedWall() {
@@ -524,28 +524,6 @@ export default function DrawSitePlanPage() {
     setSelectedWallIds([]);
   }
 
-  function rotateBuilding(deg: number) {
-    const targets = selectedWallIds.length ? walls.filter((w) => selectedWallIds.includes(w.id)) : walls;
-    if (!targets.length) return;
-    const radians = (deg * Math.PI) / 180;
-    const allPoints = targets.flatMap((w) => [w.start, w.end]);
-    const cx = allPoints.reduce((a, p) => a + p.x, 0) / allPoints.length;
-    const cy = allPoints.reduce((a, p) => a + p.y, 0) / allPoints.length;
-
-    setWalls((prev) => prev.map((w) => {
-      if (selectedWallIds.length && !selectedWallIds.includes(w.id)) return w;
-      const rot = (pt: Point) => {
-        const dx = pt.x - cx;
-        const dy = pt.y - cy;
-        return clampPoint({
-          x: cx + dx * Math.cos(radians) - dy * Math.sin(radians),
-          y: cy + dx * Math.sin(radians) + dy * Math.cos(radians),
-        });
-      };
-      return { ...w, start: rot(w.start), end: rot(w.end) };
-    }));
-    setBuildingRotation((v) => v + deg);
-  }
 
   function wallLengthMeters(w: Wall) {
     return w.lengthOverride ?? Number(distance(w.start, w.end).toFixed(2));
@@ -697,13 +675,9 @@ export default function DrawSitePlanPage() {
         <div className="grid grid-cols-1 gap-4">
           <div className="bg-white rounded-2xl border border-gray-200 p-3">
             <div className="flex gap-2 mb-3 flex-wrap">
-              <button onClick={() => { setMode("trace"); setDrawStart(null); setHoverPoint(null); }} className={`px-3 py-1.5 rounded-lg text-sm ${mode === "trace" ? "bg-[#1a3a4a] text-white" : "bg-gray-100"}`}>Trace Outline</button>
-              <button onClick={() => { setMode("select"); setDrawStart(null); setHoverPoint(null); }} className={`px-3 py-1.5 rounded-lg text-sm ${mode === "select" ? "bg-[#1a3a4a] text-white" : "bg-gray-100"}`}>Select/Edit</button>
-              <button onClick={() => { setMode("single"); setDrawStart(null); setHoverPoint(null); }} className={`px-3 py-1.5 rounded-lg text-sm ${mode === "single" ? "bg-[#1a3a4a] text-white" : "bg-gray-100"}`}>Single Wall</button>
-              <button onClick={finishTrace} className="px-3 py-1.5 rounded-lg text-sm bg-gray-100">Finish Trace</button>
-              <button onClick={() => rotateBuilding(-5)} className="px-3 py-1.5 rounded-lg text-sm bg-gray-100">Rotate -5°</button>
-              <button onClick={() => rotateBuilding(5)} className="px-3 py-1.5 rounded-lg text-sm bg-gray-100">Rotate +5°</button>
-              <button onClick={removeSelectedWall} className="px-3 py-1.5 rounded-lg text-sm bg-red-50 text-red-700">Delete Wall</button>
+              <button onClick={() => { setMode("trace"); setDrawStart(null); setHoverPoint(null); }} className={`px-3 py-1.5 rounded-lg text-sm ${mode === "trace" ? "bg-[#1a3a4a] text-white" : "bg-gray-100"}`}>Outline</button>
+              <button onClick={() => { setMode("select"); setDrawStart(null); setHoverPoint(null); }} className={`px-3 py-1.5 rounded-lg text-sm ${mode === "select" ? "bg-[#1a3a4a] text-white" : "bg-gray-100"}`}>Edit</button>
+              <button onClick={addSingleWall} className="px-3 py-1.5 rounded-lg text-sm bg-gray-100">Add Wall</button>
               <button onClick={() => setShowDimensions((v) => !v)} className="px-3 py-1.5 rounded-lg text-sm bg-gray-100">{showDimensions ? "Hide" : "Show"} Dimensions</button>
               <button onClick={() => { setWalls([]); setSelectedWallId(null); setSelectedWallIds([]); setDrawStart(null); }} className="px-3 py-1.5 rounded-lg text-sm bg-gray-100">Clear</button>
             </div>
