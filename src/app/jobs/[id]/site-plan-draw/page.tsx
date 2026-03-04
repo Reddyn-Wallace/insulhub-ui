@@ -76,13 +76,14 @@ export default function DrawSitePlanPage() {
   const [job, setJob] = useState<Job | null>(null);
   const [walls, setWalls] = useState<Wall[]>([]);
   const [selectedWallId, setSelectedWallId] = useState<string | null>(null);
-  const [mode, setMode] = useState<"draw" | "select">("draw");
+  const [mode, setMode] = useState<"trace" | "single" | "select">("trace");
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
   const [showDimensions, setShowDimensions] = useState(true);
 
   const [buildingRotation, setBuildingRotation] = useState(0);
   const [drawStart, setDrawStart] = useState<Point | null>(null);
+  const [hoverPoint, setHoverPoint] = useState<Point | null>(null);
   const [draggingWallId, setDraggingWallId] = useState<string | null>(null);
   const [draggingEndpoint, setDraggingEndpoint] = useState<{ wallId: string; end: "start" | "end" } | null>(null);
 
@@ -152,16 +153,47 @@ export default function DrawSitePlanPage() {
     const p = toGridPoint(e.clientX, e.clientY);
     if (!p) return;
 
-    if (mode === "draw") {
+    if (mode === "trace" || mode === "single") {
       if (!drawStart) {
         setDrawStart(p);
-      } else {
-        if (distance(drawStart, p) >= 0.25) {
-          setWalls((prev) => [...prev, { id: makeId(), start: drawStart, end: p, style: "solid" }]);
-        }
-        // Chain drawing wall-after-wall like life app
-        setDrawStart(p);
+        setHoverPoint(p);
+        return;
       }
+
+      let endPoint = p;
+
+      // close-loop snap for trace mode: if near first wall start, snap and auto-finish
+      if (mode === "trace" && walls.length >= 2) {
+        const first = walls[0]?.start;
+        if (first && distance(p, first) <= 0.6) {
+          endPoint = first;
+        }
+      }
+
+      if (distance(drawStart, endPoint) >= 0.25) {
+        setWalls((prev) => [...prev, { id: makeId(), start: drawStart, end: endPoint, style: "solid" }]);
+      }
+
+      // single wall mode: place once, then return to edit
+      if (mode === "single") {
+        setDrawStart(null);
+        setHoverPoint(null);
+        setMode("select");
+        return;
+      }
+
+      // if trace loop closed, auto switch to edit
+      const first = walls[0]?.start;
+      if (first && distance(endPoint, first) <= 0.0001 && walls.length >= 2) {
+        setDrawStart(null);
+        setHoverPoint(null);
+        setMode("select");
+        return;
+      }
+
+      // chain tracing
+      setDrawStart(endPoint);
+      setHoverPoint(endPoint);
       return;
     }
 
@@ -180,12 +212,14 @@ export default function DrawSitePlanPage() {
       setSelectedWallId(null);
     }
   }
-
   function pointerMove(e: React.PointerEvent<SVGSVGElement>) {
     const p = toGridPoint(e.clientX, e.clientY);
     if (!p) return;
 
-    if (mode !== "select") return;
+    if (mode === "trace" || mode === "single") {
+      setHoverPoint(p);
+      return;
+    }
 
     if (draggingEndpoint) {
       setWalls((prev) => prev.map((w) => {
@@ -221,6 +255,8 @@ export default function DrawSitePlanPage() {
 
   function finishTrace() {
     setDrawStart(null);
+    setHoverPoint(null);
+    setMode("select");
   }
 
   function removeSelectedWall() {
@@ -399,8 +435,9 @@ export default function DrawSitePlanPage() {
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
           <div className="bg-white rounded-2xl border border-gray-200 p-3">
             <div className="flex gap-2 mb-3 flex-wrap">
-              <button onClick={() => setMode("draw")} className={`px-3 py-1.5 rounded-lg text-sm ${mode === "draw" ? "bg-[#1a3a4a] text-white" : "bg-gray-100"}`}>Trace</button>
-              <button onClick={() => setMode("select")} className={`px-3 py-1.5 rounded-lg text-sm ${mode === "select" ? "bg-[#1a3a4a] text-white" : "bg-gray-100"}`}>Select/Edit</button>
+              <button onClick={() => { setMode("trace"); setDrawStart(null); setHoverPoint(null); }} className={`px-3 py-1.5 rounded-lg text-sm ${mode === "trace" ? "bg-[#1a3a4a] text-white" : "bg-gray-100"}`}>Trace Outline</button>
+              <button onClick={() => { setMode("select"); setDrawStart(null); setHoverPoint(null); }} className={`px-3 py-1.5 rounded-lg text-sm ${mode === "select" ? "bg-[#1a3a4a] text-white" : "bg-gray-100"}`}>Select/Edit</button>
+              <button onClick={() => { setMode("single"); setDrawStart(null); setHoverPoint(null); }} className={`px-3 py-1.5 rounded-lg text-sm ${mode === "single" ? "bg-[#1a3a4a] text-white" : "bg-gray-100"}`}>Single Wall</button>
               <button onClick={finishTrace} className="px-3 py-1.5 rounded-lg text-sm bg-gray-100">Finish Trace</button>
               <button onClick={() => rotateBuilding(-5)} className="px-3 py-1.5 rounded-lg text-sm bg-gray-100">Rotate -5°</button>
               <button onClick={() => rotateBuilding(5)} className="px-3 py-1.5 rounded-lg text-sm bg-gray-100">Rotate +5°</button>
@@ -448,7 +485,10 @@ export default function DrawSitePlanPage() {
                     </g>
                   );
                 })}
-                {drawStart && mode === "draw" && <circle cx={drawStart.x} cy={drawStart.y} r={0.16} fill="#0f766e" />}
+                {drawStart && (mode === "trace" || mode === "single") && <circle cx={drawStart.x} cy={drawStart.y} r={0.16} fill="#0f766e" />}
+                {drawStart && hoverPoint && (mode === "trace" || mode === "single") && (
+                  <line x1={drawStart.x} y1={drawStart.y} x2={hoverPoint.x} y2={hoverPoint.y} stroke="#0f766e" strokeWidth={0.1} strokeDasharray="0.2 0.2" />
+                )}
               </svg>
             </div>
           </div>
@@ -497,7 +537,8 @@ export default function DrawSitePlanPage() {
               <p className="text-sm text-gray-700">{address || "No address set"}</p>
               <p className="text-xs text-gray-500 mt-2">Rotation: {buildingRotation.toFixed(0)}°</p>
               <p className="text-xs text-gray-500">Walls: {walls.length}</p>
-              {mode === "draw" && <p className="text-xs text-emerald-700 mt-2">Trace mode: tap/click point-to-point to add continuous walls.</p>}
+              {mode === "trace" && <p className="text-xs text-emerald-700 mt-2">Trace mode: tap/click point-to-point. Closes loop automatically when near start.</p>}
+              {mode === "single" && <p className="text-xs text-emerald-700 mt-2">Single wall mode: click start and end, then it returns to edit mode.</p>}
             </div>
           </div>
         </div>
