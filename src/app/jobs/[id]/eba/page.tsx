@@ -474,6 +474,14 @@ export default function EbaPage() {
     return [c?.streetAddress, c?.suburb, c?.city, c?.postCode].filter(Boolean).join(", ");
   }, [job]);
 
+  function toYesNoNA(value: unknown): "YES" | "NO" | "NA" | null {
+    if (value === true) return "YES";
+    if (value === false) return "NO";
+    if (value === "NOT_APPLICABLE" || value === "NA") return "NA";
+    if (value === "YES" || value === "NO") return value;
+    return null;
+  }
+
   async function saveEBA(isDraft: boolean) {
     if (!job) return;
     setSaving(true);
@@ -523,11 +531,11 @@ export default function EbaPage() {
         c22_externalMoisture_isWaterAbleToPoolAgainstExteriorWall: form.c22_externalMoisture_isWaterAbleToPoolAgainstExteriorWall,
         c22_externalMoisture_wallsAreFreeToAir: form.c22_externalMoisture_wallsAreFreeToAir,
 
-        masonryCladding_masonryCladUnderfloorVentsArePresentAndClear: form.masonryCladding_masonryCladUnderfloorVentsArePresentAndClear,
-        masonryCladding_windowOrMasonryVerticalJointsAreSealed: form.masonryCladding_windowOrMasonryVerticalJointsAreSealed,
+        masonryCladding_masonryCladUnderfloorVentsArePresentAndClear: toYesNoNA(form.masonryCladding_masonryCladUnderfloorVentsArePresentAndClear),
+        masonryCladding_windowOrMasonryVerticalJointsAreSealed: toYesNoNA(form.masonryCladding_windowOrMasonryVerticalJointsAreSealed),
         masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls: form.masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls,
         masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater: form.masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater,
-        masonryCladding_underfloorSpaceExcessivelyDamp: form.masonryCladding_underfloorSpaceExcessivelyDamp,
+        masonryCladding_underfloorSpaceExcessivelyDamp: toYesNoNA(form.masonryCladding_underfloorSpaceExcessivelyDamp),
         c22_externalMoisture_priorToInstallationWorkRequired: form.c22_externalMoisture_priorToInstallationWorkRequired,
         c22_externalMoisture_priorToCertificationWorkRequired: form.c22_externalMoisture_priorToCertificationWorkRequired,
         assessorName: form.assessorName,
