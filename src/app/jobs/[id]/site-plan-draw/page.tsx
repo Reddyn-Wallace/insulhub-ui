@@ -9,6 +9,7 @@ type WallStyle = "solid" | "dotted";
 type Point = { x: number; y: number };
 type Wall = { id: string; start: Point; end: Point; style: WallStyle; lengthOverride?: number | null };
 type WallSnapshot = { id: string; start: Point; end: Point };
+type SnapGuide = { kind: "horizontal" | "vertical" | "endpoint"; point?: Point; lineValue?: number } | null;
 
 type Job = {
   _id: string;
@@ -117,6 +118,14 @@ function snapOrtho(start: Point, end: Point): Point {
   if (Math.abs(dx) <= Math.abs(dy) * ORTHO_SNAP_THRESHOLD) return { x: start.x, y: end.y };
   return end;
 }
+function orthoKind(start: Point, end: Point): "horizontal" | "vertical" | null {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) return null;
+  if (Math.abs(dy) <= Math.abs(dx) * ORTHO_SNAP_THRESHOLD) return "horizontal";
+  if (Math.abs(dx) <= Math.abs(dy) * ORTHO_SNAP_THRESHOLD) return "vertical";
+  return null;
+}
 
 export default function DrawSitePlanPage() {
   const { id } = useParams<{ id: string }>();
@@ -148,6 +157,8 @@ export default function DrawSitePlanPage() {
   const [rotateSnapshot, setRotateSnapshot] = useState<WallSnapshot[]>([]);
   const [rotateDeltaDeg, setRotateDeltaDeg] = useState(0);
   const [activePointerType, setActivePointerType] = useState<"mouse" | "touch" | "pen">("mouse");
+  const [snapGuide, setSnapGuide] = useState<SnapGuide>(null);
+
 
 
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -240,6 +251,7 @@ export default function DrawSitePlanPage() {
       ? toGridPointSnapped(e.clientX, e.clientY)
       : toGridPointRaw(e.clientX, e.clientY);
     if (!p) return;
+    setSnapGuide(null);
 
     if (mode === "trace" || mode === "single") {
       if (!drawStart) {
@@ -328,9 +340,28 @@ export default function DrawSitePlanPage() {
       ? toGridPointSnapped(e.clientX, e.clientY)
       : toGridPointRaw(e.clientX, e.clientY);
     if (!p) return;
+    setSnapGuide(null);
 
     if (mode === "trace" || mode === "single") {
-      setHoverPoint(drawStart ? snapOrtho(drawStart, snapPoint(p)) : snapPoint(p));
+      const snapped = snapPoint(p);
+      if (drawStart) {
+        const kind = orthoKind(drawStart, snapped);
+        const ortho = snapOrtho(drawStart, snapped);
+        const endpointSnapped = snapToExistingEndpoints(ortho, walls);
+        setHoverPoint(endpointSnapped);
+        if (endpointSnapped.x !== ortho.x || endpointSnapped.y !== ortho.y) {
+          setSnapGuide({ kind: "endpoint", point: endpointSnapped });
+        } else if (kind === "horizontal") {
+          setSnapGuide({ kind: "horizontal", lineValue: drawStart.y });
+        } else if (kind === "vertical") {
+          setSnapGuide({ kind: "vertical", lineValue: drawStart.x });
+        } else {
+          setSnapGuide(null);
+        }
+      } else {
+        setHoverPoint(snapped);
+        setSnapGuide(null);
+      }
       return;
     }
 
@@ -361,10 +392,20 @@ export default function DrawSitePlanPage() {
         if (w.id !== draggingEndpoint.wallId) return w;
         const anchor = draggingEndpoint.end === "start" ? w.end : w.start;
         let candidate = snapPoint(p);
+        const kind = orthoKind(anchor, candidate);
         candidate = snapOrtho(anchor, candidate);
-        candidate = snapToExistingEndpoints(candidate, prev, w.id);
-        if (draggingEndpoint.end === "start") return { ...w, start: clampPoint(candidate), lengthOverride: null };
-        return { ...w, end: clampPoint(candidate), lengthOverride: null };
+        const endpointSnapped = snapToExistingEndpoints(candidate, prev, w.id);
+        if (endpointSnapped.x !== candidate.x || endpointSnapped.y !== candidate.y) {
+          setSnapGuide({ kind: "endpoint", point: endpointSnapped });
+        } else if (kind === "horizontal") {
+          setSnapGuide({ kind: "horizontal", lineValue: anchor.y });
+        } else if (kind === "vertical") {
+          setSnapGuide({ kind: "vertical", lineValue: anchor.x });
+        } else {
+          setSnapGuide(null);
+        }
+        if (draggingEndpoint.end === "start") return { ...w, start: clampPoint(endpointSnapped), lengthOverride: null };
+        return { ...w, end: clampPoint(endpointSnapped), lengthOverride: null };
       }));
       return;
     }
@@ -446,6 +487,7 @@ export default function DrawSitePlanPage() {
 
     setSelectionStart(null);
     setSelectionCurrent(null);
+    setSnapGuide(null);
   }
 
 
@@ -697,6 +739,18 @@ export default function DrawSitePlanPage() {
                 {drawStart && hoverPoint && (mode === "trace" || mode === "single") && (
                   <line x1={drawStart.x} y1={drawStart.y} x2={hoverPoint.x} y2={hoverPoint.y} stroke="#0f766e" strokeWidth={0.08} strokeDasharray="0.2 0.2" />
                 )}
+                {mode === "trace" && drawStart && walls.length >= 2 && distance(drawStart, walls[0].start) <= 0.9 && (
+                  <text x={drawStart.x + 0.2} y={drawStart.y - 0.2} fontSize={0.32} fill="#0f766e">Tap to close shape</text>
+                )}
+                {snapGuide?.kind === "horizontal" && snapGuide.lineValue != null && (
+                  <line x1={0} y1={snapGuide.lineValue} x2={CELLS_X} y2={snapGuide.lineValue} stroke="rgba(20,184,166,0.5)" strokeDasharray="0.2 0.18" strokeWidth={0.08} />
+                )}
+                {snapGuide?.kind === "vertical" && snapGuide.lineValue != null && (
+                  <line x1={snapGuide.lineValue} y1={0} x2={snapGuide.lineValue} y2={CELLS_Y} stroke="rgba(20,184,166,0.5)" strokeDasharray="0.2 0.18" strokeWidth={0.08} />
+                )}
+                {snapGuide?.kind === "endpoint" && snapGuide.point && (
+                  <circle cx={snapGuide.point.x} cy={snapGuide.point.y} r={0.2} fill="none" stroke="#14b8a6" strokeWidth={0.1} />
+                )}
                 {selectionStart && selectionCurrent && (
                   <rect
                     x={Math.min(selectionStart.x, selectionCurrent.x)}
@@ -750,6 +804,10 @@ export default function DrawSitePlanPage() {
             {!selectedWall && <p className="text-sm text-gray-500">Select wall(s) or drag a selection box. Rotate using the top handle. Endpoint move only works on selected wall.</p>}
             {selectedWall && (
               <div className="space-y-3">
+                <div className="flex gap-2 flex-wrap">
+                  <button onClick={() => setWalls((prev) => prev.map((w) => (w.id === selectedWall.id ? { ...w, style: w.style === "solid" ? "dotted" : "solid" } : w)))} className="px-2.5 py-1 rounded text-xs bg-gray-100">Toggle Solid/Dotted</button>
+                  <button onClick={() => removeSelectedWall()} className="px-2.5 py-1 rounded text-xs bg-red-50 text-red-700">Delete</button>
+                </div>
                 <div>
                   <p className="text-xs text-gray-500">Wall Style</p>
                   <div className="flex gap-2 mt-1">
