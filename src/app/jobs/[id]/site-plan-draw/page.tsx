@@ -288,6 +288,26 @@ export default function DrawSitePlanPage() {
         y: GRID.top - (pt.y / CELLS_Y) * GRID.height,
       });
 
+      // Overlay a fresh locked grid exactly on top of the template grid.
+      for (let i = 0; i <= CELLS_X; i += 1) {
+        const x = GRID.left + (i / CELLS_X) * GRID.width;
+        page.drawLine({
+          start: { x, y: GRID.bottom },
+          end: { x, y: GRID.top },
+          thickness: i === 0 || i === CELLS_X ? 0.9 : 0.45,
+          color: rgb(0.72, 0.72, 0.72),
+        });
+      }
+      for (let j = 0; j <= CELLS_Y; j += 1) {
+        const y = GRID.bottom + (j / CELLS_Y) * GRID.height;
+        page.drawLine({
+          start: { x: GRID.left, y },
+          end: { x: GRID.right, y },
+          thickness: j === 0 || j === CELLS_Y ? 0.9 : 0.45,
+          color: rgb(0.72, 0.72, 0.72),
+        });
+      }
+
       for (const w of walls) {
         const a = toPdf(w.start);
         const b = toPdf(w.end);
@@ -380,7 +400,7 @@ export default function DrawSitePlanPage() {
               <button onClick={() => { setWalls([]); setSelectedWallId(null); setDrawStart(null); }} className="px-3 py-1.5 rounded-lg text-sm bg-gray-100">Clear</button>
             </div>
 
-            <div className="aspect-[507/525] w-full border border-gray-300 rounded-lg overflow-hidden bg-[linear-gradient(to_right,#f3f4f6_1px,transparent_1px),linear-gradient(to_bottom,#f3f4f6_1px,transparent_1px)]" style={{ backgroundSize: `calc(100%/${CELLS_X}) calc(100%/${CELLS_Y})` }}>
+            <div className="aspect-square w-full max-w-[760px] border border-gray-300 rounded-lg overflow-hidden bg-[linear-gradient(to_right,#f3f4f6_1px,transparent_1px),linear-gradient(to_bottom,#f3f4f6_1px,transparent_1px)]" style={{ backgroundSize: `calc(100%/${CELLS_X}) calc(100%/${CELLS_Y})` }}>
               <svg
                 ref={svgRef}
                 viewBox={`0 0 ${CELLS_X} ${CELLS_Y}`}
