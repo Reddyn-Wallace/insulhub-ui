@@ -117,6 +117,7 @@ export default function DrawSitePlanPage() {
   const [rotateStartAngle, setRotateStartAngle] = useState(0);
   const [rotateSnapshot, setRotateSnapshot] = useState<WallSnapshot[]>([]);
   const [rotateDeltaDeg, setRotateDeltaDeg] = useState(0);
+  const [activePointerType, setActivePointerType] = useState<"mouse" | "touch" | "pen">("mouse");
 
 
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -193,10 +194,13 @@ export default function DrawSitePlanPage() {
     if (!selectionBounds) return false;
     const hx = selectionBounds.cx;
     const hy = selectionBounds.minY - 0.8;
-    return distance(p, { x: hx, y: hy }) <= 0.45;
+    const hitRadius = activePointerType === "touch" ? 0.85 : activePointerType === "pen" ? 0.65 : 0.45;
+    return distance(p, { x: hx, y: hy }) <= hitRadius;
   }
 
   function pointerDown(e: React.PointerEvent<SVGSVGElement>) {
+    const pt = (e.pointerType === "touch" || e.pointerType === "pen") ? e.pointerType : "mouse";
+    setActivePointerType(pt);
     const p = toGridPoint(e.clientX, e.clientY);
     if (!p) return;
 
