@@ -398,7 +398,7 @@ export default function DrawSitePlanPage() {
       if (address) {
         page.drawText(address, {
           x: 145,
-          y: 933,
+          y: 953,
           size: 10,
           color: rgb(0, 0, 0),
           maxWidth: 540,
@@ -494,7 +494,7 @@ export default function DrawSitePlanPage() {
                         x2={w.end.x}
                         y2={w.end.y}
                         stroke={w.id === selectedWallId ? "#0f766e" : "#111827"}
-                        strokeWidth={0.14}
+                        strokeWidth={0.1}
                         strokeDasharray={w.style === "dotted" ? "0.35 0.24" : undefined}
                         strokeLinecap="round"
                       />
