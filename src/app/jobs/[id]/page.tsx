@@ -606,7 +606,7 @@ export default function JobDetailPage() {
         price: parseFloat(e.price || "0") || 0,
       })),
       quoteNumber: q.quoteNumber,
-      status: (job?.quote?.status || "UNSET"),
+      status: (andProgress ? "ACCEPTED" : "UNSET"),
       date: fromDatetimeLocal(q.date),
       consentFee: q.consentFee ? parseFloat(q.consentFee) : null,
       depositPercentage: q.depositPercentage ? parseFloat(q.depositPercentage) : 25,
@@ -790,8 +790,17 @@ export default function JobDetailPage() {
     const rawTemplate = templateOverride || quoteEmailBody || "Please find your insulation quote attached.";
     const template = prepareEmailHtmlForSend(rawTemplate);
 
+    const sendInput = buildQuoteUpdateInput(false, { status: "UNSET" });
+    const statusForSend = (sendInput as { quote?: { status?: string } })?.quote?.status;
+    if (statusForSend === "ACCEPTED") {
+      const msg = { type: "error" as const, text: "Blocked: Send Quote cannot use ACCEPTED status." };
+      setNotice(msg);
+      setToast(msg);
+      return;
+    }
+
     await run(() => gql(UPDATE_JOB_QUOTE, {
-      input: buildQuoteUpdateInput(false),
+      input: sendInput,
       emailQuoteToCustomer: true,
       quotePDFEmailBodyTemplate: template,
     }));
