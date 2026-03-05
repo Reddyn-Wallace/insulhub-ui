@@ -64,7 +64,9 @@ const SNAP_STEP = 0.1;
 const ENDPOINT_SNAP_RADIUS = 0.32;
 const ORTHO_SNAP_THRESHOLD = 0.27;         // ~15°, was 0.14 (~8°)
 const ENDPOINT_DRAG_SNAP_RADIUS = 0.20;
-const ENDPOINT_DRAG_ORTHO_THRESHOLD = 0.08;
+const ENDPOINT_DRAG_ORTHO_THRESHOLD = 0.02;
+const WALL_DRAG_ENDPOINT_SNAP_RADIUS = 0.5;
+const DRAG_DEAD_ZONE = 0.18;
 const ROTATE_SOFT_SNAP_DEG = 2.5;
 const ROTATE_RELEASE_SNAP_DEG = 3.0;
 
@@ -141,6 +143,8 @@ export default function DrawSitePlanPage() {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const canvasAreaRef = useRef<HTMLDivElement>(null);
   const [canvasDims, setCanvasDims] = useState<{ w: number; h: number } | null>(null);
+  const dragActivatedRef = useRef(false);
+  const capturedPointerIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     const el = canvasAreaRef.current;
@@ -331,6 +335,8 @@ export default function DrawSitePlanPage() {
       setRotateStartAngle(Math.atan2(p.y - selectionBounds.cy, p.x - selectionBounds.cx));
       setRotateSnapshot(snap);
       setRotateDeltaDeg(0);
+      svgRef.current?.setPointerCapture(e.pointerId);
+      capturedPointerIdRef.current = e.pointerId;
       return;
     }
 
@@ -339,6 +345,9 @@ export default function DrawSitePlanPage() {
       pushHistory();
       setSelectedWallId(endpoint.wallId);
       setDraggingEndpoint(endpoint);
+      dragActivatedRef.current = true;
+      svgRef.current?.setPointerCapture(e.pointerId);
+      capturedPointerIdRef.current = e.pointerId;
       return;
     }
 
@@ -355,6 +364,9 @@ export default function DrawSitePlanPage() {
           .map((w) => ({ id: w.id, start: { ...w.start }, end: { ...w.end } }))
       );
       pushHistory();
+      dragActivatedRef.current = false;
+      svgRef.current?.setPointerCapture(e.pointerId);
+      capturedPointerIdRef.current = e.pointerId;
       if (moveIds.length > 1) {
         setDraggingGroup(true);
       } else {
@@ -453,8 +465,29 @@ export default function DrawSitePlanPage() {
     }
 
     if ((draggingGroup || draggingWallId) && dragStartPoint && dragSnapshot.length) {
-      const dx = snap(p.x - dragStartPoint.x);
-      const dy = snap(p.y - dragStartPoint.y);
+      if (!dragActivatedRef.current) {
+        if (distance(p, dragStartPoint) < DRAG_DEAD_ZONE) return;
+        dragActivatedRef.current = true;
+      }
+      let dx = snap(p.x - dragStartPoint.x);
+      let dy = snap(p.y - dragStartPoint.y);
+      if (!draggingGroup && dragSnapshot.length === 1) {
+        const src = dragSnapshot[0];
+        const candidateStart = { x: src.start.x + dx, y: src.start.y + dy };
+        const candidateEnd = { x: src.end.x + dx, y: src.end.y + dy };
+        let bestD = WALL_DRAG_ENDPOINT_SNAP_RADIUS;
+        let bestDelta: Point | null = null;
+        for (const w of walls) {
+          if (w.id === src.id) continue;
+          for (const their of [w.start, w.end]) {
+            for (const mine of [candidateStart, candidateEnd]) {
+              const d = distance(mine, their);
+              if (d < bestD) { bestD = d; bestDelta = { x: their.x - mine.x, y: their.y - mine.y }; }
+            }
+          }
+        }
+        if (bestDelta) { dx += bestDelta.x; dy += bestDelta.y; }
+      }
       setWalls((prev) => prev.map((w) => {
         const src = dragSnapshot.find((x) => x.id === w.id);
         if (!src) return w;
@@ -469,6 +502,10 @@ export default function DrawSitePlanPage() {
   }
 
   function pointerUp() {
+    if (capturedPointerIdRef.current !== null && svgRef.current) {
+      try { svgRef.current.releasePointerCapture(capturedPointerIdRef.current); } catch {}
+      capturedPointerIdRef.current = null;
+    }
     setDraggingWallId(null);
     setDraggingEndpoint(null);
     setDraggingGroup(false);
@@ -709,7 +746,9 @@ export default function DrawSitePlanPage() {
             backgroundImage:
               "linear-gradient(to right, #c8d0da 1px, transparent 1px), linear-gradient(to bottom, #c8d0da 1px, transparent 1px)",
             backgroundSize: `calc(100%/${CELLS_X}) calc(100%/${CELLS_Y})`,
+            userSelect: "none",
           }}
+          onContextMenu={(e) => e.preventDefault()}
         >
           {/* Floating selection toolbar */}
           {selectionBounds && mode === "select" && (() => {
@@ -718,54 +757,61 @@ export default function DrawSitePlanPage() {
             const showAbove = aboveY > 4;
             return (
             <div
-              className="absolute z-20 flex items-center gap-1.5 bg-white/96 backdrop-blur-sm border border-gray-200 rounded-xl shadow-lg px-2 py-1.5"
+              className="absolute z-20 flex flex-col gap-1.5 bg-white/96 backdrop-blur-sm border border-gray-200 rounded-xl shadow-lg px-2.5 py-2"
               style={{
                 left: `${Math.max(5, Math.min(95, (selectionBounds.cx / CELLS_X) * 100))}%`,
                 top: showAbove ? `${aboveY}%` : `${belowY}%`,
                 transform: showAbove ? "translate(-50%, -100%)" : "translate(-50%, 0%)",
               }}
             >
-              <button
-                onClick={() => {
-                  const ids = activeSelectionIds;
-                  setWalls((prev) => prev.map((w) => ids.includes(w.id) ? { ...w, style: "solid" } : w));
-                }}
-                className="px-3 h-8 rounded-lg text-xs font-medium bg-gray-100 active:bg-gray-200"
-              >Solid</button>
-              <button
-                onClick={() => {
-                  const ids = activeSelectionIds;
-                  setWalls((prev) => prev.map((w) => ids.includes(w.id) ? { ...w, style: "dotted" } : w));
-                }}
-                className="px-3 h-8 rounded-lg text-xs font-medium bg-gray-100 active:bg-gray-200"
-              >Dotted</button>
-
-              {selectedWall && (
-                <input
-                  value={lengthEditValue}
-                  onChange={(e) => setLengthEditValue(e.target.value)}
-                  onBlur={() => {
-                    const v = Number(lengthEditValue);
-                    if (!Number.isFinite(v) || v <= 0 || !selectedWallId) return;
-                    applyLengthOverride(selectedWallId, v);
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => {
+                    const ids = activeSelectionIds;
+                    setWalls((prev) => prev.map((w) => ids.includes(w.id) ? { ...w, style: "solid" } : w));
                   }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
+                  className="px-3 h-8 rounded-lg text-xs font-medium bg-gray-100 active:bg-gray-200"
+                >Solid</button>
+                <button
+                  onClick={() => {
+                    const ids = activeSelectionIds;
+                    setWalls((prev) => prev.map((w) => ids.includes(w.id) ? { ...w, style: "dotted" } : w));
+                  }}
+                  className="px-3 h-8 rounded-lg text-xs font-medium bg-gray-100 active:bg-gray-200"
+                >Dotted</button>
+                <div className="w-px h-5 bg-gray-200 flex-shrink-0" />
+                <button
+                  onClick={removeSelectedWall}
+                  className="px-3 h-8 rounded-lg text-xs font-medium bg-red-50 text-red-600 active:bg-red-100"
+                >Delete</button>
+              </div>
+              {selectedWall && selectedWallId && (
+                <div className="flex items-center gap-1.5 pt-1 border-t border-gray-100">
+                  <span className="text-xs font-medium text-gray-500 flex-shrink-0">Length</span>
+                  <input
+                    value={lengthEditValue}
+                    onChange={(e) => setLengthEditValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        const v = Number(lengthEditValue);
+                        if (Number.isFinite(v) && v > 0) applyLengthOverride(selectedWallId, v);
+                      }
+                    }}
+                    className="w-20 h-8 text-sm border border-gray-300 rounded-lg px-2 text-center"
+                    inputMode="decimal"
+                    placeholder="0.0"
+                  />
+                  <span className="text-xs text-gray-500 flex-shrink-0">m</span>
+                  <button
+                    onClick={() => {
                       const v = Number(lengthEditValue);
                       if (!Number.isFinite(v) || v <= 0 || !selectedWallId) return;
                       applyLengthOverride(selectedWallId, v);
-                    }
-                  }}
-                  className="w-16 h-8 text-xs border border-gray-300 rounded-lg px-2 text-center"
-                  inputMode="decimal"
-                  placeholder="m"
-                />
+                    }}
+                    className="h-8 px-3 rounded-lg text-xs font-medium bg-[#1a3a4a] text-white active:opacity-80"
+                  >Set</button>
+                </div>
               )}
-
-              <button
-                onClick={removeSelectedWall}
-                className="px-3 h-8 rounded-lg text-xs font-medium bg-red-50 text-red-600 active:bg-red-100"
-              >Delete</button>
             </div>
             );
           })()}
@@ -779,6 +825,7 @@ export default function DrawSitePlanPage() {
             onPointerMove={pointerMove}
             onPointerUp={pointerUp}
             onPointerLeave={pointerUp}
+            onContextMenu={(e) => e.preventDefault()}
           >
             {/* Walls */}
             {walls.map((w) => {
@@ -821,8 +868,8 @@ export default function DrawSitePlanPage() {
                   )}
                   {isSelected && (
                     <>
-                      <circle cx={w.start.x} cy={w.start.y} r={0.22} fill="white" stroke="#0f766e" strokeWidth={0.09} />
-                      <circle cx={w.end.x} cy={w.end.y} r={0.22} fill="white" stroke="#0f766e" strokeWidth={0.09} />
+                      <circle cx={w.start.x} cy={w.start.y} r={0.14} fill="#0f766e" />
+                      <circle cx={w.end.x} cy={w.end.y} r={0.14} fill="#0f766e" />
                     </>
                   )}
                 </g>
@@ -992,7 +1039,7 @@ export default function DrawSitePlanPage() {
           onClick={() => setShowDimensions((v) => !v)}
           className={`h-10 px-3 rounded-xl text-sm font-medium flex-shrink-0 transition-colors ${showDimensions ? "bg-[#1a3a4a] text-white" : "bg-gray-100 text-gray-600 active:bg-gray-200"}`}
         >
-          Dims
+          Labels
         </button>
 
         {/* Clear */}
