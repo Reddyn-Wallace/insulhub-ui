@@ -840,7 +840,7 @@ export default function DrawSitePlanPage() {
         <div className="absolute inset-0 flex items-center justify-center p-2">
         {canvasDims && (
         <div
-          className="relative rounded-xl overflow-hidden shadow border border-gray-300 bg-white flex-shrink-0"
+          className="relative rounded-xl shadow border border-gray-300 bg-white flex-shrink-0"
           style={{
             width: canvasDims.w,
             height: canvasDims.h,
