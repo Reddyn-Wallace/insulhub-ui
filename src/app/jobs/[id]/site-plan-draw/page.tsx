@@ -159,6 +159,7 @@ export default function DrawSitePlanPage() {
   const isEditingLengthRef = useRef(false);
   const linkedEndpointsRef = useRef<{ wallId: string; end: "start" | "end" }[]>([]);
   const dragAnchorRef = useRef<Point | null>(null);
+  const wallDragLinkedSnapshotRef = useRef<{ wallId: string; end: "start" | "end"; originalPos: Point }[]>([]);
 
   useEffect(() => {
     const el = canvasAreaRef.current;
@@ -405,6 +406,28 @@ export default function DrawSitePlanPage() {
           .filter((w) => moveIds.includes(w.id))
           .map((w) => ({ id: w.id, start: { ...w.start }, end: { ...w.end } }))
       );
+      // Build linked-endpoint snapshot for non-dragged walls connected to dragged walls
+      const moveIdSet = new Set(moveIds);
+      const wdLinked: { wallId: string; end: "start" | "end"; originalPos: Point }[] = [];
+      const seenKey = new Set<string>();
+      for (const mw of walls.filter(w => moveIds.includes(w.id))) {
+        for (const { pt, e } of [{ pt: mw.start, e: "start" as const }, { pt: mw.end, e: "end" as const }]) {
+          for (const neighbor of findLinkedEndpoints(pt, mw.id, walls)) {
+            if (!moveIdSet.has(neighbor.wallId)) {
+              const key = `${neighbor.wallId}:${neighbor.end}`;
+              if (!seenKey.has(key)) {
+                seenKey.add(key);
+                const nw = walls.find(w => w.id === neighbor.wallId);
+                if (nw) {
+                  const origPos = neighbor.end === "start" ? { ...nw.start } : { ...nw.end };
+                  wdLinked.push({ wallId: neighbor.wallId, end: neighbor.end, originalPos: origPos });
+                }
+              }
+            }
+          }
+        }
+      }
+      wallDragLinkedSnapshotRef.current = wdLinked;
       pushHistory();
       dragActivatedRef.current = false;
       svgRef.current?.setPointerCapture(e.pointerId);
@@ -545,12 +568,24 @@ export default function DrawSitePlanPage() {
       }
       setWalls((prev) => prev.map((w) => {
         const src = dragSnapshot.find((x) => x.id === w.id);
-        if (!src) return w;
-        return {
-          ...w,
-          start: clampPoint({ x: src.start.x + dx, y: src.start.y + dy }),
-          end: clampPoint({ x: src.end.x + dx, y: src.end.y + dy }),
-        };
+        if (src) {
+          return {
+            ...w,
+            start: clampPoint({ x: src.start.x + dx, y: src.start.y + dy }),
+            end: clampPoint({ x: src.end.x + dx, y: src.end.y + dy }),
+          };
+        }
+        const links = wallDragLinkedSnapshotRef.current.filter(l => l.wallId === w.id);
+        if (links.length > 0) {
+          let updated = { ...w };
+          for (const link of links) {
+            const newPos = clampPoint({ x: link.originalPos.x + dx, y: link.originalPos.y + dy });
+            if (link.end === "start") updated = { ...updated, start: newPos };
+            else updated = { ...updated, end: newPos };
+          }
+          return updated;
+        }
+        return w;
       }));
       return;
     }
@@ -563,6 +598,7 @@ export default function DrawSitePlanPage() {
     }
     linkedEndpointsRef.current = [];
     dragAnchorRef.current = null;
+    wallDragLinkedSnapshotRef.current = [];
     setDraggingWallId(null);
     setDraggingEndpoint(null);
     setDraggingGroup(false);
@@ -707,7 +743,7 @@ export default function DrawSitePlanPage() {
         page.drawLine({
           start: { x: a.x, y: a.y },
           end: { x: b.x, y: b.y },
-          thickness: 1.9,
+          thickness: 2.5,
           color: rgb(0, 0, 0),
           dashArray: w.style === "dotted" ? [5, 4] : undefined,
         });
@@ -904,6 +940,25 @@ export default function DrawSitePlanPage() {
                     placeholder="0.0"
                   />
                   <span className="text-xs text-gray-500 flex-shrink-0">m</span>
+                </div>
+              )}
+              {selectedWall && selectedWallId && (
+                <div className="flex items-center gap-1 pt-1 border-t border-gray-100">
+                  {([-0.5, -0.1, 0.1, 0.5] as const).map((delta) => (
+                    <button
+                      key={delta}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => {
+                        if (!selectedWallId) return;
+                        const current = wallLengthMeters(walls.find(w => w.id === selectedWallId)!);
+                        const next = Math.max(0.1, Math.round((current + delta) * 10) / 10);
+                        applyLengthOverride(selectedWallId, next);
+                      }}
+                      className="flex-1 h-8 rounded-lg text-xs font-medium bg-gray-100 text-gray-700 active:bg-gray-200"
+                    >
+                      {delta > 0 ? `+${delta}` : delta}
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
