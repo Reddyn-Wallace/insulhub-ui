@@ -10,7 +10,7 @@ const OTHER_STAGES = [
   { label: "Completion", value: "COMPLETED" },
 ];
 
-function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement> }) {
+function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | null> }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
