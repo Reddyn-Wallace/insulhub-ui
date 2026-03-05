@@ -557,6 +557,7 @@ export default function DrawSitePlanPage() {
         let bestDelta: Point | null = null;
         for (const w of walls) {
           if (w.id === src.id) continue;
+          if (wallDragLinkedSnapshotRef.current.some(l => l.wallId === w.id)) continue;
           for (const their of [w.start, w.end]) {
             for (const mine of [candidateStart, candidateEnd]) {
               const d = distance(mine, their);
@@ -853,17 +854,17 @@ export default function DrawSitePlanPage() {
         >
           {/* Floating selection toolbar */}
           {selectionBounds && mode === "select" && (() => {
-            const aboveY = (selectionBounds.minY - 1.8) / CELLS_Y * 100;
-            const belowY = (selectionBounds.maxY + 0.3) / CELLS_Y * 100;
-            // Show above unless there isn't room (need ~20% for popup height); fall back to below
-            const showAbove = aboveY > 20 || belowY > 72;
+            const aboveY = (selectionBounds.minY - 2.8) / CELLS_Y * 100;
+            const belowY = (selectionBounds.maxY + 1.2) / CELLS_Y * 100;
+            // Show above if there's enough room, otherwise below
+            const showAbove = aboveY > 18;
             const centerPct = (selectionBounds.cx / CELLS_X) * 100;
             return (
             <div
               className="absolute z-20 flex flex-col gap-1.5 bg-white/96 backdrop-blur-sm border border-gray-200 rounded-xl shadow-lg px-2.5 py-2"
               style={{
-                left: `clamp(120px, ${centerPct}%, calc(100% - 120px))`,
-                top: showAbove ? `${Math.max(1, aboveY)}%` : `${Math.min(99, belowY)}%`,
+                left: `clamp(155px, ${centerPct}%, calc(100% - 155px))`,
+                top: showAbove ? `max(4px, ${aboveY}%)` : `min(calc(100% - 4px), ${belowY}%)`,
                 transform: showAbove ? "translate(-50%, -100%)" : "translate(-50%, 0%)",
               }}
             >
@@ -917,33 +918,8 @@ export default function DrawSitePlanPage() {
                 >Delete</button>
               </div>
               {selectedWall && selectedWallId && (
-                <div className="flex items-center gap-1.5 pt-1 border-t border-gray-100">
-                  <span className="text-xs font-medium text-gray-500 flex-shrink-0">Length</span>
-                  <input
-                    value={lengthEditValue}
-                    onChange={(e) => setLengthEditValue(e.target.value)}
-                    onFocus={() => { isEditingLengthRef.current = true; }}
-                    onBlur={() => {
-                      isEditingLengthRef.current = false;
-                      const v = Number(lengthEditValue);
-                      if (Number.isFinite(v) && v > 0 && selectedWallId) applyLengthOverride(selectedWallId, v);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        const v = Number(lengthEditValue);
-                        if (Number.isFinite(v) && v > 0 && selectedWallId) applyLengthOverride(selectedWallId, v);
-                        (e.target as HTMLInputElement).blur();
-                      }
-                    }}
-                    className="w-20 h-8 text-sm border border-gray-300 rounded-lg px-2 text-center"
-                    inputMode="decimal"
-                    placeholder="0.0"
-                  />
-                  <span className="text-xs text-gray-500 flex-shrink-0">m</span>
-                </div>
-              )}
-              {selectedWall && selectedWallId && (
                 <div className="flex items-center gap-1 pt-1 border-t border-gray-100">
+                  <span className="text-xs font-medium text-gray-500 flex-shrink-0 w-10 text-center">{wallLengthMeters(selectedWall).toFixed(1)}m</span>
                   {([-0.5, -0.1, 0.1, 0.5] as const).map((delta) => (
                     <button
                       key={delta}
