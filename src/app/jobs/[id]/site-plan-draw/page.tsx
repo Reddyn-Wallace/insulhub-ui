@@ -139,6 +139,28 @@ export default function DrawSitePlanPage() {
   const [lengthEditValue, setLengthEditValue] = useState("");
 
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const canvasAreaRef = useRef<HTMLDivElement>(null);
+  const [canvasDims, setCanvasDims] = useState<{ w: number; h: number } | null>(null);
+
+  useEffect(() => {
+    const el = canvasAreaRef.current;
+    if (!el) return;
+    const obs = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      const pad = 16; // p-2 = 8px each side
+      const aw = Math.max(0, width - pad);
+      const ah = Math.max(0, height - pad);
+      if (!aw || !ah) return;
+      const ratio = CELLS_X / CELLS_Y;
+      if (aw / ah > ratio) {
+        setCanvasDims({ w: Math.round(ah * ratio), h: Math.round(ah) });
+      } else {
+        setCanvasDims({ w: Math.round(aw), h: Math.round(aw / ratio) });
+      }
+    });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
 
   const address = useMemo(() => {
     const c = job?.client?.contactDetails;
@@ -676,14 +698,14 @@ export default function DrawSitePlanPage() {
       )}
 
       {/* Canvas area */}
-      <div className="flex-1 min-h-0 relative">
+      <div ref={canvasAreaRef} className="flex-1 min-h-0 overflow-hidden relative">
         <div className="absolute inset-0 flex items-center justify-center p-2">
+        {canvasDims && (
         <div
-          className="relative rounded-xl overflow-hidden shadow border border-gray-300 bg-white"
+          className="relative rounded-xl overflow-hidden shadow border border-gray-300 bg-white flex-shrink-0"
           style={{
-            height: "100%",
-            aspectRatio: `${CELLS_X} / ${CELLS_Y}`,
-            maxWidth: "100%",
+            width: canvasDims.w,
+            height: canvasDims.h,
             backgroundImage:
               "linear-gradient(to right, #c8d0da 1px, transparent 1px), linear-gradient(to bottom, #c8d0da 1px, transparent 1px)",
             backgroundSize: `calc(100%/${CELLS_X}) calc(100%/${CELLS_Y})`,
@@ -900,6 +922,7 @@ export default function DrawSitePlanPage() {
             )}
           </svg>
         </div>
+        )}
         </div>
       </div>
 
