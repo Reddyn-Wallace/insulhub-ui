@@ -606,7 +606,7 @@ export default function JobDetailPage() {
         price: parseFloat(e.price || "0") || 0,
       })),
       quoteNumber: q.quoteNumber,
-      status: (andProgress ? "ACCEPTED" : "UNSET"),
+      status: "UNSET",
       date: fromDatetimeLocal(q.date),
       consentFee: q.consentFee ? parseFloat(q.consentFee) : null,
       depositPercentage: q.depositPercentage ? parseFloat(q.depositPercentage) : 25,
@@ -638,7 +638,7 @@ export default function JobDetailPage() {
 
     return {
       _id: id,
-      stage: andProgress ? "SCHEDULED" : "QUOTE",
+      stage: "QUOTE",
       quote: quotePayload,
       sitePlanNotes: ((job as any)?.sitePlanNotes) || "",
     };
@@ -1546,7 +1546,7 @@ export default function JobDetailPage() {
           {/* Save buttons */}
           <div className="flex flex-col gap-2 pt-2">
             {job.stage === "LEAD" ? (
-              <button onClick={() => saveQuote(true)} disabled={saving}
+              <button onClick={() => saveQuote(false)} disabled={saving}
                 className="w-full bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
                 {saving ? "Saving..." : "Save & Progress to Quote Stage"}
               </button>
