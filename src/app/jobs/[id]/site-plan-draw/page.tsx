@@ -73,6 +73,9 @@ const ROTATE_RELEASE_SNAP_DEG = 3.0;
 function snap(v: number) { return Math.round(v / SNAP_STEP) * SNAP_STEP; }
 function distance(a: Point, b: Point) { return Math.hypot(a.x - b.x, a.y - b.y); }
 function makeId() { return Math.random().toString(36).slice(2, 10); }
+function toWinAnsiSafe(text: string): string {
+  return (text || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
 function clampPoint(p: Point): Point {
   return { x: Math.max(0, Math.min(CELLS_X, p.x)), y: Math.max(0, Math.min(CELLS_Y, p.y)) };
 }
@@ -761,7 +764,7 @@ export default function DrawSitePlanPage() {
       }
 
       if (address) {
-        page.drawText(address, {
+        page.drawText(toWinAnsiSafe(address), {
           x: 145,
           y: 953,
           size: 11,
