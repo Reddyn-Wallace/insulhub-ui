@@ -744,7 +744,7 @@ export default function DrawSitePlanPage() {
         page.drawLine({
           start: { x: a.x, y: a.y },
           end: { x: b.x, y: b.y },
-          thickness: 2.5,
+          thickness: 3.5,
           color: rgb(0, 0, 0),
           dashArray: w.style === "dotted" ? [5, 4] : undefined,
         });
