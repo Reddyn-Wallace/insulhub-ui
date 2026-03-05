@@ -1,7 +1,7 @@
 "use client";
 
 import { ReactNode, useEffect, useRef, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 const OTHER_STAGES = [
   { label: "Accepted", value: "SCHEDULED" },
@@ -17,10 +17,8 @@ export default function JobsLayout({ children }: { children: ReactNode }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-  const stage =
-    typeof window !== "undefined"
-      ? new URLSearchParams(window.location.search).get("stage") || "LEAD"
-      : "LEAD";
+  const searchParams = useSearchParams();
+  const stage = searchParams.get("stage") || "LEAD";
 
   const isPrimaryStage = stage === "LEAD" || stage === "QUOTE";
   const activeOtherStage = !isPrimaryStage
@@ -65,9 +63,7 @@ export default function JobsLayout({ children }: { children: ReactNode }) {
     setIsMenuOpen(false);
     const defaultSub = next === "QUOTE" ? "OPEN" : "NEW";
     if (pathname === "/jobs") {
-      const params = new URLSearchParams(
-        typeof window !== "undefined" ? window.location.search : ""
-      );
+      const params = new URLSearchParams(searchParams.toString());
       params.set("stage", next);
       params.set("subTab", defaultSub);
       router.replace(`/jobs?${params.toString()}`);
