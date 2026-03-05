@@ -578,7 +578,7 @@ export default function DrawSitePlanPage() {
         }
         const links = wallDragLinkedSnapshotRef.current.filter(l => l.wallId === w.id);
         if (links.length > 0) {
-          let updated = { ...w };
+          let updated = { ...w, lengthOverride: null };
           for (const link of links) {
             const newPos = clampPoint({ x: link.originalPos.x + dx, y: link.originalPos.y + dy });
             if (link.end === "start") updated = { ...updated, start: newPos };
