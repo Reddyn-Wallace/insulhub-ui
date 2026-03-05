@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useEffect, useRef, useState } from "react";
+import { ReactNode, Suspense, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 const OTHER_STAGES = [
@@ -10,16 +10,14 @@ const OTHER_STAGES = [
   { label: "Completion", value: "COMPLETED" },
 ];
 
-export default function JobsLayout({ children }: { children: ReactNode }) {
+function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement> }) {
   const router = useRouter();
   const pathname = usePathname();
-  const headerRef = useRef<HTMLDivElement>(null);
+  const searchParams = useSearchParams();
   const menuRef = useRef<HTMLDivElement>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-  const searchParams = useSearchParams();
   const stage = searchParams.get("stage") || "LEAD";
-
   const isPrimaryStage = stage === "LEAD" || stage === "QUOTE";
   const activeOtherStage = !isPrimaryStage
     ? OTHER_STAGES.find((s) => s.value === stage)
@@ -38,7 +36,7 @@ export default function JobsLayout({ children }: { children: ReactNode }) {
     update();
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
-  }, []);
+  }, [headerRef]);
 
   // Close More dropdown on outside click
   useEffect(() => {
@@ -73,100 +71,109 @@ export default function JobsLayout({ children }: { children: ReactNode }) {
   };
 
   return (
-    <div>
-      <div
-        ref={headerRef}
-        className="bg-[#1a3a4a] sticky top-0 z-50 border-b border-[#2f4b57]"
-      >
-        {/* Row 1: Brand + actions */}
-        <div className="flex items-center justify-between px-3 pt-2.5 pb-1.5">
-          <span className="text-[#e85d04] font-bold tracking-widest text-base leading-none">
-            INSULHUB
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => router.push("/jobs/new")}
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-[#e85d04]/40 text-[#f97316] bg-[#e85d04]/10 active:bg-[#e85d04]/20"
-            >
-              + Lead
-            </button>
-            <button
-              onClick={handleLogout}
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/10 text-gray-300 active:bg-white/20"
-            >
-              Log out
-            </button>
-          </div>
-        </div>
-
-        {/* Row 2: Stage navigation */}
-        <div className="flex items-center gap-1.5 px-3 pb-2.5">
+    <div
+      ref={headerRef}
+      className="bg-[#1a3a4a] sticky top-0 z-50 border-b border-[#2f4b57]"
+    >
+      {/* Row 1: Brand + actions */}
+      <div className="flex items-center justify-between px-3 pt-2.5 pb-1.5">
+        <span className="text-[#e85d04] font-bold tracking-widest text-base leading-none">
+          INSULHUB
+        </span>
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => goStage("LEAD")}
-            className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${
-              stage === "LEAD"
-                ? "bg-[#e85d04] text-white shadow-md shadow-orange-500/30 ring-1 ring-orange-300/40"
-                : "bg-[#27424d] text-gray-300"
-            }`}
+            onClick={() => router.push("/jobs/new")}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-[#e85d04]/40 text-[#f97316] bg-[#e85d04]/10 active:bg-[#e85d04]/20"
           >
-            Leads
+            + Lead
           </button>
           <button
-            onClick={() => goStage("QUOTE")}
-            className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${
-              stage === "QUOTE"
-                ? "bg-[#e85d04] text-white shadow-md shadow-orange-500/30 ring-1 ring-orange-300/40"
-                : "bg-[#27424d] text-gray-300"
-            }`}
+            onClick={handleLogout}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/10 text-gray-300 active:bg-white/20"
           >
-            Quotes
+            Log out
           </button>
-
-          {/* More — post-sale stages */}
-          <div className="relative" ref={menuRef}>
-            <button
-              onClick={() => setIsMenuOpen((v) => !v)}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${
-                activeOtherStage
-                  ? "bg-[#e85d04] text-white shadow-md shadow-orange-500/30 ring-1 ring-orange-300/40"
-                  : "bg-[#27424d] text-gray-300"
-              }`}
-            >
-              {activeOtherStage ? activeOtherStage.label : "More"}
-              <svg
-                width="14" height="14" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" strokeWidth="2.5"
-                strokeLinecap="round" strokeLinejoin="round"
-                className={`transition-transform duration-200 ${isMenuOpen ? "rotate-180" : ""}`}
-              >
-                <path d="m6 9 6 6 6-6" />
-              </svg>
-            </button>
-
-            {isMenuOpen && (
-              <div className="absolute left-0 top-full mt-1.5 w-44 bg-white rounded-xl shadow-xl border border-gray-100 py-1.5 z-50">
-                {OTHER_STAGES.map((s) => (
-                  <button
-                    key={s.value}
-                    onClick={() => goStage(s.value)}
-                    className={`w-full text-left px-4 py-2.5 text-sm font-medium transition-colors ${
-                      stage === s.value
-                        ? "bg-orange-50 text-[#e85d04]"
-                        : "text-gray-700 hover:bg-gray-50"
-                    }`}
-                  >
-                    {s.label}
-                    {stage === s.value && (
-                      <span className="float-right text-[#e85d04]">✓</span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
         </div>
       </div>
 
+      {/* Row 2: Stage navigation */}
+      <div className="flex items-center gap-1.5 px-3 pb-2.5">
+        <button
+          onClick={() => goStage("LEAD")}
+          className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+            stage === "LEAD"
+              ? "bg-[#e85d04] text-white shadow-md shadow-orange-500/30 ring-1 ring-orange-300/40"
+              : "bg-[#27424d] text-gray-300"
+          }`}
+        >
+          Leads
+        </button>
+        <button
+          onClick={() => goStage("QUOTE")}
+          className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+            stage === "QUOTE"
+              ? "bg-[#e85d04] text-white shadow-md shadow-orange-500/30 ring-1 ring-orange-300/40"
+              : "bg-[#27424d] text-gray-300"
+          }`}
+        >
+          Quotes
+        </button>
+
+        {/* More — post-sale stages */}
+        <div className="relative" ref={menuRef}>
+          <button
+            onClick={() => setIsMenuOpen((v) => !v)}
+            className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+              activeOtherStage
+                ? "bg-[#e85d04] text-white shadow-md shadow-orange-500/30 ring-1 ring-orange-300/40"
+                : "bg-[#27424d] text-gray-300"
+            }`}
+          >
+            {activeOtherStage ? activeOtherStage.label : "More"}
+            <svg
+              width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2.5"
+              strokeLinecap="round" strokeLinejoin="round"
+              className={`transition-transform duration-200 ${isMenuOpen ? "rotate-180" : ""}`}
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
+
+          {isMenuOpen && (
+            <div className="absolute left-0 top-full mt-1.5 w-44 bg-white rounded-xl shadow-xl border border-gray-100 py-1.5 z-50">
+              {OTHER_STAGES.map((s) => (
+                <button
+                  key={s.value}
+                  onClick={() => goStage(s.value)}
+                  className={`w-full text-left px-4 py-2.5 text-sm font-medium transition-colors ${
+                    stage === s.value
+                      ? "bg-orange-50 text-[#e85d04]"
+                      : "text-gray-700 hover:bg-gray-50"
+                  }`}
+                >
+                  {s.label}
+                  {stage === s.value && (
+                    <span className="float-right text-[#e85d04]">✓</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function JobsLayout({ children }: { children: ReactNode }) {
+  const headerRef = useRef<HTMLDivElement>(null);
+
+  return (
+    <div>
+      <Suspense>
+        <JobsNav headerRef={headerRef} />
+      </Suspense>
       {children}
     </div>
   );
