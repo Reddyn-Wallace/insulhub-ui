@@ -64,8 +64,8 @@ const SNAP_STEP = 0.1;
 const ENDPOINT_SNAP_RADIUS = 0.32;
 const ORTHO_SNAP_THRESHOLD = 0.27;         // ~15°, was 0.14 (~8°)
 const ENDPOINT_DRAG_SNAP_RADIUS = 0.20;
-const ENDPOINT_DRAG_ORTHO_THRESHOLD = 0.02;
-const WALL_DRAG_ENDPOINT_SNAP_RADIUS = 0.5;
+const ENDPOINT_DRAG_ORTHO_THRESHOLD = 0.035;  // ~2°
+const WALL_DRAG_ENDPOINT_SNAP_RADIUS = 0.3;
 const DRAG_DEAD_ZONE = 0.18;
 const ROTATE_SOFT_SNAP_DEG = 2.5;
 const ROTATE_RELEASE_SNAP_DEG = 3.0;
@@ -145,6 +145,7 @@ export default function DrawSitePlanPage() {
   const [canvasDims, setCanvasDims] = useState<{ w: number; h: number } | null>(null);
   const dragActivatedRef = useRef(false);
   const capturedPointerIdRef = useRef<number | null>(null);
+  const isEditingLengthRef = useRef(false);
 
   useEffect(() => {
     const el = canvasAreaRef.current;
@@ -172,10 +173,15 @@ export default function DrawSitePlanPage() {
   }, [job]);
 
   const selectedWall = useMemo(() => walls.find((w) => w.id === selectedWallId) || null, [walls, selectedWallId]);
+  const selectedWallLength = useMemo(() => {
+    if (!selectedWall) return null;
+    return wallLengthMeters(selectedWall);
+  }, [walls, selectedWallId]);
   useEffect(() => {
-    if (!selectedWall) { setLengthEditValue(""); return; }
-    setLengthEditValue(wallLengthMeters(selectedWall).toFixed(1));
-  }, [selectedWallId, walls.length]);
+    if (selectedWallLength === null) { setLengthEditValue(""); return; }
+    if (isEditingLengthRef.current) return;
+    setLengthEditValue(selectedWallLength.toFixed(1));
+  }, [selectedWallLength, selectedWallId]);
 
   const activeSelectionIds = useMemo(
     () => (selectedWallIds.length ? selectedWallIds : (selectedWallId ? [selectedWallId] : [])),
@@ -747,6 +753,7 @@ export default function DrawSitePlanPage() {
               "linear-gradient(to right, #c8d0da 1px, transparent 1px), linear-gradient(to bottom, #c8d0da 1px, transparent 1px)",
             backgroundSize: `calc(100%/${CELLS_X}) calc(100%/${CELLS_Y})`,
             userSelect: "none",
+            touchAction: "none",
           }}
           onContextMenu={(e) => e.preventDefault()}
         >
@@ -754,13 +761,15 @@ export default function DrawSitePlanPage() {
           {selectionBounds && mode === "select" && (() => {
             const aboveY = (selectionBounds.minY - 1.8) / CELLS_Y * 100;
             const belowY = (selectionBounds.maxY + 0.3) / CELLS_Y * 100;
-            const showAbove = aboveY > 4;
+            // Show above unless there isn't room (need ~20% for popup height); fall back to below
+            const showAbove = aboveY > 20 || belowY > 72;
+            const centerPct = (selectionBounds.cx / CELLS_X) * 100;
             return (
             <div
               className="absolute z-20 flex flex-col gap-1.5 bg-white/96 backdrop-blur-sm border border-gray-200 rounded-xl shadow-lg px-2.5 py-2"
               style={{
-                left: `${Math.max(5, Math.min(95, (selectionBounds.cx / CELLS_X) * 100))}%`,
-                top: showAbove ? `${aboveY}%` : `${belowY}%`,
+                left: `clamp(120px, ${centerPct}%, calc(100% - 120px))`,
+                top: showAbove ? `${Math.max(1, aboveY)}%` : `${Math.min(99, belowY)}%`,
                 transform: showAbove ? "translate(-50%, -100%)" : "translate(-50%, 0%)",
               }}
             >
@@ -791,10 +800,17 @@ export default function DrawSitePlanPage() {
                   <input
                     value={lengthEditValue}
                     onChange={(e) => setLengthEditValue(e.target.value)}
+                    onFocus={() => { isEditingLengthRef.current = true; }}
+                    onBlur={() => {
+                      isEditingLengthRef.current = false;
+                      const v = Number(lengthEditValue);
+                      if (Number.isFinite(v) && v > 0 && selectedWallId) applyLengthOverride(selectedWallId, v);
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         const v = Number(lengthEditValue);
-                        if (Number.isFinite(v) && v > 0) applyLengthOverride(selectedWallId, v);
+                        if (Number.isFinite(v) && v > 0 && selectedWallId) applyLengthOverride(selectedWallId, v);
+                        (e.target as HTMLInputElement).blur();
                       }
                     }}
                     className="w-20 h-8 text-sm border border-gray-300 rounded-lg px-2 text-center"
@@ -802,14 +818,6 @@ export default function DrawSitePlanPage() {
                     placeholder="0.0"
                   />
                   <span className="text-xs text-gray-500 flex-shrink-0">m</span>
-                  <button
-                    onClick={() => {
-                      const v = Number(lengthEditValue);
-                      if (!Number.isFinite(v) || v <= 0 || !selectedWallId) return;
-                      applyLengthOverride(selectedWallId, v);
-                    }}
-                    className="h-8 px-3 rounded-lg text-xs font-medium bg-[#1a3a4a] text-white active:opacity-80"
-                  >Set</button>
                 </div>
               )}
             </div>
@@ -824,7 +832,13 @@ export default function DrawSitePlanPage() {
             onPointerDown={pointerDown}
             onPointerMove={pointerMove}
             onPointerUp={pointerUp}
-            onPointerLeave={pointerUp}
+            onPointerLeave={() => {
+              // Only clear preview when no active drag (pointer capture keeps events during drag)
+              if (capturedPointerIdRef.current === null) {
+                setHoverPoint(null);
+                setSnapGuide(null);
+              }
+            }}
             onContextMenu={(e) => e.preventDefault()}
           >
             {/* Walls */}
@@ -1034,12 +1048,15 @@ export default function DrawSitePlanPage() {
           ↩
         </button>
 
-        {/* Dims toggle */}
+        {/* Labels toggle */}
         <button
           onClick={() => setShowDimensions((v) => !v)}
-          className={`h-10 px-3 rounded-xl text-sm font-medium flex-shrink-0 transition-colors ${showDimensions ? "bg-[#1a3a4a] text-white" : "bg-gray-100 text-gray-600 active:bg-gray-200"}`}
+          className="h-10 px-3 rounded-xl text-sm font-medium flex-shrink-0 bg-gray-100 flex items-center gap-1.5 active:bg-gray-200"
         >
-          Labels
+          <span className="text-gray-700">Labels</span>
+          <span className={`text-xs font-bold ${showDimensions ? "text-[#e85d04]" : "text-gray-400"}`}>
+            {showDimensions ? "ON" : "OFF"}
+          </span>
         </button>
 
         {/* Clear */}
