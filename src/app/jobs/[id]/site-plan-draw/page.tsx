@@ -107,6 +107,17 @@ function orthoKind(start: Point, end: Point, threshold: number = ORTHO_SNAP_THRE
   return null;
 }
 
+const JUNCTION_EPSILON = 0.012;
+function findLinkedEndpoints(pt: Point, excludeWallId: string, walls: Wall[]): { wallId: string; end: "start" | "end" }[] {
+  const results: { wallId: string; end: "start" | "end" }[] = [];
+  for (const w of walls) {
+    if (w.id === excludeWallId) continue;
+    if (distance(w.start, pt) < JUNCTION_EPSILON) results.push({ wallId: w.id, end: "start" });
+    if (distance(w.end, pt) < JUNCTION_EPSILON) results.push({ wallId: w.id, end: "end" });
+  }
+  return results;
+}
+
 export default function DrawSitePlanPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -146,6 +157,8 @@ export default function DrawSitePlanPage() {
   const dragActivatedRef = useRef(false);
   const capturedPointerIdRef = useRef<number | null>(null);
   const isEditingLengthRef = useRef(false);
+  const linkedEndpointsRef = useRef<{ wallId: string; end: "start" | "end" }[]>([]);
+  const dragAnchorRef = useRef<Point | null>(null);
 
   useEffect(() => {
     const el = canvasAreaRef.current;
@@ -201,6 +214,20 @@ export default function DrawSitePlanPage() {
       cy: pts.reduce((a, p) => a + p.y, 0) / pts.length,
     };
   }, [walls, activeSelectionIds]);
+
+  const junctionPoints = useMemo(() => {
+    const seen = new Set<string>();
+    const points: Point[] = [];
+    for (const w of walls) {
+      for (const pt of [w.start, w.end]) {
+        if (findLinkedEndpoints(pt, w.id, walls).length > 0) {
+          const key = `${pt.x.toFixed(3)},${pt.y.toFixed(3)}`;
+          if (!seen.has(key)) { seen.add(key); points.push(pt); }
+        }
+      }
+    }
+    return points;
+  }, [walls]);
 
   useEffect(() => {
     if (!id) return;
@@ -295,12 +322,15 @@ export default function DrawSitePlanPage() {
 
     if (mode === "trace" || mode === "single") {
       if (!drawStart) {
-        setDrawStart(p);
-        setHoverPoint(p);
+        // Snap first point to nearest grid intersection for a clean anchor
+        const snappedStart = { x: Math.round(p.x), y: Math.round(p.y) };
+        setDrawStart(snappedStart);
+        setHoverPoint(snappedStart);
         return;
       }
 
-      let endPoint = p;
+      // Apply same ortho + endpoint snapping as pointerMove so click lands where indicator shows
+      let endPoint = snapToExistingEndpoints(snapOrtho(drawStart, p), walls);
       if (mode === "trace" && walls.length >= 2) {
         const first = walls[0]?.start;
         if (first && distance(p, first) <= 0.6) endPoint = first;
@@ -352,6 +382,12 @@ export default function DrawSitePlanPage() {
       setSelectedWallId(endpoint.wallId);
       setDraggingEndpoint(endpoint);
       dragActivatedRef.current = true;
+      const ew = walls.find(x => x.id === endpoint.wallId);
+      if (ew) {
+        const origPt = endpoint.end === "start" ? ew.start : ew.end;
+        linkedEndpointsRef.current = findLinkedEndpoints(origPt, endpoint.wallId, walls);
+        dragAnchorRef.current = endpoint.end === "start" ? { ...ew.end } : { ...ew.start };
+      }
       svgRef.current?.setPointerCapture(e.pointerId);
       capturedPointerIdRef.current = e.pointerId;
       return;
@@ -443,24 +479,37 @@ export default function DrawSitePlanPage() {
     }
 
     if (draggingEndpoint) {
+      const anchor = dragAnchorRef.current ?? (() => {
+        const fw = walls.find(x => x.id === draggingEndpoint.wallId);
+        return fw ? (draggingEndpoint.end === "start" ? fw.end : fw.start) : null;
+      })();
+      if (!anchor) return;
+      let candidate = snapPoint(p);
+      const kind = orthoKind(anchor, candidate, ENDPOINT_DRAG_ORTHO_THRESHOLD);
+      candidate = snapOrtho(anchor, candidate, ENDPOINT_DRAG_ORTHO_THRESHOLD);
+      // Exclude dragged wall and its linked siblings from endpoint snap targets
+      const snapWalls = walls.filter(w =>
+        w.id !== draggingEndpoint.wallId &&
+        !linkedEndpointsRef.current.some(l => l.wallId === w.id)
+      );
+      const newPt = clampPoint(snapToExistingEndpoints(candidate, snapWalls, undefined, ENDPOINT_DRAG_SNAP_RADIUS));
+      if (newPt.x !== candidate.x || newPt.y !== candidate.y) {
+        setSnapGuide({ kind: "endpoint", point: newPt });
+      } else if (kind === "horizontal") {
+        setSnapGuide({ kind: "horizontal", lineValue: anchor.y });
+      } else if (kind === "vertical") {
+        setSnapGuide({ kind: "vertical", lineValue: anchor.x });
+      } else {
+        setSnapGuide(null);
+      }
       setWalls((prev) => prev.map((w) => {
-        if (w.id !== draggingEndpoint.wallId) return w;
-        const anchor = draggingEndpoint.end === "start" ? w.end : w.start;
-        let candidate = snapPoint(p);
-        const kind = orthoKind(anchor, candidate, ENDPOINT_DRAG_ORTHO_THRESHOLD);
-        candidate = snapOrtho(anchor, candidate, ENDPOINT_DRAG_ORTHO_THRESHOLD);
-        const endpointSnapped = snapToExistingEndpoints(candidate, prev, w.id, ENDPOINT_DRAG_SNAP_RADIUS);
-        if (endpointSnapped.x !== candidate.x || endpointSnapped.y !== candidate.y) {
-          setSnapGuide({ kind: "endpoint", point: endpointSnapped });
-        } else if (kind === "horizontal") {
-          setSnapGuide({ kind: "horizontal", lineValue: anchor.y });
-        } else if (kind === "vertical") {
-          setSnapGuide({ kind: "vertical", lineValue: anchor.x });
-        } else {
-          setSnapGuide(null);
+        if (w.id === draggingEndpoint.wallId) {
+          if (draggingEndpoint.end === "start") return { ...w, start: newPt, lengthOverride: null };
+          return { ...w, end: newPt, lengthOverride: null };
         }
-        if (draggingEndpoint.end === "start") return { ...w, start: clampPoint(endpointSnapped), lengthOverride: null };
-        return { ...w, end: clampPoint(endpointSnapped), lengthOverride: null };
+        const link = linkedEndpointsRef.current.find(l => l.wallId === w.id);
+        if (link) return link.end === "start" ? { ...w, start: newPt } : { ...w, end: newPt };
+        return w;
       }));
       return;
     }
@@ -512,6 +561,8 @@ export default function DrawSitePlanPage() {
       try { svgRef.current.releasePointerCapture(capturedPointerIdRef.current); } catch {}
       capturedPointerIdRef.current = null;
     }
+    linkedEndpointsRef.current = [];
+    dragAnchorRef.current = null;
     setDraggingWallId(null);
     setDraggingEndpoint(null);
     setDraggingGroup(false);
@@ -583,16 +634,23 @@ export default function DrawSitePlanPage() {
 
   function applyLengthOverride(wallId: string, lengthMeters: number) {
     pushHistory();
-    setWalls((prev) => prev.map((w) => {
-      if (w.id !== wallId) return w;
-      const dx = w.end.x - w.start.x;
-      const dy = w.end.y - w.start.y;
+    setWalls((prev) => {
+      const target = prev.find(w => w.id === wallId);
+      if (!target) return prev;
+      const dx = target.end.x - target.start.x;
+      const dy = target.end.y - target.start.y;
       const current = Math.hypot(dx, dy);
-      if (current < 1e-6 || !Number.isFinite(lengthMeters) || lengthMeters <= 0) return { ...w, lengthOverride: null };
+      if (current < 1e-6 || !Number.isFinite(lengthMeters) || lengthMeters <= 0) return prev;
       const scale = lengthMeters / current;
-      const nextEnd = clampPoint({ x: w.start.x + dx * scale, y: w.start.y + dy * scale });
-      return { ...w, end: nextEnd, lengthOverride: Number(lengthMeters.toFixed(2)) };
-    }));
+      const newEnd = clampPoint({ x: target.start.x + dx * scale, y: target.start.y + dy * scale });
+      const linked = findLinkedEndpoints(target.end, wallId, prev);
+      return prev.map(w => {
+        if (w.id === wallId) return { ...w, end: newEnd, lengthOverride: Number(lengthMeters.toFixed(2)) };
+        const link = linked.find(l => l.wallId === w.id);
+        if (link) return link.end === "start" ? { ...w, start: newEnd } : { ...w, end: newEnd };
+        return w;
+      });
+    });
   }
 
   async function saveCompletedSitePlan() {
@@ -788,6 +846,34 @@ export default function DrawSitePlanPage() {
                   }}
                   className="px-3 h-8 rounded-lg text-xs font-medium bg-gray-100 active:bg-gray-200"
                 >Dotted</button>
+                {selectedWall && selectedWallId && (() => {
+                  const lStart = findLinkedEndpoints(selectedWall.start, selectedWallId, walls);
+                  const lEnd = findLinkedEndpoints(selectedWall.end, selectedWallId, walls);
+                  if (!lStart.length && !lEnd.length) return null;
+                  return (
+                    <button
+                      onClick={() => {
+                        pushHistory();
+                        setWalls(prev => {
+                          const w = prev.find(x => x.id === selectedWallId);
+                          if (!w) return prev;
+                          const dx = w.end.x - w.start.x;
+                          const dy = w.end.y - w.start.y;
+                          const len = Math.hypot(dx, dy) || 1;
+                          // Nudge perpendicular to wall to break coincidence
+                          const nx = (-dy / len) * 0.08;
+                          const ny = (dx / len) * 0.08;
+                          return prev.map(x => x.id !== selectedWallId ? x : {
+                            ...x,
+                            start: lStart.length ? clampPoint({ x: x.start.x + nx, y: x.start.y + ny }) : x.start,
+                            end: lEnd.length ? clampPoint({ x: x.end.x + nx, y: x.end.y + ny }) : x.end,
+                          });
+                        });
+                      }}
+                      className="px-3 h-8 rounded-lg text-xs font-medium bg-orange-50 text-orange-600 active:bg-orange-100"
+                    >Break</button>
+                  );
+                })()}
                 <div className="w-px h-5 bg-gray-200 flex-shrink-0" />
                 <button
                   onClick={removeSelectedWall}
@@ -890,6 +976,11 @@ export default function DrawSitePlanPage() {
               );
             })}
 
+            {/* Junction dots — where 2+ walls share an endpoint */}
+            {junctionPoints.map((pt, i) => (
+              <circle key={`j${i}`} cx={pt.x} cy={pt.y} r={0.13} fill="#0f766e" opacity={0.75} />
+            ))}
+
             {/* Draw start dot */}
             {drawStart && (mode === "trace" || mode === "single") && (
               <circle cx={drawStart.x} cy={drawStart.y} r={0.18} fill="#0f766e" />
@@ -906,6 +997,24 @@ export default function DrawSitePlanPage() {
                 strokeLinecap="round"
               />
             )}
+
+            {/* Preview length label */}
+            {drawStart && hoverPoint && (mode === "trace" || mode === "single") && (() => {
+              const d = distance(drawStart, hoverPoint);
+              if (d < 0.3) return null;
+              const midX = (drawStart.x + hoverPoint.x) / 2;
+              const midY = (drawStart.y + hoverPoint.y) / 2;
+              const labelText = `${d.toFixed(1)}m`;
+              const lw = labelText.length * 0.22 + 0.2;
+              return (
+                <>
+                  <rect x={midX - lw / 2} y={midY - 0.48} width={lw} height={0.38} fill="#0f766e" rx={0.07} />
+                  <text x={midX} y={midY - 0.16} fontSize={0.29} fill="white" textAnchor="middle" fontWeight="600">
+                    {labelText}
+                  </text>
+                </>
+              );
+            })()}
 
             {/* Snap guides */}
             {snapGuide?.kind === "horizontal" && snapGuide.lineValue != null && (
