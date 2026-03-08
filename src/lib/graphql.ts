@@ -1,3 +1,16 @@
+function forceLogout() {
+  if (typeof window !== "undefined") {
+    localStorage.removeItem("token");
+    localStorage.removeItem("me");
+    window.location.href = "/login";
+  }
+}
+
+function isUnauthenticatedMessage(message?: string) {
+  const text = (message || "").toLowerCase();
+  return text.includes("unauthenticated") || text.includes("unauthorized");
+}
+
 export async function gql<T>(
   query: string,
   variables?: Record<string, unknown>
@@ -15,14 +28,18 @@ export async function gql<T>(
   });
 
   if (res.status === 401) {
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("token");
-      window.location.href = "/login";
-    }
+    forceLogout();
     throw new Error("Unauthorized");
   }
 
   const json = await res.json();
-  if (json.errors) throw new Error(json.errors[0].message);
+  if (json.errors?.length) {
+    const message = json.errors[0]?.message || "Request failed";
+    if (isUnauthenticatedMessage(message)) {
+      forceLogout();
+      throw new Error("Unauthorized");
+    }
+    throw new Error(message);
+  }
   return json.data as T;
 }
