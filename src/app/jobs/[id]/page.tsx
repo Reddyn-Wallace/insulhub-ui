@@ -221,6 +221,7 @@ export default function JobDetailPage() {
   // Note form
   const [noteText, setNoteText] = useState("");
   const [fullNoteText, setFullNoteText] = useState("");
+  const [deadNoteText, setDeadNoteText] = useState("");
 
   // Contact edit form
   const [contactForm, setContactForm] = useState<ContactDetails>({});
@@ -503,14 +504,21 @@ export default function JobDetailPage() {
   }, [quoteForm]);
 
   // ── Actions ────────────────────────────────────────────────────
-  async function saveNote() {
-    if (!noteText.trim()) return;
+  function buildStampedNote(rawText: string) {
     const me = JSON.parse(localStorage.getItem("me") || "{}");
     const name = me.firstname ? `${me.firstname} ${me.lastname}` : "Me";
     const date = new Date().toLocaleDateString("en-NZ", { day: "2-digit", month: "2-digit", year: "2-digit" });
-    const prefix = `${date} - ${noteText.trim()} - ${name}`;
-    const existing = job?.notes || "";
-    const combined = existing ? `${existing}\n\n${prefix}` : prefix;
+    return `${date} - ${rawText.trim()} - ${name}`;
+  }
+
+  function appendNote(existingNotes: string | undefined, rawText: string) {
+    const stamped = buildStampedNote(rawText);
+    return existingNotes ? `${existingNotes}\n\n${stamped}` : stamped;
+  }
+
+  async function saveNote() {
+    if (!noteText.trim()) return;
+    const combined = appendNote(job?.notes, noteText);
     await run(() => gql(UPDATE_JOB_NOTES, { input: { _id: id, notes: combined } }));
     setNoteText("");
   }
@@ -536,6 +544,12 @@ export default function JobDetailPage() {
   }
 
   async function saveLeadStatus(status: string) {
+    if (status === "DEAD") {
+      setDeadNoteText("");
+      openSheet("deadConfirm");
+      return;
+    }
+
     const apiStatus = status === "CALLBACK" ? "ON_HOLD" : status;
     await run(() => gql(UPDATE_JOB_LEAD, {
       input: {
@@ -546,6 +560,37 @@ export default function JobDetailPage() {
         }),
       },
     }));
+  }
+
+  async function confirmDeadStatus() {
+    if (!deadNoteText.trim()) {
+      setError("A note is required before marking this as Dead.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    try {
+      const combinedNotes = appendNote(job?.notes, deadNoteText);
+      await gql(UPDATE_JOB_LEAD, {
+        input: {
+          _id: id,
+          notes: combinedNotes,
+          lead: buildLeadInput({
+            leadStatus: "DEAD",
+            callbackDate: null,
+          }),
+        },
+      });
+      await load();
+      setDeadNoteText("");
+      closeSheet();
+      setNotice({ type: "success", text: "Marked as Dead and note saved." });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not mark job as Dead");
+    } finally {
+      setSaving(false);
+    }
   }
 
 
@@ -1220,6 +1265,28 @@ export default function JobDetailPage() {
           className="w-full bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
           {saving ? "Saving..." : "Add Note"}
         </button>
+      </BottomSheet>
+
+      {/* Dead confirmation */}
+      <BottomSheet open={sheet === "deadConfirm"} onClose={closeSheet} title="Mark as Dead">
+        <p className="text-sm text-gray-600 mb-3">A note is required before confirming this action.</p>
+        <textarea
+          value={deadNoteText}
+          onChange={(e) => setDeadNoteText(e.target.value)}
+          placeholder="Why is this lead/quote dead?"
+          rows={5}
+          className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04] resize-none mb-4"
+        />
+        <div className="flex gap-2">
+          <button onClick={closeSheet} className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">Cancel</button>
+          <button
+            onClick={confirmDeadStatus}
+            disabled={saving || !deadNoteText.trim()}
+            className="flex-1 bg-red-600 text-white font-semibold py-3 rounded-xl disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Confirm Dead"}
+          </button>
+        </div>
       </BottomSheet>
 
       {/* Edit note */}

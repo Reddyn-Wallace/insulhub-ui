@@ -11,6 +11,7 @@ import LoadingSkeleton from "@/components/LoadingSkeleton";
 
 const PAGE_SIZE = 40;
 const STAGE_CACHE_TTL_MS = 30 * 60 * 1000;
+const SORT_PREFERENCE_KEY = "jobs-sort-order";
 
 
 interface User {
@@ -82,6 +83,7 @@ function JobsPageContent() {
   const cacheRef = useRef<Record<string, { jobs: Job[]; total: number }>>({});
 
   const cacheKey = useCallback((stage: string) => `jobs-cache:${stage}`, []);
+  const sortPreferenceKey = useCallback((stage: string) => `${SORT_PREFERENCE_KEY}:${stage}`, []);
 
   const readStageCache = useCallback((stage: string): { jobs: Job[]; total: number; counts?: Record<string, number>; ts: number } | null => {
     if (typeof window === "undefined") return null;
@@ -133,6 +135,25 @@ function JobsPageContent() {
       console.warn(`[Prefetch] Failed for ${stage}:`, err);
     }
   }, [writeStageCache]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const saved = localStorage.getItem(sortPreferenceKey(activeStage));
+      if (saved === "newest" || saved === "oldest") {
+        setSortOrder(saved);
+        return;
+      }
+    } catch {}
+    setSortOrder("oldest");
+  }, [activeStage, sortPreferenceKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(sortPreferenceKey(activeStage), sortOrder);
+    } catch {}
+  }, [activeStage, sortOrder, sortPreferenceKey]);
 
   // Sync state with URL changes (back/forward or tab click)
   // Only dependent on initStage to prevent toggle-back loops
