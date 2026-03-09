@@ -4,9 +4,6 @@ import { ReactNode, Suspense, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 const OTHER_STAGES = [
-  { label: "Accepted", value: "SCHEDULED" },
-  { label: "Installations", value: "INSTALLATION" },
-  { label: "Invoice", value: "INVOICE" },
   { label: "Completion", value: "COMPLETED" },
 ];
 
@@ -60,14 +57,21 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
 
   const goStage = (next: string) => {
     setIsMenuOpen(false);
-    const defaultSub = next === "QUOTE" ? "OPEN" : "NEW";
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("stage", next);
+
+    if (next === "QUOTE") {
+      params.set("subTab", "OPEN");
+    } else if (next === "LEAD") {
+      params.set("subTab", "NEW");
+    } else {
+      params.delete("subTab");
+    }
+
     if (pathname === "/jobs") {
-      const params = new URLSearchParams(searchParams.toString());
-      params.set("stage", next);
-      params.set("subTab", defaultSub);
       router.replace(`/jobs?${params.toString()}`);
     } else {
-      router.push(`/jobs?stage=${next}&subTab=${defaultSub}`);
+      router.push(`/jobs?${params.toString()}`);
     }
   };
 
@@ -118,6 +122,16 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
           }`}
         >
           Quotes
+        </button>
+        <button
+          onClick={() => goStage("JOBS")}
+          className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+            stage === "JOBS" && !isCalendarView
+              ? "bg-[#e85d04] text-white shadow-md shadow-orange-500/30 ring-1 ring-orange-300/40"
+              : "bg-[#27424d] text-gray-300"
+          }`}
+        >
+          Jobs
         </button>
         <button
           onClick={() => router.push("/jobs/calendar")}

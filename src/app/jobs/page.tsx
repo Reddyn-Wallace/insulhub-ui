@@ -29,6 +29,9 @@ interface Job {
   updatedAt: string;
   archivedAt?: string;
   quoteLastSentAt?: string;
+  installation?: {
+    installDate?: string;
+  };
   lead?: {
     leadStatus?: string;
     allocatedTo?: { _id: string; firstname: string; lastname: string };
@@ -57,7 +60,7 @@ function JobsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const initStage = searchParams.get("stage") || "LEAD";
-  const initSubTab = searchParams.get("subTab") || (initStage === "QUOTE" ? "OPEN" : "NEW");
+  const initSubTab = searchParams.get("subTab") || (initStage === "QUOTE" ? "OPEN" : initStage === "LEAD" ? "NEW" : "ALL");
 
   const [activeStage, setActiveStage] = useState<string>(initStage);
   const [subTab, setSubTab] = useState(initSubTab);
@@ -192,9 +195,10 @@ function JobsPageContent() {
     const q = search;
 
     try {
-      const shouldFetchAllForStage = !isSearching && (activeStage === "LEAD" || activeStage === "QUOTE");
+      const shouldFetchAllForStage = !isSearching && (activeStage === "LEAD" || activeStage === "QUOTE" || activeStage === "JOBS");
+      const stageFilter = activeStage === "JOBS" ? ["SCHEDULED", "INSTALLATION", "INVOICE"] : [activeStage];
       const data = await gql<JobsData>(JOBS_QUERY, {
-        ...(isSearching ? {} : { stages: [activeStage] }),
+        ...(isSearching ? {} : { stages: stageFilter }),
         skip: shouldFetchAllForStage ? 0 : page * PAGE_SIZE,
         limit: shouldFetchAllForStage ? 5000 : PAGE_SIZE,
         ...(q ? { search: q } : {}),
@@ -253,7 +257,7 @@ function JobsPageContent() {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (!token) { router.push("/login"); return; }
 
-    const canUseWarmCache = !searchMode && !search && page === 0 && (activeStage === "LEAD" || activeStage === "QUOTE");
+    const canUseWarmCache = !searchMode && !search && page === 0 && (activeStage === "LEAD" || activeStage === "QUOTE" || activeStage === "JOBS");
     const cached = canUseWarmCache ? readStageCache(activeStage) : null;
 
     if (canUseWarmCache && cached && cached.jobs.length > 0) {
@@ -277,6 +281,7 @@ function JobsPageContent() {
     if (token) {
       prefetchJobsForStage("LEAD");
       prefetchJobsForStage("QUOTE");
+      prefetchJobsForStage("JOBS");
     }
   }, [prefetchJobsForStage]);
 
@@ -385,10 +390,11 @@ function JobsPageContent() {
 
   function handleStageChange(stage: string) {
     if (stage === activeStage) return;
-    // We only update the URL. The useEffect above will sync the local state.
-    // This maintains a single source of truth and prevents state-toggling bugs.
-    const defaultSub = stage === "QUOTE" ? "OPEN" : "NEW";
-    router.replace(`/jobs?stage=${stage}&subTab=${defaultSub}`);
+    const params = new URLSearchParams();
+    params.set("stage", stage);
+    if (stage === "QUOTE") params.set("subTab", "OPEN");
+    else if (stage === "LEAD") params.set("subTab", "NEW");
+    router.replace(`/jobs?${params.toString()}`);
   }
 
   function handleLogout() {
@@ -486,6 +492,16 @@ function JobsPageContent() {
         return sortOrder === "newest" ? bTime - aTime : aTime - bTime;
       }
 
+      if (activeStage === "JOBS") {
+        const aInstall = a.installation?.installDate ? new Date(a.installation.installDate).getTime() : null;
+        const bInstall = b.installation?.installDate ? new Date(b.installation.installDate).getTime() : null;
+        if (aInstall == null && bInstall != null) return -1;
+        if (aInstall != null && bInstall == null) return 1;
+        if (aInstall == null && bInstall == null) return leadSortTs(a) - leadSortTs(b);
+        const asc = (aInstall as number) - (bInstall as number);
+        return sortOrder === "newest" ? -asc : asc;
+      }
+
       const aTime = leadSortTs(a);
       const bTime = leadSortTs(b);
       return sortOrder === "newest" ? bTime - aTime : aTime - bTime;
@@ -580,7 +596,7 @@ function JobsPageContent() {
             onClick={() => setSortOrder((prev) => (prev === "newest" ? "oldest" : "newest"))}
             className="text-xs bg-white border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg font-medium hover:bg-gray-50"
           >
-            Sort: {activeStage === "QUOTE" ? "Quote date" : "Created"} {sortOrder === "newest" ? "Latest first" : "Earliest first"}
+            Sort: {activeStage === "QUOTE" ? "Quote date" : activeStage === "JOBS" ? "Install date" : "Created"} {sortOrder === "newest" ? "Latest first" : "Earliest first"}
           </button>
         </div>
       </div>

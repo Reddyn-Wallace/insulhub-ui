@@ -39,6 +39,9 @@ export const JOBS_QUERY = `
           deferralDate
           c_total
         }
+        installation {
+          installDate
+        }
         client {
           contactDetails {
             name
