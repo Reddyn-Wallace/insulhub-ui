@@ -18,8 +18,9 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const stage = searchParams.get("stage") || "LEAD";
+  const isCalendarView = pathname === "/jobs/calendar";
   const isPrimaryStage = stage === "LEAD" || stage === "QUOTE";
-  const activeOtherStage = !isPrimaryStage
+  const activeOtherStage = !isPrimaryStage && !isCalendarView
     ? OTHER_STAGES.find((s) => s.value === stage)
     : null;
 
@@ -111,12 +112,22 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
         <button
           onClick={() => goStage("QUOTE")}
           className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${
-            stage === "QUOTE"
+            stage === "QUOTE" && !isCalendarView
               ? "bg-[#e85d04] text-white shadow-md shadow-orange-500/30 ring-1 ring-orange-300/40"
               : "bg-[#27424d] text-gray-300"
           }`}
         >
           Quotes
+        </button>
+        <button
+          onClick={() => router.push("/jobs/calendar")}
+          className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+            isCalendarView
+              ? "bg-[#e85d04] text-white shadow-md shadow-orange-500/30 ring-1 ring-orange-300/40"
+              : "bg-[#27424d] text-gray-300"
+          }`}
+        >
+          Calendar
         </button>
 
         {/* More — post-sale stages */}
