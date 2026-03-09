@@ -8,6 +8,9 @@ interface Job {
   stage: string;
   createdAt?: string;
   updatedAt: string;
+  installation?: {
+    installDate?: string;
+  };
   lead?: {
     leadStatus?: string;
     allocatedTo?: { _id: string; firstname: string; lastname: string };
@@ -95,6 +98,7 @@ export default function JobCard({ job }: { job: Job }) {
   const addressParts = [c?.streetAddress, c?.suburb, c?.city].filter(Boolean).join(", ");
   const searchParams = useSearchParams();
   const returnTo = `/jobs${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
+  const isJobsTab = searchParams.get("stage") === "JOBS";
 
   const [now] = useState(() => Date.now());
   const sentAt = job.quoteLastSentAt || null;
@@ -110,11 +114,13 @@ export default function JobCard({ job }: { job: Job }) {
       ? "CALLBACK"
       : "OPEN";
 
-  const cardState = job.stage === "QUOTE"
-    ? quoteState
-    : hasQuoteBooked
-      ? "QUOTE_BOOKED"
-      : leadStatus;
+  const cardState = isJobsTab
+    ? "OPEN"
+    : job.stage === "QUOTE"
+      ? quoteState
+      : hasQuoteBooked
+        ? "QUOTE_BOOKED"
+        : leadStatus;
 
   const cardStyle = STATUS_STYLE[cardState] || STATUS_STYLE.NEW;
 
@@ -150,12 +156,18 @@ export default function JobCard({ job }: { job: Job }) {
 
         <div className="flex items-center justify-between text-xs text-gray-400">
           <span>{job.lead?.allocatedTo ? `${job.lead.allocatedTo.firstname} ${job.lead.allocatedTo.lastname}` : "Unallocated"}</span>
-          <span>{job.stage === "QUOTE" ? `Quote: ${formatDate(job.quote?.date) || "Undated"}` : `Created: ${formatDate(job.createdAt || job.updatedAt)}`}</span>
+          <span>
+            {isJobsTab
+              ? `Installation: ${formatDate(job.installation?.installDate) || "Undated"}`
+              : job.stage === "QUOTE"
+                ? `Quote: ${formatDate(job.quote?.date) || "Undated"}`
+                : `Created: ${formatDate(job.createdAt || job.updatedAt)}`}
+          </span>
         </div>
 
         <div className="mt-1.5 flex flex-wrap gap-3 text-xs font-medium">
           {callbackIso && <span className={isCallbackOverdue ? "bg-red-50 text-red-700 border border-red-200 px-2 py-0.5 rounded" : "text-orange-600"}>{isCallbackOverdue ? "⚠️ OVERDUE " : ""}Callback: {formatDate(callbackIso)}</span>}
-          {job.stage !== "QUOTE" && job.lead?.quoteBookingDate && (
+          {!isJobsTab && job.stage !== "QUOTE" && job.lead?.quoteBookingDate && (
             <span className={isQuoteBookingOverdue ? "text-red-600" : "text-indigo-600"}>
               {isQuoteBookingOverdue ? "⚠️ " : ""}Quote booked: {formatDate(job.lead.quoteBookingDate)}
             </span>
