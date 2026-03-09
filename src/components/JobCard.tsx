@@ -138,7 +138,9 @@ export default function JobCard({ job }: { job: Job }) {
         <div className="flex items-start justify-between gap-2 mb-1">
           <p className="font-semibold text-gray-900 text-base leading-tight">{c?.name || "Unknown"}</p>
           <div className="flex items-center gap-1.5">
-            <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${cardStyle.pill}`}>{cardStyle.label}</span>
+            {!isJobsTab && (
+              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${cardStyle.pill}`}>{cardStyle.label}</span>
+            )}
             <span className={`flex-shrink-0 text-xs font-medium px-2 py-0.5 rounded-full ${STAGE_BADGE[job.stage] || "bg-gray-100 text-gray-600"}`}>{STAGE_LABEL[job.stage] || job.stage}</span>
           </div>
         </div>
