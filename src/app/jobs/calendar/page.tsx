@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { gql } from "@/lib/graphql";
+import BottomSheet from "@/components/BottomSheet";
 
 interface CalendarJob {
   _id: string;
   jobNumber: number;
   stage: string;
+  notes?: string | null;
   installation?: {
     installDate?: string | null;
     installNote?: string | null;
@@ -42,6 +44,7 @@ const CALENDAR_JOBS_QUERY = `
         _id
         jobNumber
         stage
+        notes
         installation {
           installDate
           installNote
@@ -65,6 +68,13 @@ const CALENDAR_JOBS_QUERY = `
 `;
 
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const UPDATE_JOB_NOTES = `
+  mutation UpdateJobNotes($input: UpdateJobInput!) {
+    updateJob(input: $input) { _id notes }
+  }
+`;
+const INSTALL_META_START = "[INSTALL_META]";
+const INSTALL_META_END = "[/INSTALL_META]";
 
 function startOfMonth(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), 1);
@@ -137,12 +147,50 @@ function address(job: CalendarJob) {
   ].filter(Boolean).join(", ");
 }
 
+function parseInstallMeta(notes?: string | null): { status: "confirmed" | "pencilled"; note: string } {
+  const text = notes || "";
+  const start = text.indexOf(INSTALL_META_START);
+  const end = text.indexOf(INSTALL_META_END);
+  if (start === -1 || end === -1 || end < start) {
+    return { status: "confirmed" as "confirmed" | "pencilled", note: "" };
+  }
+
+  const body = text
+    .slice(start + INSTALL_META_START.length, end)
+    .trim();
+
+  const statusMatch = body.match(/^status:\s*(.+)$/im);
+  const noteMatch = body.match(/^note:\s*([\s\S]*)$/im);
+  const rawStatus = (statusMatch?.[1] || "confirmed").trim().toLowerCase();
+  return {
+    status: rawStatus === "pencilled" ? "pencilled" : "confirmed",
+    note: (noteMatch?.[1] || "").trim(),
+  };
+}
+
+function stripInstallMeta(notes?: string | null) {
+  const text = notes || "";
+  const block = new RegExp(`\n?${INSTALL_META_START.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([\\s\\S]*?)${INSTALL_META_END.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\n?`, "m");
+  return text.replace(block, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function buildNotesWithInstallMeta(existingNotes: string | null | undefined, status: "confirmed" | "pencilled", note: string) {
+  const cleaned = stripInstallMeta(existingNotes);
+  const block = `${INSTALL_META_START}\nstatus: ${status}\nnote: ${note.trim()}\n${INSTALL_META_END}`;
+  return cleaned ? `${cleaned}\n\n${block}` : block;
+}
+
 export default function JobsCalendarPage() {
   const router = useRouter();
   const [monthCursor, setMonthCursor] = useState(() => startOfMonth(new Date()));
   const [jobs, setJobs] = useState<CalendarJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [selectedJob, setSelectedJob] = useState<CalendarJob | null>(null);
+  const [installStatus, setInstallStatus] = useState<"confirmed" | "pencilled">("confirmed");
+  const [installMetaNote, setInstallMetaNote] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -172,6 +220,37 @@ export default function JobsCalendarPage() {
     }
     load();
   }, [load, router]);
+
+  const openJobSheet = (job: CalendarJob) => {
+    const meta = parseInstallMeta(job.notes);
+    setSelectedJob(job);
+    setInstallStatus(meta.status);
+    setInstallMetaNote(meta.note);
+    setSheetOpen(true);
+  };
+
+  const closeSheet = () => {
+    if (saving) return;
+    setSheetOpen(false);
+    setSelectedJob(null);
+  };
+
+  const saveInstallMeta = async () => {
+    if (!selectedJob) return;
+    setSaving(true);
+    setError("");
+    try {
+      const nextNotes = buildNotesWithInstallMeta(selectedJob.notes, installStatus, installMetaNote);
+      await gql(UPDATE_JOB_NOTES, { input: { _id: selectedJob._id, notes: nextNotes } });
+      setJobs((prev) => prev.map((job) => job._id === selectedJob._id ? { ...job, notes: nextNotes } : job));
+      setSheetOpen(false);
+      setSelectedJob(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save install planning details");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const jobsByDay = useMemo(() => {
     const map = new Map<string, CalendarJob[]>();
@@ -314,21 +393,34 @@ export default function JobsCalendarPage() {
                         </div>
 
                         <div className="space-y-2">
-                          {day.jobs.map((job) => (
-                            <div key={job._id} className="rounded-xl border border-orange-100 bg-orange-50/40 p-2.5 shadow-sm">
-                              <div className="flex items-start justify-between gap-2 mb-1">
-                                <div className="text-sm font-semibold text-gray-900 leading-tight">{job.client?.contactDetails?.name || `Job #${job.jobNumber}`}</div>
-                                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${job.stage === "INSTALLATION" ? "bg-purple-100 text-purple-700" : "bg-green-100 text-green-700"}`}>
-                                  {job.stage === "INSTALLATION" ? "Install" : "Accepted"}
-                                </span>
-                              </div>
-                              <div className="text-xs text-gray-500 mb-2 leading-snug">{address(job) || "No address"}</div>
-                              <div className="flex flex-col gap-1 text-xs text-gray-700 font-medium">
-                                <span>{formatSqm(combinedSqm(job))}</span>
-                                <span>{formatCurrency(job.quote?.c_total || 0)}</span>
-                              </div>
-                            </div>
-                          ))}
+                          {day.jobs.map((job) => {
+                            const meta = parseInstallMeta(job.notes);
+                            return (
+                              <button key={job._id} onClick={() => openJobSheet(job)} className="w-full text-left rounded-xl border border-orange-100 bg-orange-50/40 p-2.5 shadow-sm">
+                                <div className="flex items-start justify-between gap-2 mb-1">
+                                  <div className="text-sm font-semibold text-gray-900 leading-tight">{job.client?.contactDetails?.name || `Job #${job.jobNumber}`}</div>
+                                  <div className="flex flex-col items-end gap-1">
+                                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${job.stage === "INSTALLATION" ? "bg-purple-100 text-purple-700" : "bg-green-100 text-green-700"}`}>
+                                      {job.stage === "INSTALLATION" ? "Install" : "Accepted"}
+                                    </span>
+                                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${meta.status === "pencilled" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
+                                      {meta.status === "pencilled" ? "Pencilled" : "Confirmed"}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="text-xs text-gray-500 mb-2 leading-snug">{address(job) || "No address"}</div>
+                                {meta.note && (
+                                  <div className="text-[11px] text-gray-600 mb-2 line-clamp-2">
+                                    📝 {meta.note}
+                                  </div>
+                                )}
+                                <div className="flex flex-col gap-1 text-xs text-gray-700 font-medium">
+                                  <span>{formatSqm(combinedSqm(job))}</span>
+                                  <span>{formatCurrency(job.quote?.c_total || 0)}</span>
+                                </div>
+                              </button>
+                            );
+                          })}
                           {day.jobs.length === 0 && <div className="text-xs text-gray-300 pt-2">No jobs</div>}
                         </div>
                       </div>
@@ -358,6 +450,54 @@ export default function JobsCalendarPage() {
           </div>
         )}
       </div>
+
+      <BottomSheet open={sheetOpen} onClose={closeSheet} title="Installation planning">
+        {selectedJob && (
+          <div className="space-y-4">
+            <div>
+              <div className="text-sm font-semibold text-gray-900">{selectedJob.client?.contactDetails?.name || `Job #${selectedJob.jobNumber}`}</div>
+              <div className="text-xs text-gray-500 mt-1">Job #{selectedJob.jobNumber} • {address(selectedJob) || "No address"}</div>
+            </div>
+
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Lock-in status</div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setInstallStatus("pencilled")}
+                  className={`py-3 rounded-xl text-sm font-semibold border ${installStatus === "pencilled" ? "bg-amber-50 text-amber-700 border-amber-300" : "bg-white text-gray-700 border-gray-200"}`}
+                >
+                  Pencilled
+                </button>
+                <button
+                  onClick={() => setInstallStatus("confirmed")}
+                  className={`py-3 rounded-xl text-sm font-semibold border ${installStatus === "confirmed" ? "bg-emerald-50 text-emerald-700 border-emerald-300" : "bg-white text-gray-700 border-gray-200"}`}
+                >
+                  Confirmed
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Planning notes</div>
+              <textarea
+                value={installMetaNote}
+                onChange={(e) => setInstallMetaNote(e.target.value)}
+                rows={6}
+                placeholder="Flexible dates, unavailable days, tentative details, anything the team should know..."
+                className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04] resize-none"
+              />
+              <div className="text-[11px] text-gray-400 mt-2">Stored in job notes as structured install metadata.</div>
+            </div>
+
+            <div className="flex gap-2">
+              <button onClick={closeSheet} className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">Cancel</button>
+              <button onClick={saveInstallMeta} disabled={saving} className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
+                {saving ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        )}
+      </BottomSheet>
     </div>
   );
 }
