@@ -106,7 +106,7 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
         <button
           onClick={() => goStage("LEAD")}
           className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${
-            stage === "LEAD"
+            stage === "LEAD" && !isCalendarView
               ? "bg-[#e85d04] text-white shadow-md shadow-orange-500/30 ring-1 ring-orange-300/40"
               : "bg-[#27424d] text-gray-300"
           }`}
