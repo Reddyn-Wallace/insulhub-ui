@@ -110,6 +110,8 @@ export const JOB_QUERY = `
       installation {
         installDate
         installNote
+        installStatus
+        checkSheetSignedAsComplete
       }
       client {
         _id

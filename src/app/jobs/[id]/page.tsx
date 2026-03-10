@@ -20,7 +20,7 @@ interface ContactDetails {
 }
 interface Job {
   _id: string; jobNumber: number; stage: string; notes?: string; updatedAt: string; archivedAt?: string;
-  installation?: { installDate?: string; installNote?: string };
+  installation?: { installDate?: string; installNote?: string; installStatus?: string; checkSheetSignedAsComplete?: boolean };
   lead?: {
     leadStatus?: string; leadSource?: string[];
     allocatedTo?: { _id: string; firstname: string; lastname: string };
@@ -243,6 +243,7 @@ export default function JobDetailPage() {
   // Callback / booking dates
   const [callbackDate, setCallbackDate] = useState("");
   const [quoteBookingDate, setQuoteBookingDate] = useState("");
+  const [installDate, setInstallDate] = useState("");
 
   // Selected salesperson
   const [selectedUserId, setSelectedUserId] = useState("");
@@ -793,6 +794,35 @@ export default function JobDetailPage() {
     setToast(msg);
   }
 
+  async function saveInstallDate() {
+    setSaving(true);
+    try {
+      await gql(
+        `mutation UpdateInstall($input: UpdateJobInput!) { updateJob(input: $input) { _id installation { installDate installNote installStatus checkSheetSignedAsComplete } } }`,
+        {
+          input: {
+            _id: id,
+            installation: {
+              installDate: fromDatetimeLocal(installDate),
+              installNote: job?.installation?.installNote || "",
+              installStatus: job?.installation?.installStatus || "JOB_NOT_STARTED_YET",
+              checkSheetSignedAsComplete: job?.installation?.checkSheetSignedAsComplete ?? false,
+            },
+          },
+        }
+      );
+      await load();
+      closeSheet();
+      const msg = { type: "success" as const, text: "Installation date saved." };
+      setNotice(msg);
+      setToast(msg);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save installation date");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function loadQuoteEmailTemplate() {
     setLoadingQuoteEmailBody(true);
     let template = "Please find your insulation quote attached.";
@@ -913,8 +943,14 @@ export default function JobDetailPage() {
     {
       title: "Add installation date",
       description: installDateDisplay,
-      status: job.installation?.installDate ? "Recorded" : "Not yet wired",
-      wired: false,
+      status: job.installation?.installDate ? "Recorded" : "Missing",
+      wired: true,
+      actionLabel: job.installation?.installDate ? "Edit date" : "Set date",
+      action: () => {
+        setInstallDate(toDatetimeLocal(job.installation?.installDate));
+        openSheet("installDate");
+      },
+      disabled: saving,
     },
     {
       title: "Send EBA for signing",
@@ -1575,6 +1611,19 @@ export default function JobDetailPage() {
         </div>
       </BottomSheet>
 
+      <BottomSheet open={sheet === "installDate"} onClose={closeSheet} title="Installation Date">
+        <p className="text-sm text-gray-500 mb-3">Set or edit the planned installation date/time.</p>
+        <input type="datetime-local" value={installDate} onChange={(e) => setInstallDate(e.target.value)}
+          className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+        />
+        <div className="flex gap-2">
+          <button onClick={closeSheet} className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">Cancel</button>
+          <button onClick={saveInstallDate} disabled={saving || !installDate}
+            className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
+            {saving ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </BottomSheet>
 
       <BottomSheet open={sheet === "sendQuoteConfirm"} onClose={closeSheet} title="Send Quote">
         <p className="text-sm text-gray-600 mb-3">Review and edit the email before sending.</p>
