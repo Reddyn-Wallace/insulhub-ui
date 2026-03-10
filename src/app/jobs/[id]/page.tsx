@@ -21,6 +21,7 @@ interface ContactDetails {
 interface Job {
   _id: string; jobNumber: number; stage: string; notes?: string; updatedAt: string; archivedAt?: string;
   installation?: { installDate?: string; installNote?: string; installStatus?: string; checkSheetSignedAsComplete?: boolean };
+  council?: { _id?: string; consentNumber?: string };
   lead?: {
     leadStatus?: string; leadSource?: string[];
     allocatedTo?: { _id: string; firstname: string; lastname: string };
@@ -154,33 +155,6 @@ function getToken() {
 
 function fileUrl(fileName: string) {
   return `${API_BASE}/files/documents/${encodeURIComponent(fileName)}?token=${getToken()}`;
-}
-
-const JOB_META_START = "[JOB_META]";
-const JOB_META_END = "[/JOB_META]";
-
-function parseJobMeta(notes?: string | null) {
-  const text = notes || "";
-  const start = text.indexOf(JOB_META_START);
-  const end = text.indexOf(JOB_META_END);
-  if (start === -1 || end === -1 || end < start) return { consentNumber: "" };
-  const body = text.slice(start + JOB_META_START.length, end).trim();
-  const consentNumber = body.match(/^consentNumber:\s*(.+)$/im)?.[1]?.trim() || "";
-  return { consentNumber };
-}
-
-function stripJobMeta(notes?: string | null) {
-  const text = notes || "";
-  const block = new RegExp(`\\n?${JOB_META_START.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}([\\s\\S]*?)${JOB_META_END.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\n?`, "m");
-  return text.replace(block, "\n").replace(/\n{3,}/g, "\n\n").trim();
-}
-
-function buildNotesWithJobMeta(existingNotes: string | null | undefined, consentNumber: string) {
-  const cleaned = stripJobMeta(existingNotes);
-  const trimmedConsent = consentNumber.trim();
-  if (!trimmedConsent) return cleaned;
-  const block = `${JOB_META_START}\nconsentNumber: ${trimmedConsent}\n${JOB_META_END}`;
-  return cleaned ? `${cleaned}\n\n${block}` : block;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -864,8 +838,18 @@ export default function JobDetailPage() {
   async function saveConsentNumber() {
     setSaving(true);
     try {
-      const nextNotes = buildNotesWithJobMeta(job?.notes, consentNumber);
-      await gql(UPDATE_JOB_NOTES, { input: { _id: id, notes: nextNotes } });
+      await gql(
+        `mutation UpdateCouncilConsent($input: UpdateJobInput!) { updateJob(input: $input) { _id council { _id consentNumber } } }`,
+        {
+          input: {
+            _id: id,
+            council: {
+              _id: job?.council?._id,
+              consentNumber: consentNumber.trim(),
+            },
+          },
+        }
+      );
       await load();
       closeSheet();
       const msg = { type: "success" as const, text: "Consent number saved." };
@@ -994,7 +978,6 @@ export default function JobDetailPage() {
   const activeDetailTab = isPostQuoteStage ? detailTab : "quote";
   const installDateDisplay = fmtDateTime(job.installation?.installDate) || "Not set";
   const installNoteDisplay = job.installation?.installNote?.trim() || "No install notes yet";
-  const jobMeta = parseJobMeta(job.notes);
   const completionActions = [
     {
       title: "Add installation date",
@@ -1019,12 +1002,12 @@ export default function JobDetailPage() {
     },
     {
       title: "Consent Number",
-      description: jobMeta.consentNumber || "Not set",
-      status: jobMeta.consentNumber ? "Recorded" : "Missing",
+      description: job.council?.consentNumber || "Not set",
+      status: job.council?.consentNumber ? "Recorded" : "Missing",
       wired: true,
-      actionLabel: jobMeta.consentNumber ? "Edit" : "Set",
+      actionLabel: job.council?.consentNumber ? "Edit" : "Set",
       action: () => {
-        setConsentNumber(jobMeta.consentNumber || "");
+        setConsentNumber(job.council?.consentNumber || "");
         openSheet("consentNumber");
       },
       disabled: saving,

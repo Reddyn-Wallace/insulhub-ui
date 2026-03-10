@@ -113,6 +113,10 @@ export const JOB_QUERY = `
         installStatus
         checkSheetSignedAsComplete
       }
+      council {
+        _id
+        consentNumber
+      }
       client {
         _id
         contactDetails {
