@@ -36,7 +36,7 @@ interface Job {
     extras?: { name?: string; price?: number }[];
     files_QuoteSitePlan?: string[];
   };
-  ebaForm?: { complete?: boolean; clientApproved?: boolean; signature_assessor?: { fileName?: string } | null };
+  ebaForm?: { complete?: boolean; clientApproved?: boolean; clientApprovedAt?: string; signature_assessor?: { fileName?: string } | null };
   client?: {
     _id?: string;
     contactDetails?: ContactDetails;
@@ -757,6 +757,16 @@ export default function JobDetailPage() {
     window.location.href = `/jobs/${id}/eba`;
   }
 
+  function openSignedEBAPdf() {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    if (!token) {
+      setError("Missing auth token");
+      return;
+    }
+    const params = new URLSearchParams({ jobId: id, token });
+    window.open(`${API_BASE}/pdf/eba?${params.toString()}`, "_blank");
+  }
+
   async function saveQuoteAndOpenEBA() {
     if (!quoteForm.quoteNumber || !quoteForm.date || (!quoteForm.hasWall && !quoteForm.hasCeiling)) {
       setNotice({ type: "error", text: "Add quote data first (quote number, date, and wall/ceiling values)." });
@@ -963,11 +973,13 @@ export default function JobDetailPage() {
     },
     {
       title: "See signed EBA / download",
-      description: job.ebaForm?.clientApproved ? "Client has signed the EBA" : "Waiting for client signature",
+      description: job.ebaForm?.clientApproved
+        ? `EBA signed ${job.ebaForm?.clientApprovedAt ? fmtDateTime(job.ebaForm.clientApprovedAt) : ""}`.trim()
+        : "Waiting for client signature",
       status: job.ebaForm?.clientApproved ? "Signed" : "Pending",
       wired: true,
-      actionLabel: "Open EBA",
-      action: openEBAClientApprovalPage,
+      actionLabel: job.ebaForm?.clientApproved ? "Open EBA PDF" : "Open EBA",
+      action: job.ebaForm?.clientApproved ? openSignedEBAPdf : openEBAClientApprovalPage,
     },
     {
       title: "Upload customer completion files",
