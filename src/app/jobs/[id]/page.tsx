@@ -156,6 +156,33 @@ function fileUrl(fileName: string) {
   return `${API_BASE}/files/documents/${encodeURIComponent(fileName)}?token=${getToken()}`;
 }
 
+const JOB_META_START = "[JOB_META]";
+const JOB_META_END = "[/JOB_META]";
+
+function parseJobMeta(notes?: string | null) {
+  const text = notes || "";
+  const start = text.indexOf(JOB_META_START);
+  const end = text.indexOf(JOB_META_END);
+  if (start === -1 || end === -1 || end < start) return { consentNumber: "" };
+  const body = text.slice(start + JOB_META_START.length, end).trim();
+  const consentNumber = body.match(/^consentNumber:\s*(.+)$/im)?.[1]?.trim() || "";
+  return { consentNumber };
+}
+
+function stripJobMeta(notes?: string | null) {
+  const text = notes || "";
+  const block = new RegExp(`\\n?${JOB_META_START.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}([\\s\\S]*?)${JOB_META_END.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\n?`, "m");
+  return text.replace(block, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function buildNotesWithJobMeta(existingNotes: string | null | undefined, consentNumber: string) {
+  const cleaned = stripJobMeta(existingNotes);
+  const trimmedConsent = consentNumber.trim();
+  if (!trimmedConsent) return cleaned;
+  const block = `${JOB_META_START}\nconsentNumber: ${trimmedConsent}\n${JOB_META_END}`;
+  return cleaned ? `${cleaned}\n\n${block}` : block;
+}
+
 const STATUS_COLORS: Record<string, string> = {
   NEW: "bg-blue-100 text-blue-700",
   CALLBACK: "bg-orange-100 text-orange-700",
@@ -244,6 +271,7 @@ export default function JobDetailPage() {
   const [callbackDate, setCallbackDate] = useState("");
   const [quoteBookingDate, setQuoteBookingDate] = useState("");
   const [installDate, setInstallDate] = useState("");
+  const [consentNumber, setConsentNumber] = useState("");
 
   // Selected salesperson
   const [selectedUserId, setSelectedUserId] = useState("");
@@ -833,6 +861,23 @@ export default function JobDetailPage() {
     }
   }
 
+  async function saveConsentNumber() {
+    setSaving(true);
+    try {
+      const nextNotes = buildNotesWithJobMeta(job?.notes, consentNumber);
+      await gql(UPDATE_JOB_NOTES, { input: { _id: id, notes: nextNotes } });
+      await load();
+      closeSheet();
+      const msg = { type: "success" as const, text: "Consent number saved." };
+      setNotice(msg);
+      setToast(msg);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save consent number");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function loadQuoteEmailTemplate() {
     setLoadingQuoteEmailBody(true);
     let template = "Please find your insulation quote attached.";
@@ -949,6 +994,7 @@ export default function JobDetailPage() {
   const activeDetailTab = isPostQuoteStage ? detailTab : "quote";
   const installDateDisplay = fmtDateTime(job.installation?.installDate) || "Not set";
   const installNoteDisplay = job.installation?.installNote?.trim() || "No install notes yet";
+  const jobMeta = parseJobMeta(job.notes);
   const completionActions = [
     {
       title: "Add installation date",
@@ -967,9 +1013,21 @@ export default function JobDetailPage() {
       description: job.ebaForm?.complete ? (job.ebaForm?.clientApproved ? "Already client signed" : "Ready to send") : "Complete the EBA first",
       status: job.ebaForm?.clientApproved ? "Signed" : job.ebaForm?.complete ? "Ready" : "Blocked",
       wired: true,
-      actionLabel: job.ebaForm?.clientApproved ? undefined : "Send EBA",
-      action: !job.ebaForm?.clientApproved && job.ebaForm?.complete ? sendEBA : undefined,
-      disabled: !job.ebaForm?.complete || saving,
+      actionLabel: job.ebaForm?.clientApproved ? undefined : job.ebaForm?.complete ? "Send EBA" : "Edit EBA",
+      action: job.ebaForm?.clientApproved ? undefined : job.ebaForm?.complete ? sendEBA : openEBAClientApprovalPage,
+      disabled: job.ebaForm?.clientApproved ? true : saving,
+    },
+    {
+      title: "Consent Number",
+      description: jobMeta.consentNumber || "Not set",
+      status: jobMeta.consentNumber ? "Recorded" : "Missing",
+      wired: true,
+      actionLabel: jobMeta.consentNumber ? "Edit" : "Set",
+      action: () => {
+        setConsentNumber(jobMeta.consentNumber || "");
+        openSheet("consentNumber");
+      },
+      disabled: saving,
     },
     {
       title: "See signed EBA / download",
@@ -1387,17 +1445,7 @@ export default function JobDetailPage() {
               >
                 🧾 {job.ebaForm?.complete || job.ebaForm?.signature_assessor?.fileName ? "Edit EBA" : "Complete EBA"}
               </button>
-              <button
-                onClick={sendEBA}
-                disabled={saving || !job.ebaForm?.complete}
-                className="flex-1 bg-[#1a3a4a] text-white text-sm font-semibold py-2.5 rounded-xl disabled:opacity-40"
-              >
-                📋 Send EBA
-              </button>
             </div>
-            {!job.ebaForm?.complete && (
-              <p className="text-xs text-gray-400 mt-2">Send EBA becomes available once EBA is completed.</p>
-            )}
           </Section>
         )}
 
@@ -1631,6 +1679,21 @@ export default function JobDetailPage() {
         <div className="flex gap-2">
           <button onClick={closeSheet} className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">Cancel</button>
           <button onClick={saveInstallDate} disabled={saving || !installDate}
+            className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
+            {saving ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </BottomSheet>
+
+      <BottomSheet open={sheet === "consentNumber"} onClose={closeSheet} title="Consent Number">
+        <p className="text-sm text-gray-500 mb-3">Store the consent/reference number for this job.</p>
+        <input value={consentNumber} onChange={(e) => setConsentNumber(e.target.value)}
+          className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+          placeholder="Enter consent number"
+        />
+        <div className="flex gap-2">
+          <button onClick={closeSheet} className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">Cancel</button>
+          <button onClick={saveConsentNumber} disabled={saving}
             className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
             {saving ? "Saving..." : "Save"}
           </button>
