@@ -214,6 +214,7 @@ export default function JobDetailPage() {
   const [saving, setSaving] = useState(false);
   const [uploadingSitePlan, setUploadingSitePlan] = useState(false);
   const [uploadingCompletionFiles, setUploadingCompletionFiles] = useState(false);
+  const [completionUploadProgress, setCompletionUploadProgress] = useState(0);
   const [error, setError] = useState("");
 
   // Sheet visibility
@@ -760,17 +761,35 @@ export default function JobDetailPage() {
     if (!files || files.length === 0) return;
     try {
       setUploadingCompletionFiles(true);
+      setCompletionUploadProgress(0);
       const form = new FormData();
       Array.from(files).forEach((f) => form.append("files", f));
-      const res = await fetch(`${API_BASE}/files/upload`, {
-        method: "POST",
-        headers: { "x-token": getToken() },
-        body: form,
+
+      const json = await new Promise<{ fileNames?: string[] }>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `${API_BASE}/files/upload`);
+        xhr.setRequestHeader("x-token", getToken());
+        xhr.upload.onprogress = (event) => {
+          if (!event.lengthComputable) return;
+          setCompletionUploadProgress(Math.round((event.loaded / event.total) * 100));
+        };
+        xhr.onload = () => {
+          try {
+            const body = JSON.parse(xhr.responseText || "{}");
+            if (xhr.status >= 200 && xhr.status < 300) resolve(body);
+            else reject(new Error(body?.message || "Upload failed"));
+          } catch {
+            reject(new Error("Upload failed"));
+          }
+        };
+        xhr.onerror = () => reject(new Error("Upload failed"));
+        xhr.send(form);
       });
-      const json = await res.json();
+
       const fileNames: string[] = json.fileNames || [];
       if (!fileNames.length) throw new Error("Upload failed");
       await gql(ADD_FILES, { _id: id, documentType: "OTHER", fileNames });
+      setCompletionUploadProgress(100);
       await load();
       const msg = { type: "success" as const, text: `Uploaded ${fileNames.length} completion file${fileNames.length === 1 ? "" : "s"}.` };
       setNotice(msg);
@@ -779,6 +798,7 @@ export default function JobDetailPage() {
       setError(err instanceof Error ? err.message : "Failed to upload completion files.");
     } finally {
       setUploadingCompletionFiles(false);
+      setCompletionUploadProgress(0);
     }
   }
 
@@ -1059,11 +1079,8 @@ export default function JobDetailPage() {
       description: job.council?.files_Other?.length
         ? `${job.council.files_Other.length} file${job.council.files_Other.length === 1 ? "" : "s"} uploaded`
         : "Files to send to customer upon completion",
-      status: uploadingCompletionFiles ? "Uploading..." : job.council?.files_Other?.length ? "Available" : "Empty",
+      status: uploadingCompletionFiles ? `Uploading ${completionUploadProgress}%` : job.council?.files_Other?.length ? "Available" : "Empty",
       wired: true,
-      actionLabel: "Manage files",
-      action: () => openSheet("completionFiles"),
-      disabled: saving,
     },
     {
       title: "View install notes",
@@ -1252,6 +1269,44 @@ export default function JobDetailPage() {
               <InfoRow label="Installation Date" value={installDateDisplay} />
               <InfoRow label="Install Notes" value={installNoteDisplay} />
               <InfoRow label="EBA Status" value={job.ebaForm?.clientApproved ? "Client signed" : job.ebaForm?.complete ? "Completed and ready to send" : "Draft / not completed"} />
+            </Section>
+
+            <Section title="Customer Completion Files">
+              <label className="block border-2 border-dashed border-gray-200 rounded-2xl p-5 text-center bg-gray-50 hover:bg-gray-100 transition cursor-pointer">
+                <input type="file" multiple onChange={(e) => uploadCompletionFiles(e.target.files)} disabled={uploadingCompletionFiles} className="hidden" />
+                <div className="text-sm font-semibold text-gray-700">{uploadingCompletionFiles ? `Uploading... ${completionUploadProgress}%` : "Upload files"}</div>
+                <div className="text-xs text-gray-500 mt-1">PDFs, images, council docs, acceptance letters, and other customer files</div>
+              </label>
+
+              {uploadingCompletionFiles && (
+                <div className="mt-3 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3">
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <div className="flex items-center gap-3">
+                      <div className="h-4 w-4 rounded-full border-2 border-[#e85d04] border-t-transparent animate-spin" />
+                      <div className="text-sm font-semibold text-[#9a3412]">Uploading customer completion files</div>
+                    </div>
+                    <div className="text-sm font-bold text-[#9a3412]">{completionUploadProgress}%</div>
+                  </div>
+                  <div className="h-2 bg-orange-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-[#e85d04] transition-all duration-200" style={{ width: `${completionUploadProgress}%` }} />
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-3 border border-gray-200 rounded-xl p-3">
+                <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Uploaded files</div>
+                <div className="space-y-2">
+                  {(job.council?.files_Other || []).map((f) => (
+                    <div key={f} className="flex items-center justify-between gap-3 text-sm">
+                      <a href={fileUrl(f)} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline truncate max-w-[70%]">{f}</a>
+                      <button onClick={() => removeCompletionFile(f)} className="text-xs text-red-600 font-medium">Remove</button>
+                    </div>
+                  ))}
+                  {(!job.council?.files_Other || job.council.files_Other.length === 0) && (
+                    <p className="text-xs text-gray-400">No customer completion files uploaded yet.</p>
+                  )}
+                </div>
+              </div>
             </Section>
 
             <Section
@@ -1717,43 +1772,6 @@ export default function JobDetailPage() {
             className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
             {saving ? "Saving..." : "Save"}
           </button>
-        </div>
-      </BottomSheet>
-
-      <BottomSheet open={sheet === "completionFiles"} onClose={closeSheet} title="Customer Completion Files">
-        <div className="space-y-4">
-          <label className="block border-2 border-dashed border-gray-200 rounded-2xl p-5 text-center bg-gray-50 hover:bg-gray-100 transition cursor-pointer">
-            <input type="file" multiple onChange={(e) => uploadCompletionFiles(e.target.files)} disabled={uploadingCompletionFiles} className="hidden" />
-            <div className="text-sm font-semibold text-gray-700">{uploadingCompletionFiles ? "Uploading files..." : "Upload files"}</div>
-            <div className="text-xs text-gray-500 mt-1">PDFs, images, council docs, acceptance letters, and other customer files</div>
-          </label>
-
-          {uploadingCompletionFiles && (
-            <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3">
-              <div className="flex items-center gap-3">
-                <div className="h-4 w-4 rounded-full border-2 border-[#e85d04] border-t-transparent animate-spin" />
-                <div>
-                  <div className="text-sm font-semibold text-[#9a3412]">Uploading customer completion files</div>
-                  <div className="text-xs text-orange-700">Please wait while the files are uploaded and attached to the job.</div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="border border-gray-200 rounded-xl p-3">
-            <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Uploaded files</div>
-            <div className="space-y-2">
-              {(job.council?.files_Other || []).map((f) => (
-                <div key={f} className="flex items-center justify-between gap-3 text-sm">
-                  <a href={fileUrl(f)} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline truncate max-w-[70%]">{f}</a>
-                  <button onClick={() => removeCompletionFile(f)} className="text-xs text-red-600 font-medium">Remove</button>
-                </div>
-              ))}
-              {(!job.council?.files_Other || job.council.files_Other.length === 0) && (
-                <p className="text-xs text-gray-400">No customer completion files uploaded yet.</p>
-              )}
-            </div>
-          </div>
         </div>
       </BottomSheet>
 
