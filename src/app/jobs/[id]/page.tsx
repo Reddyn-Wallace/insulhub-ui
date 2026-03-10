@@ -21,7 +21,7 @@ interface ContactDetails {
 interface Job {
   _id: string; jobNumber: number; stage: string; notes?: string; updatedAt: string; archivedAt?: string;
   installation?: { installDate?: string; installNote?: string; installStatus?: string; checkSheetSignedAsComplete?: boolean };
-  council?: { _id?: string; consentNumber?: string };
+  council?: { _id?: string; consentNumber?: string; files_Other?: string[] };
   lead?: {
     leadStatus?: string; leadSource?: string[];
     allocatedTo?: { _id: string; firstname: string; lastname: string };
@@ -213,6 +213,7 @@ export default function JobDetailPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingSitePlan, setUploadingSitePlan] = useState(false);
+  const [uploadingCompletionFiles, setUploadingCompletionFiles] = useState(false);
   const [error, setError] = useState("");
 
   // Sheet visibility
@@ -755,6 +756,37 @@ export default function JobDetailPage() {
     await run(() => gql(REMOVE_FILE, { _id: id, documentType: "QUOTE_SITE_PLAN", fileName }));
   }
 
+  async function uploadCompletionFiles(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    try {
+      setUploadingCompletionFiles(true);
+      const form = new FormData();
+      Array.from(files).forEach((f) => form.append("files", f));
+      const res = await fetch(`${API_BASE}/files/upload`, {
+        method: "POST",
+        headers: { "x-token": getToken() },
+        body: form,
+      });
+      const json = await res.json();
+      const fileNames: string[] = json.fileNames || [];
+      if (!fileNames.length) throw new Error("Upload failed");
+      await gql(ADD_FILES, { _id: id, documentType: "OTHER", fileNames });
+      await load();
+      const msg = { type: "success" as const, text: `Uploaded ${fileNames.length} completion file${fileNames.length === 1 ? "" : "s"}.` };
+      setNotice(msg);
+      setToast(msg);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to upload completion files.");
+    } finally {
+      setUploadingCompletionFiles(false);
+    }
+  }
+
+  async function removeCompletionFile(fileName: string) {
+    if (!confirm("Remove this customer completion file?")) return;
+    await run(() => gql(REMOVE_FILE, { _id: id, documentType: "OTHER", fileName }));
+  }
+
   async function openEBAClientApprovalPage() {
     window.location.href = `/jobs/${id}/eba`;
   }
@@ -1024,9 +1056,14 @@ export default function JobDetailPage() {
     },
     {
       title: "Upload customer completion files",
-      description: "Files to send to customer upon completion",
-      status: "Not yet wired",
-      wired: false,
+      description: job.council?.files_Other?.length
+        ? `${job.council.files_Other.length} file${job.council.files_Other.length === 1 ? "" : "s"} uploaded`
+        : "Files to send to customer upon completion",
+      status: uploadingCompletionFiles ? "Uploading..." : job.council?.files_Other?.length ? "Available" : "Empty",
+      wired: true,
+      actionLabel: "Manage files",
+      action: () => openSheet("completionFiles"),
+      disabled: saving,
     },
     {
       title: "View install notes",
@@ -1680,6 +1717,43 @@ export default function JobDetailPage() {
             className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
             {saving ? "Saving..." : "Save"}
           </button>
+        </div>
+      </BottomSheet>
+
+      <BottomSheet open={sheet === "completionFiles"} onClose={closeSheet} title="Customer Completion Files">
+        <div className="space-y-4">
+          <label className="block border-2 border-dashed border-gray-200 rounded-2xl p-5 text-center bg-gray-50 hover:bg-gray-100 transition cursor-pointer">
+            <input type="file" multiple onChange={(e) => uploadCompletionFiles(e.target.files)} disabled={uploadingCompletionFiles} className="hidden" />
+            <div className="text-sm font-semibold text-gray-700">{uploadingCompletionFiles ? "Uploading files..." : "Upload files"}</div>
+            <div className="text-xs text-gray-500 mt-1">PDFs, images, council docs, acceptance letters, and other customer files</div>
+          </label>
+
+          {uploadingCompletionFiles && (
+            <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3">
+              <div className="flex items-center gap-3">
+                <div className="h-4 w-4 rounded-full border-2 border-[#e85d04] border-t-transparent animate-spin" />
+                <div>
+                  <div className="text-sm font-semibold text-[#9a3412]">Uploading customer completion files</div>
+                  <div className="text-xs text-orange-700">Please wait while the files are uploaded and attached to the job.</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="border border-gray-200 rounded-xl p-3">
+            <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Uploaded files</div>
+            <div className="space-y-2">
+              {(job.council?.files_Other || []).map((f) => (
+                <div key={f} className="flex items-center justify-between gap-3 text-sm">
+                  <a href={fileUrl(f)} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline truncate max-w-[70%]">{f}</a>
+                  <button onClick={() => removeCompletionFile(f)} className="text-xs text-red-600 font-medium">Remove</button>
+                </div>
+              ))}
+              {(!job.council?.files_Other || job.council.files_Other.length === 0) && (
+                <p className="text-xs text-gray-400">No customer completion files uploaded yet.</p>
+              )}
+            </div>
+          </div>
         </div>
       </BottomSheet>
 

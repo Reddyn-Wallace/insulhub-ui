@@ -116,6 +116,7 @@ export const JOB_QUERY = `
       council {
         _id
         consentNumber
+        files_Other
       }
       client {
         _id
