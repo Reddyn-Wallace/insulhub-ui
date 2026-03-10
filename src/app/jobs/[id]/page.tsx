@@ -20,6 +20,7 @@ interface ContactDetails {
 }
 interface Job {
   _id: string; jobNumber: number; stage: string; notes?: string; updatedAt: string; archivedAt?: string;
+  installation?: { installDate?: string; installNote?: string };
   lead?: {
     leadStatus?: string; leadSource?: string[];
     allocatedTo?: { _id: string; firstname: string; lastname: string };
@@ -217,6 +218,7 @@ export default function JobDetailPage() {
   const [sheet, setSheet] = useState<string | null>(null);
   const openSheet = (name: string) => setSheet(name);
   const closeSheet = () => setSheet(null);
+  const [detailTab, setDetailTab] = useState<"job" | "quote">("quote");
 
   // Note form
   const [noteText, setNoteText] = useState("");
@@ -415,6 +417,11 @@ export default function JobDetailPage() {
     const t = setTimeout(() => setToast(null), 4500);
     return () => clearTimeout(t);
   }, [toast]);
+
+  useEffect(() => {
+    if (!job) return;
+    setDetailTab(["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"].includes(job.stage) ? "job" : "quote");
+  }, [job?._id, job?.stage]);
 
   // Removed sessionStorage handling. Next.js router.back() maintains URL query appropriately.
 
@@ -898,6 +905,71 @@ export default function JobDetailPage() {
   const hasCeiling = !!job.quote?.ceiling?.SQM;
   const displayCallbackDate = status === "CALLBACK" ? (job.stage === "QUOTE" ? (job.quote?.deferralDate || job.lead?.callbackDate) : job.lead?.callbackDate) : null;
   const isArchived = !!job.archivedAt;
+  const isPostQuoteStage = ["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"].includes(job.stage);
+  const activeDetailTab = isPostQuoteStage ? detailTab : "quote";
+  const installDateDisplay = fmtDateTime(job.installation?.installDate) || "Not set";
+  const installNoteDisplay = job.installation?.installNote?.trim() || "No install notes yet";
+  const completionActions = [
+    {
+      title: "Add installation date",
+      description: installDateDisplay,
+      status: job.installation?.installDate ? "Recorded" : "Not yet wired",
+      wired: false,
+    },
+    {
+      title: "Send EBA for signing",
+      description: job.ebaForm?.complete ? (job.ebaForm?.clientApproved ? "Already client signed" : "Ready to send") : "Complete the EBA first",
+      status: job.ebaForm?.clientApproved ? "Signed" : job.ebaForm?.complete ? "Ready" : "Blocked",
+      wired: true,
+      actionLabel: job.ebaForm?.clientApproved ? undefined : "Send EBA",
+      action: !job.ebaForm?.clientApproved && job.ebaForm?.complete ? sendEBA : undefined,
+      disabled: !job.ebaForm?.complete || saving,
+    },
+    {
+      title: "See signed EBA / download",
+      description: job.ebaForm?.clientApproved ? "Client has signed the EBA" : "Waiting for client signature",
+      status: job.ebaForm?.clientApproved ? "Signed" : "Pending",
+      wired: true,
+      actionLabel: "Open EBA",
+      action: openEBAClientApprovalPage,
+    },
+    {
+      title: "Upload customer completion files",
+      description: "Files to send to customer upon completion",
+      status: "Not yet wired",
+      wired: false,
+    },
+    {
+      title: "View install notes",
+      description: installNoteDisplay,
+      status: job.installation?.installNote ? "Available" : "Blank",
+      wired: true,
+    },
+    {
+      title: "Trigger final invoice creation in Xero",
+      description: "Backend/Xero action not yet proven in the new UI",
+      status: "Not yet wired",
+      wired: false,
+    },
+    {
+      title: "Download completion certificate",
+      description: "Certificate download action not yet proven in the new UI",
+      status: "Not yet wired",
+      wired: false,
+    },
+    {
+      title: "Send completion pack to customer",
+      description: "Completion certificate, council, acceptance letter, and other customer files",
+      status: "Not yet wired",
+      wired: false,
+    },
+    {
+      title: "Mark as completed",
+      description: "Use once install is finished, invoice/Xero is done, and customer documents have been sent",
+      status: job.stage === "COMPLETED" ? "Completed" : "Not yet wired",
+      wired: false,
+    },
+  ];
 
   const buildGCalUrl = (type: "Callback" | "Quote", dateStr: string, durationMins: number) => {
     if (!dateStr) return "#";
@@ -997,6 +1069,23 @@ export default function JobDetailPage() {
         {notice && <div className={`text-sm px-4 py-2 rounded-xl mb-3 ${notice.type === "success" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{notice.text}</div>}
         {isArchived && <div className="bg-yellow-50 text-yellow-700 text-sm px-4 py-2 rounded-xl mb-3">⚠️ This job is archived</div>}
 
+        {isPostQuoteStage && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-1 mb-3 flex gap-1">
+            <button
+              onClick={() => setDetailTab("job")}
+              className={`flex-1 rounded-lg py-2.5 text-sm font-semibold ${activeDetailTab === "job" ? "bg-[#1a3a4a] text-white" : "text-gray-600"}`}
+            >
+              Job Info
+            </button>
+            <button
+              onClick={() => setDetailTab("quote")}
+              className={`flex-1 rounded-lg py-2.5 text-sm font-semibold ${activeDetailTab === "quote" ? "bg-[#1a3a4a] text-white" : "text-gray-600"}`}
+            >
+              Quote Info
+            </button>
+          </div>
+        )}
+
         {/* Quick contact */}
         <div className="flex gap-2 mb-3">
           {phone && <a href={`tel:${phone}`} className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl text-center text-sm">📞 Call</a>}
@@ -1004,6 +1093,59 @@ export default function JobDetailPage() {
           {c?.email && <a href={`mailto:${c.email}`} className="flex-1 bg-[#1a3a4a] text-white font-semibold py-3 rounded-xl text-center text-sm">✉️ Email</a>}
         </div>
 
+        {activeDetailTab === "job" ? (
+          <>
+            <Section title="Job Info">
+              <div className="space-y-3">
+                {completionActions.map((item) => (
+                  <div key={item.title} className="border border-gray-100 rounded-xl p-3">
+                    <div className="flex items-start justify-between gap-3 mb-1.5">
+                      <div>
+                        <div className="text-sm font-semibold text-gray-900">{item.title}</div>
+                        <div className="text-xs text-gray-500 mt-1">{item.description}</div>
+                      </div>
+                      <span className={`shrink-0 text-[11px] font-semibold px-2 py-1 rounded-full ${item.wired ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+                        {item.status}
+                      </span>
+                    </div>
+                    {item.actionLabel && item.action && (
+                      <button
+                        onClick={item.action}
+                        disabled={item.disabled}
+                        className="mt-2 bg-[#1a3a4a] text-white text-sm font-semibold px-3 py-2 rounded-lg disabled:opacity-40"
+                      >
+                        {item.actionLabel}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </Section>
+
+            <Section title="Install Summary">
+              <InfoRow label="Installation Date" value={installDateDisplay} />
+              <InfoRow label="Install Notes" value={installNoteDisplay} />
+              <InfoRow label="EBA Status" value={job.ebaForm?.clientApproved ? "Client signed" : job.ebaForm?.complete ? "Completed and ready to send" : "Draft / not completed"} />
+            </Section>
+
+            <Section
+              title="Notes"
+              action={
+                <div className="flex items-center gap-3">
+                  <button onClick={() => openSheet("addNote")} className="text-xs text-[#e85d04] font-medium">+ Add</button>
+                  <button onClick={() => { setFullNoteText(job.notes || ""); openSheet("editNote"); }} className="text-xs text-gray-500 font-medium">Edit</button>
+                </div>
+              }
+            >
+              {job.notes ? (
+                <p className="text-sm text-gray-700 whitespace-pre-wrap">{job.notes}</p>
+              ) : (
+                <p className="text-sm text-gray-400">No notes yet</p>
+              )}
+            </Section>
+          </>
+        ) : (
+          <>
         {/* Status buttons */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-3">
           <div className="flex items-center justify-between mb-3">
@@ -1227,6 +1369,9 @@ export default function JobDetailPage() {
             <p className="text-sm text-gray-400">No notes yet</p>
           )}
         </Section>
+
+          </>
+        )}
 
         {/* Danger zone */}
         <div className="mt-4 mb-4">

@@ -104,7 +104,12 @@ export const JOB_QUERY = `
       }
       ebaForm {
         complete
+        clientApproved
         signature_assessor { fileName }
+      }
+      installation {
+        installDate
+        installNote
       }
       client {
         _id
