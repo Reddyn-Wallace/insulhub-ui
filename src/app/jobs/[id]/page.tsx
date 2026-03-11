@@ -19,7 +19,7 @@ interface ContactDetails {
   streetAddress?: string; suburb?: string; city?: string; postCode?: string;
 }
 interface Job {
-  _id: string; jobNumber: number; stage: string; notes?: string; updatedAt: string; archivedAt?: string;
+  _id: string; jobNumber: number; stage: string; notes?: string; updatedAt: string; archivedAt?: string; certificateSentAt?: string;
   installation?: { installDate?: string; installNote?: string; installStatus?: string; checkSheetSignedAsComplete?: boolean };
   council?: { _id?: string; consentNumber?: string; files_Other?: string[] };
   totalPriceManagerOverride?: number | null;
@@ -972,6 +972,30 @@ export default function JobDetailPage() {
     }
   }
 
+  async function sendCompletionPack() {
+    setSaving(true);
+    setError("");
+    try {
+      await gql(
+        `mutation SendCertificate($jobId: ObjectId!) {
+          sendCertificate(jobId: $jobId) {
+            _id
+            certificateSentAt
+          }
+        }`,
+        { jobId: id }
+      );
+      await load();
+      const msg = { type: "success" as const, text: "Completion pack sent to customer." };
+      setNotice(msg);
+      setToast(msg);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not send completion pack");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function loadQuoteEmailTemplate() {
     setLoadingQuoteEmailBody(true);
     let template = "Please find your insulation quote attached.";
@@ -1174,9 +1198,14 @@ export default function JobDetailPage() {
     },
     {
       title: "Send completion pack to customer",
-      description: "Completion certificate, council, acceptance letter, and other customer files",
-      status: "Not yet wired",
-      wired: false,
+      description: job.certificateSentAt
+        ? `Sent ${fmtDateTime(job.certificateSentAt)}`
+        : "Completion certificate, council, acceptance letter, and other customer files",
+      status: job.certificateSentAt ? "Sent" : saving ? "Sending..." : "Ready",
+      wired: true,
+      actionLabel: job.certificateSentAt ? undefined : "Send completion pack",
+      action: job.certificateSentAt ? undefined : sendCompletionPack,
+      disabled: saving,
     },
     {
       title: "Mark as completed",

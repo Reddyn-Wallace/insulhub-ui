@@ -67,6 +67,7 @@ export const JOB_QUERY = `
       notes
       updatedAt
       archivedAt
+      certificateSentAt
       lead {
         leadStatus
         leadSource
