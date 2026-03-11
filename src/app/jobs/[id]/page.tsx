@@ -1258,11 +1258,33 @@ export default function JobDetailPage() {
       title: "Send completion pack to customer",
       description: job.certificateSentAt
         ? `Sent ${fmtDateTime(job.certificateSentAt)}`
-        : "Completion certificate, council, acceptance letter, and other customer files",
-      status: job.certificateSentAt ? "Sent" : saving ? "Sending..." : "Ready",
+        : !job.installation?.installDate
+          ? "Set an installation date first"
+          : !job.council?.consentNumber
+            ? "Enter a consent number first"
+            : !job.council?.files_Other?.length
+              ? "Upload a council application first"
+              : !job.council?.files_CouncilApprovalLetters?.length
+                ? "Upload a council approval first"
+                : "Completion certificate, council, acceptance letter, and other customer files",
+      status: job.certificateSentAt
+        ? "Sent"
+        : !job.installation?.installDate || !job.council?.consentNumber || !job.council?.files_Other?.length || !job.council?.files_CouncilApprovalLetters?.length
+          ? "Blocked"
+          : saving
+            ? "Sending..."
+            : "Ready",
       wired: true,
-      actionLabel: job.certificateSentAt ? undefined : "Send completion pack",
-      action: job.certificateSentAt ? undefined : sendCompletionPack,
+      actionLabel: job.certificateSentAt
+        ? undefined
+        : !job.installation?.installDate || !job.council?.consentNumber || !job.council?.files_Other?.length || !job.council?.files_CouncilApprovalLetters?.length
+          ? undefined
+          : "Send completion pack",
+      action: job.certificateSentAt
+        ? undefined
+        : !job.installation?.installDate || !job.council?.consentNumber || !job.council?.files_Other?.length || !job.council?.files_CouncilApprovalLetters?.length
+          ? undefined
+          : sendCompletionPack,
       disabled: saving,
     },
     {
