@@ -905,6 +905,35 @@ export default function JobDetailPage() {
     }
   }
 
+  async function clearInstallDate() {
+    setSaving(true);
+    try {
+      await gql(
+        `mutation UpdateInstall($input: UpdateJobInput!) { updateJob(input: $input) { _id installation { installDate installNote installStatus checkSheetSignedAsComplete } } }`,
+        {
+          input: {
+            _id: id,
+            installation: {
+              installDate: null,
+              installNote: job?.installation?.installNote || "",
+              installStatus: job?.installation?.installStatus || "JOB_NOT_STARTED_YET",
+              checkSheetSignedAsComplete: job?.installation?.checkSheetSignedAsComplete ?? false,
+            },
+          },
+        }
+      );
+      await load();
+      closeSheet();
+      const msg = { type: "success" as const, text: "Installation date removed." };
+      setNotice(msg);
+      setToast(msg);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not remove installation date");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function saveConsentNumber() {
     setSaving(true);
     try {
@@ -1845,6 +1874,12 @@ export default function JobDetailPage() {
           className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
         />
         <div className="flex gap-2">
+          {job.installation?.installDate && (
+            <button onClick={clearInstallDate} disabled={saving}
+              className="bg-red-50 text-red-600 font-semibold py-3 px-4 rounded-xl disabled:opacity-50">
+              Remove
+            </button>
+          )}
           <button onClick={closeSheet} className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">Cancel</button>
           <button onClick={saveInstallDate} disabled={saving || !installDate}
             className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">

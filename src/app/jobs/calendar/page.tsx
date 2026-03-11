@@ -305,6 +305,39 @@ export default function JobsCalendarPage() {
     }
   };
 
+  const clearInstallDate = async () => {
+    if (!selectedJob) return;
+    setSaving(true);
+    setError("");
+    try {
+      await gql(UPDATE_INSTALLATION, {
+        input: {
+          _id: selectedJob._id,
+          installation: {
+            installDate: null,
+            installNote: selectedJob.installation?.installNote || "",
+            installStatus: selectedJob.installation?.installStatus || "JOB_NOT_STARTED_YET",
+            checkSheetSignedAsComplete: selectedJob.installation?.checkSheetSignedAsComplete ?? false,
+          },
+        },
+      });
+      setJobs((prev) => prev.map((job) => job._id === selectedJob._id ? {
+        ...job,
+        installation: {
+          ...job.installation,
+          installDate: null,
+        },
+      } : job));
+      setInstallDate("");
+      setSheetOpen(false);
+      setSelectedJob(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not remove install date");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const jobsByDay = useMemo(() => {
     const map = new Map<string, CalendarJob[]>();
     for (const job of jobs) {
@@ -553,6 +586,11 @@ export default function JobsCalendarPage() {
             </div>
 
             <div className="flex gap-2">
+              {selectedJob?.installation?.installDate && (
+                <button onClick={clearInstallDate} disabled={saving} className="bg-red-50 text-red-600 font-semibold py-3 px-4 rounded-xl disabled:opacity-50">
+                  Remove date
+                </button>
+              )}
               <button onClick={closeSheet} className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">Cancel</button>
               <button onClick={saveInstallMeta} disabled={saving} className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
                 {saving ? "Saving..." : "Save"}
