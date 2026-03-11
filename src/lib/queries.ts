@@ -118,6 +118,27 @@ export const JOB_QUERY = `
         consentNumber
         files_Other
       }
+      totalPriceManagerOverride
+      additionalInstallments {
+        _id
+        amount
+        date
+      }
+      depositInvoice {
+        _id
+        xeroInvoiceNumber
+        xeroInvoiceId
+      }
+      finalInvoice {
+        _id
+        xeroInvoiceNumber
+        xeroInvoiceId
+      }
+      additionalInstallmentInvoices {
+        _id
+        xeroInvoiceNumber
+        xeroInvoiceId
+      }
       client {
         _id
         contactDetails {

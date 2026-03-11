@@ -22,6 +22,11 @@ interface Job {
   _id: string; jobNumber: number; stage: string; notes?: string; updatedAt: string; archivedAt?: string;
   installation?: { installDate?: string; installNote?: string; installStatus?: string; checkSheetSignedAsComplete?: boolean };
   council?: { _id?: string; consentNumber?: string; files_Other?: string[] };
+  totalPriceManagerOverride?: number | null;
+  additionalInstallments?: { _id?: string; amount?: number; date?: string }[];
+  depositInvoice?: { _id?: string; xeroInvoiceNumber?: string; xeroInvoiceId?: string } | null;
+  finalInvoice?: { _id?: string; xeroInvoiceNumber?: string; xeroInvoiceId?: string } | null;
+  additionalInstallmentInvoices?: { _id?: string; xeroInvoiceNumber?: string; xeroInvoiceId?: string }[];
   lead?: {
     leadStatus?: string; leadSource?: string[];
     allocatedTo?: { _id: string; firstname: string; lastname: string };
@@ -248,6 +253,7 @@ export default function JobDetailPage() {
   const [quoteBookingDate, setQuoteBookingDate] = useState("");
   const [installDate, setInstallDate] = useState("");
   const [consentNumber, setConsentNumber] = useState("");
+  const [creatingFinalInvoice, setCreatingFinalInvoice] = useState(false);
 
   // Selected salesperson
   const [selectedUserId, setSelectedUserId] = useState("");
@@ -914,6 +920,42 @@ export default function JobDetailPage() {
     }
   }
 
+  async function createFinalInvoiceInXero() {
+    setCreatingFinalInvoice(true);
+    setError("");
+    try {
+      await gql(
+        `mutation CreateFinalInvoices($_id: ObjectId!, $finalInvoiceInput: FinalInvoiceInput!, $stepJobStage: Boolean!) {
+          createFinalInvoices(_id: $_id, finalInvoiceInput: $finalInvoiceInput, stepJobStage: $stepJobStage) {
+            _id
+            stage
+            finalInvoice { _id xeroInvoiceNumber xeroInvoiceId }
+          }
+        }`,
+        {
+          _id: id,
+          stepJobStage: false,
+          finalInvoiceInput: {
+            managerOverride: job?.totalPriceManagerOverride ?? 1,
+            additionalInstallments: (job?.additionalInstallments || []).map((i) => ({
+              amount: i.amount,
+              date: i.date,
+            })),
+          },
+        }
+      );
+      await load();
+      closeSheet();
+      const msg = { type: "success" as const, text: "Final invoice created in Xero." };
+      setNotice(msg);
+      setToast(msg);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create final invoice in Xero");
+    } finally {
+      setCreatingFinalInvoice(false);
+    }
+  }
+
   async function loadQuoteEmailTemplate() {
     setLoadingQuoteEmailBody(true);
     let template = "Please find your insulation quote attached.";
@@ -1090,9 +1132,14 @@ export default function JobDetailPage() {
     },
     {
       title: "Trigger final invoice creation in Xero",
-      description: "Backend/Xero action not yet proven in the new UI",
-      status: "Not yet wired",
-      wired: false,
+      description: job.finalInvoice?.xeroInvoiceNumber
+        ? `Created in Xero as ${job.finalInvoice.xeroInvoiceNumber}`
+        : "Create the final invoice in Xero without progressing the job state",
+      status: job.finalInvoice?.xeroInvoiceId ? "Created" : creatingFinalInvoice ? "Creating..." : "Ready",
+      wired: true,
+      actionLabel: job.finalInvoice?.xeroInvoiceId ? undefined : "Create final invoice",
+      action: job.finalInvoice?.xeroInvoiceId ? undefined : () => openSheet("finalInvoiceConfirm"),
+      disabled: creatingFinalInvoice,
     },
     {
       title: "Download completion certificate",
@@ -1769,6 +1816,26 @@ export default function JobDetailPage() {
           <button onClick={saveConsentNumber} disabled={saving}
             className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
             {saving ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </BottomSheet>
+
+      <BottomSheet open={sheet === "finalInvoiceConfirm"} onClose={closeSheet} title="Create Final Invoice in Xero">
+        <div className="space-y-3 text-sm text-gray-600">
+          <p>This will create the final invoice in Xero for this job.</p>
+          <div className="rounded-xl bg-gray-50 border border-gray-200 p-3 space-y-1">
+            <div><span className="font-semibold text-gray-800">Job:</span> #{job.jobNumber}</div>
+            <div><span className="font-semibold text-gray-800">Customer:</span> {c?.name || "Unknown"}</div>
+            <div><span className="font-semibold text-gray-800">Stage after action:</span> {job.stage} (unchanged)</div>
+            <div><span className="font-semibold text-gray-800">Deposit invoice:</span> {job.depositInvoice?.xeroInvoiceNumber || "Not found"}</div>
+            <div><span className="font-semibold text-gray-800">Final invoice:</span> {job.finalInvoice?.xeroInvoiceNumber || "Not yet created"}</div>
+          </div>
+        </div>
+        <div className="flex gap-2 mt-4">
+          <button onClick={closeSheet} className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">Cancel</button>
+          <button onClick={createFinalInvoiceInXero} disabled={creatingFinalInvoice}
+            className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
+            {creatingFinalInvoice ? "Creating..." : "Create final invoice"}
           </button>
         </div>
       </BottomSheet>
