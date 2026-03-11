@@ -52,7 +52,6 @@ export const JOBS_QUERY = `
         }
         finalInvoice {
           _id
-          xeroInvoiceNumber
         }
         certificateSentAt
         client {
