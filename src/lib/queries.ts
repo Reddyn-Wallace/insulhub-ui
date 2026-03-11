@@ -142,17 +142,14 @@ export const JOB_QUERY = `
       depositInvoice {
         _id
         xeroInvoiceNumber
-        xeroInvoiceId
       }
       finalInvoice {
         _id
         xeroInvoiceNumber
-        xeroInvoiceId
       }
       additionalInstallmentInvoices {
         _id
         xeroInvoiceNumber
-        xeroInvoiceId
       }
       client {
         _id
