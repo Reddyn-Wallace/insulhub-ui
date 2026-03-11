@@ -1433,12 +1433,14 @@ export default function JobDetailPage() {
                       </span>
                     </div>
                     {item.title === "Upload Council Application" ? (
-                      <div className="mt-3 space-y-3">
-                        <label className="block border-2 border-dashed border-gray-200 rounded-2xl p-4 text-center bg-gray-50 hover:bg-gray-100 transition cursor-pointer">
-                          <input type="file" onChange={(e) => uploadCompletionFiles(e.target.files)} disabled={uploadingCompletionFiles} className="hidden" />
-                          <div className="text-sm font-semibold text-gray-700">{uploadingCompletionFiles ? "Uploading file..." : "Upload file"}</div>
-                          <div className="text-xs text-gray-500 mt-1">Usually one PDF for the council application</div>
-                        </label>
+                      <div className="mt-3 border border-gray-200 rounded-xl p-3 space-y-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-xs text-gray-500">Usually one PDF for the council application</div>
+                          <label className="inline-flex items-center px-3 py-2 rounded-lg bg-[#1a3a4a] text-white text-sm font-semibold cursor-pointer hover:opacity-95">
+                            <input type="file" onChange={(e) => uploadCompletionFiles(e.target.files)} disabled={uploadingCompletionFiles} className="hidden" />
+                            {uploadingCompletionFiles ? "Uploading..." : "Upload file"}
+                          </label>
+                        </div>
 
                         {uploadingCompletionFiles && (
                           <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3">
@@ -1453,28 +1455,27 @@ export default function JobDetailPage() {
                           </div>
                         )}
 
-                        <div className="border border-gray-200 rounded-xl p-3">
-                          <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Uploaded council application files</div>
-                          <div className="space-y-2">
-                            {(job.council?.files_Other || []).map((f) => (
-                              <div key={f} className="flex items-center justify-between gap-3 text-sm">
-                                <a href={fileUrl(f)} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline truncate max-w-[70%]">{f}</a>
-                                <button onClick={() => removeCompletionFile(f)} className="text-xs text-red-600 font-medium">Remove</button>
-                              </div>
-                            ))}
-                            {(!job.council?.files_Other || job.council.files_Other.length === 0) && (
-                              <p className="text-xs text-gray-400">No council application files uploaded yet.</p>
-                            )}
-                          </div>
+                        <div className="space-y-2">
+                          {(job.council?.files_Other || []).map((f) => (
+                            <div key={f} className="flex items-center justify-between gap-3 text-sm">
+                              <a href={fileUrl(f)} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline truncate max-w-[70%]">{f}</a>
+                              <button onClick={() => removeCompletionFile(f)} className="text-xs text-red-600 font-medium">Remove</button>
+                            </div>
+                          ))}
+                          {(!job.council?.files_Other || job.council.files_Other.length === 0) && (
+                            <p className="text-xs text-gray-400">No council application files uploaded yet.</p>
+                          )}
                         </div>
                       </div>
                     ) : item.title === "Upload Council Approval" ? (
-                      <div className="mt-3 space-y-3">
-                        <label className="block border-2 border-dashed border-gray-200 rounded-2xl p-4 text-center bg-gray-50 hover:bg-gray-100 transition cursor-pointer">
-                          <input type="file" onChange={(e) => uploadCouncilApprovalFiles(e.target.files)} disabled={uploadingCouncilApproval} className="hidden" />
-                          <div className="text-sm font-semibold text-gray-700">{uploadingCouncilApproval ? "Uploading approval..." : "Upload file"}</div>
-                          <div className="text-xs text-gray-500 mt-1">Usually one council approval PDF</div>
-                        </label>
+                      <div className="mt-3 border border-gray-200 rounded-xl p-3 space-y-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-xs text-gray-500">Usually one council approval PDF</div>
+                          <label className="inline-flex items-center px-3 py-2 rounded-lg bg-[#1a3a4a] text-white text-sm font-semibold cursor-pointer hover:opacity-95">
+                            <input type="file" onChange={(e) => uploadCouncilApprovalFiles(e.target.files)} disabled={uploadingCouncilApproval} className="hidden" />
+                            {uploadingCouncilApproval ? "Uploading..." : "Upload file"}
+                          </label>
+                        </div>
 
                         {uploadingCouncilApproval && (
                           <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3">
@@ -1489,19 +1490,16 @@ export default function JobDetailPage() {
                           </div>
                         )}
 
-                        <div className="border border-gray-200 rounded-xl p-3">
-                          <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Uploaded council approval files</div>
-                          <div className="space-y-2">
-                            {(job.council?.files_CouncilApprovalLetters || []).map((f) => (
-                              <div key={f} className="flex items-center justify-between gap-3 text-sm">
-                                <a href={fileUrl(f)} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline truncate max-w-[70%]">{f}</a>
-                                <button onClick={() => removeCouncilApprovalFile(f)} className="text-xs text-red-600 font-medium">Remove</button>
-                              </div>
-                            ))}
-                            {(!job.council?.files_CouncilApprovalLetters || job.council.files_CouncilApprovalLetters.length === 0) && (
-                              <p className="text-xs text-gray-400">No council approval files uploaded yet.</p>
-                            )}
-                          </div>
+                        <div className="space-y-2">
+                          {(job.council?.files_CouncilApprovalLetters || []).map((f) => (
+                            <div key={f} className="flex items-center justify-between gap-3 text-sm">
+                              <a href={fileUrl(f)} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline truncate max-w-[70%]">{f}</a>
+                              <button onClick={() => removeCouncilApprovalFile(f)} className="text-xs text-red-600 font-medium">Remove</button>
+                            </div>
+                          ))}
+                          {(!job.council?.files_CouncilApprovalLetters || job.council.files_CouncilApprovalLetters.length === 0) && (
+                            <p className="text-xs text-gray-400">No council approval files uploaded yet.</p>
+                          )}
                         </div>
                       </div>
                     ) : item.actionLabel && item.action ? (
