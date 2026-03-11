@@ -255,6 +255,7 @@ export default function JobDetailPage() {
   const [installDate, setInstallDate] = useState("");
   const [consentNumber, setConsentNumber] = useState("");
   const [creatingFinalInvoice, setCreatingFinalInvoice] = useState(false);
+  const [managerOverride, setManagerOverride] = useState("");
 
   // Selected salesperson
   const [selectedUserId, setSelectedUserId] = useState("");
@@ -925,6 +926,16 @@ export default function JobDetailPage() {
     setCreatingFinalInvoice(true);
     setError("");
     try {
+      const finalInvoiceInput: Record<string, unknown> = {
+        additionalInstallments: (job?.additionalInstallments || []).map((i) => ({
+          amount: i.amount,
+          date: i.date,
+        })),
+      };
+      if (managerOverride.trim() !== "") {
+        finalInvoiceInput.managerOverride = Number(managerOverride);
+      }
+
       await gql(
         `mutation CreateFinalInvoices($_id: ObjectId!, $finalInvoiceInput: FinalInvoiceInput!, $stepJobStage: Boolean!) {
           createFinalInvoices(_id: $_id, finalInvoiceInput: $finalInvoiceInput, stepJobStage: $stepJobStage) {
@@ -936,13 +947,7 @@ export default function JobDetailPage() {
         {
           _id: id,
           stepJobStage: false,
-          finalInvoiceInput: {
-            managerOverride: job?.totalPriceManagerOverride ?? 1,
-            additionalInstallments: (job?.additionalInstallments || []).map((i) => ({
-              amount: i.amount,
-              date: i.date,
-            })),
-          },
+          finalInvoiceInput,
         }
       );
       await load();
@@ -1139,7 +1144,10 @@ export default function JobDetailPage() {
       status: job.finalInvoice?.xeroInvoiceId ? "Created" : creatingFinalInvoice ? "Creating..." : "Ready",
       wired: true,
       actionLabel: job.finalInvoice?.xeroInvoiceId ? undefined : "Create final invoice",
-      action: job.finalInvoice?.xeroInvoiceId ? undefined : () => openSheet("finalInvoiceConfirm"),
+      action: job.finalInvoice?.xeroInvoiceId ? undefined : () => {
+        setManagerOverride(job.totalPriceManagerOverride != null ? String(job.totalPriceManagerOverride) : "");
+        openSheet("finalInvoiceConfirm");
+      },
       disabled: creatingFinalInvoice,
     },
     {
@@ -1852,10 +1860,14 @@ export default function JobDetailPage() {
 
           <div className="space-y-2">
             <label className="block text-sm font-medium text-gray-700">Manager Total Override</label>
-            <div className="rounded-2xl border border-gray-200 bg-white px-4 py-4 text-2xl font-semibold text-gray-900">
-              {fmtCurrency(job.totalPriceManagerOverride ?? 1)}
-            </div>
-            <p className="text-xs text-gray-500">This action will create the final invoice in Xero and keep the job stage as {job.stage}.</p>
+            <input
+              value={managerOverride}
+              onChange={(e) => setManagerOverride(e.target.value)}
+              inputMode="decimal"
+              placeholder="Leave blank unless you need an override"
+              className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-4 text-xl font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+            />
+            <p className="text-xs text-gray-500">Leave blank for no override. This action will create the final invoice in Xero and keep the job stage as {job.stage}.</p>
           </div>
 
           <div className="flex gap-2 mt-2">
