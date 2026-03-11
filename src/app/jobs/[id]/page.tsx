@@ -829,6 +829,16 @@ export default function JobDetailPage() {
     window.open(`${API_BASE}/pdf/eba?${params.toString()}`, "_blank");
   }
 
+  function openCompletionCertificatePdf() {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    if (!token) {
+      setError("Missing auth token");
+      return;
+    }
+    const params = new URLSearchParams({ jobId: id, token });
+    window.open(`${API_BASE}/pdf/certificate?${params.toString()}`, "_blank");
+  }
+
   async function saveQuoteAndOpenEBA() {
     if (!quoteForm.quoteNumber || !quoteForm.date || (!quoteForm.hasWall && !quoteForm.hasCeiling)) {
       setNotice({ type: "error", text: "Add quote data first (quote number, date, and wall/ceiling values)." });
@@ -1152,9 +1162,11 @@ export default function JobDetailPage() {
     },
     {
       title: "Download completion certificate",
-      description: "Certificate download action not yet proven in the new UI",
-      status: "Not yet wired",
-      wired: false,
+      description: "Open the completion certificate PDF for this job",
+      status: "Ready",
+      wired: true,
+      actionLabel: "Open certificate",
+      action: openCompletionCertificatePdf,
     },
     {
       title: "Send completion pack to customer",
