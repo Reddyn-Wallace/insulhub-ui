@@ -15,6 +15,7 @@ interface Job {
     complete?: boolean;
     clientApproved?: boolean;
   };
+  ebaLastSentAt?: string;
   council?: {
     files_Other?: string[];
     files_CouncilApprovalLetters?: string[];
@@ -138,9 +139,11 @@ export default function JobCard({ job }: { job: Job }) {
   const cardStyle = STATUS_STYLE[cardState] || STATUS_STYLE.NEW;
   const ebaStatus = job.ebaForm?.clientApproved
     ? "Signed"
-    : job.ebaForm?.complete
-      ? "Finalised"
-      : "Not started";
+    : job.ebaLastSentAt
+      ? "Sent"
+      : job.ebaForm?.complete
+        ? "Assessed"
+        : "Not started";
   const councilStatus = job.certificateSentAt
     ? "Sent to customer"
     : job.council?.files_CouncilApprovalLetters?.length
@@ -153,9 +156,11 @@ export default function JobCard({ job }: { job: Job }) {
   const workflowTone = {
     eba: job.ebaForm?.clientApproved
       ? "bg-emerald-100 text-emerald-700"
-      : job.ebaForm?.complete
-        ? "bg-amber-100 text-amber-700"
-        : "bg-slate-100 text-slate-600",
+      : job.ebaLastSentAt
+        ? "bg-blue-100 text-blue-700"
+        : job.ebaForm?.complete
+          ? "bg-amber-100 text-amber-700"
+          : "bg-slate-100 text-slate-600",
     council: job.certificateSentAt
       ? "bg-emerald-100 text-emerald-700"
       : job.council?.files_CouncilApprovalLetters?.length

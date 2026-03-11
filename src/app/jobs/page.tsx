@@ -12,6 +12,17 @@ import LoadingSkeleton from "@/components/LoadingSkeleton";
 const PAGE_SIZE = 40;
 const STAGE_CACHE_TTL_MS = 30 * 60 * 1000;
 const SORT_PREFERENCE_KEY = "jobs-sort-order";
+const EMAIL_LOGS_QUERY = `
+  query EmailLogs($skip: Int, $limit: Int) {
+    listEmailLogs(skip: $skip, limit: $limit) {
+      results {
+        createdAt
+        type
+        to_email
+      }
+    }
+  }
+`;
 
 
 interface User {
@@ -29,6 +40,7 @@ interface Job {
   updatedAt: string;
   archivedAt?: string;
   quoteLastSentAt?: string;
+  ebaLastSentAt?: string;
   installation?: {
     installDate?: string;
   };
@@ -54,6 +66,12 @@ interface Job {
 
 interface JobsData {
   jobs: { total: number; results: Job[] };
+}
+
+interface EmailLogData {
+  listEmailLogs: {
+    results: { createdAt?: string; type?: string; to_email?: string }[];
+  };
 }
 
 function JobsPageContent() {
