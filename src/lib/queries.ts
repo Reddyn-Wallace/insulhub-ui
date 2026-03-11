@@ -42,6 +42,20 @@ export const JOBS_QUERY = `
         installation {
           installDate
         }
+        ebaForm {
+          complete
+          clientApproved
+        }
+        council {
+          files_Other
+          files_CouncilApprovalLetters
+        }
+        finalInvoice {
+          _id
+          xeroInvoiceId
+          xeroInvoiceNumber
+        }
+        certificateSentAt
         client {
           contactDetails {
             name

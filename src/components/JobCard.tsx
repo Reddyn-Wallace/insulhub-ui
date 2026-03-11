@@ -11,6 +11,20 @@ interface Job {
   installation?: {
     installDate?: string;
   };
+  ebaForm?: {
+    complete?: boolean;
+    clientApproved?: boolean;
+  };
+  council?: {
+    files_Other?: string[];
+    files_CouncilApprovalLetters?: string[];
+  };
+  finalInvoice?: {
+    _id?: string;
+    xeroInvoiceId?: string;
+    xeroInvoiceNumber?: string;
+  } | null;
+  certificateSentAt?: string;
   lead?: {
     leadStatus?: string;
     allocatedTo?: { _id: string; firstname: string; lastname: string };
@@ -123,6 +137,19 @@ export default function JobCard({ job }: { job: Job }) {
         : leadStatus;
 
   const cardStyle = STATUS_STYLE[cardState] || STATUS_STYLE.NEW;
+  const ebaStatus = job.ebaForm?.clientApproved
+    ? "Signed"
+    : job.ebaForm?.complete
+      ? "Sent"
+      : "Finalised";
+  const councilStatus = job.certificateSentAt
+    ? "Sent to customer"
+    : job.council?.files_CouncilApprovalLetters?.length
+      ? "Approved"
+      : job.council?.files_Other?.length
+        ? "Submitted"
+        : "Not started";
+  const finalInvoiceStatus = job.finalInvoice?.xeroInvoiceId ? "Sent" : "Not sent";
 
   const callbackIso = (leadStatus === "CALLBACK" || quoteState === "CALLBACK")
     ? (job.stage === "QUOTE" ? (job.quote?.deferralDate || job.lead?.callbackDate) : job.lead?.callbackDate)
@@ -138,9 +165,6 @@ export default function JobCard({ job }: { job: Job }) {
         <div className="flex items-start justify-between gap-2 mb-1">
           <p className="font-semibold text-gray-900 text-base leading-tight">{c?.name || "Unknown"}</p>
           <div className="flex items-center gap-1.5">
-            {!isJobsTab && (
-              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${cardStyle.pill}`}>{cardStyle.label}</span>
-            )}
             <span className={`flex-shrink-0 text-xs font-medium px-2 py-0.5 rounded-full ${STAGE_BADGE[job.stage] || "bg-gray-100 text-gray-600"}`}>{STAGE_LABEL[job.stage] || job.stage}</span>
           </div>
         </div>
@@ -167,13 +191,19 @@ export default function JobCard({ job }: { job: Job }) {
           </span>
         </div>
 
-        <div className="mt-1.5 flex flex-wrap gap-3 text-xs font-medium">
-          {callbackIso && <span className={isCallbackOverdue ? "bg-red-50 text-red-700 border border-red-200 px-2 py-0.5 rounded" : "text-orange-600"}>{isCallbackOverdue ? "⚠️ OVERDUE " : ""}Callback: {formatDate(callbackIso)}</span>}
-          {!isJobsTab && job.stage !== "QUOTE" && job.lead?.quoteBookingDate && (
-            <span className={isQuoteBookingOverdue ? "text-red-600" : "text-indigo-600"}>
-              {isQuoteBookingOverdue ? "⚠️ " : ""}Quote booked: {formatDate(job.lead.quoteBookingDate)}
-            </span>
-          )}
+        <div className="mt-2 grid grid-cols-1 gap-1.5 text-xs text-gray-600 bg-gray-50 rounded-xl px-3 py-2">
+          <div className="flex items-center justify-between gap-3">
+            <span className="font-medium text-gray-500">EBA status</span>
+            <span className="font-semibold text-gray-800">{ebaStatus}</span>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="font-medium text-gray-500">Council paperwork status</span>
+            <span className="font-semibold text-gray-800">{councilStatus}</span>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="font-medium text-gray-500">Final invoice</span>
+            <span className="font-semibold text-gray-800">{finalInvoiceStatus}</span>
+          </div>
         </div>
       </div>
     </Link>
