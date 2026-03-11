@@ -1373,12 +1373,6 @@ export default function JobDetailPage() {
               </div>
             </Section>
 
-            <Section title="Install Summary">
-              <InfoRow label="Installation Date" value={installDateDisplay} />
-              <InfoRow label="Install Notes" value={installNoteDisplay} />
-              <InfoRow label="EBA Status" value={job.ebaForm?.clientApproved ? "Client signed" : job.ebaForm?.complete ? "Completed and ready to send" : "Draft / not completed"} />
-            </Section>
-
             <Section
               title="Notes"
               action={
