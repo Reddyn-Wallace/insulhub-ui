@@ -1243,7 +1243,7 @@ export default function JobDetailPage() {
                 {completionActions.map((item) => (
                   <div key={item.title} className="border border-gray-100 rounded-xl p-3">
                     <div className="flex items-start justify-between gap-3 mb-1.5">
-                      <div>
+                      <div className="min-w-0 flex-1">
                         <div className="text-sm font-semibold text-gray-900">{item.title}</div>
                         <div className="text-xs text-gray-500 mt-1">{item.description}</div>
                       </div>
@@ -1251,7 +1251,45 @@ export default function JobDetailPage() {
                         {item.status}
                       </span>
                     </div>
-                    {item.actionLabel && item.action && (
+                    {item.title === "Upload customer completion files" ? (
+                      <div className="mt-3 space-y-3">
+                        <label className="block border-2 border-dashed border-gray-200 rounded-2xl p-4 text-center bg-gray-50 hover:bg-gray-100 transition cursor-pointer">
+                          <input type="file" multiple onChange={(e) => uploadCompletionFiles(e.target.files)} disabled={uploadingCompletionFiles} className="hidden" />
+                          <div className="text-sm font-semibold text-gray-700">{uploadingCompletionFiles ? `Uploading... ${completionUploadProgress}%` : "Upload files"}</div>
+                          <div className="text-xs text-gray-500 mt-1">PDFs, images, council docs, acceptance letters, and other customer files</div>
+                        </label>
+
+                        {uploadingCompletionFiles && (
+                          <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3">
+                            <div className="flex items-center justify-between gap-3 mb-2">
+                              <div className="flex items-center gap-3">
+                                <div className="h-4 w-4 rounded-full border-2 border-[#e85d04] border-t-transparent animate-spin" />
+                                <div className="text-sm font-semibold text-[#9a3412]">Uploading customer completion files</div>
+                              </div>
+                              <div className="text-sm font-bold text-[#9a3412]">{completionUploadProgress}%</div>
+                            </div>
+                            <div className="h-2 bg-orange-100 rounded-full overflow-hidden">
+                              <div className="h-full bg-[#e85d04] transition-all duration-200" style={{ width: `${completionUploadProgress}%` }} />
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="border border-gray-200 rounded-xl p-3">
+                          <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Uploaded files</div>
+                          <div className="space-y-2">
+                            {(job.council?.files_Other || []).map((f) => (
+                              <div key={f} className="flex items-center justify-between gap-3 text-sm">
+                                <a href={fileUrl(f)} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline truncate max-w-[70%]">{f}</a>
+                                <button onClick={() => removeCompletionFile(f)} className="text-xs text-red-600 font-medium">Remove</button>
+                              </div>
+                            ))}
+                            {(!job.council?.files_Other || job.council.files_Other.length === 0) && (
+                              <p className="text-xs text-gray-400">No customer completion files uploaded yet.</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ) : item.actionLabel && item.action ? (
                       <button
                         onClick={item.action}
                         disabled={item.disabled}
@@ -1259,7 +1297,7 @@ export default function JobDetailPage() {
                       >
                         {item.actionLabel}
                       </button>
-                    )}
+                    ) : null}
                   </div>
                 ))}
               </div>
@@ -1269,44 +1307,6 @@ export default function JobDetailPage() {
               <InfoRow label="Installation Date" value={installDateDisplay} />
               <InfoRow label="Install Notes" value={installNoteDisplay} />
               <InfoRow label="EBA Status" value={job.ebaForm?.clientApproved ? "Client signed" : job.ebaForm?.complete ? "Completed and ready to send" : "Draft / not completed"} />
-            </Section>
-
-            <Section title="Customer Completion Files">
-              <label className="block border-2 border-dashed border-gray-200 rounded-2xl p-5 text-center bg-gray-50 hover:bg-gray-100 transition cursor-pointer">
-                <input type="file" multiple onChange={(e) => uploadCompletionFiles(e.target.files)} disabled={uploadingCompletionFiles} className="hidden" />
-                <div className="text-sm font-semibold text-gray-700">{uploadingCompletionFiles ? `Uploading... ${completionUploadProgress}%` : "Upload files"}</div>
-                <div className="text-xs text-gray-500 mt-1">PDFs, images, council docs, acceptance letters, and other customer files</div>
-              </label>
-
-              {uploadingCompletionFiles && (
-                <div className="mt-3 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3">
-                  <div className="flex items-center justify-between gap-3 mb-2">
-                    <div className="flex items-center gap-3">
-                      <div className="h-4 w-4 rounded-full border-2 border-[#e85d04] border-t-transparent animate-spin" />
-                      <div className="text-sm font-semibold text-[#9a3412]">Uploading customer completion files</div>
-                    </div>
-                    <div className="text-sm font-bold text-[#9a3412]">{completionUploadProgress}%</div>
-                  </div>
-                  <div className="h-2 bg-orange-100 rounded-full overflow-hidden">
-                    <div className="h-full bg-[#e85d04] transition-all duration-200" style={{ width: `${completionUploadProgress}%` }} />
-                  </div>
-                </div>
-              )}
-
-              <div className="mt-3 border border-gray-200 rounded-xl p-3">
-                <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Uploaded files</div>
-                <div className="space-y-2">
-                  {(job.council?.files_Other || []).map((f) => (
-                    <div key={f} className="flex items-center justify-between gap-3 text-sm">
-                      <a href={fileUrl(f)} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline truncate max-w-[70%]">{f}</a>
-                      <button onClick={() => removeCompletionFile(f)} className="text-xs text-red-600 font-medium">Remove</button>
-                    </div>
-                  ))}
-                  {(!job.council?.files_Other || job.council.files_Other.length === 0) && (
-                    <p className="text-xs text-gray-400">No customer completion files uploaded yet.</p>
-                  )}
-                </div>
-              </div>
             </Section>
 
             <Section
