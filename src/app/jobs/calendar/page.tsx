@@ -13,6 +13,8 @@ interface CalendarJob {
   installation?: {
     installDate?: string | null;
     installNote?: string | null;
+    installStatus?: string | null;
+    checkSheetSignedAsComplete?: boolean | null;
   };
   client?: {
     contactDetails?: {
@@ -48,6 +50,8 @@ const CALENDAR_JOBS_QUERY = `
         installation {
           installDate
           installNote
+          installStatus
+          checkSheetSignedAsComplete
         }
         client {
           contactDetails {
@@ -71,6 +75,19 @@ const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const UPDATE_JOB_NOTES = `
   mutation UpdateJobNotes($input: UpdateJobInput!) {
     updateJob(input: $input) { _id notes }
+  }
+`;
+const UPDATE_INSTALLATION = `
+  mutation UpdateInstallation($input: UpdateJobInput!) {
+    updateJob(input: $input) {
+      _id
+      installation {
+        installDate
+        installNote
+        installStatus
+        checkSheetSignedAsComplete
+      }
+    }
   }
 `;
 const INSTALL_META_START = "[INSTALL_META]";
@@ -180,6 +197,19 @@ function buildNotesWithInstallMeta(existingNotes: string | null | undefined, sta
   return cleaned ? `${cleaned}\n\n${block}` : block;
 }
 
+function toDatetimeLocal(iso?: string | null) {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
+function fromDatetimeLocal(value: string) {
+  if (!value) return null;
+  return new Date(value).toISOString();
+}
+
 export default function JobsCalendarPage() {
   const router = useRouter();
   const [monthCursor, setMonthCursor] = useState(() => startOfMonth(new Date()));
@@ -190,6 +220,7 @@ export default function JobsCalendarPage() {
   const [selectedJob, setSelectedJob] = useState<CalendarJob | null>(null);
   const [installStatus, setInstallStatus] = useState<"confirmed" | "pencilled">("confirmed");
   const [installMetaNote, setInstallMetaNote] = useState("");
+  const [installDate, setInstallDate] = useState("");
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -226,6 +257,7 @@ export default function JobsCalendarPage() {
     setSelectedJob(job);
     setInstallStatus(meta.status);
     setInstallMetaNote(meta.note);
+    setInstallDate(toDatetimeLocal(job.installation?.installDate));
     setSheetOpen(true);
   };
 
@@ -241,8 +273,29 @@ export default function JobsCalendarPage() {
     setError("");
     try {
       const nextNotes = buildNotesWithInstallMeta(selectedJob.notes, installStatus, installMetaNote);
-      await gql(UPDATE_JOB_NOTES, { input: { _id: selectedJob._id, notes: nextNotes } });
-      setJobs((prev) => prev.map((job) => job._id === selectedJob._id ? { ...job, notes: nextNotes } : job));
+      const nextInstallDate = fromDatetimeLocal(installDate);
+      await Promise.all([
+        gql(UPDATE_JOB_NOTES, { input: { _id: selectedJob._id, notes: nextNotes } }),
+        gql(UPDATE_INSTALLATION, {
+          input: {
+            _id: selectedJob._id,
+            installation: {
+              installDate: nextInstallDate,
+              installNote: selectedJob.installation?.installNote || "",
+              installStatus: selectedJob.installation?.installStatus || "JOB_NOT_STARTED_YET",
+              checkSheetSignedAsComplete: selectedJob.installation?.checkSheetSignedAsComplete ?? false,
+            },
+          },
+        }),
+      ]);
+      setJobs((prev) => prev.map((job) => job._id === selectedJob._id ? {
+        ...job,
+        notes: nextNotes,
+        installation: {
+          ...job.installation,
+          installDate: nextInstallDate,
+        },
+      } : job));
       setSheetOpen(false);
       setSelectedJob(null);
     } catch (err) {
@@ -457,6 +510,16 @@ export default function JobsCalendarPage() {
             <div>
               <div className="text-sm font-semibold text-gray-900">{selectedJob.client?.contactDetails?.name || `Job #${selectedJob.jobNumber}`}</div>
               <div className="text-xs text-gray-500 mt-1">Job #{selectedJob.jobNumber} • {address(selectedJob) || "No address"}</div>
+            </div>
+
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Installation date</div>
+              <input
+                type="datetime-local"
+                value={installDate}
+                onChange={(e) => setInstallDate(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+              />
             </div>
 
             <div>
