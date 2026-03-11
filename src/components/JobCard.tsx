@@ -139,8 +139,8 @@ export default function JobCard({ job }: { job: Job }) {
   const ebaStatus = job.ebaForm?.clientApproved
     ? "Signed"
     : job.ebaForm?.complete
-      ? "Sent"
-      : "Finalised";
+      ? "Finalised"
+      : "Not started";
   const councilStatus = job.certificateSentAt
     ? "Sent to customer"
     : job.council?.files_CouncilApprovalLetters?.length
@@ -206,20 +206,22 @@ export default function JobCard({ job }: { job: Job }) {
           </span>
         </div>
 
-        <div className="mt-2 grid grid-cols-1 gap-2 text-xs text-gray-600 bg-gray-50 rounded-xl px-3 py-2">
-          <div className="flex items-center justify-between gap-3">
-            <span className="font-medium text-gray-500">EBA status</span>
-            <span className={`font-semibold px-2 py-0.5 rounded-full ${workflowTone.eba}`}>{ebaStatus}</span>
+        {isJobsTab && (
+          <div className="mt-2 grid grid-cols-1 gap-2 text-xs text-gray-600 bg-gray-50 rounded-xl px-3 py-2">
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-medium text-gray-500">EBA status</span>
+              <span className={`font-semibold px-2 py-0.5 rounded-full ${workflowTone.eba}`}>{ebaStatus}</span>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-medium text-gray-500">Council paperwork status</span>
+              <span className={`font-semibold px-2 py-0.5 rounded-full ${workflowTone.council}`}>{councilStatus}</span>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-medium text-gray-500">Final invoice</span>
+              <span className={`font-semibold px-2 py-0.5 rounded-full ${workflowTone.invoice}`}>{finalInvoiceStatus}</span>
+            </div>
           </div>
-          <div className="flex items-center justify-between gap-3">
-            <span className="font-medium text-gray-500">Council paperwork status</span>
-            <span className={`font-semibold px-2 py-0.5 rounded-full ${workflowTone.council}`}>{councilStatus}</span>
-          </div>
-          <div className="flex items-center justify-between gap-3">
-            <span className="font-medium text-gray-500">Final invoice</span>
-            <span className={`font-semibold px-2 py-0.5 rounded-full ${workflowTone.invoice}`}>{finalInvoiceStatus}</span>
-          </div>
-        </div>
+        )}
       </div>
     </Link>
   );
