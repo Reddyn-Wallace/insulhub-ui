@@ -34,6 +34,7 @@ interface Job {
   };
   quote?: {
     quoteNumber?: string; date?: string; c_total?: number; c_deposit?: number;
+    c_contractPrice?: number; c_gst?: number;
     depositPercentage?: number; consentFee?: number; quoteNote?: string; quoteResultNote?: string;
     status?: string;
     deferralDate?: string;
@@ -1821,22 +1822,49 @@ export default function JobDetailPage() {
       </BottomSheet>
 
       <BottomSheet open={sheet === "finalInvoiceConfirm"} onClose={closeSheet} title="Create Final Invoice in Xero">
-        <div className="space-y-3 text-sm text-gray-600">
-          <p>This will create the final invoice in Xero for this job.</p>
-          <div className="rounded-xl bg-gray-50 border border-gray-200 p-3 space-y-1">
-            <div><span className="font-semibold text-gray-800">Job:</span> #{job.jobNumber}</div>
-            <div><span className="font-semibold text-gray-800">Customer:</span> {c?.name || "Unknown"}</div>
-            <div><span className="font-semibold text-gray-800">Stage after action:</span> {job.stage} (unchanged)</div>
-            <div><span className="font-semibold text-gray-800">Deposit invoice:</span> {job.depositInvoice?.xeroInvoiceNumber || "Not found"}</div>
-            <div><span className="font-semibold text-gray-800">Final invoice:</span> {job.finalInvoice?.xeroInvoiceNumber || "Not yet created"}</div>
+        <div className="space-y-5">
+          <div className="text-center space-y-2 text-gray-700">
+            <div className="flex justify-center gap-3 text-base">
+              <span className="text-gray-500">Contract Price:</span>
+              <span className="font-semibold text-gray-900">{fmtCurrency(job.quote?.c_contractPrice)}</span>
+            </div>
+            <div className="flex justify-center gap-3 text-base">
+              <span className="text-gray-500">Consent Fee:</span>
+              <span className="font-semibold text-gray-900">{fmtCurrency(job.quote?.consentFee)}</span>
+            </div>
+            <div className="flex justify-center gap-3 text-base">
+              <span className="text-gray-500">GST:</span>
+              <span className="font-semibold text-gray-900">{fmtCurrency(job.quote?.c_gst)}</span>
+            </div>
+            <div className="flex justify-center gap-3 text-xl">
+              <span className="text-gray-500">Total:</span>
+              <span className="font-bold text-gray-900">= {fmtCurrency(job.quote?.c_total)}</span>
+            </div>
           </div>
-        </div>
-        <div className="flex gap-2 mt-4">
-          <button onClick={closeSheet} className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">Cancel</button>
-          <button onClick={createFinalInvoiceInXero} disabled={creatingFinalInvoice}
-            className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
-            {creatingFinalInvoice ? "Creating..." : "Create final invoice"}
-          </button>
+
+          <div className="flex items-center justify-center gap-3 text-lg">
+            <span className="text-gray-500">Deposit:</span>
+            <span className="font-semibold text-gray-900">{fmtCurrency(job.quote?.c_deposit)}</span>
+            <span className={`text-xs font-semibold px-3 py-1 rounded-full ${job.depositInvoice?.xeroInvoiceId ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+              {job.depositInvoice?.xeroInvoiceId ? "PAID" : "NOT IN XERO"}
+            </span>
+          </div>
+
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-700">Manager Total Override</label>
+            <div className="rounded-2xl border border-gray-200 bg-white px-4 py-4 text-2xl font-semibold text-gray-900">
+              {fmtCurrency(job.totalPriceManagerOverride ?? 1)}
+            </div>
+            <p className="text-xs text-gray-500">This action will create the final invoice in Xero and keep the job stage as {job.stage}.</p>
+          </div>
+
+          <div className="flex gap-2 mt-2">
+            <button onClick={closeSheet} className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">Cancel</button>
+            <button onClick={createFinalInvoiceInXero} disabled={creatingFinalInvoice}
+              className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
+              {creatingFinalInvoice ? "Creating..." : "Create final invoice"}
+            </button>
+          </div>
         </div>
       </BottomSheet>
 
