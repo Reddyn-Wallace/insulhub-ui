@@ -1254,19 +1254,17 @@ export default function JobDetailPage() {
                     {item.title === "Upload customer completion files" ? (
                       <div className="mt-3 space-y-3">
                         <label className="block border-2 border-dashed border-gray-200 rounded-2xl p-4 text-center bg-gray-50 hover:bg-gray-100 transition cursor-pointer">
-                          <input type="file" multiple onChange={(e) => uploadCompletionFiles(e.target.files)} disabled={uploadingCompletionFiles} className="hidden" />
-                          <div className="text-sm font-semibold text-gray-700">{uploadingCompletionFiles ? `Uploading... ${completionUploadProgress}%` : "Upload files"}</div>
-                          <div className="text-xs text-gray-500 mt-1">PDFs, images, council docs, acceptance letters, and other customer files</div>
+                          <input type="file" onChange={(e) => uploadCompletionFiles(e.target.files)} disabled={uploadingCompletionFiles} className="hidden" />
+                          <div className="text-sm font-semibold text-gray-700">{uploadingCompletionFiles ? "Uploading file..." : "Upload file"}</div>
+                          <div className="text-xs text-gray-500 mt-1">Usually one PDF or customer-facing file</div>
                         </label>
 
                         {uploadingCompletionFiles && (
                           <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3">
-                            <div className="flex items-center justify-between gap-3 mb-2">
-                              <div className="flex items-center gap-3">
-                                <div className="h-4 w-4 rounded-full border-2 border-[#e85d04] border-t-transparent animate-spin" />
-                                <div className="text-sm font-semibold text-[#9a3412]">Uploading customer completion files</div>
-                              </div>
-                              <div className="text-sm font-bold text-[#9a3412]">{completionUploadProgress}%</div>
+                            <div className="flex items-center gap-3 mb-2">
+                              <div className="h-4 w-4 rounded-full border-2 border-[#e85d04] border-t-transparent animate-spin" />
+                              <div className="text-sm font-semibold text-[#9a3412]">Uploading file</div>
+                              <div className="ml-auto text-sm font-bold text-[#9a3412]">{completionUploadProgress}%</div>
                             </div>
                             <div className="h-2 bg-orange-100 rounded-full overflow-hidden">
                               <div className="h-full bg-[#e85d04] transition-all duration-200" style={{ width: `${completionUploadProgress}%` }} />
