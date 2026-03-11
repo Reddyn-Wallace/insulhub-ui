@@ -21,7 +21,6 @@ interface Job {
   };
   finalInvoice?: {
     _id?: string;
-    xeroInvoiceId?: string;
     xeroInvoiceNumber?: string;
   } | null;
   certificateSentAt?: string;
@@ -149,7 +148,7 @@ export default function JobCard({ job }: { job: Job }) {
       : job.council?.files_Other?.length
         ? "Submitted"
         : "Not started";
-  const finalInvoiceStatus = job.finalInvoice?.xeroInvoiceId ? "Sent" : "Not sent";
+  const finalInvoiceStatus = job.finalInvoice?.xeroInvoiceNumber || job.finalInvoice?._id ? "Sent" : "Not sent";
 
   const callbackIso = (leadStatus === "CALLBACK" || quoteState === "CALLBACK")
     ? (job.stage === "QUOTE" ? (job.quote?.deferralDate || job.lead?.callbackDate) : job.lead?.callbackDate)
