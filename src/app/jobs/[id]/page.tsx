@@ -21,7 +21,7 @@ interface ContactDetails {
 interface Job {
   _id: string; jobNumber: number; stage: string; notes?: string; updatedAt: string; archivedAt?: string; certificateSentAt?: string;
   installation?: { installDate?: string; installNote?: string; installStatus?: string; checkSheetSignedAsComplete?: boolean };
-  council?: { _id?: string; consentNumber?: string; files_Other?: string[] };
+  council?: { _id?: string; consentNumber?: string; files_Other?: string[]; files_CouncilApprovalLetters?: string[] };
   totalPriceManagerOverride?: number | null;
   additionalInstallments?: { _id?: string; amount?: number; date?: string }[];
   depositInvoice?: { _id?: string; xeroInvoiceNumber?: string; xeroInvoiceId?: string } | null;
@@ -221,6 +221,8 @@ export default function JobDetailPage() {
   const [uploadingSitePlan, setUploadingSitePlan] = useState(false);
   const [uploadingCompletionFiles, setUploadingCompletionFiles] = useState(false);
   const [completionUploadProgress, setCompletionUploadProgress] = useState(0);
+  const [uploadingCouncilApproval, setUploadingCouncilApproval] = useState(false);
+  const [councilApprovalProgress, setCouncilApprovalProgress] = useState(0);
   const [error, setError] = useState("");
 
   // Sheet visibility
@@ -765,11 +767,17 @@ export default function JobDetailPage() {
     await run(() => gql(REMOVE_FILE, { _id: id, documentType: "QUOTE_SITE_PLAN", fileName }));
   }
 
-  async function uploadCompletionFiles(files: FileList | null) {
+  async function uploadTrackedFiles(
+    files: FileList | null,
+    documentType: "OTHER" | "COUNCIL_APPROVAL_LETTER",
+    setUploading: (value: boolean) => void,
+    setProgress: (value: number) => void,
+    successLabel: string,
+  ) {
     if (!files || files.length === 0) return;
     try {
-      setUploadingCompletionFiles(true);
-      setCompletionUploadProgress(0);
+      setUploading(true);
+      setProgress(0);
       const form = new FormData();
       Array.from(files).forEach((f) => form.append("files", f));
 
@@ -779,7 +787,7 @@ export default function JobDetailPage() {
         xhr.setRequestHeader("x-token", getToken());
         xhr.upload.onprogress = (event) => {
           if (!event.lengthComputable) return;
-          setCompletionUploadProgress(Math.round((event.loaded / event.total) * 100));
+          setProgress(Math.round((event.loaded / event.total) * 100));
         };
         xhr.onload = () => {
           try {
@@ -796,23 +804,36 @@ export default function JobDetailPage() {
 
       const fileNames: string[] = json.fileNames || [];
       if (!fileNames.length) throw new Error("Upload failed");
-      await gql(ADD_FILES, { _id: id, documentType: "OTHER", fileNames });
-      setCompletionUploadProgress(100);
+      await gql(ADD_FILES, { _id: id, documentType, fileNames });
+      setProgress(100);
       await load();
-      const msg = { type: "success" as const, text: `Uploaded ${fileNames.length} completion file${fileNames.length === 1 ? "" : "s"}.` };
+      const msg = { type: "success" as const, text: `Uploaded ${fileNames.length} ${successLabel} file${fileNames.length === 1 ? "" : "s"}.` };
       setNotice(msg);
       setToast(msg);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to upload completion files.");
+      setError(err instanceof Error ? err.message : "File upload failed.");
     } finally {
-      setUploadingCompletionFiles(false);
-      setCompletionUploadProgress(0);
+      setUploading(false);
+      setProgress(0);
     }
   }
 
+  async function uploadCompletionFiles(files: FileList | null) {
+    await uploadTrackedFiles(files, "OTHER", setUploadingCompletionFiles, setCompletionUploadProgress, "council application");
+  }
+
+  async function uploadCouncilApprovalFiles(files: FileList | null) {
+    await uploadTrackedFiles(files, "COUNCIL_APPROVAL_LETTER", setUploadingCouncilApproval, setCouncilApprovalProgress, "council approval");
+  }
+
   async function removeCompletionFile(fileName: string) {
-    if (!confirm("Remove this customer completion file?")) return;
+    if (!confirm("Remove this council application file?")) return;
     await run(() => gql(REMOVE_FILE, { _id: id, documentType: "OTHER", fileName }));
+  }
+
+  async function removeCouncilApprovalFile(fileName: string) {
+    if (!confirm("Remove this council approval file?")) return;
+    await run(() => gql(REMOVE_FILE, { _id: id, documentType: "COUNCIL_APPROVAL_LETTER", fileName }));
   }
 
   async function openEBAClientApprovalPage() {
@@ -1174,10 +1195,10 @@ export default function JobDetailPage() {
       action: job.ebaForm?.clientApproved ? openSignedEBAPdf : openEBAClientApprovalPage,
     },
     {
-      title: "Upload customer completion files",
+      title: "Upload Council Application",
       description: job.council?.files_Other?.length
         ? `${job.council.files_Other.length} file${job.council.files_Other.length === 1 ? "" : "s"} uploaded`
-        : "Files to send to customer upon completion",
+        : "Upload council application files",
       status: uploadingCompletionFiles ? `Uploading ${completionUploadProgress}%` : job.council?.files_Other?.length ? "Available" : "Empty",
       wired: true,
     },
@@ -1192,6 +1213,14 @@ export default function JobDetailPage() {
         openSheet("consentNumber");
       },
       disabled: saving,
+    },
+    {
+      title: "Upload Council Approval",
+      description: job.council?.files_CouncilApprovalLetters?.length
+        ? `${job.council.files_CouncilApprovalLetters.length} file${job.council.files_CouncilApprovalLetters.length === 1 ? "" : "s"} uploaded`
+        : "Upload council approval files",
+      status: uploadingCouncilApproval ? `Uploading ${councilApprovalProgress}%` : job.council?.files_CouncilApprovalLetters?.length ? "Available" : "Empty",
+      wired: true,
     },
     {
       title: "View install notes",
@@ -1381,19 +1410,19 @@ export default function JobDetailPage() {
                         {item.status}
                       </span>
                     </div>
-                    {item.title === "Upload customer completion files" ? (
+                    {item.title === "Upload Council Application" ? (
                       <div className="mt-3 space-y-3">
                         <label className="block border-2 border-dashed border-gray-200 rounded-2xl p-4 text-center bg-gray-50 hover:bg-gray-100 transition cursor-pointer">
                           <input type="file" onChange={(e) => uploadCompletionFiles(e.target.files)} disabled={uploadingCompletionFiles} className="hidden" />
                           <div className="text-sm font-semibold text-gray-700">{uploadingCompletionFiles ? "Uploading file..." : "Upload file"}</div>
-                          <div className="text-xs text-gray-500 mt-1">Usually one PDF or customer-facing file</div>
+                          <div className="text-xs text-gray-500 mt-1">Usually one PDF for the council application</div>
                         </label>
 
                         {uploadingCompletionFiles && (
                           <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3">
                             <div className="flex items-center gap-3 mb-2">
                               <div className="h-4 w-4 rounded-full border-2 border-[#e85d04] border-t-transparent animate-spin" />
-                              <div className="text-sm font-semibold text-[#9a3412]">Uploading file</div>
+                              <div className="text-sm font-semibold text-[#9a3412]">Uploading council application</div>
                               <div className="ml-auto text-sm font-bold text-[#9a3412]">{completionUploadProgress}%</div>
                             </div>
                             <div className="h-2 bg-orange-100 rounded-full overflow-hidden">
@@ -1403,7 +1432,7 @@ export default function JobDetailPage() {
                         )}
 
                         <div className="border border-gray-200 rounded-xl p-3">
-                          <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Uploaded files</div>
+                          <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Uploaded council application files</div>
                           <div className="space-y-2">
                             {(job.council?.files_Other || []).map((f) => (
                               <div key={f} className="flex items-center justify-between gap-3 text-sm">
@@ -1412,7 +1441,43 @@ export default function JobDetailPage() {
                               </div>
                             ))}
                             {(!job.council?.files_Other || job.council.files_Other.length === 0) && (
-                              <p className="text-xs text-gray-400">No customer completion files uploaded yet.</p>
+                              <p className="text-xs text-gray-400">No council application files uploaded yet.</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ) : item.title === "Upload Council Approval" ? (
+                      <div className="mt-3 space-y-3">
+                        <label className="block border-2 border-dashed border-gray-200 rounded-2xl p-4 text-center bg-gray-50 hover:bg-gray-100 transition cursor-pointer">
+                          <input type="file" onChange={(e) => uploadCouncilApprovalFiles(e.target.files)} disabled={uploadingCouncilApproval} className="hidden" />
+                          <div className="text-sm font-semibold text-gray-700">{uploadingCouncilApproval ? "Uploading approval..." : "Upload file"}</div>
+                          <div className="text-xs text-gray-500 mt-1">Usually one council approval PDF</div>
+                        </label>
+
+                        {uploadingCouncilApproval && (
+                          <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3">
+                            <div className="flex items-center gap-3 mb-2">
+                              <div className="h-4 w-4 rounded-full border-2 border-[#e85d04] border-t-transparent animate-spin" />
+                              <div className="text-sm font-semibold text-[#9a3412]">Uploading council approval</div>
+                              <div className="ml-auto text-sm font-bold text-[#9a3412]">{councilApprovalProgress}%</div>
+                            </div>
+                            <div className="h-2 bg-orange-100 rounded-full overflow-hidden">
+                              <div className="h-full bg-[#e85d04] transition-all duration-200" style={{ width: `${councilApprovalProgress}%` }} />
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="border border-gray-200 rounded-xl p-3">
+                          <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Uploaded council approval files</div>
+                          <div className="space-y-2">
+                            {(job.council?.files_CouncilApprovalLetters || []).map((f) => (
+                              <div key={f} className="flex items-center justify-between gap-3 text-sm">
+                                <a href={fileUrl(f)} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline truncate max-w-[70%]">{f}</a>
+                                <button onClick={() => removeCouncilApprovalFile(f)} className="text-xs text-red-600 font-medium">Remove</button>
+                              </div>
+                            ))}
+                            {(!job.council?.files_CouncilApprovalLetters || job.council.files_CouncilApprovalLetters.length === 0) && (
+                              <p className="text-xs text-gray-400">No council approval files uploaded yet.</p>
                             )}
                           </div>
                         </div>

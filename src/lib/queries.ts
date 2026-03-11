@@ -118,6 +118,7 @@ export const JOB_QUERY = `
         _id
         consentNumber
         files_Other
+        files_CouncilApprovalLetters
       }
       totalPriceManagerOverride
       additionalInstallments {
