@@ -22,7 +22,6 @@ interface Job {
   };
   finalInvoice?: {
     _id?: string;
-    xeroInvoiceNumber?: string;
   } | null;
   certificateSentAt?: string;
   lead?: {
@@ -151,7 +150,7 @@ export default function JobCard({ job }: { job: Job }) {
       : job.council?.files_Other?.length
         ? "Submitted"
         : "Not started";
-  const finalInvoiceStatus = job.finalInvoice?.xeroInvoiceNumber || job.finalInvoice?._id ? "Sent" : "Not sent";
+  const finalInvoiceStatus = job.finalInvoice?._id ? "Sent" : "Not sent";
 
   const workflowTone = {
     eba: job.ebaForm?.clientApproved
@@ -168,7 +167,7 @@ export default function JobCard({ job }: { job: Job }) {
         : job.council?.files_Other?.length
           ? "bg-amber-100 text-amber-700"
           : "bg-slate-100 text-slate-600",
-    invoice: job.finalInvoice?.xeroInvoiceNumber || job.finalInvoice?._id
+    invoice: job.finalInvoice?._id
       ? "bg-emerald-100 text-emerald-700"
       : "bg-slate-100 text-slate-600",
   };
