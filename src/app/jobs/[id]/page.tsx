@@ -1162,11 +1162,15 @@ export default function JobDetailPage() {
     },
     {
       title: "Download completion certificate",
-      description: "Open the completion certificate PDF for this job",
-      status: "Ready",
+      description: !job.council?.consentNumber
+        ? "Enter a consent number first"
+        : !job.installation?.installDate
+          ? "Set an installation date first"
+          : "Open the completion certificate PDF for this job",
+      status: !job.council?.consentNumber || !job.installation?.installDate ? "Blocked" : "Ready",
       wired: true,
-      actionLabel: "Open certificate",
-      action: openCompletionCertificatePdf,
+      actionLabel: !job.council?.consentNumber || !job.installation?.installDate ? undefined : "Open certificate",
+      action: !job.council?.consentNumber || !job.installation?.installDate ? undefined : openCompletionCertificatePdf,
     },
     {
       title: "Send completion pack to customer",
