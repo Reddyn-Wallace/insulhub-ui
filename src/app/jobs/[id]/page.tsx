@@ -1046,6 +1046,31 @@ export default function JobDetailPage() {
     }
   }
 
+  async function markJobCompleted() {
+    setSaving(true);
+    setError("");
+    try {
+      await gql(
+        `mutation UpdateJobStage($input: UpdateJobInput!) {
+          updateJob(input: $input) {
+            _id
+            stage
+          }
+        }`,
+        { input: { _id: id, stage: "COMPLETED" } }
+      );
+      await load();
+      closeSheet();
+      const msg = { type: "success" as const, text: "Job marked as completed." };
+      setNotice(msg);
+      setToast(msg);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not mark job as completed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function loadQuoteEmailTemplate() {
     setLoadingQuoteEmailBody(true);
     let template = "Please find your insulation quote attached.";
@@ -1289,9 +1314,34 @@ export default function JobDetailPage() {
     },
     {
       title: "Mark as completed",
-      description: "Use once install is finished, invoice/Xero is done, and customer documents have been sent",
-      status: job.stage === "COMPLETED" ? "Completed" : "Not yet wired",
-      wired: false,
+      description: job.stage === "COMPLETED"
+        ? "Job is already completed"
+        : !job.installation?.installDate
+          ? "Set an installation date first"
+          : !job.finalInvoice?.xeroInvoiceId
+            ? "Create the final invoice in Xero first"
+            : !job.certificateSentAt
+              ? "Send the completion pack first"
+              : "Mark the job as completed",
+      status: job.stage === "COMPLETED"
+        ? "Completed"
+        : !job.installation?.installDate || !job.finalInvoice?.xeroInvoiceId || !job.certificateSentAt
+          ? "Blocked"
+          : saving
+            ? "Completing..."
+            : "Ready",
+      wired: true,
+      actionLabel: job.stage === "COMPLETED"
+        ? undefined
+        : !job.installation?.installDate || !job.finalInvoice?.xeroInvoiceId || !job.certificateSentAt
+          ? undefined
+          : "Mark completed",
+      action: job.stage === "COMPLETED"
+        ? undefined
+        : !job.installation?.installDate || !job.finalInvoice?.xeroInvoiceId || !job.certificateSentAt
+          ? undefined
+          : () => openSheet("markCompletedConfirm"),
+      disabled: saving,
     },
   ];
 
@@ -2036,6 +2086,26 @@ export default function JobDetailPage() {
               {creatingFinalInvoice ? "Creating..." : "Create final invoice"}
             </button>
           </div>
+        </div>
+      </BottomSheet>
+
+      <BottomSheet open={sheet === "markCompletedConfirm"} onClose={closeSheet} title="Mark as Completed">
+        <div className="space-y-3 text-sm text-gray-600">
+          <p>This will move the job to <span className="font-semibold text-gray-900">Completed</span>.</p>
+          <div className="rounded-xl bg-gray-50 border border-gray-200 p-3 space-y-1">
+            <div><span className="font-semibold text-gray-800">Job:</span> #{job.jobNumber}</div>
+            <div><span className="font-semibold text-gray-800">Current stage:</span> {job.stage}</div>
+            <div><span className="font-semibold text-gray-800">Install date:</span> {fmtDateTime(job.installation?.installDate) || "Not set"}</div>
+            <div><span className="font-semibold text-gray-800">Final invoice:</span> {job.finalInvoice?.xeroInvoiceNumber || "Not in Xero"}</div>
+            <div><span className="font-semibold text-gray-800">Completion pack:</span> {job.certificateSentAt ? `Sent ${fmtDateTime(job.certificateSentAt)}` : "Not sent"}</div>
+          </div>
+        </div>
+        <div className="flex gap-2 mt-4">
+          <button onClick={closeSheet} className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">Cancel</button>
+          <button onClick={markJobCompleted} disabled={saving}
+            className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
+            {saving ? "Completing..." : "Mark completed"}
+          </button>
         </div>
       </BottomSheet>
 
