@@ -169,6 +169,36 @@ const STATUS_COLORS: Record<string, string> = {
   DEAD: "bg-red-100 text-red-700",
 };
 
+const INSTALL_META_START = "[INSTALL_META]";
+const INSTALL_META_END = "[/INSTALL_META]";
+
+function parseInstallMeta(notes?: string | null): { status: "confirmed" | "pencilled"; note: string } {
+  const text = notes || "";
+  const start = text.indexOf(INSTALL_META_START);
+  const end = text.indexOf(INSTALL_META_END);
+  if (start === -1 || end === -1 || end < start) return { status: "confirmed", note: "" };
+  const body = text.slice(start + INSTALL_META_START.length, end).trim();
+  const statusMatch = body.match(/^status:\s*(.+)$/im);
+  const noteMatch = body.match(/^note:\s*([\s\S]*)$/im);
+  const rawStatus = (statusMatch?.[1] || "confirmed").trim().toLowerCase();
+  return {
+    status: rawStatus === "pencilled" ? "pencilled" : "confirmed",
+    note: (noteMatch?.[1] || "").trim(),
+  };
+}
+
+function stripInstallMeta(notes?: string | null) {
+  const text = notes || "";
+  const block = new RegExp(`\n?${INSTALL_META_START.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([\\s\\S]*?)${INSTALL_META_END.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\n?`, "m");
+  return text.replace(block, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function buildNotesWithInstallMeta(existingNotes: string | null | undefined, status: "confirmed" | "pencilled", note: string) {
+  const cleaned = stripInstallMeta(existingNotes);
+  const block = `${INSTALL_META_START}\nstatus: ${status}\nnote: ${note.trim()}\n${INSTALL_META_END}`;
+  return cleaned ? `${cleaned}\n\n${block}` : block;
+}
+
 // ── Sub-components ─────────────────────────────────────────────────
 function InfoRow({ label, value }: { label: string; value?: string | null }) {
   if (!value) return null;
@@ -258,6 +288,8 @@ export default function JobDetailPage() {
   const [consentNumber, setConsentNumber] = useState("");
   const [creatingFinalInvoice, setCreatingFinalInvoice] = useState(false);
   const [managerOverride, setManagerOverride] = useState("");
+  const [installPlanningStatus, setInstallPlanningStatus] = useState<"confirmed" | "pencilled">("confirmed");
+  const [installPlanningNote, setInstallPlanningNote] = useState("");
 
   // Selected salesperson
   const [selectedUserId, setSelectedUserId] = useState("");
@@ -545,8 +577,26 @@ export default function JobDetailPage() {
     setNoteText("");
   }
 
+  async function saveInstallPlanning() {
+    setSaving(true);
+    try {
+      const nextNotes = buildNotesWithInstallMeta(job?.notes, installPlanningStatus, installPlanningNote);
+      await gql(UPDATE_JOB_NOTES, { input: { _id: id, notes: nextNotes } });
+      await load();
+      closeSheet();
+      const msg = { type: "success" as const, text: "Install planning details saved." };
+      setNotice(msg);
+      setToast(msg);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save install planning details");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function saveFullNote() {
-    await run(() => gql(UPDATE_JOB_NOTES, { input: { _id: id, notes: fullNoteText } }));
+    const nextNotes = buildNotesWithInstallMeta(fullNoteText, installMeta.status, installMeta.note);
+    await run(() => gql(UPDATE_JOB_NOTES, { input: { _id: id, notes: nextNotes } }));
   }
 
   async function saveContact() {
@@ -1187,6 +1237,8 @@ export default function JobDetailPage() {
   const activeDetailTab = isPostQuoteStage ? detailTab : "quote";
   const installDateDisplay = fmtDateTime(job.installation?.installDate) || "Not set";
   const installNoteDisplay = job.installation?.installNote?.trim() || "No install notes yet";
+  const installMeta = parseInstallMeta(job.notes);
+  const visibleJobNotes = stripInstallMeta(job.notes);
   const completionActions = [
     {
       title: "Add installation date",
@@ -1567,16 +1619,38 @@ export default function JobDetailPage() {
             </Section>
 
             <Section
+              title="Lock in status & planning notes"
+              action={<button onClick={() => { setInstallPlanningStatus(installMeta.status); setInstallPlanningNote(installMeta.note); openSheet("installPlanning"); }} className="text-xs text-[#e85d04] font-medium">Edit</button>}
+            >
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-500">Lock in status</span>
+                  <span className={`text-xs font-semibold px-2 py-1 rounded-full ${installMeta.status === "pencilled" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
+                    {installMeta.status === "pencilled" ? "Pencilled" : "Confirmed"}
+                  </span>
+                </div>
+                <div>
+                  <div className="text-sm text-gray-500 mb-1">Planning notes</div>
+                  {installMeta.note ? (
+                    <p className="text-sm text-gray-700 whitespace-pre-wrap">{installMeta.note}</p>
+                  ) : (
+                    <p className="text-sm text-gray-400">No planning notes yet</p>
+                  )}
+                </div>
+              </div>
+            </Section>
+
+            <Section
               title="Notes"
               action={
                 <div className="flex items-center gap-3">
                   <button onClick={() => openSheet("addNote")} className="text-xs text-[#e85d04] font-medium">+ Add</button>
-                  <button onClick={() => { setFullNoteText(job.notes || ""); openSheet("editNote"); }} className="text-xs text-gray-500 font-medium">Edit</button>
+                  <button onClick={() => { setFullNoteText(visibleJobNotes || ""); openSheet("editNote"); }} className="text-xs text-gray-500 font-medium">Edit</button>
                 </div>
               }
             >
-              {job.notes ? (
-                <p className="text-sm text-gray-700 whitespace-pre-wrap">{job.notes}</p>
+              {visibleJobNotes ? (
+                <p className="text-sm text-gray-700 whitespace-pre-wrap">{visibleJobNotes}</p>
               ) : (
                 <p className="text-sm text-gray-400">No notes yet</p>
               )}
@@ -1787,12 +1861,12 @@ export default function JobDetailPage() {
           action={
             <div className="flex items-center gap-3">
               <button onClick={() => openSheet("addNote")} className="text-xs text-[#e85d04] font-medium">+ Add</button>
-              <button onClick={() => { setFullNoteText(job.notes || ""); openSheet("editNote"); }} className="text-xs text-gray-500 font-medium">Edit</button>
+              <button onClick={() => { setFullNoteText(visibleJobNotes || ""); openSheet("editNote"); }} className="text-xs text-gray-500 font-medium">Edit</button>
             </div>
           }
         >
-          {job.notes ? (
-            <p className="text-sm text-gray-700 whitespace-pre-wrap">{job.notes}</p>
+          {visibleJobNotes ? (
+            <p className="text-sm text-gray-700 whitespace-pre-wrap">{visibleJobNotes}</p>
           ) : (
             <p className="text-sm text-gray-400">No notes yet</p>
           )}
@@ -1875,6 +1949,44 @@ export default function JobDetailPage() {
           className="w-full bg-[#1a3a4a] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
           {saving ? "Saving..." : "Save Notes"}
         </button>
+      </BottomSheet>
+
+      <BottomSheet open={sheet === "installPlanning"} onClose={closeSheet} title="Lock in status & planning notes">
+        <div className="space-y-4">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Lock in status</div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setInstallPlanningStatus("pencilled")}
+                className={`py-3 rounded-xl text-sm font-semibold border ${installPlanningStatus === "pencilled" ? "bg-amber-50 text-amber-700 border-amber-300" : "bg-white text-gray-700 border-gray-200"}`}
+              >
+                Pencilled
+              </button>
+              <button
+                onClick={() => setInstallPlanningStatus("confirmed")}
+                className={`py-3 rounded-xl text-sm font-semibold border ${installPlanningStatus === "confirmed" ? "bg-emerald-50 text-emerald-700 border-emerald-300" : "bg-white text-gray-700 border-gray-200"}`}
+              >
+                Confirmed
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Planning notes</div>
+            <textarea
+              value={installPlanningNote}
+              onChange={(e) => setInstallPlanningNote(e.target.value)}
+              rows={6}
+              placeholder="Flexible dates, unavailable days, tentative details, anything the team should know..."
+              className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04] resize-none"
+            />
+          </div>
+
+          <button onClick={saveInstallPlanning} disabled={saving}
+            className="w-full bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
+            {saving ? "Saving..." : "Save"}
+          </button>
+        </div>
       </BottomSheet>
 
       {/* Edit contact */}
