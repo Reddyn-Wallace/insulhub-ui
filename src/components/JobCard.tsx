@@ -150,6 +150,24 @@ export default function JobCard({ job }: { job: Job }) {
         : "Not started";
   const finalInvoiceStatus = job.finalInvoice?.xeroInvoiceNumber || job.finalInvoice?._id ? "Sent" : "Not sent";
 
+  const workflowTone = {
+    eba: job.ebaForm?.clientApproved
+      ? "bg-emerald-100 text-emerald-700"
+      : job.ebaForm?.complete
+        ? "bg-amber-100 text-amber-700"
+        : "bg-slate-100 text-slate-600",
+    council: job.certificateSentAt
+      ? "bg-emerald-100 text-emerald-700"
+      : job.council?.files_CouncilApprovalLetters?.length
+        ? "bg-blue-100 text-blue-700"
+        : job.council?.files_Other?.length
+          ? "bg-amber-100 text-amber-700"
+          : "bg-slate-100 text-slate-600",
+    invoice: job.finalInvoice?.xeroInvoiceNumber || job.finalInvoice?._id
+      ? "bg-emerald-100 text-emerald-700"
+      : "bg-slate-100 text-slate-600",
+  };
+
   const callbackIso = (leadStatus === "CALLBACK" || quoteState === "CALLBACK")
     ? (job.stage === "QUOTE" ? (job.quote?.deferralDate || job.lead?.callbackDate) : job.lead?.callbackDate)
     : null;
@@ -163,9 +181,7 @@ export default function JobCard({ job }: { job: Job }) {
       <div className={`bg-white rounded-xl shadow-sm border border-gray-100 border-l-4 ${cardStyle.border} p-4 mb-3 active:bg-gray-50 transition-colors cursor-pointer`}>
         <div className="flex items-start justify-between gap-2 mb-1">
           <p className="font-semibold text-gray-900 text-base leading-tight">{c?.name || "Unknown"}</p>
-          <div className="flex items-center gap-1.5">
-            <span className={`flex-shrink-0 text-xs font-medium px-2 py-0.5 rounded-full ${STAGE_BADGE[job.stage] || "bg-gray-100 text-gray-600"}`}>{STAGE_LABEL[job.stage] || job.stage}</span>
-          </div>
+          <div className="flex items-center gap-1.5" />
         </div>
 
         {addressParts && <p className="text-sm text-gray-500 mb-1">{addressParts}</p>}
@@ -190,18 +206,18 @@ export default function JobCard({ job }: { job: Job }) {
           </span>
         </div>
 
-        <div className="mt-2 grid grid-cols-1 gap-1.5 text-xs text-gray-600 bg-gray-50 rounded-xl px-3 py-2">
+        <div className="mt-2 grid grid-cols-1 gap-2 text-xs text-gray-600 bg-gray-50 rounded-xl px-3 py-2">
           <div className="flex items-center justify-between gap-3">
             <span className="font-medium text-gray-500">EBA status</span>
-            <span className="font-semibold text-gray-800">{ebaStatus}</span>
+            <span className={`font-semibold px-2 py-0.5 rounded-full ${workflowTone.eba}`}>{ebaStatus}</span>
           </div>
           <div className="flex items-center justify-between gap-3">
             <span className="font-medium text-gray-500">Council paperwork status</span>
-            <span className="font-semibold text-gray-800">{councilStatus}</span>
+            <span className={`font-semibold px-2 py-0.5 rounded-full ${workflowTone.council}`}>{councilStatus}</span>
           </div>
           <div className="flex items-center justify-between gap-3">
             <span className="font-medium text-gray-500">Final invoice</span>
-            <span className="font-semibold text-gray-800">{finalInvoiceStatus}</span>
+            <span className={`font-semibold px-2 py-0.5 rounded-full ${workflowTone.invoice}`}>{finalInvoiceStatus}</span>
           </div>
         </div>
       </div>
