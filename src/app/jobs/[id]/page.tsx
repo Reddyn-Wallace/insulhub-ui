@@ -1164,18 +1164,6 @@ export default function JobDetailPage() {
       disabled: job.ebaForm?.clientApproved ? true : saving,
     },
     {
-      title: "Consent Number",
-      description: job.council?.consentNumber || "Not set",
-      status: job.council?.consentNumber ? "Recorded" : "Missing",
-      wired: true,
-      actionLabel: job.council?.consentNumber ? "Edit" : "Set",
-      action: () => {
-        setConsentNumber(job.council?.consentNumber || "");
-        openSheet("consentNumber");
-      },
-      disabled: saving,
-    },
-    {
       title: "See signed EBA / download",
       description: job.ebaForm?.clientApproved
         ? `EBA signed ${job.ebaForm?.clientApprovedAt ? fmtDateTime(job.ebaForm.clientApprovedAt) : ""}`.trim()
@@ -1192,6 +1180,18 @@ export default function JobDetailPage() {
         : "Files to send to customer upon completion",
       status: uploadingCompletionFiles ? `Uploading ${completionUploadProgress}%` : job.council?.files_Other?.length ? "Available" : "Empty",
       wired: true,
+    },
+    {
+      title: "Consent Number",
+      description: job.council?.consentNumber || "Not set",
+      status: job.council?.consentNumber ? "Recorded" : "Missing",
+      wired: true,
+      actionLabel: job.council?.consentNumber ? "Edit" : "Set",
+      action: () => {
+        setConsentNumber(job.council?.consentNumber || "");
+        openSheet("consentNumber");
+      },
+      disabled: saving,
     },
     {
       title: "View install notes",
