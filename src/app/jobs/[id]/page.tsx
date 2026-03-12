@@ -1352,18 +1352,6 @@ export default function JobDetailPage() {
       disabled: creatingFinalInvoice,
     },
     {
-      title: "Download completion certificate",
-      description: !job.council?.consentNumber
-        ? "Enter a consent number first"
-        : !job.installation?.installDate
-          ? "Set an installation date first"
-          : "Open the completion certificate PDF for this job",
-      status: !job.council?.consentNumber || !job.installation?.installDate ? "Blocked" : "Ready",
-      wired: true,
-      actionLabel: !job.council?.consentNumber || !job.installation?.installDate ? undefined : "Open certificate",
-      action: !job.council?.consentNumber || !job.installation?.installDate ? undefined : openCompletionCertificatePdf,
-    },
-    {
       title: "Send completion pack to customer",
       description: job.certificateSentAt
         ? `Sent ${fmtDateTime(job.certificateSentAt)}`
@@ -1559,20 +1547,28 @@ export default function JobDetailPage() {
                   const isInProgress = /Uploading|Creating|Sending|Completing/.test(item.status);
                   const isDone = doneStates.includes(item.status);
                   const isBlocked = blockedStates.includes(item.status);
-                  const stateTone = isDone
-                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                    : isInProgress
-                      ? "bg-blue-50 text-blue-700 border-blue-200"
-                      : isBlocked
-                        ? "bg-amber-50 text-amber-700 border-amber-200"
-                        : "bg-slate-50 text-slate-700 border-slate-200";
-                  const stepTone = isDone
-                    ? "bg-emerald-100 text-emerald-700"
-                    : isBlocked
-                      ? "bg-amber-100 text-amber-700"
+                  const isInstallStatusStep = item.title === "Install notes & status";
+                  const isInstalledAsQuoted = isInstallStatusStep && (job.installation?.installStatus === "INSTALLED_AS_QUOTED");
+                  const isInstalledWithVariation = isInstallStatusStep && (job.installation?.installStatus === "INSTALLED_WITH_VARIATIONS_FROM_QUOTE");
+
+                  const stateTone = isInstalledWithVariation
+                    ? "bg-amber-50 text-amber-700 border-amber-200"
+                    : isDone || isInstalledAsQuoted
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                       : isInProgress
-                        ? "bg-blue-100 text-blue-700"
-                        : "bg-slate-100 text-slate-700";
+                        ? "bg-blue-50 text-blue-700 border-blue-200"
+                        : isBlocked
+                          ? "bg-amber-50 text-amber-700 border-amber-200"
+                          : "bg-slate-50 text-slate-700 border-slate-200";
+                  const stepTone = isInstalledWithVariation
+                    ? "bg-amber-100 text-amber-700"
+                    : isDone || isInstalledAsQuoted
+                      ? "bg-emerald-100 text-emerald-700"
+                      : isBlocked
+                        ? "bg-amber-100 text-amber-700"
+                        : isInProgress
+                          ? "bg-blue-100 text-blue-700"
+                          : "bg-slate-100 text-slate-700";
 
                   return (
                     <div key={item.title} className="border border-gray-100 rounded-xl p-3">
@@ -1691,6 +1687,24 @@ export default function JobDetailPage() {
                 <p className="text-sm text-gray-700 whitespace-pre-wrap">{visibleJobNotes}</p>
               ) : (
                 <p className="text-sm text-gray-400">No notes yet</p>
+              )}
+            </Section>
+
+            <Section title="Rare actions">
+              <div className="text-xs text-gray-500 mb-2">Used occasionally only.</div>
+              {!job.council?.consentNumber || !job.installation?.installDate ? (
+                <p className="text-sm text-gray-400">
+                  {!job.council?.consentNumber
+                    ? "Add consent number to enable completion certificate download."
+                    : "Set installation date to enable completion certificate download."}
+                </p>
+              ) : (
+                <button
+                  onClick={openCompletionCertificatePdf}
+                  className="bg-gray-100 text-gray-700 text-sm font-semibold px-3 py-2 rounded-lg"
+                >
+                  Download completion certificate
+                </button>
               )}
             </Section>
           </>
