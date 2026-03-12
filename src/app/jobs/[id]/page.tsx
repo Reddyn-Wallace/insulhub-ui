@@ -8,7 +8,6 @@ import {
   UPDATE_JOB_LEAD, UPDATE_JOB_NOTES,
   UPDATE_JOB_QUOTE, ARCHIVE_JOB, UPDATE_CLIENT, SEND_EBA, ADD_FILES, REMOVE_FILE,
 } from "@/lib/mutations";
-import PipelineBreadcrumb from "@/components/PipelineBreadcrumb";
 import BottomSheet from "@/components/BottomSheet";
 import AddressAutocomplete from "@/components/AddressAutocomplete";
 
@@ -1517,9 +1516,6 @@ export default function JobDetailPage() {
             {address && <p className="text-gray-300 text-xs mt-0.5">{address}</p>}
           </div>
           <span className="text-xs text-gray-400 mt-1">#{job.jobNumber}</span>
-        </div>
-        <div className="mt-2 -mx-4">
-          <PipelineBreadcrumb currentStage={job.stage} />
         </div>
       </div>
 

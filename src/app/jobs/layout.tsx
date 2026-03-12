@@ -14,7 +14,15 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
   const menuRef = useRef<HTMLDivElement>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-  const stage = searchParams.get("stage") || "LEAD";
+  const returnTo = searchParams.get("returnTo");
+  const returnToStage = (() => {
+    if (!returnTo) return null;
+    const qIndex = returnTo.indexOf("?");
+    if (qIndex === -1) return null;
+    const qs = returnTo.slice(qIndex + 1);
+    return new URLSearchParams(qs).get("stage");
+  })();
+  const stage = searchParams.get("stage") || returnToStage || "LEAD";
   const isCalendarView = pathname === "/jobs/calendar";
   const isPrimaryStage = stage === "LEAD" || stage === "QUOTE";
   const activeOtherStage = !isPrimaryStage && !isCalendarView
