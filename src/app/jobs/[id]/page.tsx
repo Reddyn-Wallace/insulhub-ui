@@ -1711,23 +1711,15 @@ export default function JobDetailPage() {
               )}
             </Section>
 
-            <Section title="Rare actions">
-              <div className="text-xs text-gray-500 mb-2">Used occasionally only.</div>
-              {!job.council?.consentNumber || !job.installation?.installDate ? (
-                <p className="text-sm text-gray-400">
-                  {!job.council?.consentNumber
-                    ? "Add consent number to enable completion certificate download."
-                    : "Set installation date to enable completion certificate download."}
-                </p>
-              ) : (
-                <button
-                  onClick={openCompletionCertificatePdf}
-                  className="bg-gray-100 text-gray-700 text-sm font-semibold px-3 py-2 rounded-lg"
-                >
-                  Download completion certificate
-                </button>
-              )}
-            </Section>
+            <div className="mt-1">
+              <button
+                onClick={openCompletionCertificatePdf}
+                disabled={!job.council?.consentNumber || !job.installation?.installDate}
+                className="w-full text-blue-700 border border-blue-200 bg-blue-50 rounded-xl py-3 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Download completion certificate
+              </button>
+            </div>
           </>
         ) : (
           <>
