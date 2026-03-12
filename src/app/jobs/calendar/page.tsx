@@ -546,8 +546,9 @@ export default function JobsCalendarPage() {
                           {day.jobs.map((job) => {
                             const meta = parseInstallMeta(job.notes);
                             const isInstalled = ["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"].includes(job.installation?.installStatus || "");
+                            const isPencilled = meta.status === "pencilled";
                             return (
-                              <div key={job._id} className={`w-full rounded-xl border p-2.5 shadow-sm ${isInstalled ? "border-emerald-200 bg-emerald-50/50" : "border-orange-100 bg-orange-50/40"}`}>
+                              <div key={job._id} className={`w-full rounded-xl border p-2.5 shadow-sm border-l-4 ${isInstalled ? "border-emerald-200 bg-emerald-50/50" : "border-orange-100 bg-orange-50/40"} ${isPencilled ? "border-l-amber-500" : "border-l-emerald-500"}`}>
                                 <button onClick={() => openJobSheet(job)} className="w-full text-left">
                                   <div className="flex items-start justify-between gap-2 mb-1">
                                     <div className="text-sm font-semibold text-gray-900 leading-tight">{job.client?.contactDetails?.name || `Job #${job.jobNumber}`}</div>
