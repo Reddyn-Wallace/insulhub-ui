@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { gql } from "@/lib/graphql";
 import BottomSheet from "@/components/BottomSheet";
@@ -226,8 +226,9 @@ export default function JobsCalendarPage() {
   const [installMetaNote, setInstallMetaNote] = useState("");
   const [installDate, setInstallDate] = useState("");
   const [saving, setSaving] = useState(false);
+  const calendarCache = useRef<Map<string, CalendarJob[]>>(new Map());
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     setLoading(true);
     setError("");
     try {
@@ -235,10 +236,35 @@ export default function JobsCalendarPage() {
       const monthEnd = endOfMonth(monthCursor);
       const calendarStart = startOfWeekMonday(monthStart);
       const calendarEnd = addDays(startOfWeekMonday(addDays(monthEnd, 1)), 6);
+      const cacheKey = `${dateKeyLocal(calendarStart)}_${dateKeyLocal(calendarEnd)}`;
       const installBetween = {
         start: new Date(calendarStart.getFullYear(), calendarStart.getMonth(), calendarStart.getDate(), 0, 0, 0, 0).toISOString(),
         end: new Date(calendarEnd.getFullYear(), calendarEnd.getMonth(), calendarEnd.getDate(), 23, 59, 59, 999).toISOString(),
       };
+
+      if (!force) {
+        const memoryCached = calendarCache.current.get(cacheKey);
+        if (memoryCached) {
+          setJobs(memoryCached);
+          setLoading(false);
+          return;
+        }
+
+        if (typeof window !== "undefined") {
+          const raw = window.sessionStorage.getItem(`calendar:${cacheKey}`);
+          if (raw) {
+            try {
+              const parsed = JSON.parse(raw) as CalendarJob[];
+              calendarCache.current.set(cacheKey, parsed);
+              setJobs(parsed);
+              setLoading(false);
+              return;
+            } catch {
+              // ignore bad cache payload
+            }
+          }
+        }
+      }
 
       let data: JobsData;
       try {
@@ -294,6 +320,12 @@ export default function JobsCalendarPage() {
         if (!key) return false;
         return key >= dateKeyLocal(calendarStart) && key <= dateKeyLocal(calendarEnd);
       });
+
+      calendarCache.current.set(cacheKey, filtered);
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem(`calendar:${cacheKey}`, JSON.stringify(filtered));
+      }
+
       setJobs(filtered);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load installation calendar";
@@ -476,7 +508,7 @@ export default function JobsCalendarPage() {
             <p className="text-sm text-gray-500">Accepted, in-progress, invoice, and completed jobs with install dates.</p>
           </div>
           <button
-            onClick={load}
+            onClick={() => load(true)}
             className="px-3 py-2 text-xs font-semibold rounded-lg border border-gray-200 bg-white text-gray-700"
           >
             Refresh
@@ -505,11 +537,14 @@ export default function JobsCalendarPage() {
 
       <div className="px-4 py-4">
         {loading ? (
-          <div className="text-sm text-gray-500">Loading installation calendar...</div>
+          <div className="bg-white border border-gray-100 rounded-2xl p-8 flex flex-col items-center justify-center gap-3">
+            <div className="h-8 w-8 rounded-full border-2 border-[#e85d04] border-t-transparent animate-spin" />
+            <div className="text-sm text-gray-500">Loading calendar</div>
+          </div>
         ) : error ? (
           <div className="bg-red-50 text-red-700 text-sm px-4 py-3 rounded-xl">
             {error}
-            <button onClick={load} className="ml-2 underline">Retry</button>
+            <button onClick={() => load(true)} className="ml-2 underline">Retry</button>
           </div>
         ) : (
           <div className="space-y-4 overflow-x-auto pb-4">
