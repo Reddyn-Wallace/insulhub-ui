@@ -1629,28 +1629,6 @@ export default function JobDetailPage() {
             </Section>
 
             <Section
-              title="Lock in status & planning notes"
-              action={<button onClick={() => { setInstallPlanningStatus(installMeta.status); setInstallPlanningNote(installMeta.note); openSheet("installPlanning"); }} className="text-xs text-[#e85d04] font-medium">Edit</button>}
-            >
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-500">Lock in status</span>
-                  <span className={`text-xs font-semibold px-2 py-1 rounded-full ${installMeta.status === "pencilled" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
-                    {installMeta.status === "pencilled" ? "Pencilled" : "Confirmed"}
-                  </span>
-                </div>
-                <div>
-                  <div className="text-sm text-gray-500 mb-1">Planning notes</div>
-                  {installMeta.note ? (
-                    <p className="text-sm text-gray-700 whitespace-pre-wrap">{installMeta.note}</p>
-                  ) : (
-                    <p className="text-sm text-gray-400">No planning notes yet</p>
-                  )}
-                </div>
-              </div>
-            </Section>
-
-            <Section
               title="Notes"
               action={
                 <div className="flex items-center gap-3">
