@@ -126,6 +126,10 @@ export const JOB_QUERY = `
         installStatus
         checkSheetSignedAsComplete
       }
+      installerChecksheet {
+        _id
+        complete
+      }
       council {
         _id
         consentNumber

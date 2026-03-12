@@ -21,6 +21,7 @@ interface ContactDetails {
 interface Job {
   _id: string; jobNumber: number; stage: string; notes?: string; updatedAt: string; archivedAt?: string; certificateSentAt?: string;
   installation?: { installDate?: string; installNote?: string; installStatus?: string; checkSheetSignedAsComplete?: boolean };
+  installerChecksheet?: { _id?: string; complete?: boolean };
   council?: { _id?: string; consentNumber?: string; files_Other?: string[]; files_CouncilApprovalLetters?: string[] };
   totalPriceManagerOverride?: number | null;
   additionalInstallments?: { _id?: string; amount?: number; date?: string }[];
@@ -910,6 +911,17 @@ export default function JobDetailPage() {
     window.open(`${API_BASE}/pdf/certificate?${params.toString()}`, "_blank");
   }
 
+  function openInstallerChecksheetPdf() {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    const installerChecksheetId = job?.installerChecksheet?._id;
+    if (!token || !installerChecksheetId) {
+      setError("Missing checksheet data");
+      return;
+    }
+    const params = new URLSearchParams({ token, installerChecksheetId });
+    window.open(`${API_BASE}/pdf/installer-checksheet?${params.toString()}`, "_blank");
+  }
+
   async function saveQuoteAndOpenEBA() {
     if (job?.ebaForm?.clientApproved) {
       setNotice({ type: "error", text: "EBA is already signed and can no longer be edited." });
@@ -1244,6 +1256,14 @@ export default function JobDetailPage() {
   const isQuoteInfoStage = ["QUOTE", "SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"].includes(job.stage);
   const activeDetailTab = isPostQuoteStage ? detailTab : "quote";
   const installDateDisplay = fmtDateTime(job.installation?.installDate) || "Not set";
+  const installStatusLabelMap: Record<string, string> = {
+    JOB_NOT_STARTED_YET: "Job not started yet",
+    INSTALL_NOT_FINISHED: "Install not finished",
+    INSTALLED_AS_QUOTED: "Installed as quoted",
+    INSTALLED_WITH_VARIATIONS_FROM_QUOTE: "Installed with variations from quote",
+  };
+  const installStatusDisplay = installStatusLabelMap[job.installation?.installStatus || ""] || "Job not started yet";
+  const installIsInstalled = ["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"].includes(job.installation?.installStatus || "");
   const installNoteDisplay = job.installation?.installNote?.trim() || "No install notes yet";
   const installMeta = parseInstallMeta(job.notes);
   const visibleJobNotes = stripInstallMeta(job.notes);
@@ -1310,10 +1330,13 @@ export default function JobDetailPage() {
       wired: true,
     },
     {
-      title: "View install notes",
-      description: installNoteDisplay,
-      status: job.installation?.installNote ? "Available" : "Blank",
+      title: "Install notes & status",
+      description: `${installStatusDisplay}${installNoteDisplay ? ` • ${installNoteDisplay}` : ""}`,
+      status: installIsInstalled ? "Installed" : job.installation?.installNote ? "Available" : "Blank",
       wired: true,
+      actionLabel: installIsInstalled && job.installerChecksheet?._id ? "View checksheet" : undefined,
+      action: installIsInstalled && job.installerChecksheet?._id ? openInstallerChecksheetPdf : undefined,
+      disabled: saving,
     },
     {
       title: "Trigger final invoice creation in Xero",
