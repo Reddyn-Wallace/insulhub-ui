@@ -101,6 +101,10 @@ function addMonths(date: Date, amount: number) {
   return new Date(date.getFullYear(), date.getMonth() + amount, 1);
 }
 
+function endOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+}
+
 function startOfWeekMonday(date: Date) {
   const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   const day = d.getDay();
@@ -227,13 +231,69 @@ export default function JobsCalendarPage() {
     setLoading(true);
     setError("");
     try {
-      const data = await gql<JobsData>(CALENDAR_JOBS_QUERY, {
-        stages: ["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"],
-        skip: 0,
-        limit: 5000,
-      });
+      const monthStart = startOfMonth(monthCursor);
+      const monthEnd = endOfMonth(monthCursor);
+      const calendarStart = startOfWeekMonday(monthStart);
+      const calendarEnd = addDays(startOfWeekMonday(addDays(monthEnd, 1)), 6);
+      const installBetween = {
+        start: new Date(calendarStart.getFullYear(), calendarStart.getMonth(), calendarStart.getDate(), 0, 0, 0, 0).toISOString(),
+        end: new Date(calendarEnd.getFullYear(), calendarEnd.getMonth(), calendarEnd.getDate(), 23, 59, 59, 999).toISOString(),
+      };
 
-      const filtered = (data.jobs.results || []).filter((job) => Boolean(job.installation?.installDate));
+      let data: JobsData;
+      try {
+        const monthQuery = `
+          query CalendarJobs($stages: [JobStage!], $installBetween: DateRangeInput, $skip: Int, $limit: Int) {
+            jobs(stages: $stages, installBetween: $installBetween, skip: $skip, limit: $limit) {
+              total
+              results {
+                _id
+                jobNumber
+                stage
+                notes
+                installation {
+                  installDate
+                  installNote
+                  installStatus
+                  checkSheetSignedAsComplete
+                }
+                client {
+                  contactDetails {
+                    name
+                    streetAddress
+                    suburb
+                    city
+                  }
+                }
+                quote {
+                  c_total
+                  wall { SQM }
+                  ceiling { SQM }
+                }
+              }
+            }
+          }
+        `;
+
+        data = await gql<JobsData>(monthQuery, {
+          stages: ["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"],
+          installBetween,
+          skip: 0,
+          limit: 2000,
+        });
+      } catch {
+        data = await gql<JobsData>(CALENDAR_JOBS_QUERY, {
+          stages: ["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"],
+          skip: 0,
+          limit: 5000,
+        });
+      }
+
+      const filtered = (data.jobs.results || []).filter((job) => {
+        const key = dateKeyFromIsoNz(job.installation?.installDate);
+        if (!key) return false;
+        return key >= dateKeyLocal(calendarStart) && key <= dateKeyLocal(calendarEnd);
+      });
       setJobs(filtered);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load installation calendar";
@@ -241,7 +301,7 @@ export default function JobsCalendarPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [monthCursor]);
 
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
