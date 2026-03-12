@@ -129,6 +129,10 @@ export const JOB_QUERY = `
       installerChecksheet {
         _id
         complete
+        budgetBags
+        actualBags
+        wallAreaQuoted
+        wallAreaInstalled
       }
       council {
         _id

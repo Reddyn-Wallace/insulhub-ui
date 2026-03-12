@@ -20,7 +20,14 @@ interface ContactDetails {
 interface Job {
   _id: string; jobNumber: number; stage: string; notes?: string; updatedAt: string; archivedAt?: string; certificateSentAt?: string;
   installation?: { installDate?: string; installNote?: string; installStatus?: string; checkSheetSignedAsComplete?: boolean };
-  installerChecksheet?: { _id?: string; complete?: boolean };
+  installerChecksheet?: {
+    _id?: string;
+    complete?: boolean;
+    budgetBags?: number;
+    actualBags?: number;
+    wallAreaQuoted?: number;
+    wallAreaInstalled?: number;
+  };
   council?: { _id?: string; consentNumber?: string; files_Other?: string[]; files_CouncilApprovalLetters?: string[] };
   totalPriceManagerOverride?: number | null;
   additionalInstallments?: { _id?: string; amount?: number; date?: string }[];
@@ -1263,6 +1270,16 @@ export default function JobDetailPage() {
   };
   const installStatusDisplay = installStatusLabelMap[job.installation?.installStatus || ""] || "Job not started yet";
   const installIsInstalled = ["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"].includes(job.installation?.installStatus || "");
+  const installIsVariation = (job.installation?.installStatus || "") === "INSTALLED_WITH_VARIATIONS_FROM_QUOTE";
+  const checksheetBagMetrics = (job.installerChecksheet?.budgetBags != null && job.installerChecksheet?.actualBags != null)
+    ? `Budget / actual bags: ${job.installerChecksheet.budgetBags} / ${job.installerChecksheet.actualBags}`
+    : null;
+  const checksheetWallMetrics = (job.installerChecksheet?.wallAreaQuoted != null && job.installerChecksheet?.wallAreaInstalled != null)
+    ? `Wall area quoted / installed: ${job.installerChecksheet.wallAreaQuoted} / ${job.installerChecksheet.wallAreaInstalled}`
+    : null;
+  const variationMetricsSummary = installIsVariation
+    ? [checksheetBagMetrics, checksheetWallMetrics].filter(Boolean).join(" • ")
+    : "";
   const installNoteDisplay = job.installation?.installNote?.trim() || "No install notes yet";
   const installMeta = parseInstallMeta(job.notes);
   const visibleJobNotes = stripInstallMeta(job.notes);
@@ -1330,7 +1347,11 @@ export default function JobDetailPage() {
     },
     {
       title: "Install notes & status",
-      description: `${installStatusDisplay}${installNoteDisplay ? ` • ${installNoteDisplay}` : ""}`,
+      description: [
+        installStatusDisplay,
+        variationMetricsSummary || null,
+        installNoteDisplay || null,
+      ].filter(Boolean).join(" • "),
       status: installIsInstalled ? "Installed" : job.installation?.installNote ? "Available" : "Blank",
       wired: true,
       actionLabel: installIsInstalled && job.installerChecksheet?._id ? "View checksheet" : undefined,
