@@ -911,6 +911,11 @@ export default function JobDetailPage() {
   }
 
   async function saveQuoteAndOpenEBA() {
+    if (job?.ebaForm?.clientApproved) {
+      setNotice({ type: "error", text: "EBA is already signed and can no longer be edited." });
+      return;
+    }
+
     if (!quoteForm.quoteNumber || !quoteForm.date || (!quoteForm.hasWall && !quoteForm.hasCeiling)) {
       setNotice({ type: "error", text: "Add quote data first (quote number, date, and wall/ceiling values)." });
       return;
@@ -1851,10 +1856,10 @@ export default function JobDetailPage() {
             <div className="flex gap-2 flex-wrap">
               <button
                 onClick={saveQuoteAndOpenEBA}
-                disabled={saving}
+                disabled={saving || !!job.ebaForm?.clientApproved}
                 className="flex-1 bg-white border border-gray-300 text-gray-700 text-sm font-semibold py-2.5 rounded-xl disabled:opacity-50"
               >
-                🧾 {job.ebaForm?.complete || job.ebaForm?.signature_assessor?.fileName ? "Edit EBA" : "Complete EBA"}
+                🧾 {job.ebaForm?.clientApproved ? "EBA Signed" : job.ebaForm?.complete || job.ebaForm?.signature_assessor?.fileName ? "Edit EBA" : "Complete EBA"}
               </button>
             </div>
           </Section>
