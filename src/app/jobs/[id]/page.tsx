@@ -1234,6 +1234,7 @@ export default function JobDetailPage() {
   const displayCallbackDate = status === "CALLBACK" ? (job.stage === "QUOTE" ? (job.quote?.deferralDate || job.lead?.callbackDate) : job.lead?.callbackDate) : null;
   const isArchived = !!job.archivedAt;
   const isPostQuoteStage = ["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"].includes(job.stage);
+  const isQuoteInfoStage = ["QUOTE", "SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"].includes(job.stage);
   const activeDetailTab = isPostQuoteStage ? detailTab : "quote";
   const installDateDisplay = fmtDateTime(job.installation?.installDate) || "Not set";
   const installNoteDisplay = job.installation?.installNote?.trim() || "No install notes yet";
@@ -1733,7 +1734,7 @@ export default function JobDetailPage() {
         </Section>
 
         {/* Site plan */}
-        {(job.stage === "QUOTE" || job.stage === "SCHEDULED") && (
+        {isQuoteInfoStage && (
           <Section title="Site Plan">
             <div className="flex gap-2 mb-3 flex-wrap">
               <button onClick={printQuoteSitePlanPDF} className="bg-gray-700 text-white text-sm font-semibold px-3 py-2.5 rounded-xl">🖨️ Print Site Plan PDF</button>
@@ -1757,7 +1758,7 @@ export default function JobDetailPage() {
         )}
 
         {/* Quote details */}
-        {job.stage === "QUOTE" || job.stage === "SCHEDULED" ? (
+        {isQuoteInfoStage ? (
           <Section
             title="Quote"
             action={
@@ -1836,7 +1837,7 @@ export default function JobDetailPage() {
         ) : null}
 
 
-        {(job.stage === "QUOTE" || job.stage === "SCHEDULED") && (
+        {isQuoteInfoStage && (
           <Section title="EBA">
             <div className="mb-2 text-sm">
               <span className={`px-2 py-1 rounded-full text-xs font-semibold ${job.ebaForm?.clientApproved ? "bg-emerald-100 text-emerald-700" : job.ebaForm?.complete ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"}`}>
