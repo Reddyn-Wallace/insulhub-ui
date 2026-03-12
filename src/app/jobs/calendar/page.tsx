@@ -413,7 +413,7 @@ export default function JobsCalendarPage() {
         <div className="flex items-center justify-between gap-3 mb-3">
           <div>
             <h1 className="text-lg font-bold text-gray-900">Installation Calendar</h1>
-            <p className="text-sm text-gray-500">Tap any card to open Installation planning. Includes accepted, in-progress, invoice, and completed jobs with install dates.</p>
+            <p className="text-sm text-gray-500">Accepted, in-progress, invoice, and completed jobs with install dates.</p>
           </div>
           <button
             onClick={load}
@@ -491,11 +491,7 @@ export default function JobsCalendarPage() {
                                 <button onClick={() => openJobSheet(job)} className="w-full text-left">
                                   <div className="flex items-start justify-between gap-2 mb-1">
                                     <div className="text-sm font-semibold text-gray-900 leading-tight">{job.client?.contactDetails?.name || `Job #${job.jobNumber}`}</div>
-                                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${isInstalled ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
-                                      {isInstalled ? "Installed" : "Not installed"}
-                                    </span>
                                   </div>
-                                  <div className="text-[11px] text-gray-500 mb-2">Tap to open installation planning</div>
                                   <div className="text-xs text-gray-500 mb-2 leading-snug">{address(job) || "No address"}</div>
                                   {meta.note && (
                                     <div className="text-[11px] text-gray-600 mb-2 line-clamp-2">
