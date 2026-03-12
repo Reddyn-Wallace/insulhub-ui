@@ -228,7 +228,7 @@ export default function JobsCalendarPage() {
     setError("");
     try {
       const data = await gql<JobsData>(CALENDAR_JOBS_QUERY, {
-        stages: ["SCHEDULED", "INSTALLATION"],
+        stages: ["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"],
         skip: 0,
         limit: 5000,
       });
@@ -413,7 +413,7 @@ export default function JobsCalendarPage() {
         <div className="flex items-center justify-between gap-3 mb-3">
           <div>
             <h1 className="text-lg font-bold text-gray-900">Installation Calendar</h1>
-            <p className="text-sm text-gray-500">Accepted and installation-stage jobs with install dates</p>
+            <p className="text-sm text-gray-500">Tap any card to open Installation planning. Includes accepted, in-progress, invoice, and completed jobs with install dates.</p>
           </div>
           <button
             onClick={load}
@@ -485,20 +485,17 @@ export default function JobsCalendarPage() {
                         <div className="space-y-2">
                           {day.jobs.map((job) => {
                             const meta = parseInstallMeta(job.notes);
+                            const isInstalled = ["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"].includes(job.installation?.installStatus || "");
                             return (
-                              <div key={job._id} className="w-full rounded-xl border border-orange-100 bg-orange-50/40 p-2.5 shadow-sm">
+                              <div key={job._id} className={`w-full rounded-xl border p-2.5 shadow-sm ${isInstalled ? "border-emerald-200 bg-emerald-50/50" : "border-orange-100 bg-orange-50/40"}`}>
                                 <button onClick={() => openJobSheet(job)} className="w-full text-left">
                                   <div className="flex items-start justify-between gap-2 mb-1">
                                     <div className="text-sm font-semibold text-gray-900 leading-tight">{job.client?.contactDetails?.name || `Job #${job.jobNumber}`}</div>
-                                    <div className="flex flex-col items-end gap-1">
-                                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${job.stage === "INSTALLATION" ? "bg-purple-100 text-purple-700" : "bg-green-100 text-green-700"}`}>
-                                        {job.stage === "INSTALLATION" ? "Install" : "Accepted"}
-                                      </span>
-                                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${meta.status === "pencilled" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
-                                        {meta.status === "pencilled" ? "Pencilled" : "Confirmed"}
-                                      </span>
-                                    </div>
+                                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${isInstalled ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                                      {isInstalled ? "Installed" : "Not installed"}
+                                    </span>
                                   </div>
+                                  <div className="text-[11px] text-gray-500 mb-2">Tap to open installation planning</div>
                                   <div className="text-xs text-gray-500 mb-2 leading-snug">{address(job) || "No address"}</div>
                                   {meta.note && (
                                     <div className="text-[11px] text-gray-600 mb-2 line-clamp-2">
@@ -510,7 +507,13 @@ export default function JobsCalendarPage() {
                                     <span>{formatCurrency(job.quote?.c_total || 0)}</span>
                                   </div>
                                 </button>
-                                <div className="mt-2 pt-2 border-t border-orange-100 flex justify-end">
+                                <div className={`mt-2 pt-2 border-t flex justify-end gap-2 ${isInstalled ? "border-emerald-100" : "border-orange-100"}`}>
+                                  <button
+                                    onClick={() => openJobSheet(job)}
+                                    className="text-[11px] font-semibold text-[#e85d04] bg-white border border-orange-200 px-2.5 py-1 rounded-lg hover:bg-orange-50"
+                                  >
+                                    Installation planning
+                                  </button>
                                   <button
                                     onClick={() => openJobPage(job._id)}
                                     className="text-[11px] font-semibold text-[#1a3a4a] bg-white border border-gray-200 px-2.5 py-1 rounded-lg hover:bg-gray-50"
