@@ -267,6 +267,10 @@ export default function JobsCalendarPage() {
     setSelectedJob(null);
   };
 
+  const openJobPage = (jobId: string) => {
+    router.push(`/jobs/${jobId}?returnTo=${encodeURIComponent("/jobs/calendar")}`);
+  };
+
   const saveInstallMeta = async () => {
     if (!selectedJob) return;
     setSaving(true);
@@ -482,29 +486,39 @@ export default function JobsCalendarPage() {
                           {day.jobs.map((job) => {
                             const meta = parseInstallMeta(job.notes);
                             return (
-                              <button key={job._id} onClick={() => openJobSheet(job)} className="w-full text-left rounded-xl border border-orange-100 bg-orange-50/40 p-2.5 shadow-sm">
-                                <div className="flex items-start justify-between gap-2 mb-1">
-                                  <div className="text-sm font-semibold text-gray-900 leading-tight">{job.client?.contactDetails?.name || `Job #${job.jobNumber}`}</div>
-                                  <div className="flex flex-col items-end gap-1">
-                                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${job.stage === "INSTALLATION" ? "bg-purple-100 text-purple-700" : "bg-green-100 text-green-700"}`}>
-                                      {job.stage === "INSTALLATION" ? "Install" : "Accepted"}
-                                    </span>
-                                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${meta.status === "pencilled" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
-                                      {meta.status === "pencilled" ? "Pencilled" : "Confirmed"}
-                                    </span>
+                              <div key={job._id} className="w-full rounded-xl border border-orange-100 bg-orange-50/40 p-2.5 shadow-sm">
+                                <button onClick={() => openJobSheet(job)} className="w-full text-left">
+                                  <div className="flex items-start justify-between gap-2 mb-1">
+                                    <div className="text-sm font-semibold text-gray-900 leading-tight">{job.client?.contactDetails?.name || `Job #${job.jobNumber}`}</div>
+                                    <div className="flex flex-col items-end gap-1">
+                                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${job.stage === "INSTALLATION" ? "bg-purple-100 text-purple-700" : "bg-green-100 text-green-700"}`}>
+                                        {job.stage === "INSTALLATION" ? "Install" : "Accepted"}
+                                      </span>
+                                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${meta.status === "pencilled" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
+                                        {meta.status === "pencilled" ? "Pencilled" : "Confirmed"}
+                                      </span>
+                                    </div>
                                   </div>
-                                </div>
-                                <div className="text-xs text-gray-500 mb-2 leading-snug">{address(job) || "No address"}</div>
-                                {meta.note && (
-                                  <div className="text-[11px] text-gray-600 mb-2 line-clamp-2">
-                                    📝 {meta.note}
+                                  <div className="text-xs text-gray-500 mb-2 leading-snug">{address(job) || "No address"}</div>
+                                  {meta.note && (
+                                    <div className="text-[11px] text-gray-600 mb-2 line-clamp-2">
+                                      📝 {meta.note}
+                                    </div>
+                                  )}
+                                  <div className="flex flex-col gap-1 text-xs text-gray-700 font-medium">
+                                    <span>{formatSqm(combinedSqm(job))}</span>
+                                    <span>{formatCurrency(job.quote?.c_total || 0)}</span>
                                   </div>
-                                )}
-                                <div className="flex flex-col gap-1 text-xs text-gray-700 font-medium">
-                                  <span>{formatSqm(combinedSqm(job))}</span>
-                                  <span>{formatCurrency(job.quote?.c_total || 0)}</span>
+                                </button>
+                                <div className="mt-2 pt-2 border-t border-orange-100 flex justify-end">
+                                  <button
+                                    onClick={() => openJobPage(job._id)}
+                                    className="text-[11px] font-semibold text-[#1a3a4a] bg-white border border-gray-200 px-2.5 py-1 rounded-lg hover:bg-gray-50"
+                                  >
+                                    Open job
+                                  </button>
                                 </div>
-                              </button>
+                              </div>
                             );
                           })}
                           {day.jobs.length === 0 && <div className="text-xs text-gray-300 pt-2">No jobs</div>}
@@ -541,8 +555,18 @@ export default function JobsCalendarPage() {
         {selectedJob && (
           <div className="space-y-4">
             <div>
-              <div className="text-sm font-semibold text-gray-900">{selectedJob.client?.contactDetails?.name || `Job #${selectedJob.jobNumber}`}</div>
-              <div className="text-xs text-gray-500 mt-1">Job #{selectedJob.jobNumber} • {address(selectedJob) || "No address"}</div>
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="text-sm font-semibold text-gray-900">{selectedJob.client?.contactDetails?.name || `Job #${selectedJob.jobNumber}`}</div>
+                  <div className="text-xs text-gray-500 mt-1">Job #{selectedJob.jobNumber} • {address(selectedJob) || "No address"}</div>
+                </div>
+                <button
+                  onClick={() => openJobPage(selectedJob._id)}
+                  className="text-xs font-semibold text-[#1a3a4a] bg-white border border-gray-200 px-3 py-2 rounded-lg hover:bg-gray-50"
+                >
+                  Open job
+                </button>
+              </div>
             </div>
 
             <div>
