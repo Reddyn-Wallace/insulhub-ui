@@ -201,11 +201,11 @@ export default function JobCard({ job }: { job: Job }) {
 
         <div className="flex items-center justify-between text-xs text-gray-400">
           <span>{job.lead?.allocatedTo ? `${job.lead.allocatedTo.firstname} ${job.lead.allocatedTo.lastname}` : "Unallocated"}</span>
-          <span>
+          <span className={cardState === "CALLBACK" && isCallbackOverdue ? "text-rose-600 font-semibold" : ""}>
             {isJobsTab
               ? `Installation: ${formatDate(job.installation?.installDate) || "Undated"}`
               : cardState === "CALLBACK"
-                ? `Callback: ${formatDate(callbackIso || undefined) || "Undated"}`
+                ? `Callback: ${formatDate(callbackIso || undefined) || "Undated"}${isCallbackOverdue ? " (Overdue)" : ""}`
                 : cardState === "QUOTE_BOOKED"
                   ? `Quote booked: ${formatDate(job.lead?.quoteBookingDate) || "Undated"}`
                   : job.stage === "QUOTE"
