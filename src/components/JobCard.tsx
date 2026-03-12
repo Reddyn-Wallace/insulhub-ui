@@ -204,9 +204,11 @@ export default function JobCard({ job }: { job: Job }) {
           <span>
             {isJobsTab
               ? `Installation: ${formatDate(job.installation?.installDate) || "Undated"}`
-              : job.stage === "QUOTE"
-                ? `Quote: ${formatDate(job.quote?.date) || "Undated"}`
-                : `Created: ${formatDate(job.createdAt || job.updatedAt)}`}
+              : cardState === "QUOTE_BOOKED"
+                ? `Quote booked: ${formatDate(job.lead?.quoteBookingDate) || "Undated"}`
+                : job.stage === "QUOTE"
+                  ? `Quote: ${formatDate(job.quote?.date) || "Undated"}`
+                  : `Created: ${formatDate(job.createdAt || job.updatedAt)}`}
           </span>
         </div>
 
