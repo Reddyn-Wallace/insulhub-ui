@@ -950,8 +950,9 @@ export default function JobDetailPage() {
   async function saveInstallDate() {
     setSaving(true);
     try {
+      const nextNotes = buildNotesWithInstallMeta(job?.notes, installPlanningStatus, installPlanningNote);
       await gql(
-        `mutation UpdateInstall($input: UpdateJobInput!) { updateJob(input: $input) { _id installation { installDate installNote installStatus checkSheetSignedAsComplete } } }`,
+        `mutation UpdateInstall($input: UpdateJobInput!) { updateJob(input: $input) { _id installation { installDate installNote installStatus checkSheetSignedAsComplete } notes } }`,
         {
           input: {
             _id: id,
@@ -961,6 +962,7 @@ export default function JobDetailPage() {
               installStatus: job?.installation?.installStatus || "JOB_NOT_STARTED_YET",
               checkSheetSignedAsComplete: job?.installation?.checkSheetSignedAsComplete ?? false,
             },
+            notes: nextNotes,
           },
         }
       );
@@ -1249,6 +1251,8 @@ export default function JobDetailPage() {
       actionLabel: job.installation?.installDate ? "Edit date" : "Set date",
       action: () => {
         setInstallDate(toDatetimeLocal(job.installation?.installDate));
+        setInstallPlanningStatus(installMeta.status);
+        setInstallPlanningNote(installMeta.note);
         openSheet("installDate");
       },
       disabled: saving,
@@ -2117,22 +2121,56 @@ export default function JobDetailPage() {
       </BottomSheet>
 
       <BottomSheet open={sheet === "installDate"} onClose={closeSheet} title="Installation Date">
-        <p className="text-sm text-gray-500 mb-3">Set or edit the planned installation date/time.</p>
-        <input type="datetime-local" value={installDate} onChange={(e) => setInstallDate(e.target.value)}
-          className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
-        />
-        <div className="flex gap-2">
-          {job.installation?.installDate && (
-            <button onClick={clearInstallDate} disabled={saving}
-              className="bg-red-50 text-red-600 font-semibold py-3 px-4 rounded-xl disabled:opacity-50">
-              Remove
+        <div className="space-y-4">
+          <div>
+            <p className="text-sm text-gray-500 mb-3">Set or edit the planned installation date/time.</p>
+            <input type="datetime-local" value={installDate} onChange={(e) => setInstallDate(e.target.value)}
+              className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+            />
+          </div>
+
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Lock in status</div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setInstallPlanningStatus("pencilled")}
+                className={`py-3 rounded-xl text-sm font-semibold border ${installPlanningStatus === "pencilled" ? "bg-amber-50 text-amber-700 border-amber-300" : "bg-white text-gray-700 border-gray-200"}`}
+              >
+                Pencilled
+              </button>
+              <button
+                onClick={() => setInstallPlanningStatus("confirmed")}
+                className={`py-3 rounded-xl text-sm font-semibold border ${installPlanningStatus === "confirmed" ? "bg-emerald-50 text-emerald-700 border-emerald-300" : "bg-white text-gray-700 border-gray-200"}`}
+              >
+                Confirmed
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Planning notes</div>
+            <textarea
+              value={installPlanningNote}
+              onChange={(e) => setInstallPlanningNote(e.target.value)}
+              rows={5}
+              placeholder="Flexible dates, unavailable days, tentative details, anything the team should know..."
+              className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04] resize-none"
+            />
+          </div>
+
+          <div className="flex gap-2">
+            {job.installation?.installDate && (
+              <button onClick={clearInstallDate} disabled={saving}
+                className="bg-red-50 text-red-600 font-semibold py-3 px-4 rounded-xl disabled:opacity-50">
+                Remove
+              </button>
+            )}
+            <button onClick={closeSheet} className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">Cancel</button>
+            <button onClick={saveInstallDate} disabled={saving || !installDate}
+              className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
+              {saving ? "Saving..." : "Save"}
             </button>
-          )}
-          <button onClick={closeSheet} className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">Cancel</button>
-          <button onClick={saveInstallDate} disabled={saving || !installDate}
-            className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
-            {saving ? "Saving..." : "Save"}
-          </button>
+          </div>
         </div>
       </BottomSheet>
 
