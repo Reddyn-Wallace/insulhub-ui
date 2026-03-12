@@ -1278,8 +1278,8 @@ export default function JobDetailPage() {
     ? `Wall area quoted / installed: ${job.installerChecksheet.wallAreaQuoted} / ${job.installerChecksheet.wallAreaInstalled}`
     : null;
   const variationMetricsSummary = installIsVariation
-    ? [checksheetBagMetrics, checksheetWallMetrics].filter(Boolean).join(" • ")
-    : "";
+    ? [checksheetBagMetrics, checksheetWallMetrics].filter(Boolean)
+    : [];
   const installNoteDisplay = job.installation?.installNote?.trim() || "No install notes yet";
   const installMeta = parseInstallMeta(job.notes);
   const visibleJobNotes = stripInstallMeta(job.notes);
@@ -1347,11 +1347,7 @@ export default function JobDetailPage() {
     },
     {
       title: "Install notes & status",
-      description: [
-        installStatusDisplay,
-        variationMetricsSummary || null,
-        installNoteDisplay || null,
-      ].filter(Boolean).join(" • "),
+      description: installStatusDisplay,
       status: installIsInstalled ? "Installed" : job.installation?.installNote ? "Available" : "Blank",
       wired: true,
       actionLabel: installIsInstalled && job.installerChecksheet?._id ? "View checksheet" : undefined,
@@ -1572,24 +1568,20 @@ export default function JobDetailPage() {
                   const isInstalledAsQuoted = isInstallStatusStep && (job.installation?.installStatus === "INSTALLED_AS_QUOTED");
                   const isInstalledWithVariation = isInstallStatusStep && (job.installation?.installStatus === "INSTALLED_WITH_VARIATIONS_FROM_QUOTE");
 
-                  const stateTone = isInstalledWithVariation
-                    ? "bg-amber-50 text-amber-700 border-amber-200"
-                    : isDone || isInstalledAsQuoted
-                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                      : isInProgress
-                        ? "bg-blue-50 text-blue-700 border-blue-200"
-                        : isBlocked
-                          ? "bg-amber-50 text-amber-700 border-amber-200"
-                          : "bg-slate-50 text-slate-700 border-slate-200";
-                  const stepTone = isInstalledWithVariation
-                    ? "bg-amber-100 text-amber-700"
-                    : isDone || isInstalledAsQuoted
-                      ? "bg-emerald-100 text-emerald-700"
+                  const stateTone = isDone || isInstalledAsQuoted || isInstalledWithVariation
+                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                    : isInProgress
+                      ? "bg-blue-50 text-blue-700 border-blue-200"
                       : isBlocked
-                        ? "bg-amber-100 text-amber-700"
-                        : isInProgress
-                          ? "bg-blue-100 text-blue-700"
-                          : "bg-slate-100 text-slate-700";
+                        ? "bg-amber-50 text-amber-700 border-amber-200"
+                        : "bg-slate-50 text-slate-700 border-slate-200";
+                  const stepTone = isDone || isInstalledAsQuoted || isInstalledWithVariation
+                    ? "bg-emerald-100 text-emerald-700"
+                    : isBlocked
+                      ? "bg-amber-100 text-amber-700"
+                      : isInProgress
+                        ? "bg-blue-100 text-blue-700"
+                        : "bg-slate-100 text-slate-700";
 
                   return (
                     <div key={item.title} className="border border-gray-100 rounded-xl p-3">
@@ -1601,14 +1593,35 @@ export default function JobDetailPage() {
                           <div className="flex items-start justify-between gap-3 mb-1.5">
                             <div className="min-w-0 flex-1">
                               <div className="text-sm font-semibold text-gray-900">{item.title}</div>
-                              <div className="text-xs text-gray-500 mt-1">{item.description}</div>
+                              {item.title !== "Install notes & status" && (
+                                <div className="text-xs text-gray-500 mt-1">{item.description}</div>
+                              )}
                             </div>
                             <span className={`shrink-0 text-[11px] font-semibold px-2 py-1 rounded-full border ${stateTone}`}>
                               {item.status}
                             </span>
                           </div>
 
-                          {item.title === "Upload Council Application" ? (
+                          {item.title === "Install notes & status" ? (
+                            <div className="mt-2 space-y-2">
+                              <div className="text-xs text-gray-600">{installStatusDisplay}</div>
+                              {installIsVariation && (
+                                <div className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2">
+                                  <div className="text-[11px] font-semibold text-amber-800 mb-1">Variation from quote</div>
+                                  {variationMetricsSummary.length > 0 ? (
+                                    <div className="space-y-1">
+                                      {variationMetricsSummary.map((line) => (
+                                        <div key={line} className="text-[11px] text-amber-800">• {line}</div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <div className="text-[11px] text-amber-800">Installer marked as variation. Check checksheet for details.</div>
+                                  )}
+                                </div>
+                              )}
+                              <div className="text-xs text-gray-500">{installNoteDisplay}</div>
+                            </div>
+                          ) : item.title === "Upload Council Application" ? (
                             <div className="mt-3 border border-gray-200 rounded-xl p-3 space-y-3">
                               <div className="flex items-center justify-between gap-3">
                                 <div className="text-xs text-gray-500">Usually one PDF for the council application</div>
