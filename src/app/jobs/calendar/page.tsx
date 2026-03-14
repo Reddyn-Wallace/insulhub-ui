@@ -605,16 +605,16 @@ export default function JobsCalendarPage() {
                                     <span>{formatCurrency(job.quote?.c_total || 0)}</span>
                                   </div>
                                 </button>
-                                <div className={`mt-2 pt-2 border-t flex justify-end gap-2 ${isInstalled ? "border-emerald-100" : "border-orange-100"}`}>
+                                <div className={`mt-2 pt-2 border-t grid grid-cols-2 gap-2 ${isInstalled ? "border-emerald-100" : "border-orange-100"}`}>
                                   <button
                                     onClick={() => openJobSheet(job)}
-                                    className="text-[11px] font-semibold text-[#e85d04] bg-white border border-orange-200 px-2.5 py-1 rounded-lg hover:bg-orange-50"
+                                    className="h-8 text-[11px] font-semibold text-[#e85d04] bg-white border border-orange-200 rounded-lg hover:bg-orange-50 whitespace-nowrap text-center"
                                   >
-                                    Installation planning
+                                    Plan install
                                   </button>
                                   <button
                                     onClick={() => openJobPage(job._id)}
-                                    className="text-[11px] font-semibold text-[#1a3a4a] bg-white border border-gray-200 px-2.5 py-1 rounded-lg hover:bg-gray-50"
+                                    className="h-8 text-[11px] font-semibold text-[#1a3a4a] bg-white border border-gray-200 rounded-lg hover:bg-gray-50 whitespace-nowrap text-center"
                                   >
                                     Open job
                                   </button>
