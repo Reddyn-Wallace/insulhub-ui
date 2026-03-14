@@ -1323,6 +1323,7 @@ export default function JobDetailPage() {
   const installMeta = parseInstallMeta(job.notes);
   const councilApprovalMarkedNA = installMeta.councilApprovalNA;
   const hasCouncilApprovalFile = !!job.council?.files_CouncilApprovalLetters?.length;
+  const hasFinalInvoiceInXero = !!(job.finalInvoice?.xeroInvoiceId || job.finalInvoice?.xeroInvoiceNumber);
   const visibleJobNotes = stripInstallMeta(job.notes);
   const completionActions = [
     {
@@ -1408,10 +1409,10 @@ export default function JobDetailPage() {
       description: job.finalInvoice?.xeroInvoiceNumber
         ? `Created in Xero as ${job.finalInvoice.xeroInvoiceNumber}`
         : "Create the final invoice in Xero without progressing the job state",
-      status: job.finalInvoice?.xeroInvoiceId ? "Created" : creatingFinalInvoice ? "Creating..." : "Ready",
+      status: hasFinalInvoiceInXero ? "Created" : creatingFinalInvoice ? "Creating..." : "Ready",
       wired: true,
-      actionLabel: job.finalInvoice?.xeroInvoiceId ? undefined : "Create final invoice",
-      action: job.finalInvoice?.xeroInvoiceId ? undefined : () => {
+      actionLabel: hasFinalInvoiceInXero ? undefined : "Create final invoice",
+      action: hasFinalInvoiceInXero ? undefined : () => {
         const baseTotal = Number(job.quote?.c_total || 0);
         const existingOverride = job.totalPriceManagerOverride;
         setManagerOverride(existingOverride != null ? String(existingOverride) : "");
@@ -1459,14 +1460,14 @@ export default function JobDetailPage() {
         ? "Job is already completed"
         : !job.installation?.installDate
           ? "Set an installation date first"
-          : !job.finalInvoice?.xeroInvoiceId
+          : !hasFinalInvoiceInXero
             ? "Create the final invoice in Xero first"
             : !job.certificateSentAt
               ? "Send the completion pack first"
               : "Mark the job as completed",
       status: job.stage === "COMPLETED"
         ? "Completed"
-        : !job.installation?.installDate || !job.finalInvoice?.xeroInvoiceId || !job.certificateSentAt
+        : !job.installation?.installDate || !hasFinalInvoiceInXero || !job.certificateSentAt
           ? "Blocked"
           : saving
             ? "Completing..."
@@ -1474,12 +1475,12 @@ export default function JobDetailPage() {
       wired: true,
       actionLabel: job.stage === "COMPLETED"
         ? undefined
-        : !job.installation?.installDate || !job.finalInvoice?.xeroInvoiceId || !job.certificateSentAt
+        : !job.installation?.installDate || !hasFinalInvoiceInXero || !job.certificateSentAt
           ? undefined
           : "Mark completed",
       action: job.stage === "COMPLETED"
         ? undefined
-        : !job.installation?.installDate || !job.finalInvoice?.xeroInvoiceId || !job.certificateSentAt
+        : !job.installation?.installDate || !hasFinalInvoiceInXero || !job.certificateSentAt
           ? undefined
           : () => openSheet("markCompletedConfirm"),
       disabled: saving,
