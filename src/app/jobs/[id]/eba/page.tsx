@@ -279,6 +279,7 @@ export default function EbaPage() {
   const [form, setForm] = useState<Record<string, unknown>>({});
   const [ebaPhotos, setEbaPhotos] = useState<Record<string, string[]>>({});
   const [uploadingPhotosBySection, setUploadingPhotosBySection] = useState<Record<string, number>>({});
+  const [finaliseAttempted, setFinaliseAttempted] = useState(false);
   const [elevationSkip, setElevationSkip] = useState<Record<string, boolean>>({ north:false, east:false, south:false, west:false });
   const [signing, setSigning] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -557,6 +558,7 @@ export default function EbaPage() {
 
   async function saveEBA(isDraft: boolean) {
     if (!job) return;
+    if (!isDraft) setFinaliseAttempted(true);
     setSaving(true);
     setError("");
     setNotice("");
@@ -615,39 +617,9 @@ export default function EbaPage() {
       };
 
       if (!isDraft) {
-        const requiredFieldLabels: Record<string, string> = {
-          nameOfOwners: "Name of owners",
-          proofOfOwnership: "Proof of ownership",
-          bcaOrTa: "BCA/TA",
-          lotOrDPNumber: "Lot / DP Number",
-          date: "Date",
-          approximateYearOfConstruction: "Approx year of construction",
-          numberOfStories: "Number of stories",
-          propertySiteSection: "Property site section",
-          propertySiteExposure: "Property site exposure",
-          propertySiteArea: "Property site area",
-          roofAndEavesCol1: "Roof and eaves",
-          roofAndEavesCol2: "Roof material",
-          roofAndEavesCol3: "Eaves",
-          foundationAndFloor: "Foundation and floor",
-          framing: "Framing",
-          joinery: "Joinery",
-          lining: "Lining",
-          buildingPaper: "Building paper",
-          exteriorCladding: "Exterior cladding",
-          claddingType: "Cladding type",
-          claddingTypeInstalledVia: "Cladding installed via",
-          finishOfCladding: "Finish of cladding",
-          assessorName: "Assessor name",
-        };
-
-        const missingFields = FINALISE_REQUIRED_KEYS
-          .filter((key) => !hasValue(ebaForm[key]))
-          .map((key) => requiredFieldLabels[key] || key);
-
+        const missingFields = FINALISE_REQUIRED_KEYS.filter((key) => !hasValue(ebaForm[key]));
         const requiredPhotoSections = ["elevation_north", "elevation_east", "elevation_south", "elevation_west"];
         const missingPhotoSections = requiredPhotoSections.filter((section) => (ebaPhotos[section] || []).length === 0);
-
         const hasAssessorSignature = !!signatureFileName(job?.ebaForm?.signature_assessor);
 
         if (missingFields.length || missingPhotoSections.length || !hasAssessorSignature) {
@@ -684,13 +656,76 @@ export default function EbaPage() {
   ] as const;
 
   const finaliseChecks = useMemo(() => {
+    const requiredFieldLabels: Record<string, string> = {
+      nameOfOwners: "Name of owners",
+      proofOfOwnership: "Proof of ownership",
+      bcaOrTa: "BCA/TA",
+      lotOrDPNumber: "Lot / DP Number",
+      date: "Date",
+      approximateYearOfConstruction: "Approx year of construction",
+      numberOfStories: "Number of stories",
+      propertySiteSection: "Property site section",
+      propertySiteExposure: "Property site exposure",
+      propertySiteArea: "Property site area",
+      roofAndEavesCol1: "Roof and eaves",
+      roofAndEavesCol2: "Roof material",
+      roofAndEavesCol3: "Eaves",
+      foundationAndFloor: "Foundation and floor",
+      framing: "Framing",
+      joinery: "Joinery",
+      lining: "Lining",
+      buildingPaper: "Building paper",
+      exteriorCladding: "Exterior cladding",
+      claddingType: "Cladding type",
+      claddingTypeInstalledVia: "Cladding installed via",
+      finishOfCladding: "Finish of cladding",
+      b131_structure: "Structure B1.3.1",
+      b131_structure_priorToInstallationWorkRequired: "Structure prior-to-installation work",
+      b131_structure_priorToCertificationWorkRequired: "Structure prior-to-certification work",
+      c22_preventionOfFireOccuring: "Prevention of fire C2.2",
+      c22_preventionOfFireOccuring_priorToInstallationWorkRequired: "Fire prior-to-installation work",
+      c22_preventionOfFireOccuring_priorToCertificationWorkRequired: "Fire prior-to-certification work",
+      g931_electricity: "Electricity G9.3.1",
+      g931_electricity_priorToInstallationWorkRequired: "Electricity prior-to-installation work",
+      g931_electricity_priorToCertificationWorkRequired: "Electricity prior-to-certification work",
+      h131_energyEfficiency: "Energy efficiency H1.3.1",
+      c22_externalMoisture_paintFinishOfExteriorCladdingAppearsToBeInAnWellMaintainedCondition: "External moisture: paint finish",
+      c22_externalMoisture_exteriorCladdingAppearsToHaveDeteriorationToALevelThatMayAllowWaterIngress: "External moisture: cladding deterioration",
+      c22_externalMoisture_joineryAppearsToBeInGoodConditionAndNotAllowingWaterIngress: "External moisture: joinery",
+      c22_externalMoisture_flashingsArePresentAndAppearToBeInstalledCorrectly: "External moisture: flashings",
+      c22_externalMoisture_allExistingPenetrationsAreSealed: "External moisture: penetrations",
+      c22_externalMoisture_joinBetweenDifferentCladdingTypesSealed: "External moisture: cladding joins",
+      c22_externalMoisture_guttersAndDownPipesArePresentAndAppearToBeFunctioningCorrectly: "External moisture: gutters/downpipes",
+      c22_externalMoisture_isWaterAbleToPoolAgainstExteriorWall: "External moisture: water pooling",
+      c22_externalMoisture_wallsAreFreeToAir: "External moisture: walls free to air",
+      masonryCladding_masonryCladUnderfloorVentsArePresentAndClear: "Masonry vents",
+      masonryCladding_windowOrMasonryVerticalJointsAreSealed: "Masonry joints",
+      masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls: "Soffits condition",
+      masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater: "Damp/soft/mouldy areas",
+      masonryCladding_underfloorSpaceExcessivelyDamp: "Underfloor dampness",
+      c22_externalMoisture_priorToInstallationWorkRequired: "External moisture prior-to-installation work",
+      c22_externalMoisture_priorToCertificationWorkRequired: "External moisture prior-to-certification work",
+      assessorName: "Assessor name",
+    };
+
     const missingFields = FINALISE_REQUIRED_KEYS.filter((key) => !hasValue(form[key]));
     const requiredPhotoSections = ["elevation_north", "elevation_east", "elevation_south", "elevation_west"];
     const missingPhotoSections = requiredPhotoSections.filter((section) => (ebaPhotos[section] || []).length === 0);
     const hasAssessorSignature = !!signatureFileName(job?.ebaForm?.signature_assessor);
+
+    const missingItems = [
+      ...missingFields.map((key) => requiredFieldLabels[key] || key),
+      ...missingPhotoSections.map((section) => `Photo: ${section.replace("elevation_", "")} elevation`),
+      ...(hasAssessorSignature ? [] : ["Assessor signature"]),
+    ];
+
     return {
-      canFinalise: missingFields.length === 0 && missingPhotoSections.length === 0 && hasAssessorSignature,
-      missingCount: missingFields.length + missingPhotoSections.length + (hasAssessorSignature ? 0 : 1),
+      canFinalise: missingItems.length === 0,
+      missingCount: missingItems.length,
+      missingItems,
+      missingFields,
+      missingPhotoSections,
+      missingSignature: !hasAssessorSignature,
     };
   }, [form, ebaPhotos, job?.ebaForm?.signature_assessor]);
 
@@ -1118,7 +1153,7 @@ export default function EbaPage() {
               <h3 className="text-sm font-semibold text-gray-700 mb-2">Elevation</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {(["north","east","south","west"] as const).map((dir) => (
-                  <div key={dir} className="border border-gray-100 rounded-lg p-3">
+                  <div key={dir} className={`border rounded-lg p-3 ${finaliseAttempted && finaliseChecks.missingPhotoSections.includes(`elevation_${dir}`) ? "border-red-400 bg-red-50" : "border-gray-100"}`}>
                     <div className="flex items-center justify-between mb-2">
                       <p className="text-sm font-medium text-gray-700 capitalize">{dir} Elevation</p>
                       <label className="text-xs text-gray-600 flex items-center gap-1">
@@ -1210,10 +1245,10 @@ export default function EbaPage() {
 
                   <div>
                     <label className="text-xs text-gray-500">Licensed Building Assessor Name</label>
-                    <input value={(form.assessorName as string) || ""} onChange={(e) => setField("assessorName", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" />
+                    <input value={(form.assessorName as string) || ""} onChange={(e) => setField("assessorName", e.target.value)} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("assessorName") ? "border-red-400 bg-red-50" : "border-gray-200"}`} />
                   </div>
 
-                  <div className="mt-3 border border-gray-300 rounded-lg bg-white overflow-hidden">
+                  <div className={`mt-3 border rounded-lg bg-white overflow-hidden ${finaliseAttempted && finaliseChecks.missingSignature ? "border-red-400 bg-red-50" : "border-gray-300"}`}>
                     <canvas
                       ref={canvasRef}
                       width={900}
@@ -1245,8 +1280,16 @@ export default function EbaPage() {
                 <button onClick={() => saveEBA(true)} disabled={saving} className="bg-white border border-gray-300 text-gray-700 px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50">{saving ? "Saving..." : "Save as Draft"}</button>
                 <button onClick={() => saveEBA(false)} disabled={saving || !finaliseChecks.canFinalise} className="bg-[#1a3a4a] text-white px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50">{saving ? "Finalising..." : "Save as Finalised"}</button>
               </div>
-              {!finaliseChecks.canFinalise && (
-                <p className="text-xs text-amber-700 mt-2">Complete all required fields, all yes/no or checkbox sections, assessor signature, and elevation photos (N/E/S/W). Foundation and maintenance photos are optional. Missing items: {finaliseChecks.missingCount}.</p>
+              {finaliseAttempted && !finaliseChecks.canFinalise && (
+                <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
+                  <p className="text-xs font-semibold text-amber-800">Still required before finalising:</p>
+                  <ul className="mt-1 list-disc ml-4 space-y-0.5">
+                    {finaliseChecks.missingItems.map((item) => (
+                      <li key={item} className="text-xs text-amber-800">{item}</li>
+                    ))}
+                  </ul>
+                  <p className="text-[11px] text-amber-700 mt-1">Foundation and maintenance photos are optional.</p>
+                </div>
               )}
             </div>
           </>
