@@ -10,10 +10,15 @@ type UsageJob = {
   installation?: {
     installDate?: string | null;
     installStatus?: string | null;
+    installNote?: string | null;
   };
   client?: {
     contactDetails?: {
       name?: string;
+      streetAddress?: string;
+      suburb?: string;
+      city?: string;
+      postCode?: string;
     };
   };
   installerChecksheet?: {
@@ -40,10 +45,15 @@ const USAGE_JOBS_QUERY = `
         installation {
           installDate
           installStatus
+          installNote
         }
         client {
           contactDetails {
             name
+            streetAddress
+            suburb
+            city
+            postCode
           }
         }
         installerChecksheet {
@@ -68,6 +78,27 @@ function csvEscape(value: unknown) {
     return `"${text.replace(/\"/g, '""')}"`;
   }
   return text;
+}
+
+function formatNzDateTime(iso?: string | null) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const dt = new Intl.DateTimeFormat("en-NZ", {
+    timeZone: "Pacific/Auckland",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(d);
+  return `${dt} NZT`;
+}
+
+function fullAddress(contact?: { streetAddress?: string; suburb?: string; city?: string; postCode?: string }) {
+  return [contact?.streetAddress, contact?.suburb, contact?.city, contact?.postCode].filter(Boolean).join(", ");
 }
 
 export default function ReportsPage() {
@@ -104,9 +135,11 @@ export default function ReportsPage() {
       const header = [
         "Job Number",
         "Customer",
+        "Address",
         "Stage",
-        "Install Date",
+        "Install Date (NZT)",
         "Install Status",
+        "Install Notes",
         "Budget Bags",
         "Actual Bags",
         "Variance (Actual-Budget)",
@@ -120,9 +153,11 @@ export default function ReportsPage() {
         lines.push([
           job.jobNumber,
           job.client?.contactDetails?.name || "",
+          fullAddress(job.client?.contactDetails),
           job.stage,
-          job.installation?.installDate || "",
+          formatNzDateTime(job.installation?.installDate),
           job.installation?.installStatus || "",
+          job.installation?.installNote || "",
           budget ?? "",
           actual ?? "",
           variance,
