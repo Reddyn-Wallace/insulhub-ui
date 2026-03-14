@@ -514,17 +514,39 @@ export default function JobDetailPage() {
 
   // ── Helper: build QuoteInput from current job state ─────────────
   function buildQuoteInput(overrides: Record<string, unknown> = {}) {
-    const q = job?.quote;
+    const q = (job?.quote || {}) as Record<string, any>;
     return {
-      quoteNote: q?.quoteNote || "",
-      quoteResultNote: q?.quoteResultNote || "",
-      extras: [],
-      wall: { SQMPrice: q?.wall?.SQMPrice, SQM: q?.wall?.SQM, c_RValue: q?.wall?.c_RValue, c_bagCount: q?.wall?.c_bagCount },
-      ceiling: { SQMPrice: q?.ceiling?.SQMPrice, SQM: q?.ceiling?.SQM, RValue: q?.ceiling?.RValue, downlights: q?.ceiling?.downlights, c_bagCount: q?.ceiling?.c_bagCount },
       quoteNumber: q?.quoteNumber,
       date: q?.date,
+      wall: {
+        SQMPrice: q?.wall?.SQMPrice,
+        SQM: q?.wall?.SQM,
+        cavityDepthMeters: q?.wall?.cavityDepthMeters,
+        c_RValue: q?.wall?.c_RValue,
+        c_bagCount: q?.wall?.c_bagCount,
+      },
+      ceiling: {
+        SQMPrice: q?.ceiling?.SQMPrice,
+        SQM: q?.ceiling?.SQM,
+        RValue: q?.ceiling?.RValue,
+        downlights: q?.ceiling?.downlights,
+        c_bagCount: q?.ceiling?.c_bagCount,
+      },
+      extras: q?.extras || [],
+      c_contractPrice: q?.c_contractPrice,
       consentFee: q?.consentFee,
+      c_gst: q?.c_gst,
+      c_total: q?.c_total,
+      totalOverridden: q?.totalOverridden,
       depositPercentage: q?.depositPercentage,
+      c_deposit: q?.c_deposit,
+      depositOverridden: q?.depositOverridden,
+      quoteNote: q?.quoteNote || "",
+      quoteResultNote: q?.quoteResultNote || "",
+      deferralDate: q?.deferralDate || null,
+      sendFollowupEmail: q?.sendFollowupEmail ?? true,
+      sendFollowupText: q?.sendFollowupText ?? true,
+      files_QuoteSitePlan: q?.files_QuoteSitePlan || [],
       ...overrides,
     };
   }
