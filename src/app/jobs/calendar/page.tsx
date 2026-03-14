@@ -226,7 +226,8 @@ export default function JobsCalendarPage() {
   const [installMetaNote, setInstallMetaNote] = useState("");
   const [installDate, setInstallDate] = useState("");
   const [saving, setSaving] = useState(false);
-  const calendarCache = useRef<Map<string, CalendarJob[]>>(new Map());
+  const calendarCache = useRef<Map<string, { jobs: CalendarJob[]; ts: number }>>(new Map());
+  const CALENDAR_CACHE_TTL_MS = 60_000;
 
   const load = useCallback(async (force = false) => {
     setLoading(true);
@@ -243,9 +244,10 @@ export default function JobsCalendarPage() {
       };
 
       if (!force) {
+        const now = Date.now();
         const memoryCached = calendarCache.current.get(cacheKey);
-        if (memoryCached) {
-          setJobs(memoryCached);
+        if (memoryCached && now - memoryCached.ts < CALENDAR_CACHE_TTL_MS) {
+          setJobs(memoryCached.jobs);
           setLoading(false);
           return;
         }
@@ -254,11 +256,14 @@ export default function JobsCalendarPage() {
           const raw = window.sessionStorage.getItem(`calendar:${cacheKey}`);
           if (raw) {
             try {
-              const parsed = JSON.parse(raw) as CalendarJob[];
-              calendarCache.current.set(cacheKey, parsed);
-              setJobs(parsed);
-              setLoading(false);
-              return;
+              const parsed = JSON.parse(raw) as CalendarJob[] | { jobs: CalendarJob[]; ts?: number };
+              const payload = Array.isArray(parsed) ? { jobs: parsed, ts: 0 } : { jobs: parsed.jobs || [], ts: parsed.ts || 0 };
+              if (now - payload.ts < CALENDAR_CACHE_TTL_MS) {
+                calendarCache.current.set(cacheKey, { jobs: payload.jobs, ts: payload.ts || now });
+                setJobs(payload.jobs);
+                setLoading(false);
+                return;
+              }
             } catch {
               // ignore bad cache payload
             }
@@ -321,9 +326,10 @@ export default function JobsCalendarPage() {
         return key >= dateKeyLocal(calendarStart) && key <= dateKeyLocal(calendarEnd);
       });
 
-      calendarCache.current.set(cacheKey, filtered);
+      const payload = { jobs: filtered, ts: Date.now() };
+      calendarCache.current.set(cacheKey, payload);
       if (typeof window !== "undefined") {
-        window.sessionStorage.setItem(`calendar:${cacheKey}`, JSON.stringify(filtered));
+        window.sessionStorage.setItem(`calendar:${cacheKey}`, JSON.stringify(payload));
       }
 
       setJobs(filtered);
