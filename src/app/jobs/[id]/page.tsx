@@ -1621,7 +1621,7 @@ export default function JobDetailPage() {
                             <div className="mt-2 space-y-2">
                               <div className="text-xs text-gray-600">{installStatusDisplay}</div>
 
-                              {installIsInstalled && installedMetricsSummary.length > 0 && (
+                              {installIsInstalled && !installIsVariation && installedMetricsSummary.length > 0 && (
                                 <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-2">
                                   <div className="text-[11px] font-semibold text-emerald-800 mb-1">Install usage</div>
                                   <div className="space-y-1">
@@ -1633,16 +1633,16 @@ export default function JobDetailPage() {
                               )}
 
                               {installIsVariation && (
-                                <div className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2">
-                                  <div className="text-[11px] font-semibold text-amber-800 mb-1">Variation from quote</div>
+                                <div className="rounded-lg border-2 border-amber-300 bg-amber-100 px-3 py-2.5 shadow-sm">
+                                  <div className="text-xs font-bold text-amber-900 mb-1">⚠ Variation from quote</div>
                                   {variationMetricsSummary.length > 0 ? (
                                     <div className="space-y-1">
                                       {variationMetricsSummary.map((line) => (
-                                        <div key={line} className="text-[11px] text-amber-800">• {line}</div>
+                                        <div key={line} className="text-[12px] font-semibold text-amber-900">• {line}</div>
                                       ))}
                                     </div>
                                   ) : (
-                                    <div className="text-[11px] text-amber-800">Installer marked as variation. Check checksheet for details.</div>
+                                    <div className="text-[12px] font-semibold text-amber-900">Installer marked as variation. Check checksheet for details.</div>
                                   )}
                                 </div>
                               )}
