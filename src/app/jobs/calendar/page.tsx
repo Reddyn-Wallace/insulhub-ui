@@ -555,7 +555,7 @@ export default function JobsCalendarPage() {
         ) : (
           <div className="space-y-4 overflow-x-auto pb-4">
             <div className="min-w-[1100px]">
-              <div className="grid grid-cols-[repeat(7,minmax(0,1fr))_170px] gap-2 mb-3">
+              <div className="grid grid-cols-[repeat(7,minmax(0,1fr))_150px] gap-2 mb-3">
                 {WEEKDAY_LABELS.map((label) => (
                   <div key={label} className="text-xs font-bold uppercase tracking-wide text-gray-500 px-1">
                     {label}
@@ -566,11 +566,11 @@ export default function JobsCalendarPage() {
 
               <div className="space-y-3">
                 {weeks.map((week) => (
-                  <div key={week.weekStart.toISOString()} className="grid grid-cols-[repeat(7,minmax(0,1fr))_170px] gap-2 items-start">
+                  <div key={week.weekStart.toISOString()} className="grid grid-cols-[repeat(7,minmax(0,1fr))_150px] gap-2 items-start">
                     {week.days.map((day) => (
                       <div
                         key={day.key}
-                        className={`rounded-2xl border min-h-[220px] p-2 ${day.inMonth ? "bg-white border-gray-100" : "bg-gray-100/70 border-gray-200"}`}
+                        className={`rounded-2xl border min-h-[180px] p-1.5 ${day.inMonth ? "bg-white border-gray-100" : "bg-gray-100/70 border-gray-200"}`}
                       >
                         <div className="flex items-center justify-between mb-2">
                           <span className={`text-sm font-bold ${day.inMonth ? "text-gray-900" : "text-gray-400"}`}>
@@ -589,21 +589,21 @@ export default function JobsCalendarPage() {
                             const isInstalled = ["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"].includes(job.installation?.installStatus || "");
                             const isPencilled = meta.status === "pencilled";
                             return (
-                              <div key={job._id} className={`w-full rounded-2xl border p-2 shadow-sm border-l-4 ${isInstalled ? "border-emerald-200 bg-emerald-50/60" : "border-orange-100 bg-orange-50/50"} ${isPencilled ? "border-l-amber-500" : "border-l-emerald-500"}`}>
+                              <div key={job._id} className={`w-full rounded-xl border p-1.5 shadow-sm border-l-4 ${isInstalled ? "border-emerald-200 bg-emerald-50/60" : "border-orange-100 bg-orange-50/50"} ${isPencilled ? "border-l-amber-500" : "border-l-emerald-500"}`}>
                                 <button onClick={() => openJobSheet(job)} className="w-full text-left">
-                                  <div className="mb-2">
-                                    <div className="text-[17px] leading-5 font-semibold text-gray-900 line-clamp-3">{job.client?.contactDetails?.name || `Job #${job.jobNumber}`}</div>
+                                  <div className="mb-1.5">
+                                    <div className="text-[16px] leading-5 font-semibold text-gray-900 line-clamp-2">{job.client?.contactDetails?.name || `Job #${job.jobNumber}`}</div>
                                   </div>
-                                  <div className="text-[13px] text-gray-600 leading-5 mb-3 line-clamp-3">{address(job) || "No address"}</div>
+                                  <div className="text-[12px] text-gray-600 leading-4 mb-2 line-clamp-2">{address(job) || "No address"}</div>
 
-                                  <div className="grid grid-cols-2 gap-1.5 mb-2">
-                                    <div className="rounded-lg bg-white/70 border border-white px-1.5 py-1">
+                                  <div className="grid grid-cols-2 gap-1 mb-1.5">
+                                    <div className="rounded-lg bg-white/70 border border-white px-1.5 py-0.5">
                                       <div className="text-[9px] uppercase tracking-wide text-gray-500">Area</div>
-                                      <div className="text-sm font-semibold text-gray-800">{formatSqm(combinedSqm(job))}</div>
+                                      <div className="text-[13px] leading-tight font-semibold text-gray-800">{formatSqm(combinedSqm(job))}</div>
                                     </div>
-                                    <div className="rounded-lg bg-white/70 border border-white px-1.5 py-1">
+                                    <div className="rounded-lg bg-white/70 border border-white px-1.5 py-0.5">
                                       <div className="text-[9px] uppercase tracking-wide text-gray-500">Value</div>
-                                      <div className="text-[15px] leading-tight font-semibold text-gray-800 break-words">{formatCurrency(job.quote?.c_total || 0)}</div>
+                                      <div className="text-[13px] leading-tight font-semibold text-gray-800 whitespace-nowrap tabular-nums">{formatCurrency(job.quote?.c_total || 0)}</div>
                                     </div>
                                   </div>
 
@@ -614,16 +614,16 @@ export default function JobsCalendarPage() {
                                   )}
                                 </button>
 
-                                <div className={`mt-3 pt-3 border-t grid grid-cols-2 gap-2 ${isInstalled ? "border-emerald-100" : "border-orange-100"}`}>
+                                <div className={`mt-2 pt-2 border-t grid grid-cols-2 gap-1.5 ${isInstalled ? "border-emerald-100" : "border-orange-100"}`}>
                                   <button
                                     onClick={() => openJobSheet(job)}
-                                    className="h-9 text-xs font-semibold text-[#e85d04] bg-white border border-orange-200 rounded-xl hover:bg-orange-50"
+                                    className="h-8 text-[11px] font-semibold text-[#e85d04] bg-white border border-orange-200 rounded-lg hover:bg-orange-50"
                                   >
                                     Plan install
                                   </button>
                                   <button
                                     onClick={() => openJobPage(job._id)}
-                                    className="h-9 text-xs font-semibold text-[#1a3a4a] bg-white border border-gray-200 rounded-xl hover:bg-gray-50"
+                                    className="h-8 text-[11px] font-semibold text-[#1a3a4a] bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
                                   >
                                     Open job
                                   </button>
