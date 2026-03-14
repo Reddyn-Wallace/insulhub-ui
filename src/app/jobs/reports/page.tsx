@@ -65,11 +65,21 @@ const USAGE_JOBS_QUERY = `
   }
 `;
 
-function toDateKey(iso?: string | null) {
+function toDateKeyNz(iso?: string | null) {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toISOString().slice(0, 10);
+  const parts = new Intl.DateTimeFormat("en-NZ", {
+    timeZone: "Pacific/Auckland",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+  const year = parts.find((p) => p.type === "year")?.value;
+  const month = parts.find((p) => p.type === "month")?.value;
+  const day = parts.find((p) => p.type === "day")?.value;
+  if (!year || !month || !day) return "";
+  return `${year}-${month}-${day}`;
 }
 
 function csvEscape(value: unknown) {
@@ -123,7 +133,7 @@ export default function ReportsPage() {
       const rows = (data.jobs.results || [])
         .filter((job) => ["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"].includes(job.installation?.installStatus || ""))
         .filter((job) => {
-          const key = toDateKey(job.installation?.installDate);
+          const key = toDateKeyNz(job.installation?.installDate);
           return !!key && key >= fromDate && key <= toDate;
         })
         .sort((a, b) => {
