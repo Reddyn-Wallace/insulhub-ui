@@ -775,11 +775,11 @@ export default function EbaPage() {
               <h2 className="text-sm font-semibold text-gray-700 mb-3">1) Administrative Information</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div><label className="text-xs text-gray-500">Property Address</label><div className="text-sm text-gray-800 mt-1">{address || "-"}</div></div>
-                <div><label className="text-xs text-gray-500">Name of Owners</label><input value={(form.nameOfOwners as string) || ""} onChange={(e) => setField("nameOfOwners", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
-                <div><label className="text-xs text-gray-500">Proof of Ownership</label><select value={(form.proofOfOwnership as string) || ""} onChange={(e) => setField("proofOfOwnership", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1"><option>Certificate of Title</option><option>Rates</option><option>Other</option></select></div>
-                <div><label className="text-xs text-gray-500">BCA/TA</label><input value={(form.bcaOrTa as string) || ""} onChange={(e) => setField("bcaOrTa", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
-                <div><label className="text-xs text-gray-500">Lot / DP Number</label><input value={(form.lotOrDPNumber as string) || ""} onChange={(e) => setField("lotOrDPNumber", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
-                <div><label className="text-xs text-gray-500">Date</label><input type="datetime-local" value={(form.date as string) || ""} onChange={(e) => setField("date", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
+                <div><label className="text-xs text-gray-500">Name of Owners {finaliseAttempted && finaliseChecks.missingFields.includes("nameOfOwners") && <span className="text-red-600">*</span>}</label><input value={(form.nameOfOwners as string) || ""} onChange={(e) => setField("nameOfOwners", e.target.value)} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("nameOfOwners") ? "border-red-400 bg-red-50" : "border-gray-200"}`} /></div>
+                <div><label className="text-xs text-gray-500">Proof of Ownership {finaliseAttempted && finaliseChecks.missingFields.includes("proofOfOwnership") && <span className="text-red-600">*</span>}</label><select value={(form.proofOfOwnership as string) || ""} onChange={(e) => setField("proofOfOwnership", e.target.value)} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("proofOfOwnership") ? "border-red-400 bg-red-50" : "border-gray-200"}`}><option>Certificate of Title</option><option>Rates</option><option>Other</option></select></div>
+                <div><label className="text-xs text-gray-500">BCA/TA {finaliseAttempted && finaliseChecks.missingFields.includes("bcaOrTa") && <span className="text-red-600">*</span>}</label><input value={(form.bcaOrTa as string) || ""} onChange={(e) => setField("bcaOrTa", e.target.value)} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("bcaOrTa") ? "border-red-400 bg-red-50" : "border-gray-200"}`} /></div>
+                <div><label className="text-xs text-gray-500">Lot / DP Number {finaliseAttempted && finaliseChecks.missingFields.includes("lotOrDPNumber") && <span className="text-red-600">*</span>}</label><input value={(form.lotOrDPNumber as string) || ""} onChange={(e) => setField("lotOrDPNumber", e.target.value)} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("lotOrDPNumber") ? "border-red-400 bg-red-50" : "border-gray-200"}`} /></div>
+                <div><label className="text-xs text-gray-500">Date {finaliseAttempted && finaliseChecks.missingFields.includes("date") && <span className="text-red-600">*</span>}</label><input type="datetime-local" value={(form.date as string) || ""} onChange={(e) => setField("date", e.target.value)} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("date") ? "border-red-400 bg-red-50" : "border-gray-200"}`} /></div>
               </div>
             </div>
 
@@ -1155,7 +1155,7 @@ export default function EbaPage() {
                 {(["north","east","south","west"] as const).map((dir) => (
                   <div key={dir} className={`border rounded-lg p-3 ${finaliseAttempted && finaliseChecks.missingPhotoSections.includes(`elevation_${dir}`) ? "border-red-400 bg-red-50" : "border-gray-100"}`}>
                     <div className="flex items-center justify-between mb-2">
-                      <p className="text-sm font-medium text-gray-700 capitalize">{dir} Elevation</p>
+                      <p className="text-sm font-medium text-gray-700 capitalize">{dir} Elevation {finaliseAttempted && finaliseChecks.missingPhotoSections.includes(`elevation_${dir}`) && <span className="text-red-600">*</span>}</p>
                       <label className="text-xs text-gray-600 flex items-center gap-1">
                         <input type="checkbox" checked={!!elevationSkip[dir]} onChange={(e)=>setElevationSkip((p)=>({ ...p, [dir]: e.target.checked }))} />
                         Skip
@@ -1244,11 +1244,12 @@ export default function EbaPage() {
                   </ul>
 
                   <div>
-                    <label className="text-xs text-gray-500">Licensed Building Assessor Name</label>
+                    <label className="text-xs text-gray-500">Licensed Building Assessor Name {finaliseAttempted && finaliseChecks.missingFields.includes("assessorName") && <span className="text-red-600">*</span>}</label>
                     <input value={(form.assessorName as string) || ""} onChange={(e) => setField("assessorName", e.target.value)} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("assessorName") ? "border-red-400 bg-red-50" : "border-gray-200"}`} />
                   </div>
 
-                  <div className={`mt-3 border rounded-lg bg-white overflow-hidden ${finaliseAttempted && finaliseChecks.missingSignature ? "border-red-400 bg-red-50" : "border-gray-300"}`}>
+                  <div className="text-xs text-gray-500 mt-3 mb-1">Assessor signature {finaliseAttempted && finaliseChecks.missingSignature && <span className="text-red-600">*</span>}</div>
+                  <div className={`border rounded-lg bg-white overflow-hidden ${finaliseAttempted && finaliseChecks.missingSignature ? "border-red-400 bg-red-50" : "border-gray-300"}`}>
                     <canvas
                       ref={canvasRef}
                       width={900}
@@ -1282,12 +1283,7 @@ export default function EbaPage() {
               </div>
               {finaliseAttempted && !finaliseChecks.canFinalise && (
                 <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
-                  <p className="text-xs font-semibold text-amber-800">Still required before finalising:</p>
-                  <ul className="mt-1 list-disc ml-4 space-y-0.5">
-                    {finaliseChecks.missingItems.map((item) => (
-                      <li key={item} className="text-xs text-amber-800">{item}</li>
-                    ))}
-                  </ul>
+                  <p className="text-xs font-semibold text-amber-800">{finaliseChecks.missingCount} required item(s) still missing. Required fields are marked with *</p>
                   <p className="text-[11px] text-amber-700 mt-1">Foundation and maintenance photos are optional.</p>
                 </div>
               )}
