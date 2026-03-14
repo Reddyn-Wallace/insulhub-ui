@@ -589,21 +589,21 @@ export default function JobsCalendarPage() {
                             const isInstalled = ["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"].includes(job.installation?.installStatus || "");
                             const isPencilled = meta.status === "pencilled";
                             return (
-                              <div key={job._id} className={`w-full rounded-2xl border p-3 shadow-sm border-l-4 ${isInstalled ? "border-emerald-200 bg-emerald-50/60" : "border-orange-100 bg-orange-50/50"} ${isPencilled ? "border-l-amber-500" : "border-l-emerald-500"}`}>
+                              <div key={job._id} className={`w-full rounded-2xl border p-2.5 shadow-sm border-l-4 ${isInstalled ? "border-emerald-200 bg-emerald-50/60" : "border-orange-100 bg-orange-50/50"} ${isPencilled ? "border-l-amber-500" : "border-l-emerald-500"}`}>
                                 <button onClick={() => openJobSheet(job)} className="w-full text-left">
                                   <div className="mb-2">
                                     <div className="text-[17px] leading-5 font-semibold text-gray-900 line-clamp-3">{job.client?.contactDetails?.name || `Job #${job.jobNumber}`}</div>
                                   </div>
                                   <div className="text-[13px] text-gray-600 leading-5 mb-3 line-clamp-3">{address(job) || "No address"}</div>
 
-                                  <div className="grid grid-cols-2 gap-2 mb-2">
-                                    <div className="rounded-lg bg-white/70 border border-white px-2 py-1.5">
-                                      <div className="text-[10px] uppercase tracking-wide text-gray-500">Area</div>
+                                  <div className="grid grid-cols-2 gap-1.5 mb-2">
+                                    <div className="rounded-lg bg-white/70 border border-white px-1.5 py-1">
+                                      <div className="text-[9px] uppercase tracking-wide text-gray-500">Area</div>
                                       <div className="text-sm font-semibold text-gray-800">{formatSqm(combinedSqm(job))}</div>
                                     </div>
-                                    <div className="rounded-lg bg-white/70 border border-white px-2 py-1.5">
-                                      <div className="text-[10px] uppercase tracking-wide text-gray-500">Value</div>
-                                      <div className="text-sm font-semibold text-gray-800">{formatCurrency(job.quote?.c_total || 0)}</div>
+                                    <div className="rounded-lg bg-white/70 border border-white px-1.5 py-1">
+                                      <div className="text-[9px] uppercase tracking-wide text-gray-500">Value</div>
+                                      <div className="text-[15px] leading-tight font-semibold text-gray-800 break-words">{formatCurrency(job.quote?.c_total || 0)}</div>
                                     </div>
                                   </div>
 
