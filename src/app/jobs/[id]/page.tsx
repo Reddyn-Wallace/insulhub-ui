@@ -1277,6 +1277,9 @@ export default function JobDetailPage() {
   const checksheetWallMetrics = (job.installerChecksheet?.wallAreaQuoted != null && job.installerChecksheet?.wallAreaInstalled != null)
     ? `Wall area quoted / installed: ${job.installerChecksheet.wallAreaQuoted} / ${job.installerChecksheet.wallAreaInstalled}`
     : null;
+  const installedMetricsSummary = installIsInstalled
+    ? [checksheetBagMetrics, checksheetWallMetrics].filter(Boolean)
+    : [];
   const variationMetricsSummary = installIsVariation
     ? [checksheetBagMetrics, checksheetWallMetrics].filter(Boolean)
     : [];
@@ -1605,6 +1608,18 @@ export default function JobDetailPage() {
                           {item.title === "Install notes & status" ? (
                             <div className="mt-2 space-y-2">
                               <div className="text-xs text-gray-600">{installStatusDisplay}</div>
+
+                              {installIsInstalled && installedMetricsSummary.length > 0 && (
+                                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-2">
+                                  <div className="text-[11px] font-semibold text-emerald-800 mb-1">Install usage</div>
+                                  <div className="space-y-1">
+                                    {installedMetricsSummary.map((line) => (
+                                      <div key={line} className="text-[11px] text-emerald-800">• {line}</div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
                               {installIsVariation && (
                                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2">
                                   <div className="text-[11px] font-semibold text-amber-800 mb-1">Variation from quote</div>
@@ -1619,6 +1634,7 @@ export default function JobDetailPage() {
                                   )}
                                 </div>
                               )}
+
                               <div className="text-xs text-gray-500">{installNoteDisplay}</div>
                             </div>
                           ) : item.title === "Upload Council Application" ? (
