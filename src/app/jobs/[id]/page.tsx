@@ -179,18 +179,21 @@ const STATUS_COLORS: Record<string, string> = {
 const INSTALL_META_START = "[INSTALL_META]";
 const INSTALL_META_END = "[/INSTALL_META]";
 
-function parseInstallMeta(notes?: string | null): { status: "confirmed" | "pencilled"; note: string } {
+function parseInstallMeta(notes?: string | null): { status: "confirmed" | "pencilled"; note: string; councilApprovalNA: boolean } {
   const text = notes || "";
   const start = text.indexOf(INSTALL_META_START);
   const end = text.indexOf(INSTALL_META_END);
-  if (start === -1 || end === -1 || end < start) return { status: "confirmed", note: "" };
+  if (start === -1 || end === -1 || end < start) return { status: "confirmed", note: "", councilApprovalNA: false };
   const body = text.slice(start + INSTALL_META_START.length, end).trim();
   const statusMatch = body.match(/^status:\s*(.+)$/im);
-  const noteMatch = body.match(/^note:\s*([\s\S]*)$/im);
+  const noteMatch = body.match(/^note:\s*([\s\S]*?)(?:\n[a-z_]+:|$)/im);
+  const councilApprovalNAMatch = body.match(/^council_approval_na:\s*(.+)$/im);
   const rawStatus = (statusMatch?.[1] || "confirmed").trim().toLowerCase();
+  const rawCouncilApprovalNA = (councilApprovalNAMatch?.[1] || "false").trim().toLowerCase();
   return {
     status: rawStatus === "pencilled" ? "pencilled" : "confirmed",
     note: (noteMatch?.[1] || "").trim(),
+    councilApprovalNA: rawCouncilApprovalNA === "true" || rawCouncilApprovalNA === "yes" || rawCouncilApprovalNA === "1",
   };
 }
 
@@ -200,9 +203,14 @@ function stripInstallMeta(notes?: string | null) {
   return text.replace(block, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-function buildNotesWithInstallMeta(existingNotes: string | null | undefined, status: "confirmed" | "pencilled", note: string) {
+function buildNotesWithInstallMeta(
+  existingNotes: string | null | undefined,
+  status: "confirmed" | "pencilled",
+  note: string,
+  councilApprovalNA = false,
+) {
   const cleaned = stripInstallMeta(existingNotes);
-  const block = `${INSTALL_META_START}\nstatus: ${status}\nnote: ${note.trim()}\n${INSTALL_META_END}`;
+  const block = `${INSTALL_META_START}\nstatus: ${status}\nnote: ${note.trim()}\ncouncil_approval_na: ${councilApprovalNA ? "true" : "false"}\n${INSTALL_META_END}`;
   return cleaned ? `${cleaned}\n\n${block}` : block;
 }
 
@@ -588,7 +596,7 @@ export default function JobDetailPage() {
   async function saveInstallPlanning() {
     setSaving(true);
     try {
-      const nextNotes = buildNotesWithInstallMeta(job?.notes, installPlanningStatus, installPlanningNote);
+      const nextNotes = buildNotesWithInstallMeta(job?.notes, installPlanningStatus, installPlanningNote, installMeta.councilApprovalNA);
       await gql(UPDATE_JOB_NOTES, { input: { _id: id, notes: nextNotes } });
       await load();
       closeSheet();
@@ -602,8 +610,24 @@ export default function JobDetailPage() {
     }
   }
 
+  async function toggleCouncilApprovalNA(nextValue: boolean) {
+    setSaving(true);
+    try {
+      const nextNotes = buildNotesWithInstallMeta(job?.notes, installMeta.status, installMeta.note, nextValue);
+      await gql(UPDATE_JOB_NOTES, { input: { _id: id, notes: nextNotes } });
+      await load();
+      const msg = { type: "success" as const, text: nextValue ? "Council approval marked as N/A." : "Council approval requirement restored." };
+      setNotice(msg);
+      setToast(msg);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update council approval requirement");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function saveFullNote() {
-    const nextNotes = buildNotesWithInstallMeta(fullNoteText, installMeta.status, installMeta.note);
+    const nextNotes = buildNotesWithInstallMeta(fullNoteText, installMeta.status, installMeta.note, installMeta.councilApprovalNA);
     await run(() => gql(UPDATE_JOB_NOTES, { input: { _id: id, notes: nextNotes } }));
   }
 
@@ -974,7 +998,7 @@ export default function JobDetailPage() {
   async function saveInstallDate() {
     setSaving(true);
     try {
-      const nextNotes = buildNotesWithInstallMeta(job?.notes, installPlanningStatus, installPlanningNote);
+      const nextNotes = buildNotesWithInstallMeta(job?.notes, installPlanningStatus, installPlanningNote, installMeta.councilApprovalNA);
       await gql(
         `mutation UpdateInstall($input: UpdateJobInput!) { updateJob(input: $input) { _id installation { installDate installNote installStatus checkSheetSignedAsComplete } notes } }`,
         {
@@ -1294,6 +1318,8 @@ export default function JobDetailPage() {
     : [];
   const installNoteDisplay = job.installation?.installNote?.trim() || "No install notes yet";
   const installMeta = parseInstallMeta(job.notes);
+  const councilApprovalMarkedNA = installMeta.councilApprovalNA;
+  const hasCouncilApprovalFile = !!job.council?.files_CouncilApprovalLetters?.length;
   const visibleJobNotes = stripInstallMeta(job.notes);
   const completionActions = [
     {
@@ -1351,10 +1377,18 @@ export default function JobDetailPage() {
     },
     {
       title: "Upload Council Approval",
-      description: job.council?.files_CouncilApprovalLetters?.length
-        ? `${job.council.files_CouncilApprovalLetters.length} file${job.council.files_CouncilApprovalLetters.length === 1 ? "" : "s"} uploaded`
-        : "Upload council approval files",
-      status: uploadingCouncilApproval ? `Uploading ${councilApprovalProgress}%` : job.council?.files_CouncilApprovalLetters?.length ? "Available" : "Empty",
+      description: councilApprovalMarkedNA
+        ? "Marked as N/A (no consent required)"
+        : hasCouncilApprovalFile
+          ? `${job.council?.files_CouncilApprovalLetters?.length || 0} file${(job.council?.files_CouncilApprovalLetters?.length || 0) === 1 ? "" : "s"} uploaded`
+          : "Upload council approval files",
+      status: councilApprovalMarkedNA
+        ? "N/A"
+        : uploadingCouncilApproval
+          ? `Uploading ${councilApprovalProgress}%`
+          : hasCouncilApprovalFile
+            ? "Available"
+            : "Empty",
       wired: true,
     },
     {
@@ -1393,12 +1427,12 @@ export default function JobDetailPage() {
             ? "Enter a consent number first"
             : !job.council?.files_Other?.length
               ? "Upload a council application first"
-              : !job.council?.files_CouncilApprovalLetters?.length
-                ? "Upload a council approval first"
+              : (!councilApprovalMarkedNA && !hasCouncilApprovalFile)
+                ? "Upload a council approval first (or mark N/A)"
                 : "Completion certificate, council, acceptance letter, and other customer files",
       status: job.certificateSentAt
         ? "Sent"
-        : !job.installation?.installDate || !job.council?.consentNumber || !job.council?.files_Other?.length || !job.council?.files_CouncilApprovalLetters?.length
+        : !job.installation?.installDate || !job.council?.consentNumber || !job.council?.files_Other?.length || (!councilApprovalMarkedNA && !hasCouncilApprovalFile)
           ? "Blocked"
           : saving
             ? "Sending..."
@@ -1406,12 +1440,12 @@ export default function JobDetailPage() {
       wired: true,
       actionLabel: job.certificateSentAt
         ? undefined
-        : !job.installation?.installDate || !job.council?.consentNumber || !job.council?.files_Other?.length || !job.council?.files_CouncilApprovalLetters?.length
+        : !job.installation?.installDate || !job.council?.consentNumber || !job.council?.files_Other?.length || (!councilApprovalMarkedNA && !hasCouncilApprovalFile)
           ? undefined
           : "Send completion pack",
       action: job.certificateSentAt
         ? undefined
-        : !job.installation?.installDate || !job.council?.consentNumber || !job.council?.files_Other?.length || !job.council?.files_CouncilApprovalLetters?.length
+        : !job.installation?.installDate || !job.council?.consentNumber || !job.council?.files_Other?.length || (!councilApprovalMarkedNA && !hasCouncilApprovalFile)
           ? undefined
           : sendCompletionPack,
       disabled: saving,
@@ -1687,11 +1721,22 @@ export default function JobDetailPage() {
                           ) : item.title === "Upload Council Approval" ? (
                             <div className="mt-3 border border-gray-200 rounded-xl p-3 space-y-3">
                               <div className="flex items-center justify-between gap-3">
-                                <div className="text-xs text-gray-500">Usually one council approval PDF</div>
-                                <label className="inline-flex items-center px-3 py-2 rounded-lg bg-[#1a3a4a] text-white text-sm font-semibold cursor-pointer hover:opacity-95">
-                                  <input type="file" onChange={(e) => uploadCouncilApprovalFiles(e.target.files)} disabled={uploadingCouncilApproval} className="hidden" />
-                                  {uploadingCouncilApproval ? "Uploading..." : "Upload file"}
-                                </label>
+                                <div className="text-xs text-gray-500">
+                                  {councilApprovalMarkedNA ? "Consent not required for this job" : "Usually one council approval PDF"}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => toggleCouncilApprovalNA(!councilApprovalMarkedNA)}
+                                    disabled={saving || uploadingCouncilApproval}
+                                    className={`px-3 py-2 rounded-lg text-xs font-semibold border ${councilApprovalMarkedNA ? "bg-amber-50 text-amber-700 border-amber-300" : "bg-white text-gray-700 border-gray-200"}`}
+                                  >
+                                    {councilApprovalMarkedNA ? "N/A selected" : "Mark N/A"}
+                                  </button>
+                                  <label className="inline-flex items-center px-3 py-2 rounded-lg bg-[#1a3a4a] text-white text-sm font-semibold cursor-pointer hover:opacity-95 disabled:opacity-50">
+                                    <input type="file" onChange={(e) => uploadCouncilApprovalFiles(e.target.files)} disabled={uploadingCouncilApproval || councilApprovalMarkedNA} className="hidden" />
+                                    {uploadingCouncilApproval ? "Uploading..." : "Upload file"}
+                                  </label>
+                                </div>
                               </div>
 
                               {uploadingCouncilApproval && (
@@ -1714,8 +1759,11 @@ export default function JobDetailPage() {
                                     <button onClick={() => removeCouncilApprovalFile(f)} className="text-xs text-red-600 font-medium">Remove</button>
                                   </div>
                                 ))}
-                                {(!job.council?.files_CouncilApprovalLetters || job.council.files_CouncilApprovalLetters.length === 0) && (
+                                {(!job.council?.files_CouncilApprovalLetters || job.council.files_CouncilApprovalLetters.length === 0) && !councilApprovalMarkedNA && (
                                   <p className="text-xs text-gray-400">No council approval files uploaded yet.</p>
+                                )}
+                                {councilApprovalMarkedNA && (
+                                  <p className="text-xs text-amber-700">Council approval is marked N/A. Completion pack can proceed without this upload.</p>
                                 )}
                               </div>
                             </div>
