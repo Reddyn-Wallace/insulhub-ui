@@ -24,7 +24,7 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
   })();
   const stage = searchParams.get("stage") || returnToStage || "LEAD";
   const isCalendarView = pathname === "/jobs/calendar";
-  const isReportsView = pathname === "/jobs/reports";
+  const isReportsView = pathname.startsWith("/jobs/reports");
   const isPrimaryStage = stage === "LEAD" || stage === "QUOTE";
   const activeOtherStage = !isPrimaryStage && !isCalendarView && !isReportsView
     ? OTHER_STAGES.find((s) => s.value === stage)
@@ -182,13 +182,27 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
                   router.push("/jobs/reports");
                 }}
                 className={`w-full text-left px-4 py-2.5 text-sm font-medium transition-colors ${
-                  isReportsView
+                  pathname === "/jobs/reports"
                     ? "bg-orange-50 text-[#e85d04]"
                     : "text-gray-700 hover:bg-gray-50"
                 }`}
               >
-                Reports
-                {isReportsView && <span className="float-right text-[#e85d04]">✓</span>}
+                Usage Report
+                {pathname === "/jobs/reports" && <span className="float-right text-[#e85d04]">✓</span>}
+              </button>
+              <button
+                onClick={() => {
+                  setIsMenuOpen(false);
+                  router.push("/jobs/reports/sales-installs");
+                }}
+                className={`w-full text-left px-4 py-2.5 text-sm font-medium transition-colors ${
+                  pathname === "/jobs/reports/sales-installs"
+                    ? "bg-orange-50 text-[#e85d04]"
+                    : "text-gray-700 hover:bg-gray-50"
+                }`}
+              >
+                Sales & Installs
+                {pathname === "/jobs/reports/sales-installs" && <span className="float-right text-[#e85d04]">✓</span>}
               </button>
               <div className="my-1 border-t border-gray-100" />
               {OTHER_STAGES.map((s) => (
