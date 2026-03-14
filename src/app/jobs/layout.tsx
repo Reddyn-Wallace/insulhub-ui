@@ -24,8 +24,9 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
   })();
   const stage = searchParams.get("stage") || returnToStage || "LEAD";
   const isCalendarView = pathname === "/jobs/calendar";
+  const isReportsView = pathname === "/jobs/reports";
   const isPrimaryStage = stage === "LEAD" || stage === "QUOTE";
-  const activeOtherStage = !isPrimaryStage && !isCalendarView
+  const activeOtherStage = !isPrimaryStage && !isCalendarView && !isReportsView
     ? OTHER_STAGES.find((s) => s.value === stage)
     : null;
 
@@ -157,12 +158,12 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
           <button
             onClick={() => setIsMenuOpen((v) => !v)}
             className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${
-              activeOtherStage
+              (activeOtherStage || isReportsView)
                 ? "bg-[#e85d04] text-white shadow-md shadow-orange-500/30 ring-1 ring-orange-300/40"
                 : "bg-[#27424d] text-gray-300"
             }`}
           >
-            {activeOtherStage ? activeOtherStage.label : "More"}
+            {isReportsView ? "Reports" : activeOtherStage ? activeOtherStage.label : "More"}
             <svg
               width="14" height="14" viewBox="0 0 24 24" fill="none"
               stroke="currentColor" strokeWidth="2.5"
@@ -175,6 +176,21 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
 
           {isMenuOpen && (
             <div className="absolute left-0 top-full mt-1.5 w-44 bg-white rounded-xl shadow-xl border border-gray-100 py-1.5 z-50">
+              <button
+                onClick={() => {
+                  setIsMenuOpen(false);
+                  router.push("/jobs/reports");
+                }}
+                className={`w-full text-left px-4 py-2.5 text-sm font-medium transition-colors ${
+                  isReportsView
+                    ? "bg-orange-50 text-[#e85d04]"
+                    : "text-gray-700 hover:bg-gray-50"
+                }`}
+              >
+                Reports
+                {isReportsView && <span className="float-right text-[#e85d04]">✓</span>}
+              </button>
+              <div className="my-1 border-t border-gray-100" />
               {OTHER_STAGES.map((s) => (
                 <button
                   key={s.value}
