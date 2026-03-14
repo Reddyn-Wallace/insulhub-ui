@@ -999,13 +999,16 @@ export default function JobDetailPage() {
     setSaving(true);
     try {
       const nextNotes = buildNotesWithInstallMeta(job?.notes, installPlanningStatus, installPlanningNote, installMeta.councilApprovalNA);
+      const nextInstallDate = fromDatetimeLocal(installDate);
+      const shouldMoveToInstallation = !!nextInstallDate && !["INSTALLATION", "INVOICE", "COMPLETED"].includes(job?.stage || "");
       await gql(
-        `mutation UpdateInstall($input: UpdateJobInput!) { updateJob(input: $input) { _id installation { installDate installNote installStatus checkSheetSignedAsComplete } notes } }`,
+        `mutation UpdateInstall($input: UpdateJobInput!) { updateJob(input: $input) { _id stage installation { installDate installNote installStatus checkSheetSignedAsComplete } notes } }`,
         {
           input: {
             _id: id,
+            ...(shouldMoveToInstallation ? { stage: "INSTALLATION" } : {}),
             installation: {
-              installDate: fromDatetimeLocal(installDate),
+              installDate: nextInstallDate,
               installNote: job?.installation?.installNote || "",
               installStatus: job?.installation?.installStatus || "JOB_NOT_STARTED_YET",
               checkSheetSignedAsComplete: job?.installation?.checkSheetSignedAsComplete ?? false,
