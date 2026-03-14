@@ -1278,7 +1278,7 @@ export default function EbaPage() {
             <div className="bg-white border border-gray-200 rounded-xl p-4 sticky bottom-3">
               <div className="flex gap-2 flex-wrap">
                 <button onClick={() => saveEBA(true)} disabled={saving} className="bg-white border border-gray-300 text-gray-700 px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50">{saving ? "Saving..." : "Save as Draft"}</button>
-                <button onClick={() => saveEBA(false)} disabled={saving || !finaliseChecks.canFinalise} className="bg-[#1a3a4a] text-white px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50">{saving ? "Finalising..." : "Save as Finalised"}</button>
+                <button onClick={() => saveEBA(false)} disabled={saving} className="bg-[#1a3a4a] text-white px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50">{saving ? "Finalising..." : "Save as Finalised"}</button>
               </div>
               {finaliseAttempted && !finaliseChecks.canFinalise && (
                 <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
