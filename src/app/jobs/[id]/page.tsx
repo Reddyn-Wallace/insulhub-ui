@@ -295,6 +295,7 @@ export default function JobDetailPage() {
   const [consentNumber, setConsentNumber] = useState("");
   const [creatingFinalInvoice, setCreatingFinalInvoice] = useState(false);
   const [managerOverride, setManagerOverride] = useState("");
+  const [managerAdjustment, setManagerAdjustment] = useState("");
   const [installPlanningStatus, setInstallPlanningStatus] = useState<"confirmed" | "pencilled">("confirmed");
   const [installPlanningNote, setInstallPlanningNote] = useState("");
 
@@ -1067,7 +1068,12 @@ export default function JobDetailPage() {
           date: i.date,
         })),
       };
-      if (managerOverride.trim() !== "") {
+      if (managerAdjustment.trim() !== "") {
+        const baseTotal = Number(job?.quote?.c_total || 0);
+        const adjustment = Number(managerAdjustment);
+        if (!Number.isFinite(adjustment)) throw new Error("Manager adjustment must be a valid number");
+        finalInvoiceInput.managerOverride = baseTotal + adjustment;
+      } else if (managerOverride.trim() !== "") {
         finalInvoiceInput.managerOverride = Number(managerOverride);
       }
 
@@ -1262,6 +1268,9 @@ export default function JobDetailPage() {
   const isQuoteInfoStage = ["QUOTE", "SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"].includes(job.stage);
   const activeDetailTab = isPostQuoteStage ? detailTab : "quote";
   const installDateDisplay = fmtDateTime(job.installation?.installDate) || "Not set";
+  const managerAdjustmentNumber = Number(managerAdjustment);
+  const managerAdjustmentValid = managerAdjustment.trim() === "" || Number.isFinite(managerAdjustmentNumber);
+  const safeManagerAdjustment = managerAdjustment.trim() === "" ? 0 : (Number.isFinite(managerAdjustmentNumber) ? managerAdjustmentNumber : 0);
   const installStatusLabelMap: Record<string, string> = {
     JOB_NOT_STARTED_YET: "Job not started yet",
     INSTALL_NOT_FINISHED: "Install not finished",
@@ -1366,7 +1375,10 @@ export default function JobDetailPage() {
       wired: true,
       actionLabel: job.finalInvoice?.xeroInvoiceId ? undefined : "Create final invoice",
       action: job.finalInvoice?.xeroInvoiceId ? undefined : () => {
-        setManagerOverride(job.totalPriceManagerOverride != null ? String(job.totalPriceManagerOverride) : "");
+        const baseTotal = Number(job.quote?.c_total || 0);
+        const existingOverride = job.totalPriceManagerOverride;
+        setManagerOverride(existingOverride != null ? String(existingOverride) : "");
+        setManagerAdjustment(existingOverride != null ? String(existingOverride - baseTotal) : "");
         openSheet("finalInvoiceConfirm");
       },
       disabled: creatingFinalInvoice,
@@ -2308,20 +2320,39 @@ export default function JobDetailPage() {
           </div>
 
           <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-700">Manager Total Override</label>
+            <label className="block text-sm font-medium text-gray-700">Manager adjustment (+ / -)</label>
             <input
-              value={managerOverride}
-              onChange={(e) => setManagerOverride(e.target.value)}
+              value={managerAdjustment}
+              onChange={(e) => setManagerAdjustment(e.target.value)}
               inputMode="decimal"
-              placeholder="Leave blank unless you need an override"
+              placeholder="Eg. 250 to increase, -150 to decrease"
               className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-4 text-xl font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
             />
-            <p className="text-xs text-gray-500">Leave blank for no override. This action will create the final invoice in Xero and keep the job stage as {job.stage}.</p>
+
+            <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-700 space-y-1">
+              <div className="flex items-center justify-between">
+                <span>Base total</span>
+                <span className="font-semibold">{fmtCurrency(job.quote?.c_total)}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Manager adjustment</span>
+                <span className="font-semibold">{fmtCurrency(safeManagerAdjustment)}</span>
+              </div>
+              <div className="flex items-center justify-between text-base">
+                <span>Invoice total to create</span>
+                <span className="font-bold">{fmtCurrency(Number(job.quote?.c_total || 0) + safeManagerAdjustment)}</span>
+              </div>
+            </div>
+
+            {!managerAdjustmentValid && (
+              <p className="text-xs text-red-600">Enter a valid number for manager adjustment.</p>
+            )}
+            <p className="text-xs text-gray-500">Leave adjustment blank for no change. This action creates the final invoice in Xero and keeps the job stage as {job.stage}.</p>
           </div>
 
           <div className="flex gap-2 mt-2">
             <button onClick={closeSheet} className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">Cancel</button>
-            <button onClick={createFinalInvoiceInXero} disabled={creatingFinalInvoice}
+            <button onClick={createFinalInvoiceInXero} disabled={creatingFinalInvoice || !managerAdjustmentValid}
               className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
               {creatingFinalInvoice ? "Creating..." : "Create final invoice"}
             </button>
