@@ -555,7 +555,7 @@ export default function JobsCalendarPage() {
         ) : (
           <div className="space-y-4 overflow-x-auto pb-4">
             <div className="min-w-[1100px]">
-              <div className="grid grid-cols-[repeat(7,minmax(0,1fr))_220px] gap-3 mb-3">
+              <div className="grid grid-cols-[repeat(7,minmax(0,1fr))_170px] gap-2 mb-3">
                 {WEEKDAY_LABELS.map((label) => (
                   <div key={label} className="text-xs font-bold uppercase tracking-wide text-gray-500 px-1">
                     {label}
@@ -566,11 +566,11 @@ export default function JobsCalendarPage() {
 
               <div className="space-y-3">
                 {weeks.map((week) => (
-                  <div key={week.weekStart.toISOString()} className="grid grid-cols-[repeat(7,minmax(0,1fr))_170px] gap-3 items-start">
+                  <div key={week.weekStart.toISOString()} className="grid grid-cols-[repeat(7,minmax(0,1fr))_170px] gap-2 items-start">
                     {week.days.map((day) => (
                       <div
                         key={day.key}
-                        className={`rounded-2xl border min-h-[220px] p-3 ${day.inMonth ? "bg-white border-gray-100" : "bg-gray-100/70 border-gray-200"}`}
+                        className={`rounded-2xl border min-h-[220px] p-2 ${day.inMonth ? "bg-white border-gray-100" : "bg-gray-100/70 border-gray-200"}`}
                       >
                         <div className="flex items-center justify-between mb-2">
                           <span className={`text-sm font-bold ${day.inMonth ? "text-gray-900" : "text-gray-400"}`}>
@@ -589,7 +589,7 @@ export default function JobsCalendarPage() {
                             const isInstalled = ["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"].includes(job.installation?.installStatus || "");
                             const isPencilled = meta.status === "pencilled";
                             return (
-                              <div key={job._id} className={`w-full rounded-2xl border p-2.5 shadow-sm border-l-4 ${isInstalled ? "border-emerald-200 bg-emerald-50/60" : "border-orange-100 bg-orange-50/50"} ${isPencilled ? "border-l-amber-500" : "border-l-emerald-500"}`}>
+                              <div key={job._id} className={`w-full rounded-2xl border p-2 shadow-sm border-l-4 ${isInstalled ? "border-emerald-200 bg-emerald-50/60" : "border-orange-100 bg-orange-50/50"} ${isPencilled ? "border-l-amber-500" : "border-l-emerald-500"}`}>
                                 <button onClick={() => openJobSheet(job)} className="w-full text-left">
                                   <div className="mb-2">
                                     <div className="text-[17px] leading-5 font-semibold text-gray-900 line-clamp-3">{job.client?.contactDetails?.name || `Job #${job.jobNumber}`}</div>
