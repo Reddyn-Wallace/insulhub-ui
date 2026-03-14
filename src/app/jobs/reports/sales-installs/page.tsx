@@ -320,10 +320,11 @@ export default function SalesInstallsPage() {
         const status = parseInstallMeta(j.notes);
         const sqm = jobSqm(j);
         const total = j.quote?.c_total ?? 0;
-        if (status === "confirmed") {
-          confirmed = { count: confirmed.count + 1, sqm: confirmed.sqm + sqm, total: confirmed.total + total };
-        } else if (status === "pencilled") {
+        if (status === "pencilled") {
           pencilled = { count: pencilled.count + 1, sqm: pencilled.sqm + sqm, total: pencilled.total + total };
+        } else {
+          // No meta or explicitly confirmed → treat as confirmed
+          confirmed = { count: confirmed.count + 1, sqm: confirmed.sqm + sqm, total: confirmed.total + total };
         }
       }
 
