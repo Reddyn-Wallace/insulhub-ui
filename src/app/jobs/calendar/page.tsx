@@ -566,7 +566,7 @@ export default function JobsCalendarPage() {
 
               <div className="space-y-3">
                 {weeks.map((week) => (
-                  <div key={week.weekStart.toISOString()} className="grid grid-cols-[repeat(7,minmax(0,1fr))_220px] gap-3 items-start">
+                  <div key={week.weekStart.toISOString()} className="grid grid-cols-[repeat(7,minmax(0,1fr))_170px] gap-3 items-start">
                     {week.days.map((day) => (
                       <div
                         key={day.key}
