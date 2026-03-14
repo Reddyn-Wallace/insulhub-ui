@@ -623,11 +623,9 @@ export default function EbaPage() {
         const hasAssessorSignature = !!signatureFileName(job?.ebaForm?.signature_assessor);
 
         if (missingFields.length || missingPhotoSections.length || !hasAssessorSignature) {
-          const details: string[] = [];
-          if (missingFields.length) details.push(`${missingFields.length} required field(s)`);
-          if (missingPhotoSections.length) details.push(`photos missing for: ${missingPhotoSections.map((s) => s.replace("elevation_", "")).join(", ")}`);
-          if (!hasAssessorSignature) details.push("assessor signature missing");
-          throw new Error(`Cannot finalise EBA until complete: ${details.join(" | ")}. Foundation and maintenance photos are optional.`);
+          setNotice("Please complete required fields marked * before finalising.");
+          setSaving(false);
+          return;
         }
       }
 
@@ -729,6 +727,8 @@ export default function EbaPage() {
     };
   }, [form, ebaPhotos, job?.ebaForm?.signature_assessor]);
 
+  const reqMark = <span className="text-red-600">*</span>;
+
   const YesNoRow = ({ keyName, label, notApplicable = false, noIsGreen = false, yesIsGreenText = false }: { keyName: string; label: string; notApplicable?: boolean; noIsGreen?: boolean; yesIsGreenText?: boolean }) => (
     <div>
       <p className="text-sm text-gray-700">{label}</p>
@@ -775,21 +775,21 @@ export default function EbaPage() {
               <h2 className="text-sm font-semibold text-gray-700 mb-3">1) Administrative Information</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div><label className="text-xs text-gray-500">Property Address</label><div className="text-sm text-gray-800 mt-1">{address || "-"}</div></div>
-                <div><label className="text-xs text-gray-500">Name of Owners {finaliseAttempted && finaliseChecks.missingFields.includes("nameOfOwners") && <span className="text-red-600">*</span>}</label><input value={(form.nameOfOwners as string) || ""} onChange={(e) => setField("nameOfOwners", e.target.value)} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("nameOfOwners") ? "border-red-400 bg-red-50" : "border-gray-200"}`} /></div>
-                <div><label className="text-xs text-gray-500">Proof of Ownership {finaliseAttempted && finaliseChecks.missingFields.includes("proofOfOwnership") && <span className="text-red-600">*</span>}</label><select value={(form.proofOfOwnership as string) || ""} onChange={(e) => setField("proofOfOwnership", e.target.value)} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("proofOfOwnership") ? "border-red-400 bg-red-50" : "border-gray-200"}`}><option>Certificate of Title</option><option>Rates</option><option>Other</option></select></div>
-                <div><label className="text-xs text-gray-500">BCA/TA {finaliseAttempted && finaliseChecks.missingFields.includes("bcaOrTa") && <span className="text-red-600">*</span>}</label><input value={(form.bcaOrTa as string) || ""} onChange={(e) => setField("bcaOrTa", e.target.value)} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("bcaOrTa") ? "border-red-400 bg-red-50" : "border-gray-200"}`} /></div>
-                <div><label className="text-xs text-gray-500">Lot / DP Number {finaliseAttempted && finaliseChecks.missingFields.includes("lotOrDPNumber") && <span className="text-red-600">*</span>}</label><input value={(form.lotOrDPNumber as string) || ""} onChange={(e) => setField("lotOrDPNumber", e.target.value)} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("lotOrDPNumber") ? "border-red-400 bg-red-50" : "border-gray-200"}`} /></div>
-                <div><label className="text-xs text-gray-500">Date {finaliseAttempted && finaliseChecks.missingFields.includes("date") && <span className="text-red-600">*</span>}</label><input type="datetime-local" value={(form.date as string) || ""} onChange={(e) => setField("date", e.target.value)} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("date") ? "border-red-400 bg-red-50" : "border-gray-200"}`} /></div>
+                <div><label className="text-xs text-gray-500">Name of Owners {reqMark}</label><input value={(form.nameOfOwners as string) || ""} onChange={(e) => setField("nameOfOwners", e.target.value)} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("nameOfOwners") ? "border-red-400 bg-red-50" : "border-gray-200"}`} /></div>
+                <div><label className="text-xs text-gray-500">Proof of Ownership {reqMark}</label><select value={(form.proofOfOwnership as string) || ""} onChange={(e) => setField("proofOfOwnership", e.target.value)} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("proofOfOwnership") ? "border-red-400 bg-red-50" : "border-gray-200"}`}><option>Certificate of Title</option><option>Rates</option><option>Other</option></select></div>
+                <div><label className="text-xs text-gray-500">BCA/TA {reqMark}</label><input value={(form.bcaOrTa as string) || ""} onChange={(e) => setField("bcaOrTa", e.target.value)} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("bcaOrTa") ? "border-red-400 bg-red-50" : "border-gray-200"}`} /></div>
+                <div><label className="text-xs text-gray-500">Lot / DP Number {reqMark}</label><input value={(form.lotOrDPNumber as string) || ""} onChange={(e) => setField("lotOrDPNumber", e.target.value)} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("lotOrDPNumber") ? "border-red-400 bg-red-50" : "border-gray-200"}`} /></div>
+                <div><label className="text-xs text-gray-500">Date {reqMark}</label><input type="datetime-local" value={(form.date as string) || ""} onChange={(e) => setField("date", e.target.value)} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("date") ? "border-red-400 bg-red-50" : "border-gray-200"}`} /></div>
               </div>
             </div>
 
             <div className="bg-white border border-gray-200 rounded-xl p-4">
               <h2 className="text-sm font-semibold text-gray-700 mb-3">2) Existing Building Information</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div><label className="text-xs text-gray-500">Approx Year of Construction</label><input value={(form.approximateYearOfConstruction as string) || ""} onChange={(e) => setField("approximateYearOfConstruction", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
-                <div><label className="text-xs text-gray-500">Number of Stories</label><input type="number" value={(form.numberOfStories as number | undefined)?.toString() || ""} onChange={(e) => setField("numberOfStories", e.target.value ? Number(e.target.value) : undefined)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" /></div>
+                <div><label className="text-xs text-gray-500">Approx Year of Construction {reqMark}</label><input value={(form.approximateYearOfConstruction as string) || ""} onChange={(e) => setField("approximateYearOfConstruction", e.target.value)} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("approximateYearOfConstruction") ? "border-red-400 bg-red-50" : "border-gray-200"}`} /></div>
+                <div><label className="text-xs text-gray-500">Number of Stories {reqMark}</label><input type="number" value={(form.numberOfStories as number | undefined)?.toString() || ""} onChange={(e) => setField("numberOfStories", e.target.value ? Number(e.target.value) : undefined)} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("numberOfStories") ? "border-red-400 bg-red-50" : "border-gray-200"}`} /></div>
                 <div className="md:col-span-2">
-                  <label className="text-xs text-gray-500">Property Site Section</label>
+                  <label className="text-xs text-gray-500">Property Site Section {reqMark}</label>
                   <div className="flex gap-2 mt-1 flex-wrap">
                     {["Flat Section","Sloping Section","Steep Section"].map((opt) => (
                       <label key={opt} className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white cursor-pointer">
@@ -799,7 +799,7 @@ export default function EbaPage() {
                   </div>
                 </div>
                 <div className="md:col-span-2">
-                  <label className="text-xs text-gray-500">Property Site Exposure</label>
+                  <label className="text-xs text-gray-500">Property Site Exposure {reqMark}</label>
                   <div className="flex gap-2 mt-1 flex-wrap">
                     {["Exposed","Semi-Exposed","Sheltered"].map((opt) => (
                       <label key={opt} className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white cursor-pointer">
@@ -809,7 +809,7 @@ export default function EbaPage() {
                   </div>
                 </div>
                 <div className="md:col-span-2">
-                  <label className="text-xs text-gray-500">Property Site Area</label>
+                  <label className="text-xs text-gray-500">Property Site Area {reqMark}</label>
                   <div className="flex gap-2 mt-1 flex-wrap">
                     {["Urban","Rural"].map((opt) => (
                       <label key={opt} className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white cursor-pointer">
@@ -1155,7 +1155,7 @@ export default function EbaPage() {
                 {(["north","east","south","west"] as const).map((dir) => (
                   <div key={dir} className={`border rounded-lg p-3 ${finaliseAttempted && finaliseChecks.missingPhotoSections.includes(`elevation_${dir}`) ? "border-red-400 bg-red-50" : "border-gray-100"}`}>
                     <div className="flex items-center justify-between mb-2">
-                      <p className="text-sm font-medium text-gray-700 capitalize">{dir} Elevation {finaliseAttempted && finaliseChecks.missingPhotoSections.includes(`elevation_${dir}`) && <span className="text-red-600">*</span>}</p>
+                      <p className="text-sm font-medium text-gray-700 capitalize">{dir} Elevation {reqMark}</p>
                       <label className="text-xs text-gray-600 flex items-center gap-1">
                         <input type="checkbox" checked={!!elevationSkip[dir]} onChange={(e)=>setElevationSkip((p)=>({ ...p, [dir]: e.target.checked }))} />
                         Skip
@@ -1244,11 +1244,11 @@ export default function EbaPage() {
                   </ul>
 
                   <div>
-                    <label className="text-xs text-gray-500">Licensed Building Assessor Name {finaliseAttempted && finaliseChecks.missingFields.includes("assessorName") && <span className="text-red-600">*</span>}</label>
+                    <label className="text-xs text-gray-500">Licensed Building Assessor Name {reqMark}</label>
                     <input value={(form.assessorName as string) || ""} onChange={(e) => setField("assessorName", e.target.value)} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("assessorName") ? "border-red-400 bg-red-50" : "border-gray-200"}`} />
                   </div>
 
-                  <div className="text-xs text-gray-500 mt-3 mb-1">Assessor signature {finaliseAttempted && finaliseChecks.missingSignature && <span className="text-red-600">*</span>}</div>
+                  <div className="text-xs text-gray-500 mt-3 mb-1">Assessor signature {reqMark}</div>
                   <div className={`border rounded-lg bg-white overflow-hidden ${finaliseAttempted && finaliseChecks.missingSignature ? "border-red-400 bg-red-50" : "border-gray-300"}`}>
                     <canvas
                       ref={canvasRef}
