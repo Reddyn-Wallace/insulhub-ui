@@ -168,12 +168,12 @@ function address(job: CalendarJob) {
   ].filter(Boolean).join(", ");
 }
 
-function parseInstallMeta(notes?: string | null): { status: "confirmed" | "pencilled"; note: string } {
+function parseInstallMeta(notes?: string | null): { status: "confirmed" | "pencilled"; note: string; scope: "internal" | "external" | "both" | "" } {
   const text = notes || "";
   const start = text.indexOf(INSTALL_META_START);
   const end = text.indexOf(INSTALL_META_END);
   if (start === -1 || end === -1 || end < start) {
-    return { status: "confirmed" as "confirmed" | "pencilled", note: "" };
+    return { status: "confirmed" as "confirmed" | "pencilled", note: "", scope: "" };
   }
 
   const body = text
@@ -181,11 +181,14 @@ function parseInstallMeta(notes?: string | null): { status: "confirmed" | "penci
     .trim();
 
   const statusMatch = body.match(/^status:\s*(.+)$/im);
-  const noteMatch = body.match(/^note:\s*([\s\S]*)$/im);
+  const noteMatch = body.match(/^note:\s*([\s\S]*?)(?:\n[a-z_]+:|$)/im);
+  const scopeMatch = body.match(/^install_scope:\s*(.+)$/im);
   const rawStatus = (statusMatch?.[1] || "confirmed").trim().toLowerCase();
+  const rawScope = (scopeMatch?.[1] || "").trim().toLowerCase();
   return {
     status: rawStatus === "pencilled" ? "pencilled" : "confirmed",
     note: (noteMatch?.[1] || "").trim(),
+    scope: rawScope === "internal" || rawScope === "external" || rawScope === "both" ? rawScope : "",
   };
 }
 
@@ -195,9 +198,9 @@ function stripInstallMeta(notes?: string | null) {
   return text.replace(block, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-function buildNotesWithInstallMeta(existingNotes: string | null | undefined, status: "confirmed" | "pencilled", note: string) {
+function buildNotesWithInstallMeta(existingNotes: string | null | undefined, status: "confirmed" | "pencilled", note: string, scope: "internal" | "external" | "both" | "") {
   const cleaned = stripInstallMeta(existingNotes);
-  const block = `${INSTALL_META_START}\nstatus: ${status}\nnote: ${note.trim()}\n${INSTALL_META_END}`;
+  const block = `${INSTALL_META_START}\nstatus: ${status}\nnote: ${note.trim()}\ninstall_scope: ${scope}\n${INSTALL_META_END}`;
   return cleaned ? `${cleaned}\n\n${block}` : block;
 }
 
@@ -223,6 +226,7 @@ export default function JobsCalendarPage() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState<CalendarJob | null>(null);
   const [installStatus, setInstallStatus] = useState<"confirmed" | "pencilled">("confirmed");
+  const [installScope, setInstallScope] = useState<"internal" | "external" | "both" | "">("");
   const [installMetaNote, setInstallMetaNote] = useState("");
   const [installDate, setInstallDate] = useState("");
   const [saving, setSaving] = useState(false);
@@ -354,6 +358,7 @@ export default function JobsCalendarPage() {
     const meta = parseInstallMeta(job.notes);
     setSelectedJob(job);
     setInstallStatus(meta.status);
+    setInstallScope(meta.scope || "");
     setInstallMetaNote(meta.note);
     setInstallDate(toDatetimeLocal(job.installation?.installDate));
     setSheetOpen(true);
@@ -371,10 +376,14 @@ export default function JobsCalendarPage() {
 
   const saveInstallMeta = async () => {
     if (!selectedJob) return;
+    if (!installScope) {
+      setError("Select install scope: Internal, External, or both.");
+      return;
+    }
     setSaving(true);
     setError("");
     try {
-      const nextNotes = buildNotesWithInstallMeta(selectedJob.notes, installStatus, installMetaNote);
+      const nextNotes = buildNotesWithInstallMeta(selectedJob.notes, installStatus, installMetaNote, installScope);
       const nextInstallDate = fromDatetimeLocal(installDate);
       await Promise.all([
         gql(UPDATE_JOB_NOTES, { input: { _id: selectedJob._id, notes: nextNotes } }),
@@ -588,6 +597,7 @@ export default function JobsCalendarPage() {
                             const meta = parseInstallMeta(job.notes);
                             const isInstalled = ["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"].includes(job.installation?.installStatus || "");
                             const isPencilled = meta.status === "pencilled";
+                            const scopeLabel = meta.scope === "internal" ? "Internal" : meta.scope === "external" ? "External" : meta.scope === "both" ? "Internal + External" : "Scope not set";
                             return (
                               <div key={job._id} className={`w-full rounded-xl border p-1.5 shadow-sm border-l-4 ${isInstalled ? "border-emerald-200 bg-emerald-50/60" : "border-orange-100 bg-orange-50/50"} ${isPencilled ? "border-l-amber-500" : "border-l-emerald-500"}`}>
                                 <button onClick={() => openJobSheet(job)} className="w-full text-left">
@@ -595,6 +605,8 @@ export default function JobsCalendarPage() {
                                     <div className="text-[16px] leading-5 font-semibold text-gray-900 line-clamp-2">{job.client?.contactDetails?.name || `Job #${job.jobNumber}`}</div>
                                   </div>
                                   <div className="text-[12px] text-gray-600 leading-4 mb-2 line-clamp-2">{address(job) || "No address"}</div>
+
+                                  <div className={`text-[11px] mb-1 ${meta.scope ? "text-gray-700" : "text-red-600"}`}>{scopeLabel}</div>
 
                                   <div className="grid grid-cols-2 gap-1 mb-1.5">
                                     <div className="rounded-lg bg-white/70 border border-white px-1.5 py-0.5">
@@ -708,6 +720,31 @@ export default function JobsCalendarPage() {
             </div>
 
             <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Install scope <span className="text-red-600">*</span></div>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  onClick={() => setInstallScope("internal")}
+                  className={`py-3 rounded-xl text-sm font-semibold border ${installScope === "internal" ? "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
+                >
+                  Internal
+                </button>
+                <button
+                  onClick={() => setInstallScope("external")}
+                  className={`py-3 rounded-xl text-sm font-semibold border ${installScope === "external" ? "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
+                >
+                  External
+                </button>
+                <button
+                  onClick={() => setInstallScope("both")}
+                  className={`py-3 rounded-xl text-sm font-semibold border ${installScope === "both" ? "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
+                >
+                  Both
+                </button>
+              </div>
+              {!installScope && <div className="text-[11px] text-red-600 mt-1">Required</div>}
+            </div>
+
+            <div>
               <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Planning notes</div>
               <textarea
                 value={installMetaNote}
@@ -726,7 +763,7 @@ export default function JobsCalendarPage() {
                 </button>
               )}
               <button onClick={closeSheet} className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">Cancel</button>
-              <button onClick={saveInstallMeta} disabled={saving} className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
+              <button onClick={saveInstallMeta} disabled={saving || !installScope} className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
                 {saving ? "Saving..." : "Save"}
               </button>
             </div>

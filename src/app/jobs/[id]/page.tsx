@@ -179,21 +179,24 @@ const STATUS_COLORS: Record<string, string> = {
 const INSTALL_META_START = "[INSTALL_META]";
 const INSTALL_META_END = "[/INSTALL_META]";
 
-function parseInstallMeta(notes?: string | null): { status: "confirmed" | "pencilled"; note: string; councilApprovalNA: boolean } {
+function parseInstallMeta(notes?: string | null): { status: "confirmed" | "pencilled"; note: string; councilApprovalNA: boolean; installScope: "internal" | "external" | "both" | "" } {
   const text = notes || "";
   const start = text.indexOf(INSTALL_META_START);
   const end = text.indexOf(INSTALL_META_END);
-  if (start === -1 || end === -1 || end < start) return { status: "confirmed", note: "", councilApprovalNA: false };
+  if (start === -1 || end === -1 || end < start) return { status: "confirmed", note: "", councilApprovalNA: false, installScope: "" };
   const body = text.slice(start + INSTALL_META_START.length, end).trim();
   const statusMatch = body.match(/^status:\s*(.+)$/im);
   const noteMatch = body.match(/^note:\s*([\s\S]*?)(?:\n[a-z_]+:|$)/im);
   const councilApprovalNAMatch = body.match(/^council_approval_na:\s*(.+)$/im);
+  const installScopeMatch = body.match(/^install_scope:\s*(.+)$/im);
   const rawStatus = (statusMatch?.[1] || "confirmed").trim().toLowerCase();
   const rawCouncilApprovalNA = (councilApprovalNAMatch?.[1] || "false").trim().toLowerCase();
+  const rawInstallScope = (installScopeMatch?.[1] || "").trim().toLowerCase();
   return {
     status: rawStatus === "pencilled" ? "pencilled" : "confirmed",
     note: (noteMatch?.[1] || "").trim(),
     councilApprovalNA: rawCouncilApprovalNA === "true" || rawCouncilApprovalNA === "yes" || rawCouncilApprovalNA === "1",
+    installScope: rawInstallScope === "internal" || rawInstallScope === "external" || rawInstallScope === "both" ? rawInstallScope : "",
   };
 }
 
@@ -208,9 +211,10 @@ function buildNotesWithInstallMeta(
   status: "confirmed" | "pencilled",
   note: string,
   councilApprovalNA = false,
+  installScope: "internal" | "external" | "both" | "" = "",
 ) {
   const cleaned = stripInstallMeta(existingNotes);
-  const block = `${INSTALL_META_START}\nstatus: ${status}\nnote: ${note.trim()}\ncouncil_approval_na: ${councilApprovalNA ? "true" : "false"}\n${INSTALL_META_END}`;
+  const block = `${INSTALL_META_START}\nstatus: ${status}\nnote: ${note.trim()}\ncouncil_approval_na: ${councilApprovalNA ? "true" : "false"}\ninstall_scope: ${installScope}\n${INSTALL_META_END}`;
   return cleaned ? `${cleaned}\n\n${block}` : block;
 }
 
@@ -305,6 +309,7 @@ export default function JobDetailPage() {
   const [managerOverride, setManagerOverride] = useState("");
   const [managerAdjustment, setManagerAdjustment] = useState("");
   const [installPlanningStatus, setInstallPlanningStatus] = useState<"confirmed" | "pencilled">("confirmed");
+  const [installPlanningScope, setInstallPlanningScope] = useState<"internal" | "external" | "both" | "">("");
   const [installPlanningNote, setInstallPlanningNote] = useState("");
 
   // Selected salesperson
@@ -616,9 +621,13 @@ export default function JobDetailPage() {
   }
 
   async function saveInstallPlanning() {
+    if (!installPlanningScope) {
+      setError("Select install scope: Internal, External, or both.");
+      return;
+    }
     setSaving(true);
     try {
-      const nextNotes = buildNotesWithInstallMeta(job?.notes, installPlanningStatus, installPlanningNote, installMeta.councilApprovalNA);
+      const nextNotes = buildNotesWithInstallMeta(job?.notes, installPlanningStatus, installPlanningNote, installMeta.councilApprovalNA, installPlanningScope || installMeta.installScope);
       await gql(UPDATE_JOB_NOTES, { input: { _id: id, notes: nextNotes } });
       await load();
       closeSheet();
@@ -635,7 +644,7 @@ export default function JobDetailPage() {
   async function toggleCouncilApprovalNA(nextValue: boolean) {
     setSaving(true);
     try {
-      const nextNotes = buildNotesWithInstallMeta(job?.notes, installMeta.status, installMeta.note, nextValue);
+      const nextNotes = buildNotesWithInstallMeta(job?.notes, installMeta.status, installMeta.note, nextValue, installMeta.installScope);
       await gql(UPDATE_JOB_NOTES, { input: { _id: id, notes: nextNotes } });
       await load();
       const msg = { type: "success" as const, text: nextValue ? "Council approval marked as N/A." : "Council approval requirement restored." };
@@ -649,7 +658,7 @@ export default function JobDetailPage() {
   }
 
   async function saveFullNote() {
-    const nextNotes = buildNotesWithInstallMeta(fullNoteText, installMeta.status, installMeta.note, installMeta.councilApprovalNA);
+    const nextNotes = buildNotesWithInstallMeta(fullNoteText, installMeta.status, installMeta.note, installMeta.councilApprovalNA, installMeta.installScope);
     await run(() => gql(UPDATE_JOB_NOTES, { input: { _id: id, notes: nextNotes } }));
   }
 
@@ -1018,9 +1027,13 @@ export default function JobDetailPage() {
   }
 
   async function saveInstallDate() {
+    if (!installPlanningScope) {
+      setError("Select install scope: Internal, External, or both.");
+      return;
+    }
     setSaving(true);
     try {
-      const nextNotes = buildNotesWithInstallMeta(job?.notes, installPlanningStatus, installPlanningNote, installMeta.councilApprovalNA);
+      const nextNotes = buildNotesWithInstallMeta(job?.notes, installPlanningStatus, installPlanningNote, installMeta.councilApprovalNA, installPlanningScope || installMeta.installScope);
       const nextInstallDate = fromDatetimeLocal(installDate);
       const shouldMoveToInstallation = !!nextInstallDate && !["INSTALLATION", "INVOICE", "COMPLETED"].includes(job?.stage || "");
       await gql(
@@ -1343,6 +1356,7 @@ export default function JobDetailPage() {
     : [];
   const installNoteDisplay = job.installation?.installNote?.trim() || "No install notes yet";
   const installMeta = parseInstallMeta(job.notes);
+  const installScopeLabel = installMeta.installScope === "internal" ? "Internal" : installMeta.installScope === "external" ? "External" : installMeta.installScope === "both" ? "Internal + External" : "Not set";
   const councilApprovalMarkedNA = installMeta.councilApprovalNA;
   const hasCouncilApprovalFile = !!job.council?.files_CouncilApprovalLetters?.length;
   const hasFinalInvoiceInXero = !!(job.finalInvoice?.xeroInvoiceId || job.finalInvoice?.xeroInvoiceNumber);
@@ -1350,13 +1364,14 @@ export default function JobDetailPage() {
   const completionActions = [
     {
       title: "Add installation date",
-      description: installDateDisplay,
-      status: job.installation?.installDate ? "Recorded" : "Missing",
+      description: `${installDateDisplay} • ${installScopeLabel}`,
+      status: job.installation?.installDate && installMeta.installScope ? "Recorded" : "Missing",
       wired: true,
       actionLabel: job.installation?.installDate ? "Edit date" : "Set date",
       action: () => {
         setInstallDate(toDatetimeLocal(job.installation?.installDate));
         setInstallPlanningStatus(installMeta.status);
+        setInstallPlanningScope(installMeta.installScope || "");
         setInstallPlanningNote(installMeta.note);
         openSheet("installDate");
       },
@@ -2152,6 +2167,31 @@ export default function JobDetailPage() {
           </div>
 
           <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Install scope <span className="text-red-600">*</span></div>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                onClick={() => setInstallPlanningScope("internal")}
+                className={`py-3 rounded-xl text-sm font-semibold border ${installPlanningScope === "internal" ? "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
+              >
+                Internal
+              </button>
+              <button
+                onClick={() => setInstallPlanningScope("external")}
+                className={`py-3 rounded-xl text-sm font-semibold border ${installPlanningScope === "external" ? "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
+              >
+                External
+              </button>
+              <button
+                onClick={() => setInstallPlanningScope("both")}
+                className={`py-3 rounded-xl text-sm font-semibold border ${installPlanningScope === "both" ? "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
+              >
+                Both
+              </button>
+            </div>
+            {!installPlanningScope && <div className="text-[11px] text-red-600 mt-1">Required</div>}
+          </div>
+
+          <div>
             <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Planning notes</div>
             <textarea
               value={installPlanningNote}
@@ -2323,6 +2363,31 @@ export default function JobDetailPage() {
           </div>
 
           <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Install scope <span className="text-red-600">*</span></div>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                onClick={() => setInstallPlanningScope("internal")}
+                className={`py-3 rounded-xl text-sm font-semibold border ${installPlanningScope === "internal" ? "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
+              >
+                Internal
+              </button>
+              <button
+                onClick={() => setInstallPlanningScope("external")}
+                className={`py-3 rounded-xl text-sm font-semibold border ${installPlanningScope === "external" ? "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
+              >
+                External
+              </button>
+              <button
+                onClick={() => setInstallPlanningScope("both")}
+                className={`py-3 rounded-xl text-sm font-semibold border ${installPlanningScope === "both" ? "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
+              >
+                Both
+              </button>
+            </div>
+            {!installPlanningScope && <div className="text-[11px] text-red-600 mt-1">Required</div>}
+          </div>
+
+          <div>
             <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Planning notes</div>
             <textarea
               value={installPlanningNote}
@@ -2341,7 +2406,7 @@ export default function JobDetailPage() {
               </button>
             )}
             <button onClick={closeSheet} className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">Cancel</button>
-            <button onClick={saveInstallDate} disabled={saving || !installDate}
+            <button onClick={saveInstallDate} disabled={saving || !installDate || !installPlanningScope}
               className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
               {saving ? "Saving..." : "Save"}
             </button>
