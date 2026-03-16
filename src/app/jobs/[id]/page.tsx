@@ -707,7 +707,6 @@ export default function JobDetailPage() {
     setError("");
     try {
       const combinedNotes = appendNote(job?.notes, deadNoteText);
-      const isQuoteStage = job?.stage === "QUOTE";
       await gql(UPDATE_JOB_LEAD, {
         input: {
           _id: id,
@@ -716,7 +715,6 @@ export default function JobDetailPage() {
             leadStatus: "DEAD",
             callbackDate: null,
           }),
-          ...(isQuoteStage ? { quote: buildQuoteInput({ status: "DECLINED" }) } : {}),
         },
       });
       await load();
