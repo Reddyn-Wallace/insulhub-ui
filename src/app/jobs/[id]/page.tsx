@@ -707,6 +707,7 @@ export default function JobDetailPage() {
     setError("");
     try {
       const combinedNotes = appendNote(job?.notes, deadNoteText);
+      // Set leadStatus to DEAD
       await gql(UPDATE_JOB_LEAD, {
         input: {
           _id: id,
@@ -717,6 +718,33 @@ export default function JobDetailPage() {
           }),
         },
       });
+      // Also set quote.status to DECLINED so old UI shows Dead too
+      // Must use full quote payload with stage+sitePlanNotes for backend to respect status
+      if (job?.stage === "QUOTE" && job?.quote) {
+        const q = job.quote as Record<string, any>;
+        await gql(UPDATE_JOB_QUOTE, {
+          input: {
+            _id: id,
+            stage: job.stage,
+            sitePlanNotes: (job as any).sitePlanNotes || "",
+            quote: {
+              ...buildQuoteInput({ status: "DECLINED" }),
+              wall: {
+                SQMPrice: q.wall?.SQMPrice, SQM: q.wall?.SQM,
+                cavityDepthMeters: q.wall?.cavityDepthMeters,
+                c_RValue: q.wall?.c_RValue, c_bagCount: q.wall?.c_bagCount,
+                internal: q.wall?.internal,
+              },
+              ceiling: {
+                SQMPrice: q.ceiling?.SQMPrice, SQM: q.ceiling?.SQM,
+                RValue: q.ceiling?.RValue, downlights: q.ceiling?.downlights,
+                c_thickness: q.ceiling?.c_thickness, c_bagCount: q.ceiling?.c_bagCount,
+              },
+            },
+          },
+          emailQuoteToCustomer: false,
+        });
+      }
       await load();
       setDeadNoteText("");
       closeSheet();

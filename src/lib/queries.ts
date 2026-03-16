@@ -77,6 +77,7 @@ export const JOB_QUERY = `
       jobNumber
       stage
       notes
+      sitePlanNotes
       updatedAt
       archivedAt
       certificateSentAt
@@ -105,6 +106,7 @@ export const JOB_QUERY = `
           c_RValue
           c_bagCount
           cavityDepthMeters
+          internal
         }
         ceiling {
           SQMPrice
@@ -112,6 +114,7 @@ export const JOB_QUERY = `
           RValue
           downlights
           c_bagCount
+          c_thickness
         }
         files_QuoteSitePlan
       }
