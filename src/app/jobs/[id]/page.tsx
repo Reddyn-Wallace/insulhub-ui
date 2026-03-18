@@ -871,11 +871,7 @@ export default function JobDetailPage() {
   }
 
   async function printQuoteSitePlanPDF() {
-    const quoteDate = fromDatetimeLocal(quoteForm.date);
-    if (!quoteDate) {
-      alert("Set quote date first.");
-      return;
-    }
+    const quoteDate = fromDatetimeLocal(quoteForm.date) || new Date().toISOString();
     const params = new URLSearchParams({ jobId: id, quoteDate, token: encodeURIComponent(getToken()) });
     window.open(`${API_BASE}/pdf/quote-siteplan?${params.toString()}`, "_blank");
   }
@@ -1956,7 +1952,7 @@ export default function JobDetailPage() {
         </Section>
 
         {/* Site plan */}
-        {isQuoteInfoStage && (
+        {(isQuoteInfoStage || job.stage === "LEAD") && (
           <Section title="Site Plan">
             <div className="flex gap-2 mb-3 flex-wrap">
               <button onClick={printQuoteSitePlanPDF} className="bg-gray-700 text-white text-sm font-semibold px-3 py-2.5 rounded-xl">🖨️ Print Site Plan PDF</button>
