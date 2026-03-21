@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { gql } from "@/lib/graphql";
 import BottomSheet from "@/components/BottomSheet";
+import type { CalendarPlaceholder, CalendarPlaceholderScope, CalendarPlaceholderStatus } from "@/lib/calendarPlaceholders";
 
 interface CalendarJob {
   _id: string;
@@ -36,6 +37,10 @@ interface JobsData {
     total: number;
     results: CalendarJob[];
   };
+}
+
+interface PlaceholderResponse {
+  placeholders: CalendarPlaceholder[];
 }
 
 const CALENDAR_JOBS_QUERY = `
@@ -221,14 +226,25 @@ export default function JobsCalendarPage() {
   const router = useRouter();
   const [monthCursor, setMonthCursor] = useState(() => startOfMonth(new Date()));
   const [jobs, setJobs] = useState<CalendarJob[]>([]);
+  const [placeholders, setPlaceholders] = useState<CalendarPlaceholder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState<CalendarJob | null>(null);
+  const [selectedPlaceholder, setSelectedPlaceholder] = useState<CalendarPlaceholder | null>(null);
   const [installStatus, setInstallStatus] = useState<"confirmed" | "pencilled">("confirmed");
   const [installScope, setInstallScope] = useState<"internal" | "external" | "both" | "">("");
   const [installMetaNote, setInstallMetaNote] = useState("");
   const [installDate, setInstallDate] = useState("");
+  const [placeholderTitle, setPlaceholderTitle] = useState("");
+  const [placeholderStatus, setPlaceholderStatus] = useState<CalendarPlaceholderStatus>("pencilled");
+  const [placeholderScope, setPlaceholderScope] = useState<CalendarPlaceholderScope>("");
+  const [placeholderTeam, setPlaceholderTeam] = useState("");
+  const [placeholderNotes, setPlaceholderNotes] = useState("");
+  const [placeholderStartDate, setPlaceholderStartDate] = useState("");
+  const [placeholderEndDate, setPlaceholderEndDate] = useState("");
+  const [placeholderColor, setPlaceholderColor] = useState("slate");
+  const [placeholderMode, setPlaceholderMode] = useState<"job" | "placeholder">("job");
   const [saving, setSaving] = useState(false);
   const calendarCache = useRef<Map<string, { jobs: CalendarJob[]; ts: number }>>(new Map());
   const CALENDAR_CACHE_TTL_MS = 60_000;
@@ -337,6 +353,16 @@ export default function JobsCalendarPage() {
       }
 
       setJobs(filtered);
+
+      try {
+        const placeholderRes = await fetch("/api/calendar-placeholders", { cache: "no-store" });
+        if (placeholderRes.ok) {
+          const placeholderData: PlaceholderResponse = await placeholderRes.json();
+          setPlaceholders(placeholderData.placeholders || []);
+        }
+      } catch {
+        // ignore placeholder load failures so jobs calendar still works
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load installation calendar";
       if (msg !== "Unauthorized") setError(msg);
@@ -356,6 +382,8 @@ export default function JobsCalendarPage() {
 
   const openJobSheet = (job: CalendarJob) => {
     const meta = parseInstallMeta(job.notes);
+    setPlaceholderMode("job");
+    setSelectedPlaceholder(null);
     setSelectedJob(job);
     setInstallStatus(meta.status);
     setInstallScope(meta.scope || "");
@@ -364,10 +392,26 @@ export default function JobsCalendarPage() {
     setSheetOpen(true);
   };
 
+  const openPlaceholderSheet = (placeholder?: CalendarPlaceholder, date?: string) => {
+    setPlaceholderMode("placeholder");
+    setSelectedJob(null);
+    setSelectedPlaceholder(placeholder || null);
+    setPlaceholderTitle(placeholder?.title || "");
+    setPlaceholderStatus(placeholder?.status || "pencilled");
+    setPlaceholderScope(placeholder?.scope || "");
+    setPlaceholderTeam(placeholder?.team || "");
+    setPlaceholderNotes(placeholder?.notes || "");
+    setPlaceholderStartDate(placeholder?.startDate || date || dateKeyLocal(new Date()));
+    setPlaceholderEndDate(placeholder?.endDate || date || dateKeyLocal(new Date()));
+    setPlaceholderColor(placeholder?.color || "slate");
+    setSheetOpen(true);
+  };
+
   const closeSheet = () => {
     if (saving) return;
     setSheetOpen(false);
     setSelectedJob(null);
+    setSelectedPlaceholder(null);
   };
 
   const openJobPage = (jobId: string) => {
@@ -449,6 +493,65 @@ export default function JobsCalendarPage() {
     }
   };
 
+  const savePlaceholder = async () => {
+    if (!placeholderTitle.trim()) {
+      setError("Placeholder title is required");
+      return;
+    }
+    if (!placeholderStartDate) {
+      setError("Placeholder date is required");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const payload = {
+        title: placeholderTitle.trim(),
+        startDate: placeholderStartDate,
+        endDate: placeholderEndDate || placeholderStartDate,
+        status: placeholderStatus,
+        scope: placeholderScope,
+        team: placeholderTeam.trim(),
+        notes: placeholderNotes.trim(),
+        color: placeholderColor,
+      };
+      const res = await fetch(selectedPlaceholder ? `/api/calendar-placeholders/${selectedPlaceholder.id}` : "/api/calendar-placeholders", {
+        method: selectedPlaceholder ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to save placeholder");
+      const next = json.placeholder as CalendarPlaceholder;
+      setPlaceholders((prev) => {
+        const without = prev.filter((item) => item.id !== next.id);
+        return [...without, next].sort((a, b) => (a.startDate || a.date).localeCompare(b.startDate || b.date) || a.sortOrder - b.sortOrder || a.title.localeCompare(b.title));
+      });
+      closeSheet();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save placeholder");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deletePlaceholder = async () => {
+    if (!selectedPlaceholder) return;
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/calendar-placeholders/${selectedPlaceholder.id}`, { method: "DELETE" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to delete placeholder");
+      setPlaceholders((prev) => prev.filter((item) => item.id !== selectedPlaceholder.id));
+      closeSheet();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete placeholder");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const jobsByDay = useMemo(() => {
     const map = new Map<string, CalendarJob[]>();
     for (const job of jobs) {
@@ -468,6 +571,28 @@ export default function JobsCalendarPage() {
     return map;
   }, [jobs]);
 
+  const placeholdersByDay = useMemo(() => {
+    const map = new Map<string, CalendarPlaceholder[]>();
+    for (const placeholder of placeholders) {
+      const start = placeholder.startDate || placeholder.date;
+      const end = placeholder.endDate || start;
+      if (!start) continue;
+      let cursor = new Date(`${start}T00:00:00`);
+      const endDate = new Date(`${end}T00:00:00`);
+      while (cursor <= endDate) {
+        const key = dateKeyLocal(cursor);
+        const arr = map.get(key) || [];
+        arr.push(placeholder);
+        map.set(key, arr);
+        cursor = addDays(cursor, 1);
+      }
+    }
+    for (const arr of map.values()) {
+      arr.sort((a, b) => a.sortOrder - b.sortOrder || a.title.localeCompare(b.title));
+    }
+    return map;
+  }, [placeholders]);
+
   const weeks = useMemo(() => {
     const monthStart = startOfMonth(monthCursor);
     const gridStart = startOfWeekMonday(monthStart);
@@ -476,8 +601,8 @@ export default function JobsCalendarPage() {
 
     const rows: Array<{
       weekStart: Date;
-      days: Array<{ date: Date; key: string; jobs: CalendarJob[]; inMonth: boolean }>;
-      totals: { jobs: number; sqm: number; amount: number };
+      days: Array<{ date: Date; key: string; jobs: CalendarJob[]; placeholders: CalendarPlaceholder[]; inMonth: boolean }>;
+      totals: { jobs: number; placeholders: number; sqm: number; amount: number };
     }> = [];
 
     let cursor = gridStart;
@@ -486,10 +611,12 @@ export default function JobsCalendarPage() {
         const date = addDays(cursor, idx);
         const key = dateKeyLocal(date);
         const dayJobs = jobsByDay.get(key) || [];
+        const dayPlaceholders = placeholdersByDay.get(key) || [];
         return {
           date,
           key,
           jobs: dayJobs,
+          placeholders: dayPlaceholders,
           inMonth: date.getMonth() === monthStart.getMonth(),
         };
       });
@@ -500,11 +627,12 @@ export default function JobsCalendarPage() {
         totals: days.reduce(
           (acc, day) => {
             acc.jobs += day.jobs.length;
+            acc.placeholders += day.placeholders.length;
             acc.sqm += day.jobs.reduce((sum, job) => sum + combinedSqm(job), 0);
             acc.amount += day.jobs.reduce((sum, job) => sum + (job.quote?.c_total || 0), 0);
             return acc;
           },
-          { jobs: 0, sqm: 0, amount: 0 }
+          { jobs: 0, placeholders: 0, sqm: 0, amount: 0 }
         ),
       });
 
@@ -512,7 +640,7 @@ export default function JobsCalendarPage() {
     }
 
     return rows;
-  }, [jobsByDay, monthCursor]);
+  }, [jobsByDay, placeholdersByDay, monthCursor]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -520,14 +648,22 @@ export default function JobsCalendarPage() {
         <div className="flex items-center justify-between gap-3 mb-3">
           <div>
             <h1 className="text-lg font-bold text-gray-900">Installation Calendar</h1>
-            <p className="text-sm text-gray-500">Accepted, in-progress, invoice, and completed jobs with install dates.</p>
+            <p className="text-sm text-gray-500">Accepted, in-progress, invoice, completed jobs, and shared placeholders.</p>
           </div>
-          <button
-            onClick={() => load(true)}
-            className="px-3 py-2 text-xs font-semibold rounded-lg border border-gray-200 bg-white text-gray-700"
-          >
-            Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => openPlaceholderSheet(undefined, dateKeyLocal(new Date()))}
+              className="px-3 py-2 text-xs font-semibold rounded-lg bg-[#1a3a4a] text-white"
+            >
+              + Placeholder
+            </button>
+            <button
+              onClick={() => load(true)}
+              className="px-3 py-2 text-xs font-semibold rounded-lg border border-gray-200 bg-white text-gray-700"
+            >
+              Refresh
+            </button>
+          </div>
         </div>
 
         <div className="flex items-center justify-between gap-2">
@@ -585,14 +721,46 @@ export default function JobsCalendarPage() {
                           <span className={`text-sm font-bold ${day.inMonth ? "text-gray-900" : "text-gray-400"}`}>
                             {day.date.getDate()}
                           </span>
-                          {day.jobs.length > 0 && (
-                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#e85d04]/10 text-[#e85d04]">
-                              {day.jobs.length} job{day.jobs.length === 1 ? "" : "s"}
-                            </span>
-                          )}
+                          <div className="flex items-center gap-1">
+                            {day.placeholders.length > 0 && (
+                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700">
+                                {day.placeholders.length} hold{day.placeholders.length === 1 ? "" : "s"}
+                              </span>
+                            )}
+                            {day.jobs.length > 0 && (
+                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#e85d04]/10 text-[#e85d04]">
+                                {day.jobs.length} job{day.jobs.length === 1 ? "" : "s"}
+                              </span>
+                            )}
+                          </div>
                         </div>
 
                         <div className="space-y-2">
+                          {day.placeholders.map((placeholder) => {
+                            const colorClass = placeholder.color === "violet"
+                              ? "border-violet-200 bg-violet-50 border-l-violet-500"
+                              : placeholder.color === "blue"
+                              ? "border-sky-200 bg-sky-50 border-l-sky-500"
+                              : placeholder.color === "amber"
+                              ? "border-amber-200 bg-amber-50 border-l-amber-500"
+                              : "border-slate-200 bg-slate-50 border-l-slate-500";
+                            const scopeLabel = placeholder.scope === "internal" ? "Internal" : placeholder.scope === "external" ? "External" : placeholder.scope === "both" ? "Internal + External" : "";
+                            return (
+                              <button
+                                key={placeholder.id}
+                                onClick={() => openPlaceholderSheet(placeholder)}
+                                className={`w-full rounded-xl border border-l-4 p-2 shadow-sm text-left ${colorClass} border-dashed`}
+                              >
+                                <div className="flex items-center justify-between gap-2 mb-1">
+                                  <div className="text-[13px] font-semibold text-gray-900 line-clamp-2">{placeholder.title}</div>
+                                  <span className="text-[10px] font-semibold uppercase text-violet-700 bg-white/70 px-1.5 py-0.5 rounded">Placeholder</span>
+                                </div>
+                                <div className="text-[11px] text-gray-600 mb-1 capitalize">{placeholder.status}{scopeLabel ? ` • ${scopeLabel}` : ""}</div>
+                                {placeholder.team && <div className="text-[11px] text-gray-700 mb-1">👷 {placeholder.team}</div>}
+                                {placeholder.notes && <div className="text-[11px] text-gray-600 line-clamp-2">📝 {placeholder.notes}</div>}
+                              </button>
+                            );
+                          })}
                           {day.jobs.map((job) => {
                             const meta = parseInstallMeta(job.notes);
                             const isInstalled = ["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"].includes(job.installation?.installStatus || "");
@@ -643,7 +811,11 @@ export default function JobsCalendarPage() {
                               </div>
                             );
                           })}
-                          {day.jobs.length === 0 && <div className="text-xs text-gray-300 pt-2">No jobs</div>}
+                          {day.jobs.length === 0 && day.placeholders.length === 0 && (
+                            <button onClick={() => openPlaceholderSheet(undefined, day.key)} className="text-xs text-gray-300 pt-2 text-left hover:text-gray-500">
+                              No jobs or placeholders
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -654,6 +826,10 @@ export default function JobsCalendarPage() {
                         <div>
                           <div className="text-[11px] text-white/60">Jobs</div>
                           <div className="text-2xl font-bold">{week.totals.jobs}</div>
+                        </div>
+                        <div>
+                          <div className="text-[11px] text-white/60">Placeholders</div>
+                          <div className="text-xl font-bold">{week.totals.placeholders}</div>
                         </div>
                         <div>
                           <div className="text-[11px] text-white/60">Square metres</div>
@@ -673,8 +849,8 @@ export default function JobsCalendarPage() {
         )}
       </div>
 
-      <BottomSheet open={sheetOpen} onClose={closeSheet} title="Installation planning">
-        {selectedJob && (
+      <BottomSheet open={sheetOpen} onClose={closeSheet} title={placeholderMode === "job" ? "Installation planning" : selectedPlaceholder ? "Edit placeholder" : "New placeholder"}>
+        {placeholderMode === "job" && selectedJob && (
           <div className="space-y-4">
             <div>
               <div className="flex items-start justify-between gap-2">
@@ -765,6 +941,86 @@ export default function JobsCalendarPage() {
               <button onClick={closeSheet} className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">Cancel</button>
               <button onClick={saveInstallMeta} disabled={saving || !installScope} className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
                 {saving ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {placeholderMode === "placeholder" && (
+          <div className="space-y-4">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Title</div>
+              <input
+                value={placeholderTitle}
+                onChange={(e) => setPlaceholderTitle(e.target.value)}
+                placeholder="Scaffold booked, weather hold, team blocked, etc"
+                className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#1a3a4a]"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Start date</div>
+                <input type="date" value={placeholderStartDate} onChange={(e) => setPlaceholderStartDate(e.target.value)} className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-800" />
+              </div>
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">End date</div>
+                <input type="date" value={placeholderEndDate} onChange={(e) => setPlaceholderEndDate(e.target.value)} className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-800" />
+              </div>
+            </div>
+
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Status</div>
+              <div className="grid grid-cols-3 gap-2">
+                {(["pencilled", "confirmed", "blocked"] as const).map((status) => (
+                  <button key={status} onClick={() => setPlaceholderStatus(status)} className={`py-3 rounded-xl text-sm font-semibold border ${placeholderStatus === status ? "bg-violet-50 text-violet-700 border-violet-300" : "bg-white text-gray-700 border-gray-200"}`}>
+                    {status[0].toUpperCase() + status.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Scope</div>
+              <div className="grid grid-cols-4 gap-2">
+                {(["", "internal", "external", "both"] as const).map((scope) => (
+                  <button key={scope || "none"} onClick={() => setPlaceholderScope(scope)} className={`py-3 rounded-xl text-sm font-semibold border ${placeholderScope === scope ? "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}>
+                    {scope === "" ? "None" : scope === "both" ? "Both" : scope[0].toUpperCase() + scope.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Team</div>
+                <input value={placeholderTeam} onChange={(e) => setPlaceholderTeam(e.target.value)} placeholder="Crew / installer" className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-800" />
+              </div>
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Colour</div>
+                <select value={placeholderColor} onChange={(e) => setPlaceholderColor(e.target.value)} className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-800 bg-white">
+                  <option value="slate">Slate</option>
+                  <option value="violet">Violet</option>
+                  <option value="blue">Blue</option>
+                  <option value="amber">Amber</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Notes</div>
+              <textarea value={placeholderNotes} onChange={(e) => setPlaceholderNotes(e.target.value)} rows={5} placeholder="Anything the team should know" className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-800 resize-none" />
+            </div>
+
+            <div className="flex gap-2">
+              {selectedPlaceholder && (
+                <button onClick={deletePlaceholder} disabled={saving} className="bg-red-50 text-red-600 font-semibold py-3 px-4 rounded-xl disabled:opacity-50">
+                  Delete
+                </button>
+              )}
+              <button onClick={closeSheet} className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">Cancel</button>
+              <button onClick={savePlaceholder} disabled={saving} className="flex-1 bg-[#1a3a4a] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
+                {saving ? "Saving..." : selectedPlaceholder ? "Save changes" : "Create placeholder"}
               </button>
             </div>
           </div>
