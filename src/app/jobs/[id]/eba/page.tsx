@@ -322,7 +322,6 @@ const FINALISE_REQUIRED_KEYS = [
   "exteriorCladding",
   "claddingType",
   "claddingTypeInstalledVia",
-  "finishOfCladding",
   "b131_structure",
   "c22_preventionOfFireOccuring",
   "g931_electricity",
@@ -719,7 +718,7 @@ export default function EbaPage() {
       };
 
       if (!isDraft && !finaliseChecks.canFinalise) {
-        setNotice("Please complete required fields marked * before finalising.");
+        setNotice("Please complete all required fields before finalising.");
         setSaving(false);
         return;
       }
@@ -790,6 +789,12 @@ export default function EbaPage() {
     };
 
     const missingFields: string[] = FINALISE_REQUIRED_KEYS.filter((key) => !hasValue(form[key]));
+
+    // finishOfCladding stores detail text in an "Other:" prefix, so hasValue would return true
+    // even when no option is actually selected. Use parseLegacyMappedCheckboxList instead.
+    if (!parseLegacyMappedCheckboxList(form.finishOfCladding, ["Timber / Cement Board", "Painted render / plaster / masonry", "Unsealed masonry"]).length) {
+      missingFields.push("finishOfCladding");
+    }
 
     // Conditionally required textarea pairs — at least one of the pair must be filled.
     // The install key acts as a sentinel: when it is in missingFields both textareas highlight red.
@@ -1391,7 +1396,7 @@ export default function EbaPage() {
               </div>
               {finaliseAttempted && !finaliseChecks.canFinalise && (
                 <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
-                  <p className="text-xs font-semibold text-amber-800">{finaliseChecks.missingCount} required item(s) still missing. Required fields are marked with *</p>
+                  <p className="text-xs font-semibold text-amber-800">{finaliseChecks.missingCount} required item(s) still missing</p>
                   <p className="text-[11px] text-amber-700 mt-1">Foundation and maintenance photos are optional.</p>
                 </div>
               )}
