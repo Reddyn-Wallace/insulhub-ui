@@ -225,6 +225,32 @@ function toggleLegacyCheckboxList(curr: unknown, item: string, knownOptions: str
   return next.length ? `Other: ${next.join(" | ")}` : "";
 }
 
+function getLegacyCustomOther(curr: unknown, knownOptions: string[]): string {
+  const arr = listValue(curr);
+  const other = arr.find((x) => x.toLowerCase().startsWith("other:"));
+  if (!other) return "";
+  return other
+    .slice(other.indexOf(":") + 1)
+    .split("|")
+    .map((x) => x.trim())
+    .filter((x) => x && !knownOptions.includes(x))
+    .join(" | ");
+}
+
+function hasLegacyCustomOther(curr: unknown, knownOptions: string[]): boolean {
+  return getLegacyCustomOther(curr, knownOptions).length > 0;
+}
+
+function setLegacyCheckboxListOther(curr: unknown, value: string, knownOptions: string[]): string {
+  const selected = parseLegacyCheckboxList(curr, knownOptions);
+  const custom = value
+    .split("|")
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const next = [...selected, ...custom];
+  return next.length ? `Other: ${next.join(" | ")}` : "";
+}
+
 function hasValue(value: unknown): boolean {
   if (value === null || value === undefined) return false;
   if (typeof value === "string") return value.trim().length > 0;
@@ -902,7 +928,7 @@ export default function EbaPage() {
               <h2 className="text-sm font-semibold text-gray-700 mb-3">Exterior Cladding</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 {["Timber","Cement Board","Rendered Plaster","Masonry veneer (nominal 140mm cavity)","Masonry (double brick)","EIFS","Palisade (plastic) weatherboard","Corrugated steel"].map((opt)=>(
-                  <label key={opt} className="text-sm"><input type="checkbox" className="mr-2" checked={listValue(form.exteriorCladding).includes(opt)} onChange={() => setField("exteriorCladding", toggleList(form.exteriorCladding, opt))} />{opt}</label>
+                  <label key={opt} className="text-sm"><input type="checkbox" className="mr-2" checked={parseLegacyCheckboxList(form.exteriorCladding, ["Timber","Cement Board","Rendered Plaster","Masonry veneer (nominal 140mm cavity)","Masonry (double brick)","EIFS","Palisade (plastic) weatherboard","Corrugated steel"]).includes(opt)} onChange={() => setField("exteriorCladding", toggleLegacyCheckboxList(form.exteriorCladding, opt, ["Timber","Cement Board","Rendered Plaster","Masonry veneer (nominal 140mm cavity)","Masonry (double brick)","EIFS","Palisade (plastic) weatherboard","Corrugated steel"]))} />{opt}</label>
                 ))}
               </div>
             </div>
@@ -913,38 +939,38 @@ export default function EbaPage() {
               <h3 className="text-sm font-semibold text-gray-700 mb-2">Cladding Type</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-1 mb-2">
                 {["Timber","Cement Board","Rendered Plaster","Masonry Veneer","Masonry (Double brick)","EIFS","Palisade (plastic) weatherboard","Corrugated Steel"].map((opt)=>(
-                  <label key={opt} className="text-sm"><input type="checkbox" className="mr-2" checked={listValue(form.claddingType).includes(opt)} onChange={() => setField("claddingType", toggleList(form.claddingType, opt))} />{opt}</label>
+                  <label key={opt} className="text-sm"><input type="checkbox" className="mr-2" checked={parseLegacyCheckboxList(form.claddingType, ["Timber","Cement Board","Rendered Plaster","Masonry Veneer","Masonry (Double brick)","EIFS","Palisade (plastic) weatherboard","Corrugated Steel"]).includes(opt)} onChange={() => setField("claddingType", toggleLegacyCheckboxList(form.claddingType, opt, ["Timber","Cement Board","Rendered Plaster","Masonry Veneer","Masonry (Double brick)","EIFS","Palisade (plastic) weatherboard","Corrugated Steel"]))} />{opt}</label>
                 ))}
-                <label className="text-sm"><input type="checkbox" className="mr-2" checked={listValue(form.claddingType).some((x) => x === "Other" || x.toLowerCase().startsWith("other:"))} onChange={(e) => {
-                  const arr = listValue(form.claddingType).filter((x) => x !== "Other" && !x.toLowerCase().startsWith("other:"));
-                  if (e.target.checked) arr.push("Other");
-                  setField("claddingType", arr.join(" | "));
+                <label className="text-sm"><input type="checkbox" className="mr-2" checked={hasLegacyCustomOther(form.claddingType, ["Timber","Cement Board","Rendered Plaster","Masonry Veneer","Masonry (Double brick)","EIFS","Palisade (plastic) weatherboard","Corrugated Steel"])} onChange={(e) => {
+                  if (!e.target.checked) {
+                    setField("claddingType", setLegacyCheckboxListOther(form.claddingType, "", ["Timber","Cement Board","Rendered Plaster","Masonry Veneer","Masonry (Double brick)","EIFS","Palisade (plastic) weatherboard","Corrugated Steel"]));
+                  }
                 }} />Other</label>
               </div>
               <input
                 type="text"
                 placeholder="Other"
-                value={getOtherFromList(form.claddingType)}
-                onChange={(e) => setField("claddingType", setOtherInList(form.claddingType, e.target.value))}
+                value={getLegacyCustomOther(form.claddingType, ["Timber","Cement Board","Rendered Plaster","Masonry Veneer","Masonry (Double brick)","EIFS","Palisade (plastic) weatherboard","Corrugated Steel"])}
+                onChange={(e) => setField("claddingType", setLegacyCheckboxListOther(form.claddingType, e.target.value, ["Timber","Cement Board","Rendered Plaster","Masonry Veneer","Masonry (Double brick)","EIFS","Palisade (plastic) weatherboard","Corrugated Steel"]))}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-4"
               />
 
               <p className="text-sm text-gray-700 font-medium mb-1">Installed Via:</p>
               <div className="grid grid-cols-1 gap-1 mb-2">
                 {["Cladding","Internal Lining mandatory for EIF, Palisade or Corrugated Steel"].map((opt)=>(
-                  <label key={opt} className="text-sm"><input type="checkbox" className="mr-2" checked={listValue(form.claddingTypeInstalledVia).includes(opt)} onChange={() => setField("claddingTypeInstalledVia", toggleList(form.claddingTypeInstalledVia, opt))} />{opt}</label>
+                  <label key={opt} className="text-sm"><input type="checkbox" className="mr-2" checked={parseLegacyCheckboxList(form.claddingTypeInstalledVia, ["Cladding","Internal Lining mandatory for EIF, Palisade or Corrugated Steel"]).includes(opt)} onChange={() => setField("claddingTypeInstalledVia", toggleLegacyCheckboxList(form.claddingTypeInstalledVia, opt, ["Cladding","Internal Lining mandatory for EIF, Palisade or Corrugated Steel"]))} />{opt}</label>
                 ))}
-                <label className="text-sm"><input type="checkbox" className="mr-2" checked={listValue(form.claddingTypeInstalledVia).some((x) => x === "Other" || x.toLowerCase().startsWith("other:"))} onChange={(e) => {
-                  const arr = listValue(form.claddingTypeInstalledVia).filter((x) => x !== "Other" && !x.toLowerCase().startsWith("other:"));
-                  if (e.target.checked) arr.push("Other");
-                  setField("claddingTypeInstalledVia", arr.join(" | "));
+                <label className="text-sm"><input type="checkbox" className="mr-2" checked={hasLegacyCustomOther(form.claddingTypeInstalledVia, ["Cladding","Internal Lining mandatory for EIF, Palisade or Corrugated Steel"])} onChange={(e) => {
+                  if (!e.target.checked) {
+                    setField("claddingTypeInstalledVia", setLegacyCheckboxListOther(form.claddingTypeInstalledVia, "", ["Cladding","Internal Lining mandatory for EIF, Palisade or Corrugated Steel"]));
+                  }
                 }} />Other</label>
               </div>
               <input
                 type="text"
                 placeholder="Other"
-                value={getOtherFromList(form.claddingTypeInstalledVia)}
-                onChange={(e) => setField("claddingTypeInstalledVia", setOtherInList(form.claddingTypeInstalledVia, e.target.value))}
+                value={getLegacyCustomOther(form.claddingTypeInstalledVia, ["Cladding","Internal Lining mandatory for EIF, Palisade or Corrugated Steel"])}
+                onChange={(e) => setField("claddingTypeInstalledVia", setLegacyCheckboxListOther(form.claddingTypeInstalledVia, e.target.value, ["Cladding","Internal Lining mandatory for EIF, Palisade or Corrugated Steel"]))}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-4"
               />
 
@@ -961,9 +987,9 @@ export default function EbaPage() {
                     "Painted render / plaster / masonry Holes filled with Turbo house filler, sand flush and holes sealed with exterior paint system",
                     "Unsealed masonry Holes filled with sand / cement mortar and exterior cladding sealed with appropriate Surfapor masonry surface sealer for concrete or clay based substrates. Clay brick http://www.pacificnanotech.co.nz/catalog/surfapore-range/surfapore-r Concrete block/brick http://www.pacificnanotech.co.nz/catalog/surfapore/surfapore-c",
                   ];
-                  const selectedFinish = parseKnownList(form.finishOfCladding, finishOptions);
+                  const selectedFinish = parseLegacyCheckboxList(form.finishOfCladding, finishOptions);
                   return finishOptions.map((opt)=>(
-                    <label key={opt} className="text-sm"><input type="checkbox" className="mr-2 align-top mt-1" checked={selectedFinish.includes(opt)} onChange={() => setField("finishOfCladding", toggleKnownList(form.finishOfCladding, opt, finishOptions))} />{opt}</label>
+                    <label key={opt} className="text-sm"><input type="checkbox" className="mr-2 align-top mt-1" checked={selectedFinish.includes(opt)} onChange={() => setField("finishOfCladding", toggleLegacyCheckboxList(form.finishOfCladding, opt, finishOptions))} />{opt}</label>
                   ));
                 })()}
               </div>
