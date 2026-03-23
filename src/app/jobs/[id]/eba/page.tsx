@@ -324,14 +324,8 @@ const FINALISE_REQUIRED_KEYS = [
   "claddingTypeInstalledVia",
   "finishOfCladding",
   "b131_structure",
-  "b131_structure_priorToInstallationWorkRequired",
-  "b131_structure_priorToCertificationWorkRequired",
   "c22_preventionOfFireOccuring",
-  "c22_preventionOfFireOccuring_priorToInstallationWorkRequired",
-  "c22_preventionOfFireOccuring_priorToCertificationWorkRequired",
   "g931_electricity",
-  "g931_electricity_priorToInstallationWorkRequired",
-  "g931_electricity_priorToCertificationWorkRequired",
   "h131_energyEfficiency",
   "c22_externalMoisture_paintFinishOfExteriorCladdingAppearsToBeInAnWellMaintainedCondition",
   "c22_externalMoisture_exteriorCladdingAppearsToHaveDeteriorationToALevelThatMayAllowWaterIngress",
@@ -347,9 +341,19 @@ const FINALISE_REQUIRED_KEYS = [
   "masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls",
   "masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater",
   "masonryCladding_underfloorSpaceExcessivelyDamp",
-  "c22_externalMoisture_priorToInstallationWorkRequired",
-  "c22_externalMoisture_priorToCertificationWorkRequired",
   "assessorName",
+] as const;
+
+const externalMoistureQuestions = [
+  ["c22_externalMoisture_paintFinishOfExteriorCladdingAppearsToBeInAnWellMaintainedCondition", "Paint finish of exterior cladding appears to be in an well maintained condition?"],
+  ["c22_externalMoisture_exteriorCladdingAppearsToHaveDeteriorationToALevelThatMayAllowWaterIngress", "Exterior cladding appears to have deterioration to a level that may allow water ingress?"],
+  ["c22_externalMoisture_joineryAppearsToBeInGoodConditionAndNotAllowingWaterIngress", "Joinery appears to be in good condition and not allowing water ingress?"],
+  ["c22_externalMoisture_flashingsArePresentAndAppearToBeInstalledCorrectly", "Flashings are present and appear to be installed correctly?"],
+  ["c22_externalMoisture_allExistingPenetrationsAreSealed", "All existing penetrations are sealed?"],
+  ["c22_externalMoisture_joinBetweenDifferentCladdingTypesSealed", "Join between different cladding types sealed?"],
+  ["c22_externalMoisture_guttersAndDownPipesArePresentAndAppearToBeFunctioningCorrectly", "Gutters and down pipes are present and appear to be functioning correctly?"],
+  ["c22_externalMoisture_isWaterAbleToPoolAgainstExteriorWall", "Is water able to pool against exterior wall e.g. raised sealed deck?"],
+  ["c22_externalMoisture_wallsAreFreeToAir", "Walls are free to air e.g no raised border bounded by exterior wall?"],
 ] as const;
 
 export default function EbaPage() {
@@ -714,17 +718,10 @@ export default function EbaPage() {
         assessorName: form.assessorName,
       };
 
-      if (!isDraft) {
-        const missingFields = FINALISE_REQUIRED_KEYS.filter((key) => !hasValue(ebaForm[key]));
-        const requiredPhotoSections = ["elevation_north", "elevation_east", "elevation_south", "elevation_west"];
-        const missingPhotoSections = requiredPhotoSections.filter((section) => (ebaPhotos[section] || []).length === 0);
-        const hasAssessorSignature = !!signatureFileName(job?.ebaForm?.signature_assessor);
-
-        if (missingFields.length || missingPhotoSections.length || !hasAssessorSignature) {
-          setNotice("Please complete required fields marked * before finalising.");
-          setSaving(false);
-          return;
-        }
+      if (!isDraft && !finaliseChecks.canFinalise) {
+        setNotice("Please complete required fields marked * before finalising.");
+        setSaving(false);
+        return;
       }
 
       const input = { _id: job._id, ebaForm };
@@ -739,18 +736,6 @@ export default function EbaPage() {
     }
   }
 
-  const externalMoistureQuestions = [
-    ["c22_externalMoisture_paintFinishOfExteriorCladdingAppearsToBeInAnWellMaintainedCondition", "Paint finish of exterior cladding appears to be in an well maintained condition?"],
-    ["c22_externalMoisture_exteriorCladdingAppearsToHaveDeteriorationToALevelThatMayAllowWaterIngress", "Exterior cladding appears to have deterioration to a level that may allow water ingress?"],
-    ["c22_externalMoisture_joineryAppearsToBeInGoodConditionAndNotAllowingWaterIngress", "Joinery appears to be in good condition and not allowing water ingress?"],
-    ["c22_externalMoisture_flashingsArePresentAndAppearToBeInstalledCorrectly", "Flashings are present and appear to be installed correctly?"],
-    ["c22_externalMoisture_allExistingPenetrationsAreSealed", "All existing penetrations are sealed?"],
-    ["c22_externalMoisture_joinBetweenDifferentCladdingTypesSealed", "Join between different cladding types sealed?"],
-    ["c22_externalMoisture_guttersAndDownPipesArePresentAndAppearToBeFunctioningCorrectly", "Gutters and down pipes are present and appear to be functioning correctly?"],
-    ["c22_externalMoisture_isWaterAbleToPoolAgainstExteriorWall", "Is water able to pool against exterior wall e.g. raised sealed deck?"],
-    ["c22_externalMoisture_wallsAreFreeToAir", "Walls are free to air e.g no raised border bounded by exterior wall?"],
-  ] as const;
-
   const finaliseChecks = useMemo(() => {
     const requiredFieldLabels: Record<string, string> = {
       nameOfOwners: "Name of owners",
@@ -763,8 +748,8 @@ export default function EbaPage() {
       propertySiteSection: "Property site section",
       propertySiteExposure: "Property site exposure",
       propertySiteArea: "Property site area",
-      roofAndEavesCol1: "Roof and eaves",
-      roofAndEavesCol2: "Roof material",
+      roofAndEavesCol1: "Roof type",
+      roofAndEavesCol2: "Roof cladding",
       roofAndEavesCol3: "Eaves",
       foundationAndFloor: "Foundation and floor",
       framing: "Framing",
@@ -804,8 +789,44 @@ export default function EbaPage() {
       assessorName: "Assessor name",
     };
 
-    const missingFields = FINALISE_REQUIRED_KEYS.filter((key) => !hasValue(form[key]));
-    const requiredPhotoSections = ["elevation_north", "elevation_east", "elevation_south", "elevation_west"];
+    const missingFields: string[] = FINALISE_REQUIRED_KEYS.filter((key) => !hasValue(form[key]));
+
+    // Conditionally required textarea keys — only required when their section is visible
+    if (form.b131_structure === false) {
+      if (!hasValue(form.b131_structure_priorToInstallationWorkRequired)) missingFields.push("b131_structure_priorToInstallationWorkRequired");
+      if (!hasValue(form.b131_structure_priorToCertificationWorkRequired)) missingFields.push("b131_structure_priorToCertificationWorkRequired");
+    }
+    if (form.c22_preventionOfFireOccuring === true) {
+      if (!hasValue(form.c22_preventionOfFireOccuring_priorToInstallationWorkRequired)) missingFields.push("c22_preventionOfFireOccuring_priorToInstallationWorkRequired");
+      if (!hasValue(form.c22_preventionOfFireOccuring_priorToCertificationWorkRequired)) missingFields.push("c22_preventionOfFireOccuring_priorToCertificationWorkRequired");
+    }
+    if (form.g931_electricity === false) {
+      if (!hasValue(form.g931_electricity_priorToInstallationWorkRequired)) missingFields.push("g931_electricity_priorToInstallationWorkRequired");
+      if (!hasValue(form.g931_electricity_priorToCertificationWorkRequired)) missingFields.push("g931_electricity_priorToCertificationWorkRequired");
+    }
+    const redWhenYesSet = new Set([
+      "c22_externalMoisture_exteriorCladdingAppearsToHaveDeteriorationToALevelThatMayAllowWaterIngress",
+      "c22_externalMoisture_isWaterAbleToPoolAgainstExteriorWall",
+      "masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater",
+      "masonryCladding_underfloorSpaceExcessivelyDamp",
+    ]);
+    const externalMoistureWorkNeeded = [
+      ...externalMoistureQuestions.map(([k]) => k as string),
+      "masonryCladding_masonryCladUnderfloorVentsArePresentAndClear",
+      "masonryCladding_windowOrMasonryVerticalJointsAreSealed",
+    ].some((k) => redWhenYesSet.has(k) ? form[k] === true : form[k] === false);
+    const waterIngressWorkNeeded =
+      form.masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls === false ||
+      form.masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater === true ||
+      form.masonryCladding_underfloorSpaceExcessivelyDamp === true;
+    if (externalMoistureWorkNeeded || waterIngressWorkNeeded) {
+      if (!hasValue(form.c22_externalMoisture_priorToInstallationWorkRequired)) missingFields.push("c22_externalMoisture_priorToInstallationWorkRequired");
+      if (!hasValue(form.c22_externalMoisture_priorToCertificationWorkRequired)) missingFields.push("c22_externalMoisture_priorToCertificationWorkRequired");
+    }
+
+    const requiredPhotoSections = (["north", "east", "south", "west"] as const)
+      .filter((dir) => !elevationSkip[dir])
+      .map((dir) => `elevation_${dir}`);
     const missingPhotoSections = requiredPhotoSections.filter((section) => (ebaPhotos[section] || []).length === 0);
     const hasAssessorSignature = !!signatureFileName(job?.ebaForm?.signature_assessor);
 
@@ -823,7 +844,7 @@ export default function EbaPage() {
       missingPhotoSections,
       missingSignature: !hasAssessorSignature,
     };
-  }, [form, ebaPhotos, job?.ebaForm?.signature_assessor]);
+  }, [form, ebaPhotos, elevationSkip, job?.ebaForm?.signature_assessor]);
 
   const reqMark = <span className="text-red-600">*</span>;
 
@@ -888,7 +909,7 @@ export default function EbaPage() {
                 <div><label className="text-xs text-gray-500">Number of Stories {reqMark}</label><input type="number" value={(form.numberOfStories as number | undefined)?.toString() || ""} onChange={(e) => setField("numberOfStories", e.target.value ? Number(e.target.value) : undefined)} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("numberOfStories") ? "border-red-400 bg-red-50" : "border-gray-200"}`} /></div>
                 <div className="md:col-span-2">
                   <label className="text-xs text-gray-500">Property Site Section {reqMark}</label>
-                  <div className="flex gap-2 mt-1 flex-wrap">
+                  <div className={`flex gap-2 mt-1 flex-wrap rounded-lg p-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("propertySiteSection") ? "border border-red-400 bg-red-50" : ""}`}>
                     {["Flat Section","Sloping Section","Steep Section"].map((opt) => (
                       <label key={opt} className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white cursor-pointer">
                         <input type="radio" name="propertySiteSection" className="mr-1" checked={(form.propertySiteSection as string) === opt} onChange={() => setField("propertySiteSection", opt)} />{opt}
@@ -898,7 +919,7 @@ export default function EbaPage() {
                 </div>
                 <div className="md:col-span-2">
                   <label className="text-xs text-gray-500">Property Site Exposure {reqMark}</label>
-                  <div className="flex gap-2 mt-1 flex-wrap">
+                  <div className={`flex gap-2 mt-1 flex-wrap rounded-lg p-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("propertySiteExposure") ? "border border-red-400 bg-red-50" : ""}`}>
                     {["Exposed","Semi-Exposed","Sheltered"].map((opt) => (
                       <label key={opt} className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white cursor-pointer">
                         <input type="radio" name="propertySiteExposure" className="mr-1" checked={(form.propertySiteExposure as string) === opt} onChange={() => setField("propertySiteExposure", opt)} />{opt}
@@ -908,7 +929,7 @@ export default function EbaPage() {
                 </div>
                 <div className="md:col-span-2">
                   <label className="text-xs text-gray-500">Property Site Area {reqMark}</label>
-                  <div className="flex gap-2 mt-1 flex-wrap">
+                  <div className={`flex gap-2 mt-1 flex-wrap rounded-lg p-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("propertySiteArea") ? "border border-red-400 bg-red-50" : ""}`}>
                     {["Urban","Rural"].map((opt) => (
                       <label key={opt} className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white cursor-pointer">
                         <input type="radio" name="propertySiteArea" className="mr-1" checked={(form.propertySiteArea as string) === opt} onChange={() => setField("propertySiteArea", opt)} />{opt}
@@ -919,26 +940,26 @@ export default function EbaPage() {
               </div>
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
+            <div className={`border rounded-xl p-4 ${finaliseAttempted && (finaliseChecks.missingFields.includes("roofAndEavesCol1") || finaliseChecks.missingFields.includes("roofAndEavesCol2") || finaliseChecks.missingFields.includes("roofAndEavesCol3")) ? "border-red-400 bg-red-50" : "bg-white border-gray-200"}`}>
               <h2 className="text-sm font-semibold text-gray-700 mb-3">Roof & Eaves</h2>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
-                  <label className="text-xs text-gray-500">Roof Type</label>
+                  <label className="text-xs text-gray-500">Roof Type {reqMark}</label>
                   <div className="mt-1 space-y-1">{["Hip Gable","Double Gable","Skillion / Mono pitch"].map((opt)=>(<label key={opt} className="text-sm block"><input type="checkbox" className="mr-2" checked={parseLegacyCheckboxList(form.roofAndEavesCol1, ["Hip Gable","Double Gable","Skillion / Mono pitch"]).includes(opt)} onChange={() => setField("roofAndEavesCol1", toggleLegacyCheckboxList(form.roofAndEavesCol1, opt, ["Hip Gable","Double Gable","Skillion / Mono pitch"]))} />{opt}</label>))}</div>
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500">Roof Cladding</label>
+                  <label className="text-xs text-gray-500">Roof Cladding {reqMark}</label>
                   <div className="mt-1 space-y-1">{["Corrugated Steel","Tile","Membrane"].map((opt)=>(<label key={opt} className="text-sm block"><input type="checkbox" className="mr-2" checked={parseLegacyCheckboxList(form.roofAndEavesCol2, ["Corrugated Steel","Tile","Membrane"]).includes(opt)} onChange={() => setField("roofAndEavesCol2", toggleLegacyCheckboxList(form.roofAndEavesCol2, opt, ["Corrugated Steel","Tile","Membrane"]))} />{opt}</label>))}</div>
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500">Eaves</label>
+                  <label className="text-xs text-gray-500">Eaves {reqMark}</label>
                   <div className="mt-1 space-y-1">{["No eaves","Modest eaves","Generous Eaves"].map((opt)=>(<label key={opt} className="text-sm block"><input type="checkbox" className="mr-2" checked={parseLegacyCheckboxList(form.roofAndEavesCol3, ["No eaves","Modest eaves","Generous Eaves"]).includes(opt)} onChange={() => setField("roofAndEavesCol3", toggleLegacyCheckboxList(form.roofAndEavesCol3, opt, ["No eaves","Modest eaves","Generous Eaves"]))} />{opt}</label>))}</div>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <h2 className="text-sm font-semibold text-gray-700 mb-3">Foundation & Floor</h2>
+            <div className={`border rounded-xl p-4 ${finaliseAttempted && finaliseChecks.missingFields.includes("foundationAndFloor") ? "border-red-400 bg-red-50" : "bg-white border-gray-200"}`}>
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">Foundation & Floor {reqMark}</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 {["Ring Perimeter","Piles","Slab","Suspended Floor Timber"].map((opt)=>(
                   <label key={opt} className="text-sm"><input type="checkbox" className="mr-2" checked={parseLegacyCheckboxList(form.foundationAndFloor, ["Ring Perimeter","Piles","Slab","Suspended Floor Timber"]).includes(opt)} onChange={() => setField("foundationAndFloor", toggleLegacyCheckboxList(form.foundationAndFloor, opt, ["Ring Perimeter","Piles","Slab","Suspended Floor Timber"]))} />{opt}</label>
@@ -946,26 +967,26 @@ export default function EbaPage() {
               </div>
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
+            <div className={`border rounded-xl p-4 ${finaliseAttempted && (finaliseChecks.missingFields.includes("framing") || finaliseChecks.missingFields.includes("joinery") || finaliseChecks.missingFields.includes("lining")) ? "border-red-400 bg-red-50" : "bg-white border-gray-200"}`}>
               <h2 className="text-sm font-semibold text-gray-700 mb-3">Framing, Joinery & Lining</h2>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <label className="text-xs text-gray-500">Framing</label>
+                  <label className="text-xs text-gray-500">Framing {reqMark}</label>
                   {["Likely Rimu","Treated pinus","Untreated pinus","No framing (double brick)"].map((opt)=>(<label key={opt} className="text-sm block mt-1"><input type="checkbox" className="mr-2" checked={parseLegacyCheckboxList(form.framing, ["Likely Rimu","Treated pinus","Untreated pinus","No framing (double brick)"]).includes(opt)} onChange={() => setField("framing", toggleLegacyCheckboxList(form.framing, opt, ["Likely Rimu","Treated pinus","Untreated pinus","No framing (double brick)"]))} />{opt}</label>))}
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500">Joinery</label>
+                  <label className="text-xs text-gray-500">Joinery {reqMark}</label>
                   {["Timber","Aluminium/steel","uPVC","Appears to be installed correctly"].map((opt)=>(<label key={opt} className="text-sm block mt-1"><input type="checkbox" className="mr-2" checked={parseLegacyCheckboxList(form.joinery, ["Timber","Aluminium/steel","uPVC","Appears to be installed correctly"]).includes(opt)} onChange={() => setField("joinery", toggleLegacyCheckboxList(form.joinery, opt, ["Timber","Aluminium/steel","uPVC","Appears to be installed correctly"]))} />{opt}</label>))}
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500">Lining</label>
+                  <label className="text-xs text-gray-500">Lining {reqMark}</label>
                   {["Plasterboard","Hardboard","Sarked","Masonry"].map((opt)=>(<label key={opt} className="text-sm block mt-1"><input type="checkbox" className="mr-2" checked={parseLegacyCheckboxList(form.lining, ["Plasterboard","Hardboard","Sarked","Masonry"]).includes(opt)} onChange={() => setField("lining", toggleLegacyCheckboxList(form.lining, opt, ["Plasterboard","Hardboard","Sarked","Masonry"]))} />{opt}</label>))}
                 </div>
               </div>
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <h2 className="text-sm font-semibold text-gray-700 mb-3">Building Paper</h2>
+            <div className={`border rounded-xl p-4 ${finaliseAttempted && finaliseChecks.missingFields.includes("buildingPaper") ? "border-red-400 bg-red-50" : "bg-white border-gray-200"}`}>
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">Building Paper {reqMark}</h2>
               <div className="flex gap-2 flex-wrap">
                 {["Not detected","Detected (but unable to guarantee extent or condition)"].map((opt)=>(
                   <label key={opt} className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white cursor-pointer">
@@ -976,8 +997,8 @@ export default function EbaPage() {
               </div>
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <h2 className="text-sm font-semibold text-gray-700 mb-3">Exterior Cladding</h2>
+            <div className={`border rounded-xl p-4 ${finaliseAttempted && finaliseChecks.missingFields.includes("exteriorCladding") ? "border-red-400 bg-red-50" : "bg-white border-gray-200"}`}>
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">Exterior Cladding {reqMark}</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 {["Timber","Cement Board","Rendered Plaster","Masonry veneer (nominal 140mm cavity)","Masonry (double brick)","EIFS","Palisade (plastic) weatherboard","Corrugated steel"].map((opt)=>(
                   <label key={opt} className="text-sm"><input type="checkbox" className="mr-2" checked={parseLegacyMappedCheckboxList(form.exteriorCladding, ["Timber","Cement Board","Rendered Plaster","Masonry veneer (nominal 140mm cavity)","Masonry (double brick)","EIFS","Palisade (plastic) weatherboard","Corrugated steel"]).includes(opt)} onChange={() => setField("exteriorCladding", toggleLegacyMappedCheckboxList(form.exteriorCladding, opt, ["Timber","Cement Board","Rendered Plaster","Masonry veneer (nominal 140mm cavity)","Masonry (double brick)","EIFS","Palisade (plastic) weatherboard","Corrugated steel"]))} />{opt}</label>
@@ -988,8 +1009,8 @@ export default function EbaPage() {
             <div className="bg-white border border-gray-200 rounded-xl p-4">
               <h2 className="text-sm font-semibold text-gray-700 mb-3">3) Install Information</h2>
 
-              <h3 className="text-sm font-semibold text-gray-700 mb-2">Cladding Type</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-1 mb-2">
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Cladding Type {reqMark}</h3>
+              <div className={`grid grid-cols-1 md:grid-cols-2 gap-1 mb-2 rounded-lg p-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("claddingType") ? "border border-red-400 bg-red-50" : ""}`}>
                 {["Timber","Cement Board","Rendered Plaster","Masonry Veneer","Masonry (Double brick)","EIFS","Palisade (plastic) weatherboard","Corrugated Steel"].map((opt)=>(
                   <label key={opt} className="text-sm"><input type="checkbox" className="mr-2" checked={parseLegacyMappedCheckboxList(form.claddingType, ["Timber","Cement Board","Rendered Plaster","Masonry Veneer","Masonry (Double brick)","EIFS","Palisade (plastic) weatherboard","Corrugated Steel"]).includes(opt)} onChange={() => setField("claddingType", toggleLegacyMappedCheckboxList(form.claddingType, opt, ["Timber","Cement Board","Rendered Plaster","Masonry Veneer","Masonry (Double brick)","EIFS","Palisade (plastic) weatherboard","Corrugated Steel"]))} />{opt}</label>
                 ))}
@@ -1007,8 +1028,8 @@ export default function EbaPage() {
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-4"
               />
 
-              <p className="text-sm text-gray-700 font-medium mb-1">Installed Via:</p>
-              <div className="grid grid-cols-1 gap-1 mb-2">
+              <p className="text-sm text-gray-700 font-medium mb-1">Installed Via: {reqMark}</p>
+              <div className={`grid grid-cols-1 gap-1 mb-2 rounded-lg p-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("claddingTypeInstalledVia") ? "border border-red-400 bg-red-50" : ""}`}>
                 {[
                   { label: "Cladding", value: "Cladding" },
                   { label: "Internal Lining", helper: "(mandatory for EIF, Palisade or Corrugated Steel)", value: "Internal Lining" },
@@ -1034,8 +1055,8 @@ export default function EbaPage() {
                 Framing timber and accessible cavities are located by various means including infra red detection and a 16mm installation hole is made to access each cavity. The installation hole can be made in the exterior cladding (with the exception of palisade weather board, corrugated steel or EIFS claddings) or in the interior lining. The Insulmax® installation machinery is calibrated for the construction type and each cavity is filled with Insulmax® water resistant blown mineral fibre.
               </p>
 
-              <h3 className="text-sm font-semibold text-gray-700 mb-2">Finishing of Cladding</h3>
-              <div className="grid grid-cols-1 gap-2">
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Finishing of Cladding {reqMark}</h3>
+              <div className={`grid grid-cols-1 gap-2 rounded-lg p-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("finishOfCladding") ? "border border-red-400 bg-red-50" : ""}`}>
                 {(() => {
                   const finishOptions = [
                     { value: "Timber / Cement Board", detail: "Timber / Cement Board Holes filled with Turbo house filler, sand flush and holes sealed with exterior paint system" },
@@ -1123,12 +1144,12 @@ export default function EbaPage() {
                           {helpText && <p className="text-sm text-red-700 mb-2">{helpText}</p>}
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             <div>
-                              <label className="text-xs text-gray-500">Prior to Installation Work Required</label>
-                              <textarea value={(form[installKey as string] as string) || ""} onChange={(e) => setField(installKey as string, e.target.value)} rows={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" />
+                              <label className="text-xs text-gray-500">Prior to Installation Work Required {reqMark}</label>
+                              <textarea value={(form[installKey as string] as string) || ""} onChange={(e) => setField(installKey as string, e.target.value)} rows={2} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes(installKey as string) ? "border-red-400 bg-red-50" : "border-gray-200"}`} />
                             </div>
                             <div>
-                              <label className="text-xs text-gray-500">Prior to Certification Work Required</label>
-                              <textarea value={(certKey ? (form[certKey as string] as string) : "") || ""} onChange={(e) => certKey && setField(certKey as string, e.target.value)} rows={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" />
+                              <label className="text-xs text-gray-500">Prior to Certification Work Required {reqMark}</label>
+                              <textarea value={(certKey ? (form[certKey as string] as string) : "") || ""} onChange={(e) => certKey && setField(certKey as string, e.target.value)} rows={2} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && certKey && finaliseChecks.missingFields.includes(certKey as string) ? "border-red-400 bg-red-50" : "border-gray-200"}`} />
                             </div>
                           </div>
                         </div>
@@ -1201,12 +1222,12 @@ export default function EbaPage() {
                         </p>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           <div>
-                            <label className="text-xs text-gray-500">Prior to Installation Work Required</label>
-                            <textarea value={(form.c22_externalMoisture_priorToInstallationWorkRequired as string) || ""} onChange={(e) => setField("c22_externalMoisture_priorToInstallationWorkRequired", e.target.value)} rows={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" />
+                            <label className="text-xs text-gray-500">Prior to Installation Work Required {reqMark}</label>
+                            <textarea value={(form.c22_externalMoisture_priorToInstallationWorkRequired as string) || ""} onChange={(e) => setField("c22_externalMoisture_priorToInstallationWorkRequired", e.target.value)} rows={2} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("c22_externalMoisture_priorToInstallationWorkRequired") ? "border-red-400 bg-red-50" : "border-gray-200"}`} />
                           </div>
                           <div>
-                            <label className="text-xs text-gray-500">Prior to Certification Work Required</label>
-                            <textarea value={(form.c22_externalMoisture_priorToCertificationWorkRequired as string) || ""} onChange={(e) => setField("c22_externalMoisture_priorToCertificationWorkRequired", e.target.value)} rows={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" />
+                            <label className="text-xs text-gray-500">Prior to Certification Work Required {reqMark}</label>
+                            <textarea value={(form.c22_externalMoisture_priorToCertificationWorkRequired as string) || ""} onChange={(e) => setField("c22_externalMoisture_priorToCertificationWorkRequired", e.target.value)} rows={2} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("c22_externalMoisture_priorToCertificationWorkRequired") ? "border-red-400 bg-red-50" : "border-gray-200"}`} />
                           </div>
                         </div>
                       </div>
@@ -1237,12 +1258,12 @@ export default function EbaPage() {
                         </p>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           <div>
-                            <label className="text-xs text-gray-500">Prior to Installation Work Required</label>
-                            <textarea value={(form.c22_externalMoisture_priorToInstallationWorkRequired as string) || ""} onChange={(e) => setField("c22_externalMoisture_priorToInstallationWorkRequired", e.target.value)} rows={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" />
+                            <label className="text-xs text-gray-500">Prior to Installation Work Required {reqMark}</label>
+                            <textarea value={(form.c22_externalMoisture_priorToInstallationWorkRequired as string) || ""} onChange={(e) => setField("c22_externalMoisture_priorToInstallationWorkRequired", e.target.value)} rows={2} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("c22_externalMoisture_priorToInstallationWorkRequired") ? "border-red-400 bg-red-50" : "border-gray-200"}`} />
                           </div>
                           <div>
-                            <label className="text-xs text-gray-500">Prior to Certification Work Required</label>
-                            <textarea value={(form.c22_externalMoisture_priorToCertificationWorkRequired as string) || ""} onChange={(e) => setField("c22_externalMoisture_priorToCertificationWorkRequired", e.target.value)} rows={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1" />
+                            <label className="text-xs text-gray-500">Prior to Certification Work Required {reqMark}</label>
+                            <textarea value={(form.c22_externalMoisture_priorToCertificationWorkRequired as string) || ""} onChange={(e) => setField("c22_externalMoisture_priorToCertificationWorkRequired", e.target.value)} rows={2} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("c22_externalMoisture_priorToCertificationWorkRequired") ? "border-red-400 bg-red-50" : "border-gray-200"}`} />
                           </div>
                         </div>
                       </div>
