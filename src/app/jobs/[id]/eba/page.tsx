@@ -279,6 +279,27 @@ function hasValue(value: unknown): boolean {
   return true;
 }
 
+const YES_NO_NA_KEYS = [
+  "b131_structure",
+  "c22_preventionOfFireOccuring",
+  "g931_electricity",
+  "h131_energyEfficiency",
+  "c22_externalMoisture_paintFinishOfExteriorCladdingAppearsToBeInAnWellMaintainedCondition",
+  "c22_externalMoisture_exteriorCladdingAppearsToHaveDeteriorationToALevelThatMayAllowWaterIngress",
+  "c22_externalMoisture_joineryAppearsToBeInGoodConditionAndNotAllowingWaterIngress",
+  "c22_externalMoisture_flashingsArePresentAndAppearToBeInstalledCorrectly",
+  "c22_externalMoisture_allExistingPenetrationsAreSealed",
+  "c22_externalMoisture_joinBetweenDifferentCladdingTypesSealed",
+  "c22_externalMoisture_guttersAndDownPipesArePresentAndAppearToBeFunctioningCorrectly",
+  "c22_externalMoisture_isWaterAbleToPoolAgainstExteriorWall",
+  "c22_externalMoisture_wallsAreFreeToAir",
+  "masonryCladding_masonryCladUnderfloorVentsArePresentAndClear",
+  "masonryCladding_windowOrMasonryVerticalJointsAreSealed",
+  "masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls",
+  "masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater",
+  "masonryCladding_underfloorSpaceExcessivelyDamp",
+] as const;
+
 const FINALISE_REQUIRED_KEYS = [
   "nameOfOwners",
   "proofOfOwnership",
@@ -567,14 +588,19 @@ export default function EbaPage() {
         data.job.lead?.allocatedTo?.lastname,
       ].filter(Boolean).join(" ");
 
-      setForm({
+      const nextForm: Record<string, unknown> = {
         ...(data.job.ebaForm || {}),
         nameOfOwners: (data.job.ebaForm?.nameOfOwners as string) || data.job.client?.contactDetails?.name || "",
         proofOfOwnership: (data.job.ebaForm?.proofOfOwnership as string) || "Certificate of Title",
         lotOrDPNumber: (data.job.ebaForm?.lotOrDPNumber as string) || data.job.client?.contactDetails?.lotDPNumber || "",
         assessorName: (data.job.ebaForm?.assessorName as string) || salespersonName || "",
         date: toDatetimeLocal(data.job.ebaForm?.date as string | undefined),
-      });
+      };
+      for (const key of YES_NO_NA_KEYS) {
+        const normalized = fromYesNoNA(nextForm[key]);
+        if (normalized !== undefined) nextForm[key] = normalized;
+      }
+      setForm(nextForm);
 
       const photosFromDb: Record<string, string[]> = {
         elevation_north: (data.job.ebaForm?.photos_elevation_north || []).map((p) => p.fileName || "").filter(Boolean),
@@ -619,6 +645,13 @@ export default function EbaPage() {
     if (value === "NOT_APPLICABLE" || value === "NA") return "NA";
     if (value === "YES" || value === "NO") return value;
     return null;
+  }
+
+  function fromYesNoNA(value: unknown): true | false | "NOT_APPLICABLE" | undefined {
+    if (value === true || value === "YES") return true;
+    if (value === false || value === "NO") return false;
+    if (value === "NOT_APPLICABLE" || value === "NA") return "NOT_APPLICABLE";
+    return undefined;
   }
 
   async function saveEBA(isDraft: boolean) {
