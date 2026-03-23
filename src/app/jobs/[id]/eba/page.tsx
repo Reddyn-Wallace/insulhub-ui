@@ -219,10 +219,10 @@ function parseLegacyCheckboxList(curr: unknown, knownOptions: string[]): string[
   return parseKnownList(curr, knownOptions).filter((x) => knownOptions.includes(x));
 }
 
-function toggleLegacyCheckboxList(curr: unknown, item: string, knownOptions: string[]): string {
+function toggleLegacyCheckboxList(curr: unknown, item: string, knownOptions: string[]): string[] {
   const arr = parseLegacyCheckboxList(curr, knownOptions);
-  const next = arr.includes(item) ? arr.filter((x) => x !== item) : [...arr, item];
-  return next.length ? `Other: ${next.join(" | ")}` : "";
+  const next = item === "__noop__" ? arr : arr.includes(item) ? arr.filter((x) => x !== item) : [...arr, item];
+  return buildLegacyCheckboxArray(next, getLegacyCustomOther(curr, knownOptions), knownOptions);
 }
 
 function getLegacyCustomOther(curr: unknown, knownOptions: string[]): string {
@@ -241,14 +241,25 @@ function hasLegacyCustomOther(curr: unknown, knownOptions: string[]): boolean {
   return getLegacyCustomOther(curr, knownOptions).length > 0;
 }
 
-function setLegacyCheckboxListOther(curr: unknown, value: string, knownOptions: string[]): string {
-  const selected = parseLegacyCheckboxList(curr, knownOptions);
-  const custom = value
+function buildLegacyCheckboxArray(selectedKnown: string[], customOther: string, knownOptions: string[]): string[] {
+  const filteredSelected = selectedKnown.filter((x) => knownOptions.includes(x));
+  const filteredCustom = customOther
     .split("|")
     .map((x) => x.trim())
-    .filter(Boolean);
-  const next = [...selected, ...custom];
-  return next.length ? `Other: ${next.join(" | ")}` : "";
+    .filter(Boolean)
+    .filter((x) => !knownOptions.includes(x));
+
+  const otherParts = [...filteredCustom, ...filteredSelected];
+  const out: string[] = [];
+  if (otherParts.length) out.push(`Other: ${otherParts.join(" | ")}`);
+  out.push(...knownOptions.filter((opt) => filteredSelected.includes(opt)));
+  out.push("");
+  return out;
+}
+
+function setLegacyCheckboxListOther(curr: unknown, value: string, knownOptions: string[]): string[] {
+  const selected = parseLegacyCheckboxList(curr, knownOptions);
+  return buildLegacyCheckboxArray(selected, value, knownOptions);
 }
 
 function hasValue(value: unknown): boolean {
