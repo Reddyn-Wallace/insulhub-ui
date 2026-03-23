@@ -205,6 +205,26 @@ function toggleKnownList(curr: unknown, item: string, knownOptions: string[]): s
   return next.join(" | ");
 }
 
+function parseLegacyCheckboxList(curr: unknown, knownOptions: string[]): string[] {
+  const arr = listValue(curr);
+  const direct = arr.filter((x) => knownOptions.includes(x));
+  if (direct.length) return direct;
+  const other = getOtherFromList(curr);
+  if (other) {
+    return other
+      .split("|")
+      .map((x) => x.trim())
+      .filter((x) => knownOptions.includes(x));
+  }
+  return parseKnownList(curr, knownOptions).filter((x) => knownOptions.includes(x));
+}
+
+function toggleLegacyCheckboxList(curr: unknown, item: string, knownOptions: string[]): string {
+  const arr = parseLegacyCheckboxList(curr, knownOptions);
+  const next = arr.includes(item) ? arr.filter((x) => x !== item) : [...arr, item];
+  return next.length ? `Other: ${next.join(" | ")}` : "";
+}
+
 function hasValue(value: unknown): boolean {
   if (value === null || value === undefined) return false;
   if (typeof value === "string") return value.trim().length > 0;
@@ -826,15 +846,15 @@ export default function EbaPage() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
                   <label className="text-xs text-gray-500">Roof Type</label>
-                  <div className="mt-1 space-y-1">{["Hip Gable","Double Gable","Skillion / Mono pitch","Other"].map((opt)=>(<label key={opt} className="text-sm block"><input type="checkbox" className="mr-2" checked={listValue(form.roofAndEavesCol1).includes(opt)} onChange={() => setField("roofAndEavesCol1", toggleList(form.roofAndEavesCol1, opt))} />{opt}</label>))}</div>
+                  <div className="mt-1 space-y-1">{["Hip Gable","Double Gable","Skillion / Mono pitch"].map((opt)=>(<label key={opt} className="text-sm block"><input type="checkbox" className="mr-2" checked={parseLegacyCheckboxList(form.roofAndEavesCol1, ["Hip Gable","Double Gable","Skillion / Mono pitch"]).includes(opt)} onChange={() => setField("roofAndEavesCol1", toggleLegacyCheckboxList(form.roofAndEavesCol1, opt, ["Hip Gable","Double Gable","Skillion / Mono pitch"]))} />{opt}</label>))}</div>
                 </div>
                 <div>
                   <label className="text-xs text-gray-500">Roof Cladding</label>
-                  <div className="mt-1 space-y-1">{["Corrugated Steel","Tile","Membrane","Other"].map((opt)=>(<label key={opt} className="text-sm block"><input type="checkbox" className="mr-2" checked={listValue(form.roofAndEavesCol2).includes(opt)} onChange={() => setField("roofAndEavesCol2", toggleList(form.roofAndEavesCol2, opt))} />{opt}</label>))}</div>
+                  <div className="mt-1 space-y-1">{["Corrugated Steel","Tile","Membrane"].map((opt)=>(<label key={opt} className="text-sm block"><input type="checkbox" className="mr-2" checked={parseLegacyCheckboxList(form.roofAndEavesCol2, ["Corrugated Steel","Tile","Membrane"]).includes(opt)} onChange={() => setField("roofAndEavesCol2", toggleLegacyCheckboxList(form.roofAndEavesCol2, opt, ["Corrugated Steel","Tile","Membrane"]))} />{opt}</label>))}</div>
                 </div>
                 <div>
                   <label className="text-xs text-gray-500">Eaves</label>
-                  <div className="mt-1 space-y-1">{["No eaves","Modest eaves","Generous Eaves"].map((opt)=>(<label key={opt} className="text-sm block"><input type="checkbox" className="mr-2" checked={listValue(form.roofAndEavesCol3).includes(opt)} onChange={() => setField("roofAndEavesCol3", toggleList(form.roofAndEavesCol3, opt))} />{opt}</label>))}</div>
+                  <div className="mt-1 space-y-1">{["No eaves","Modest eaves","Generous Eaves"].map((opt)=>(<label key={opt} className="text-sm block"><input type="checkbox" className="mr-2" checked={parseLegacyCheckboxList(form.roofAndEavesCol3, ["No eaves","Modest eaves","Generous Eaves"]).includes(opt)} onChange={() => setField("roofAndEavesCol3", toggleLegacyCheckboxList(form.roofAndEavesCol3, opt, ["No eaves","Modest eaves","Generous Eaves"]))} />{opt}</label>))}</div>
                 </div>
               </div>
             </div>
@@ -843,7 +863,7 @@ export default function EbaPage() {
               <h2 className="text-sm font-semibold text-gray-700 mb-3">Foundation & Floor</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 {["Ring Perimeter","Piles","Slab","Suspended Floor Timber"].map((opt)=>(
-                  <label key={opt} className="text-sm"><input type="checkbox" className="mr-2" checked={listValue(form.foundationAndFloor).includes(opt)} onChange={() => setField("foundationAndFloor", toggleList(form.foundationAndFloor, opt))} />{opt}</label>
+                  <label key={opt} className="text-sm"><input type="checkbox" className="mr-2" checked={parseLegacyCheckboxList(form.foundationAndFloor, ["Ring Perimeter","Piles","Slab","Suspended Floor Timber"]).includes(opt)} onChange={() => setField("foundationAndFloor", toggleLegacyCheckboxList(form.foundationAndFloor, opt, ["Ring Perimeter","Piles","Slab","Suspended Floor Timber"]))} />{opt}</label>
                 ))}
               </div>
             </div>
@@ -853,15 +873,15 @@ export default function EbaPage() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="text-xs text-gray-500">Framing</label>
-                  {["Likely Rimu","Treated pinus","Untreated pinus","No framing (double brick)"].map((opt)=>(<label key={opt} className="text-sm block mt-1"><input type="checkbox" className="mr-2" checked={listValue(form.framing).includes(opt)} onChange={() => setField("framing", toggleList(form.framing, opt))} />{opt}</label>))}
+                  {["Likely Rimu","Treated pinus","Untreated pinus","No framing (double brick)"].map((opt)=>(<label key={opt} className="text-sm block mt-1"><input type="checkbox" className="mr-2" checked={parseLegacyCheckboxList(form.framing, ["Likely Rimu","Treated pinus","Untreated pinus","No framing (double brick)"]).includes(opt)} onChange={() => setField("framing", toggleLegacyCheckboxList(form.framing, opt, ["Likely Rimu","Treated pinus","Untreated pinus","No framing (double brick)"]))} />{opt}</label>))}
                 </div>
                 <div>
                   <label className="text-xs text-gray-500">Joinery</label>
-                  {["Timber","Aluminium/steel","uPVC","Appears to be installed correctly"].map((opt)=>(<label key={opt} className="text-sm block mt-1"><input type="checkbox" className="mr-2" checked={listValue(form.joinery).includes(opt)} onChange={() => setField("joinery", toggleList(form.joinery, opt))} />{opt}</label>))}
+                  {["Timber","Aluminium/steel","uPVC","Appears to be installed correctly"].map((opt)=>(<label key={opt} className="text-sm block mt-1"><input type="checkbox" className="mr-2" checked={parseLegacyCheckboxList(form.joinery, ["Timber","Aluminium/steel","uPVC","Appears to be installed correctly"]).includes(opt)} onChange={() => setField("joinery", toggleLegacyCheckboxList(form.joinery, opt, ["Timber","Aluminium/steel","uPVC","Appears to be installed correctly"]))} />{opt}</label>))}
                 </div>
                 <div>
                   <label className="text-xs text-gray-500">Lining</label>
-                  {["Plasterboard","Hardboard","Sarked","Masonry"].map((opt)=>(<label key={opt} className="text-sm block mt-1"><input type="checkbox" className="mr-2" checked={listValue(form.lining).includes(opt)} onChange={() => setField("lining", toggleList(form.lining, opt))} />{opt}</label>))}
+                  {["Plasterboard","Hardboard","Sarked","Masonry"].map((opt)=>(<label key={opt} className="text-sm block mt-1"><input type="checkbox" className="mr-2" checked={parseLegacyCheckboxList(form.lining, ["Plasterboard","Hardboard","Sarked","Masonry"]).includes(opt)} onChange={() => setField("lining", toggleLegacyCheckboxList(form.lining, opt, ["Plasterboard","Hardboard","Sarked","Masonry"]))} />{opt}</label>))}
                 </div>
               </div>
             </div>
