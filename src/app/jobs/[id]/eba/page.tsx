@@ -262,6 +262,12 @@ function setLegacyCheckboxListOther(curr: unknown, value: string, knownOptions: 
   return buildLegacyCheckboxArray(selected, value, knownOptions);
 }
 
+function requiresLegacyOtherText(curr: unknown, knownOptions: string[]): boolean {
+  const arr = listValue(curr);
+  const hasExplicitOther = arr.some((x) => x === "Other" || x.toLowerCase().startsWith("other:"));
+  return hasExplicitOther && !getLegacyCustomOther(curr, knownOptions).trim();
+}
+
 function parseLegacyMappedCheckboxList(curr: unknown, allowedStoredValues: string[]): string[] {
   return parseLegacyCheckboxList(curr, allowedStoredValues);
 }
@@ -842,6 +848,8 @@ export default function EbaPage() {
 
     const missingItems = [
       ...missingFields.map((key) => requiredFieldLabels[key] || key),
+      ...(requiresLegacyOtherText(form.roofAndEavesCol1, ["Hip Gable","Double Gable","Skillion / Mono pitch"]) ? ["Roof type other text"] : []),
+      ...(requiresLegacyOtherText(form.roofAndEavesCol2, ["Corrugated Steel","Tile","Membrane"]) ? ["Roof cladding other text"] : []),
       ...missingPhotoSections.map((section) => `Photo: ${section.replace("elevation_", "")} elevation`),
       ...(hasAssessorSignature ? [] : ["Assessor signature"]),
     ];
@@ -853,6 +861,8 @@ export default function EbaPage() {
       missingFields,
       missingPhotoSections,
       missingSignature: !hasAssessorSignature,
+      missingRoofTypeOther: requiresLegacyOtherText(form.roofAndEavesCol1, ["Hip Gable","Double Gable","Skillion / Mono pitch"]),
+      missingRoofCladdingOther: requiresLegacyOtherText(form.roofAndEavesCol2, ["Corrugated Steel","Tile","Membrane"]),
     };
   }, [form, ebaPhotos, elevationSkip, job?.ebaForm?.signature_assessor]);
 
@@ -954,10 +964,32 @@ export default function EbaPage() {
                 <div>
                   <label className="text-xs text-gray-500">Roof Type</label>
                   <div className="mt-1 space-y-1">{["Hip Gable","Double Gable","Skillion / Mono pitch"].map((opt)=>(<label key={opt} className="text-sm block"><input type="checkbox" className="mr-2" checked={parseLegacyCheckboxList(form.roofAndEavesCol1, ["Hip Gable","Double Gable","Skillion / Mono pitch"]).includes(opt)} onChange={() => setField("roofAndEavesCol1", toggleLegacyCheckboxList(form.roofAndEavesCol1, opt, ["Hip Gable","Double Gable","Skillion / Mono pitch"]))} />{opt}</label>))}</div>
+                  <label className="text-sm block mt-2"><input type="checkbox" className="mr-2" checked={hasLegacyCustomOther(form.roofAndEavesCol1, ["Hip Gable","Double Gable","Skillion / Mono pitch"]) || listValue(form.roofAndEavesCol1).includes("Other")} onChange={(e) => setField("roofAndEavesCol1", e.target.checked ? ["Other", ...parseLegacyCheckboxList(form.roofAndEavesCol1, ["Hip Gable","Double Gable","Skillion / Mono pitch"]), ""] : setLegacyCheckboxListOther(form.roofAndEavesCol1, "", ["Hip Gable","Double Gable","Skillion / Mono pitch"]))} />Other</label>
+                  {(hasLegacyCustomOther(form.roofAndEavesCol1, ["Hip Gable","Double Gable","Skillion / Mono pitch"]) || listValue(form.roofAndEavesCol1).includes("Other")) && (
+                    <input
+                      type="text"
+                      placeholder="Other roof type"
+                      value={getLegacyCustomOther(form.roofAndEavesCol1, ["Hip Gable","Double Gable","Skillion / Mono pitch"])}
+                      onChange={(e) => setField("roofAndEavesCol1", setLegacyCheckboxListOther(form.roofAndEavesCol1, e.target.value, ["Hip Gable","Double Gable","Skillion / Mono pitch"]))}
+                      className={`w-full border rounded-lg px-3 py-2 text-sm mt-2 ${finaliseAttempted && finaliseChecks.missingRoofTypeOther ? "border-red-400 bg-red-50" : "border-gray-200"}`}
+                    />
+                  )}
+                  {finaliseAttempted && finaliseChecks.missingRoofTypeOther && <div className="text-xs text-red-600 mt-1">Other roof type is required</div>}
                 </div>
                 <div>
                   <label className="text-xs text-gray-500">Roof Cladding</label>
                   <div className="mt-1 space-y-1">{["Corrugated Steel","Tile","Membrane"].map((opt)=>(<label key={opt} className="text-sm block"><input type="checkbox" className="mr-2" checked={parseLegacyCheckboxList(form.roofAndEavesCol2, ["Corrugated Steel","Tile","Membrane"]).includes(opt)} onChange={() => setField("roofAndEavesCol2", toggleLegacyCheckboxList(form.roofAndEavesCol2, opt, ["Corrugated Steel","Tile","Membrane"]))} />{opt}</label>))}</div>
+                  <label className="text-sm block mt-2"><input type="checkbox" className="mr-2" checked={hasLegacyCustomOther(form.roofAndEavesCol2, ["Corrugated Steel","Tile","Membrane"]) || listValue(form.roofAndEavesCol2).includes("Other")} onChange={(e) => setField("roofAndEavesCol2", e.target.checked ? ["Other", ...parseLegacyCheckboxList(form.roofAndEavesCol2, ["Corrugated Steel","Tile","Membrane"]), ""] : setLegacyCheckboxListOther(form.roofAndEavesCol2, "", ["Corrugated Steel","Tile","Membrane"]))} />Other</label>
+                  {(hasLegacyCustomOther(form.roofAndEavesCol2, ["Corrugated Steel","Tile","Membrane"]) || listValue(form.roofAndEavesCol2).includes("Other")) && (
+                    <input
+                      type="text"
+                      placeholder="Other roof cladding"
+                      value={getLegacyCustomOther(form.roofAndEavesCol2, ["Corrugated Steel","Tile","Membrane"])}
+                      onChange={(e) => setField("roofAndEavesCol2", setLegacyCheckboxListOther(form.roofAndEavesCol2, e.target.value, ["Corrugated Steel","Tile","Membrane"]))}
+                      className={`w-full border rounded-lg px-3 py-2 text-sm mt-2 ${finaliseAttempted && finaliseChecks.missingRoofCladdingOther ? "border-red-400 bg-red-50" : "border-gray-200"}`}
+                    />
+                  )}
+                  {finaliseAttempted && finaliseChecks.missingRoofCladdingOther && <div className="text-xs text-red-600 mt-1">Other roof cladding is required</div>}
                 </div>
                 <div>
                   <label className="text-xs text-gray-500">Eaves</label>
