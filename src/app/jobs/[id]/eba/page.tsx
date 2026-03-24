@@ -228,7 +228,7 @@ function toggleLegacyCheckboxList(curr: unknown, item: string, knownOptions: str
 function getLegacyCustomOther(curr: unknown, knownOptions: string[]): string {
   const arr = listValue(curr);
   const explicitTail = arr[arr.length - 1];
-  if (explicitTail && explicitTail.trim() && !knownOptions.includes(explicitTail.trim()) && !explicitTail.toLowerCase().startsWith("other:")) {
+  if (typeof explicitTail === "string" && explicitTail.length > 0 && !knownOptions.includes(explicitTail.trim()) && !explicitTail.toLowerCase().startsWith("other:")) {
     return explicitTail;
   }
   const other = arr.find((x) => x.toLowerCase().startsWith("other:"));
@@ -247,12 +247,13 @@ function hasLegacyCustomOther(curr: unknown, knownOptions: string[]): boolean {
 
 function buildLegacyCheckboxArray(selectedKnown: string[], customOther: string, knownOptions: string[]): string[] {
   const filteredSelected = selectedKnown.filter((x) => knownOptions.includes(x));
-  const trimmedCustom = customOther.trim();
-  const otherParts = [...(trimmedCustom ? [trimmedCustom] : []), ...filteredSelected];
+  const rawCustom = customOther ?? "";
+  const summaryCustom = rawCustom.trim();
+  const otherParts = [...(summaryCustom ? [summaryCustom] : []), ...filteredSelected];
   const out: string[] = [];
   if (otherParts.length) out.push(`Other: ${otherParts.join(" | ")}`);
   out.push(...knownOptions.filter((opt) => filteredSelected.includes(opt)));
-  out.push(trimmedCustom || "");
+  out.push(rawCustom);
   return out;
 }
 
