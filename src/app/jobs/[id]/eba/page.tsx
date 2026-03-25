@@ -264,8 +264,9 @@ function setLegacyCheckboxListOther(curr: unknown, value: string, knownOptions: 
 
 function requiresLegacyOtherText(curr: unknown, knownOptions: string[]): boolean {
   const arr = listValue(curr);
-  const hasExplicitOther = arr.some((x) => x === "Other" || x.toLowerCase().startsWith("other:"));
-  return hasExplicitOther && !getLegacyCustomOther(curr, knownOptions).trim();
+  const customOther = getLegacyCustomOther(curr, knownOptions);
+  const hasMeaningfulOther = arr.some((x) => x.toLowerCase().startsWith("other:")) || !!customOther.trim();
+  return hasMeaningfulOther && !customOther.trim();
 }
 
 function parseLegacyMappedCheckboxList(curr: unknown, allowedStoredValues: string[]): string[] {
@@ -964,8 +965,8 @@ export default function EbaPage() {
                 <div>
                   <label className="text-xs text-gray-500">Roof Type</label>
                   <div className="mt-1 space-y-1">{["Hip Gable","Double Gable","Skillion / Mono pitch"].map((opt)=>(<label key={opt} className="text-sm block"><input type="checkbox" className="mr-2" checked={parseLegacyCheckboxList(form.roofAndEavesCol1, ["Hip Gable","Double Gable","Skillion / Mono pitch"]).includes(opt)} onChange={() => setField("roofAndEavesCol1", toggleLegacyCheckboxList(form.roofAndEavesCol1, opt, ["Hip Gable","Double Gable","Skillion / Mono pitch"]))} />{opt}</label>))}</div>
-                  <label className="text-sm block mt-2"><input type="checkbox" className="mr-2" checked={hasLegacyCustomOther(form.roofAndEavesCol1, ["Hip Gable","Double Gable","Skillion / Mono pitch"]) || listValue(form.roofAndEavesCol1).includes("Other")} onChange={(e) => setField("roofAndEavesCol1", e.target.checked ? ["Other", ...parseLegacyCheckboxList(form.roofAndEavesCol1, ["Hip Gable","Double Gable","Skillion / Mono pitch"]), ""] : setLegacyCheckboxListOther(form.roofAndEavesCol1, "", ["Hip Gable","Double Gable","Skillion / Mono pitch"]))} />Other</label>
-                  {(hasLegacyCustomOther(form.roofAndEavesCol1, ["Hip Gable","Double Gable","Skillion / Mono pitch"]) || listValue(form.roofAndEavesCol1).includes("Other")) && (
+                  <label className="text-sm block mt-2"><input type="checkbox" className="mr-2" checked={!!getLegacyCustomOther(form.roofAndEavesCol1, ["Hip Gable","Double Gable","Skillion / Mono pitch"]).trim()} onChange={(e) => setField("roofAndEavesCol1", e.target.checked ? ["Other", ...parseLegacyCheckboxList(form.roofAndEavesCol1, ["Hip Gable","Double Gable","Skillion / Mono pitch"]), ""] : buildLegacyCheckboxArray(parseLegacyCheckboxList(form.roofAndEavesCol1, ["Hip Gable","Double Gable","Skillion / Mono pitch"]), "", ["Hip Gable","Double Gable","Skillion / Mono pitch"]))} />Other</label>
+                  {!!getLegacyCustomOther(form.roofAndEavesCol1, ["Hip Gable","Double Gable","Skillion / Mono pitch"]).trim() && (
                     <input
                       type="text"
                       placeholder="Other roof type"
@@ -979,8 +980,8 @@ export default function EbaPage() {
                 <div>
                   <label className="text-xs text-gray-500">Roof Cladding</label>
                   <div className="mt-1 space-y-1">{["Corrugated Steel","Tile","Membrane"].map((opt)=>(<label key={opt} className="text-sm block"><input type="checkbox" className="mr-2" checked={parseLegacyCheckboxList(form.roofAndEavesCol2, ["Corrugated Steel","Tile","Membrane"]).includes(opt)} onChange={() => setField("roofAndEavesCol2", toggleLegacyCheckboxList(form.roofAndEavesCol2, opt, ["Corrugated Steel","Tile","Membrane"]))} />{opt}</label>))}</div>
-                  <label className="text-sm block mt-2"><input type="checkbox" className="mr-2" checked={hasLegacyCustomOther(form.roofAndEavesCol2, ["Corrugated Steel","Tile","Membrane"]) || listValue(form.roofAndEavesCol2).includes("Other")} onChange={(e) => setField("roofAndEavesCol2", e.target.checked ? ["Other", ...parseLegacyCheckboxList(form.roofAndEavesCol2, ["Corrugated Steel","Tile","Membrane"]), ""] : setLegacyCheckboxListOther(form.roofAndEavesCol2, "", ["Corrugated Steel","Tile","Membrane"]))} />Other</label>
-                  {(hasLegacyCustomOther(form.roofAndEavesCol2, ["Corrugated Steel","Tile","Membrane"]) || listValue(form.roofAndEavesCol2).includes("Other")) && (
+                  <label className="text-sm block mt-2"><input type="checkbox" className="mr-2" checked={!!getLegacyCustomOther(form.roofAndEavesCol2, ["Corrugated Steel","Tile","Membrane"]).trim()} onChange={(e) => setField("roofAndEavesCol2", e.target.checked ? ["Other", ...parseLegacyCheckboxList(form.roofAndEavesCol2, ["Corrugated Steel","Tile","Membrane"]), ""] : buildLegacyCheckboxArray(parseLegacyCheckboxList(form.roofAndEavesCol2, ["Corrugated Steel","Tile","Membrane"]), "", ["Corrugated Steel","Tile","Membrane"]))} />Other</label>
+                  {!!getLegacyCustomOther(form.roofAndEavesCol2, ["Corrugated Steel","Tile","Membrane"]).trim() && (
                     <input
                       type="text"
                       placeholder="Other roof cladding"
