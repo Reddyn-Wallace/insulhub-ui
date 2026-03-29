@@ -159,6 +159,23 @@ function fromDatetimeLocal(val: string) {
   return new Date(approx.getTime() - offsetMs).toISOString();
 }
 
+function weekdayLabelFromDatetimeLocal(val?: string | null) {
+  if (!val) return "";
+  const iso = fromDatetimeLocal(val);
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("en-NZ", {
+    timeZone: "Pacific/Auckland",
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 const API_BASE = "https://api.insulhub.nz";
 const JOB_CACHE_TTL_MS = 3 * 60 * 1000;
 
@@ -2315,8 +2332,9 @@ export default function JobDetailPage() {
       <BottomSheet open={sheet === "callback"} onClose={closeSheet} title="Callback Date">
         <p className="text-sm text-gray-500 mb-3">Sets status to Callback and saves the date.</p>
         <input type="datetime-local" value={callbackDate} onChange={(e) => setCallbackDate(e.target.value)}
-          className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+          className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
         />
+        {callbackDate && <p className="text-sm text-gray-600 mt-2 mb-4">Selected: <span className="font-medium">{weekdayLabelFromDatetimeLocal(callbackDate)}</span></p>}
         <div className="flex gap-2">
           <button onClick={saveCallbackDate} disabled={saving || !callbackDate}
             className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
@@ -2339,8 +2357,9 @@ export default function JobDetailPage() {
       <BottomSheet open={sheet === "booking"} onClose={closeSheet} title="Quote Booking Date">
         <p className="text-sm text-gray-500 mb-3">When is the quote scheduled for?</p>
         <input type="datetime-local" value={quoteBookingDate} onChange={(e) => setQuoteBookingDate(e.target.value)}
-          className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+          className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
         />
+        {quoteBookingDate && <p className="text-sm text-gray-600 mt-2 mb-4">Selected: <span className="font-medium">{weekdayLabelFromDatetimeLocal(quoteBookingDate)}</span></p>}
         <div className="flex gap-2">
           <button onClick={saveQuoteBookingDate} disabled={saving || !quoteBookingDate}
             className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
@@ -2366,6 +2385,7 @@ export default function JobDetailPage() {
             <input type="datetime-local" value={installDate} onChange={(e) => setInstallDate(e.target.value)}
               className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
             />
+            {installDate && <p className="text-sm text-gray-600 mt-2">Selected: <span className="font-medium">{weekdayLabelFromDatetimeLocal(installDate)}</span></p>}
           </div>
 
           <div>
@@ -2601,6 +2621,7 @@ export default function JobDetailPage() {
               <label className="text-xs text-gray-500 font-medium mb-1 block">Quote Date</label>
               <input type="datetime-local" value={quoteForm.date} onChange={(e) => setQuoteForm((f) => ({ ...f, date: e.target.value }))}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#e85d04]" />
+              {quoteForm.date && <p className="text-xs text-gray-600 mt-2">Selected: <span className="font-medium">{weekdayLabelFromDatetimeLocal(quoteForm.date)}</span></p>}
             </div>
           </div>
 
