@@ -122,10 +122,10 @@ export default function JobCard({ job }: { job: Job }) {
   const quoteStatus = (job.quote?.status || "UNSET").toUpperCase();
   const hasQuoteBooked = Boolean(job.lead?.quoteBookingDate);
 
-  const quoteState = leadStatus === "DEAD" || quoteStatus === "DECLINED"
-    ? "DEAD"
-    : quoteStatus === "DEFERRED" || leadStatus === "CALLBACK"
-      ? "CALLBACK"
+  const quoteState = quoteStatus === "DEFERRED" || leadStatus === "CALLBACK" || !!job.lead?.callbackDate
+    ? "CALLBACK"
+    : leadStatus === "DEAD" || quoteStatus === "DECLINED"
+      ? "DEAD"
       : "OPEN";
 
   const cardState = isJobsTab

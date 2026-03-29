@@ -138,8 +138,8 @@ function JobsPageContent() {
       const isCallbackLead = (job: Job) => ["CALLBACK", "ON_HOLD"].includes((job.lead?.leadStatus || "").toUpperCase());
       const isNewLead = (job: Job) => (!job.lead?.leadStatus || job.lead.leadStatus === "NEW") && !isQuoteBooked(job);
       const quoteState = (job: Job) => {
+        if (job.quote?.status === "DEFERRED" || isCallbackLead(job) || job.lead?.callbackDate) return "CALLBACK";
         if (job.lead?.leadStatus === "DEAD" || job.quote?.status === "DECLINED") return "DEAD";
-        if (job.quote?.status === "DEFERRED" || isCallbackLead(job)) return "CALLBACK";
         return "OPEN";
       };
       const counts = {
@@ -426,8 +426,8 @@ function JobsPageContent() {
   const isCallbackLead = (job: Job) => ["CALLBACK", "ON_HOLD"].includes((job.lead?.leadStatus || "").toUpperCase());
   const isNewLead = (job: Job) => (!job.lead?.leadStatus || job.lead.leadStatus === "NEW") && !isQuoteBooked(job);
   const quoteState = (job: Job) => {
+    if (job.quote?.status === "DEFERRED" || isCallbackLead(job) || job.lead?.callbackDate) return "CALLBACK";
     if (job.lead?.leadStatus === "DEAD" || job.quote?.status === "DECLINED") return "DEAD";
-    if (job.quote?.status === "DEFERRED" || isCallbackLead(job)) return "CALLBACK";
     return "OPEN";
   };
 

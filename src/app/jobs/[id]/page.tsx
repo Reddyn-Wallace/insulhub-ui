@@ -761,15 +761,45 @@ export default function JobDetailPage() {
     }
 
     const apiStatus = status === "CALLBACK" ? "ON_HOLD" : status;
-    await run(() => gql(UPDATE_JOB_LEAD, {
-      input: {
-        _id: id,
-        lead: buildLeadInput({
-          leadStatus: apiStatus,
-          ...(apiStatus === "ON_HOLD" ? {} : { callbackDate: null }),
-        }),
-      },
-    }));
+    await run(async () => {
+      await gql(UPDATE_JOB_LEAD, {
+        input: {
+          _id: id,
+          lead: buildLeadInput({
+            leadStatus: apiStatus,
+            ...(apiStatus === "ON_HOLD"
+              ? {}
+              : { callbackDate: null, quoteBookingDate: null }),
+          }),
+        },
+      });
+
+      if (status === "NEW" && job?.stage === "QUOTE" && job?.quote) {
+        const q = job.quote as Record<string, any>;
+        await gql(UPDATE_JOB_QUOTE, {
+          input: {
+            _id: id,
+            stage: job.stage,
+            sitePlanNotes: (job as any).sitePlanNotes || "",
+            quote: {
+              ...buildQuoteInput({ status: "UNSET", deferralDate: null }),
+              wall: {
+                SQMPrice: q.wall?.SQMPrice, SQM: q.wall?.SQM,
+                cavityDepthMeters: q.wall?.cavityDepthMeters,
+                c_RValue: q.wall?.c_RValue, c_bagCount: q.wall?.c_bagCount,
+                internal: q.wall?.internal,
+              },
+              ceiling: {
+                SQMPrice: q.ceiling?.SQMPrice, SQM: q.ceiling?.SQM,
+                RValue: q.ceiling?.RValue, downlights: q.ceiling?.downlights,
+                c_thickness: q.ceiling?.c_thickness, c_bagCount: q.ceiling?.c_bagCount,
+              },
+            },
+          },
+          emailQuoteToCustomer: false,
+        });
+      }
+    });
   }
 
   async function confirmDeadStatus() {
@@ -1412,10 +1442,10 @@ export default function JobDetailPage() {
   const leadStatus = statusRaw === "ON_HOLD" ? "CALLBACK" : statusRaw;
   const quoteStatus = (job.quote?.status || "").toUpperCase();
   const status = job.stage === "QUOTE"
-    ? (leadStatus === "DEAD" || quoteStatus === "DECLINED"
-      ? "DEAD"
-      : quoteStatus === "DEFERRED" || leadStatus === "CALLBACK"
-        ? "CALLBACK"
+    ? (leadStatus === "CALLBACK" || !!job.lead?.callbackDate || quoteStatus === "DEFERRED"
+      ? "CALLBACK"
+      : leadStatus === "DEAD" || quoteStatus === "DECLINED"
+        ? "DEAD"
         : "NEW")
     : leadStatus;
   const salesperson = job.lead?.allocatedTo
