@@ -69,12 +69,13 @@ function fmtCurrency(n?: number | null) {
   if (!n && n !== 0) return "-";
   return `$${n.toLocaleString("en-NZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
-function fmtDateTime(iso?: string | null) {
+function fmtDateTime(iso?: string | null, includeWeekday = false) {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleString("en-NZ", {
     timeZone: "Pacific/Auckland",
+    weekday: includeWeekday ? "short" : undefined,
     day: "numeric",
     month: "short",
     year: "numeric",
@@ -1986,7 +1987,7 @@ export default function JobDetailPage() {
           <div className="flex flex-col py-2 border-b border-gray-50">
             <span className="text-xs text-gray-400 uppercase tracking-wide font-medium">Quote Booking</span>
             <div className="mt-1.5 flex items-center gap-2">
-              <span className="text-sm text-gray-800">{job.lead?.quoteBookingDate ? fmtDateTime(job.lead.quoteBookingDate) : "Not set"}</span>
+              <span className="text-sm text-gray-800">{job.lead?.quoteBookingDate ? fmtDateTime(job.lead.quoteBookingDate, true) : "Not set"}</span>
               <button onClick={() => openSheet("booking")} className="text-xs text-[#e85d04] font-medium">{job.lead?.quoteBookingDate ? "Edit" : "Set"}</button>
               {job.lead?.quoteBookingDate && (
                 <button onClick={clearQuoteBookingDate} className="text-xs text-red-600 font-medium">Remove</button>

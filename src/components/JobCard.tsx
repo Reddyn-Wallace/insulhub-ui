@@ -51,10 +51,11 @@ interface Job {
   };
 }
 
-function formatDate(iso?: string) {
+function formatDate(iso?: string, includeWeekday = false) {
   if (!iso) return "";
   return new Date(iso).toLocaleDateString("en-NZ", {
     timeZone: "Pacific/Auckland",
+    weekday: includeWeekday ? "short" : undefined,
     day: "numeric",
     month: "short",
     year: "numeric",
@@ -207,7 +208,7 @@ export default function JobCard({ job }: { job: Job }) {
               : cardState === "CALLBACK"
                 ? `Callback: ${formatDate(callbackIso || undefined) || "Undated"}${isCallbackOverdue ? " (Overdue)" : ""}`
                 : cardState === "QUOTE_BOOKED"
-                  ? `Quote booked: ${formatDate(job.lead?.quoteBookingDate) || "Undated"}`
+                  ? `Quote booked: ${formatDate(job.lead?.quoteBookingDate, true) || "Undated"}`
                   : job.stage === "QUOTE"
                     ? `Quote: ${formatDate(job.quote?.date) || "Undated"}`
                     : `Created: ${formatDate(job.createdAt || job.updatedAt)}`}
