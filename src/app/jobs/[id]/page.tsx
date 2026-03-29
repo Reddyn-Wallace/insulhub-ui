@@ -204,15 +204,21 @@ function mergeDateAndTime(date: Date | undefined, time: string) {
 function DateTimeCalendarField({ value, onChange }: { value: string; onChange: (next: string) => void }) {
   const selectedDate = dateFromDatetimeLocal(value);
   const timeValue = timeFromDatetimeLocal(value);
+  const today = new Date();
 
   return (
     <div className="space-y-3">
       <div className="rounded-xl border border-gray-200 p-3 bg-white overflow-x-auto">
+        <div className="mb-3 text-xs text-gray-600">
+          Today: <span className="font-medium">{today.toLocaleDateString("en-NZ", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</span>
+        </div>
         <DayPicker
           mode="single"
           selected={selectedDate}
           onSelect={(date) => onChange(mergeDateAndTime(date, timeValue))}
           weekStartsOn={1}
+          modifiers={{ today }}
+          modifiersClassNames={{ today: "rdp-today" }}
         />
       </div>
       <div>
