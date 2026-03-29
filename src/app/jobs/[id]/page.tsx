@@ -280,7 +280,14 @@ function parseInstallMeta(notes?: string | null): { status: "confirmed" | "penci
 function stripInstallMeta(notes?: string | null) {
   const text = notes || "";
   const block = new RegExp(`\n?${INSTALL_META_START.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([\\s\\S]*?)${INSTALL_META_END.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\n?`, "m");
-  return text.replace(block, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return text
+    .replace(block, "\n")
+    .replace(/^status:\s*.*$/gim, "")
+    .replace(/^note:\s*.*$/gim, "")
+    .replace(/^council_approval_na:\s*.*$/gim, "")
+    .replace(/^install_scope:\s*.*$/gim, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function buildNotesWithInstallMeta(
