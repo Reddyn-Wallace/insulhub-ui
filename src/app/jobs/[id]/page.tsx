@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
+import { DayPicker } from "react-day-picker";
+import "react-day-picker/dist/style.css";
 import { gql } from "@/lib/graphql";
 import { JOB_QUERY, USERS_QUERY } from "@/lib/queries";
 import {
@@ -174,6 +176,57 @@ function weekdayLabelFromDatetimeLocal(val?: string | null) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function dateFromDatetimeLocal(val?: string | null) {
+  if (!val) return undefined;
+  const [datePart] = val.split("T");
+  if (!datePart) return undefined;
+  const [year, month, day] = datePart.split("-").map(Number);
+  if (!year || !month || !day) return undefined;
+  return new Date(year, month - 1, day);
+}
+
+function timeFromDatetimeLocal(val?: string | null) {
+  if (!val || !val.includes("T")) return "09:00";
+  return val.split("T")[1]?.slice(0, 5) || "09:00";
+}
+
+function mergeDateAndTime(date: Date | undefined, time: string) {
+  if (!date) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const safeTime = /^\d{2}:\d{2}$/.test(time) ? time : "09:00";
+  return `${year}-${month}-${day}T${safeTime}`;
+}
+
+function DateTimeCalendarField({ value, onChange }: { value: string; onChange: (next: string) => void }) {
+  const selectedDate = dateFromDatetimeLocal(value);
+  const timeValue = timeFromDatetimeLocal(value);
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl border border-gray-200 p-3 bg-white overflow-x-auto">
+        <DayPicker
+          mode="single"
+          selected={selectedDate}
+          onSelect={(date) => onChange(mergeDateAndTime(date, timeValue))}
+          weekStartsOn={1}
+        />
+      </div>
+      <div>
+        <label className="text-xs text-gray-500 font-medium mb-1 block">Time</label>
+        <input
+          type="time"
+          value={timeValue}
+          onChange={(e) => onChange(mergeDateAndTime(selectedDate || new Date(), e.target.value))}
+          className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+        />
+      </div>
+      {value && <p className="text-sm text-gray-600">Selected: <span className="font-medium">{weekdayLabelFromDatetimeLocal(value)}</span></p>}
+    </div>
+  );
 }
 
 const API_BASE = "https://api.insulhub.nz";
@@ -2331,10 +2384,9 @@ export default function JobDetailPage() {
       {/* Set callback date */}
       <BottomSheet open={sheet === "callback"} onClose={closeSheet} title="Callback Date">
         <p className="text-sm text-gray-500 mb-3">Sets status to Callback and saves the date.</p>
-        <input type="datetime-local" value={callbackDate} onChange={(e) => setCallbackDate(e.target.value)}
-          className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
-        />
-        {callbackDate && <p className="text-sm text-gray-600 mt-2 mb-4">Selected: <span className="font-medium">{weekdayLabelFromDatetimeLocal(callbackDate)}</span></p>}
+        <div className="mb-4">
+          <DateTimeCalendarField value={callbackDate} onChange={setCallbackDate} />
+        </div>
         <div className="flex gap-2">
           <button onClick={saveCallbackDate} disabled={saving || !callbackDate}
             className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
@@ -2356,10 +2408,9 @@ export default function JobDetailPage() {
       {/* Quote booking date */}
       <BottomSheet open={sheet === "booking"} onClose={closeSheet} title="Quote Booking Date">
         <p className="text-sm text-gray-500 mb-3">When is the quote scheduled for?</p>
-        <input type="datetime-local" value={quoteBookingDate} onChange={(e) => setQuoteBookingDate(e.target.value)}
-          className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
-        />
-        {quoteBookingDate && <p className="text-sm text-gray-600 mt-2 mb-4">Selected: <span className="font-medium">{weekdayLabelFromDatetimeLocal(quoteBookingDate)}</span></p>}
+        <div className="mb-4">
+          <DateTimeCalendarField value={quoteBookingDate} onChange={setQuoteBookingDate} />
+        </div>
         <div className="flex gap-2">
           <button onClick={saveQuoteBookingDate} disabled={saving || !quoteBookingDate}
             className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
@@ -2382,10 +2433,7 @@ export default function JobDetailPage() {
         <div className="space-y-4">
           <div>
             <p className="text-sm text-gray-500 mb-3">Set or edit the planned installation date/time.</p>
-            <input type="datetime-local" value={installDate} onChange={(e) => setInstallDate(e.target.value)}
-              className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
-            />
-            {installDate && <p className="text-sm text-gray-600 mt-2">Selected: <span className="font-medium">{weekdayLabelFromDatetimeLocal(installDate)}</span></p>}
+            <DateTimeCalendarField value={installDate} onChange={setInstallDate} />
           </div>
 
           <div>
@@ -2619,9 +2667,7 @@ export default function JobDetailPage() {
             </div>
             <div>
               <label className="text-xs text-gray-500 font-medium mb-1 block">Quote Date</label>
-              <input type="datetime-local" value={quoteForm.date} onChange={(e) => setQuoteForm((f) => ({ ...f, date: e.target.value }))}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#e85d04]" />
-              {quoteForm.date && <p className="text-xs text-gray-600 mt-2">Selected: <span className="font-medium">{weekdayLabelFromDatetimeLocal(quoteForm.date)}</span></p>}
+              <DateTimeCalendarField value={quoteForm.date} onChange={(next) => setQuoteForm((f) => ({ ...f, date: next }))} />
             </div>
           </div>
 
