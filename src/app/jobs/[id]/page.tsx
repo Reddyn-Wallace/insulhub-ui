@@ -747,12 +747,10 @@ export default function JobDetailPage() {
     }));
   }
 
-  async function saveAllocate() {
-    const user = users.find((u) => u._id === selectedUserId);
+  async function saveAllocate(nextUserId = selectedUserId) {
     await run(() => gql(UPDATE_JOB_LEAD, {
-      input: { _id: id, lead: buildLeadInput({ allocatedTo: selectedUserId ? { _id: selectedUserId } : null, allocation: selectedUserId ? "ALLOCATED" : "UNALLOCATED" }) },
+      input: { _id: id, lead: buildLeadInput({ allocatedTo: nextUserId ? { _id: nextUserId } : null, allocation: nextUserId ? "ALLOCATED" : "UNALLOCATED" }) },
     }));
-    void user;
   }
 
   async function saveLeadStatus(status: string) {
@@ -2370,22 +2368,18 @@ export default function JobDetailPage() {
       {/* Allocate salesperson */}
       <BottomSheet open={sheet === "allocate"} onClose={closeSheet} title="Assign Salesperson">
         <div className="space-y-2 mb-4">
-          <button onClick={() => setSelectedUserId("")}
-            className={`w-full text-left px-4 py-3 rounded-xl border text-sm ${!selectedUserId ? "border-[#e85d04] bg-orange-50 text-[#e85d04] font-medium" : "border-gray-200 text-gray-700"}`}>
+          <button onClick={() => { setSelectedUserId(""); void saveAllocate(""); }} disabled={saving}
+            className={`w-full text-left px-4 py-3 rounded-xl border text-sm ${!selectedUserId ? "border-[#e85d04] bg-orange-50 text-[#e85d04] font-medium" : "border-gray-200 text-gray-700"} disabled:opacity-50`}>
             Unallocated
           </button>
           {assignableUsers.map((u) => (
-            <button key={u._id} onClick={() => setSelectedUserId(u._id)}
-              className={`w-full text-left px-4 py-3 rounded-xl border text-sm ${selectedUserId === u._id ? "border-[#e85d04] bg-orange-50 text-[#e85d04] font-medium" : "border-gray-200 text-gray-700"}`}>
+            <button key={u._id} onClick={() => { setSelectedUserId(u._id); void saveAllocate(u._id); }} disabled={saving}
+              className={`w-full text-left px-4 py-3 rounded-xl border text-sm ${selectedUserId === u._id ? "border-[#e85d04] bg-orange-50 text-[#e85d04] font-medium" : "border-gray-200 text-gray-700"} disabled:opacity-50`}>
               {u.firstname} {u.lastname}
               <span className="text-xs text-gray-400 ml-2">{u.email}</span>
             </button>
           ))}
         </div>
-        <button onClick={saveAllocate} disabled={saving}
-          className="w-full bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
-          {saving ? "Saving..." : "Assign"}
-        </button>
       </BottomSheet>
 
       {/* Set callback date */}
