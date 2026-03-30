@@ -249,9 +249,8 @@ function buildLegacyCheckboxArray(selectedKnown: string[], customOther: string, 
   const filteredSelected = selectedKnown.filter((x) => knownOptions.includes(x));
   const rawCustom = customOther ?? "";
   const summaryCustom = rawCustom.trim();
-  const otherParts = [...(summaryCustom ? [summaryCustom] : []), ...filteredSelected];
   const out: string[] = [];
-  if (otherParts.length) out.push(`Other: ${otherParts.join(" | ")}`);
+  if (summaryCustom) out.push(`Other: ${[summaryCustom, ...filteredSelected].join(" | ")}`);
   out.push(...knownOptions.filter((opt) => filteredSelected.includes(opt)));
   out.push(rawCustom);
   return out;
