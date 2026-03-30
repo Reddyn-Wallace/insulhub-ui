@@ -263,7 +263,7 @@ function parseInstallMeta(notes?: string | null): { status: "confirmed" | "penci
   if (start === -1 || end === -1 || end < start) return { status: "confirmed", note: "", councilApprovalNA: false, installScope: "" };
   const body = text.slice(start + INSTALL_META_START.length, end).trim();
   const statusMatch = body.match(/^status:\s*(.+)$/im);
-  const noteMatch = body.match(/^note:\s*([\s\S]*?)(?:\n[a-z_]+:|$)/im);
+  const noteMatch = body.match(/^note:[ \t]*([^\n]*?(?:\n(?![a-z_]+:).*)*)/im);
   const councilApprovalNAMatch = body.match(/^council_approval_na:\s*(.+)$/im);
   const installScopeMatch = body.match(/^install_scope:\s*(.+)$/im);
   const rawStatus = (statusMatch?.[1] || "confirmed").trim().toLowerCase();
