@@ -62,6 +62,21 @@ function formatDate(iso?: string, includeWeekday = false) {
   });
 }
 
+function formatDateTimeShort(iso?: string, includeWeekday = false) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("en-NZ", {
+    timeZone: "Pacific/Auckland",
+    weekday: includeWeekday ? "short" : undefined,
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function formatCurrency(n?: number) {
   if (!n) return "";
   return `$${n.toLocaleString("en-NZ")}`;
@@ -208,7 +223,7 @@ export default function JobCard({ job }: { job: Job }) {
               : cardState === "CALLBACK"
                 ? `Callback: ${formatDate(callbackIso || undefined) || "Undated"}${isCallbackOverdue ? " (Overdue)" : ""}`
                 : cardState === "QUOTE_BOOKED"
-                  ? `Quote booked: ${formatDate(job.lead?.quoteBookingDate, true) || "Undated"}`
+                  ? `Quote booked: ${formatDateTimeShort(job.lead?.quoteBookingDate, true) || "Undated"}`
                   : job.stage === "QUOTE"
                     ? `Quote: ${formatDate(job.quote?.date) || "Undated"}`
                     : `Created: ${formatDate(job.createdAt || job.updatedAt)}`}
