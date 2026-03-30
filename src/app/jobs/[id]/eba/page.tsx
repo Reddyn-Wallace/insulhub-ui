@@ -264,8 +264,8 @@ function setLegacyCheckboxListOther(curr: unknown, value: string, knownOptions: 
 function requiresLegacyOtherText(curr: unknown, knownOptions: string[]): boolean {
   const arr = listValue(curr);
   const customOther = getLegacyCustomOther(curr, knownOptions);
-  const hasMeaningfulOther = arr.some((x) => x.toLowerCase().startsWith("other:")) || !!customOther.trim();
-  return hasMeaningfulOther && !customOther.trim();
+  const hasPendingOtherSelection = arr.includes("Other") || !!customOther.trim();
+  return hasPendingOtherSelection && !customOther.trim();
 }
 
 function parseLegacyMappedCheckboxList(curr: unknown, allowedStoredValues: string[]): string[] {
