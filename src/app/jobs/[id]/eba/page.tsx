@@ -1081,13 +1081,10 @@ export default function EbaPage() {
                   ];
                   const storedValues = finishOptions.map((opt) => opt.value);
                   const selectedFinish = parseLegacyMappedCheckboxList(form.finishOfCladding, storedValues);
-                  const customOther = getLegacyCustomOther(form.finishOfCladding, storedValues);
                   return finishOptions.map((opt)=>(
                     <label key={opt.value} className="text-sm"><input type="checkbox" className="mr-2 align-top mt-1" checked={selectedFinish.includes(opt.value)} onChange={() => {
                       const nextSelected = selectedFinish.includes(opt.value) ? selectedFinish.filter((x) => x !== opt.value) : [...selectedFinish, opt.value];
-                      const nextOtherParts = finishOptions.filter((x) => nextSelected.includes(x.value)).map((x) => x.detail);
-                      if (customOther) nextOtherParts.unshift(customOther);
-                      setField("finishOfCladding", buildLegacyCheckboxArray(nextSelected, nextOtherParts.join(" | "), storedValues));
+                      setField("finishOfCladding", buildLegacyCheckboxArray(nextSelected, "", storedValues));
                     }} /><span>{opt.value}</span></label>
                   ));
                 })()}
