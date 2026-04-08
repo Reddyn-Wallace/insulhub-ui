@@ -892,6 +892,12 @@ export default function JobDetailPage() {
     }));
   }
 
+  async function clearCallbackDate() {
+    await run(() => gql(UPDATE_JOB_LEAD, {
+      input: { _id: id, lead: buildLeadInput({ callbackDate: null, leadStatus: "NEW" }) },
+    }));
+  }
+
   async function saveQuoteBookingDate() {
     await run(() => gql(UPDATE_JOB_LEAD, {
       input: { _id: id, lead: buildLeadInput({ quoteBookingDate: fromDatetimeLocal(quoteBookingDate) }) },
@@ -2429,6 +2435,10 @@ export default function JobDetailPage() {
           <button onClick={saveCallbackDate} disabled={saving || !callbackDate}
             className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
             {saving ? "Saving..." : "Save"}
+          </button>
+          <button onClick={clearCallbackDate} disabled={saving || !job?.lead?.callbackDate}
+            className="px-4 py-3 bg-red-50 text-red-600 rounded-xl text-sm font-medium disabled:opacity-40">
+            Remove
           </button>
           <a href={buildGCalUrl("Callback", callbackDate, 30)}
             target="_blank" rel="noopener noreferrer"
