@@ -9,7 +9,7 @@ type WallStyle = "solid" | "dotted";
 type Point = { x: number; y: number };
 type Wall = { id: string; start: Point; end: Point; style: WallStyle; lengthOverride?: number | null };
 type WallSnapshot = { id: string; start: Point; end: Point };
-type TextNote = { id: string; text: string; x: number; y: number; fontSize: number };
+type TextNote = { id: string; text: string; x: number; y: number; fontSize: number; boxWidth?: number; boxHeight?: number };
 type TextMode = "idle" | "placing";
 type SnapGuide = { kind: "horizontal" | "vertical" | "endpoint"; point?: Point; lineValue?: number } | null;
 
@@ -77,8 +77,6 @@ const TEXT_NOTE_MIN_WIDTH = 2.2;
 const TEXT_NOTE_MAX_WIDTH = 10.5;
 const TEXT_NOTE_DEFAULT_WIDTH = 3.8;
 const TEXT_NOTE_GROW_BUFFER = 0.18;
-const TEXT_NOTE_CHAR_WIDTH = 0.19;
-const TEXT_NOTE_BASE_WIDTH = 1.2;
 const TEXT_NOTE_FONT_FAMILY = 'Arial, Helvetica, sans-serif';
 const TEXT_NOTE_HEIGHT = 0.8;
 const TEXT_NOTE_LINE_HEIGHT = 1.2;
@@ -134,41 +132,20 @@ function clampTextFontSize(size: number): number {
 function getTextNoteLines(text: string): string[] {
   return (text || "").split("\n");
 }
-function getMeasuredTextWidth(line: string, fontSize: number) {
-  if (typeof document === "undefined") {
-    const scale = fontSize / TEXT_NOTE_DEFAULT_FONT_SIZE;
-    return line.length * TEXT_NOTE_CHAR_WIDTH * scale + TEXT_NOTE_BASE_WIDTH + scale * 0.4;
-  }
-  const canvas = getMeasuredTextWidth.canvas || (getMeasuredTextWidth.canvas = document.createElement("canvas"));
-  const context = canvas.getContext("2d");
-  if (!context) {
-    const scale = fontSize / TEXT_NOTE_DEFAULT_FONT_SIZE;
-    return line.length * TEXT_NOTE_CHAR_WIDTH * scale + TEXT_NOTE_BASE_WIDTH + scale * 0.4;
-  }
-  context.font = `${fontSize}m ${TEXT_NOTE_FONT_FAMILY}`;
-  return context.measureText(line || " ").width;
+function clampTextNoteWidth(width?: number) {
+  return Math.max(TEXT_NOTE_MIN_WIDTH, Math.min(TEXT_NOTE_MAX_WIDTH, width ?? TEXT_NOTE_DEFAULT_WIDTH));
 }
-getMeasuredTextWidth.canvas = null as HTMLCanvasElement | null;
-
-function getTextNoteMetrics(text: string, fontSize: number) {
-  const lines = getTextNoteLines(text);
-  const lineCount = Math.max(1, lines.length);
-  const longestLineWidth = lines.reduce((max, line) => Math.max(max, getMeasuredTextWidth(line, fontSize)), 0);
-  const contentWidth = longestLineWidth + TEXT_NOTE_PADDING_X * 2 + TEXT_NOTE_GROW_BUFFER;
-  const width = Math.max(
-    TEXT_NOTE_MIN_WIDTH,
-    Math.min(TEXT_NOTE_MAX_WIDTH, Math.max(TEXT_NOTE_DEFAULT_WIDTH, contentWidth))
-  );
-  const height = Math.max(
-    TEXT_NOTE_HEIGHT,
-    lineCount * fontSize * TEXT_NOTE_LINE_HEIGHT + TEXT_NOTE_PADDING_Y * 2
-  );
-  return { width, height, lineCount };
+function getTextNoteMinHeight(fontSize: number) {
+  return Math.max(TEXT_NOTE_HEIGHT, fontSize * TEXT_NOTE_LINE_HEIGHT + TEXT_NOTE_PADDING_Y * 2);
+}
+function getTextNoteHeight(note: TextNote) {
+  return Math.max(getTextNoteMinHeight(note.fontSize), note.boxHeight ?? getTextNoteMinHeight(note.fontSize));
 }
 function getTextNoteLayout(note: TextNote, liveText: string) {
   const text = liveText || "";
   const lines = getTextNoteLines(text);
-  const { width, height } = getTextNoteMetrics(text, note.fontSize);
+  const width = clampTextNoteWidth(note.boxWidth);
+  const height = getTextNoteHeight(note);
   const x = note.x - width / 2;
   const y = note.y - height * 0.72;
   return {
@@ -238,7 +215,6 @@ export default function DrawSitePlanPage() {
   const [activePointerType, setActivePointerType] = useState<"mouse" | "touch" | "pen">("mouse");
   const [snapGuide, setSnapGuide] = useState<SnapGuide>(null);
   const [lengthEditValue, setLengthEditValue] = useState("");
-  const [editingTextWidthPx, setEditingTextWidthPx] = useState<number | null>(null);
 
   const svgRef = useRef<SVGSVGElement | null>(null);
   const canvasAreaRef = useRef<HTMLDivElement>(null);
@@ -345,25 +321,41 @@ export default function DrawSitePlanPage() {
         textInputRef.current?.focus();
         textInputRef.current?.select();
       });
-    } else {
-      setEditingTextWidthPx(null);
     }
   }, [editingTextId]);
 
-  useEffect(() => {
-    if (!editingTextId) return;
+  const syncEditingTextBoxFromDom = useCallback((opts?: { forceGrow?: boolean }) => {
+    if (!editingTextNote || !canvasDims) return;
     const textarea = textInputRef.current;
     if (!textarea) return;
-    const measure = () => {
-      const nextWidth = Math.max(textarea.scrollWidth, textarea.clientWidth);
-      setEditingTextWidthPx((prev) => {
-        if (prev !== null && Math.abs(prev - nextWidth) < 1) return prev;
-        return nextWidth;
-      });
-    };
-    measure();
-    requestAnimationFrame(measure);
-  }, [editingTextId, textEditValue, canvasDims]);
+    const forceGrow = opts?.forceGrow ?? false;
+    const toUnitsX = (px: number) => (px / canvasDims.w) * CELLS_X;
+    const toUnitsY = (px: number) => (px / canvasDims.h) * CELLS_Y;
+    const pxX = (units: number) => (units / CELLS_X) * canvasDims.w;
+    const pxY = (units: number) => (units / CELLS_Y) * canvasDims.h;
+
+    const currentWidthPx = textarea.getBoundingClientRect().width;
+    const maxWidthPx = pxX(TEXT_NOTE_MAX_WIDTH);
+    const nextWidthPx = (forceGrow || textarea.scrollWidth > currentWidthPx + 0.5)
+      ? Math.min(maxWidthPx, Math.max(currentWidthPx, textarea.scrollWidth + pxX(TEXT_NOTE_GROW_BUFFER)))
+      : currentWidthPx;
+
+    const minHeightPx = pxY(getTextNoteMinHeight(editingTextNote.fontSize));
+    const nextHeightPx = Math.max(minHeightPx, textarea.scrollHeight);
+    const nextWidthUnits = Number(clampTextNoteWidth(toUnitsX(nextWidthPx)).toFixed(3));
+    const nextHeightUnits = Number(Math.max(getTextNoteMinHeight(editingTextNote.fontSize), toUnitsY(nextHeightPx)).toFixed(3));
+    const currentWidthUnits = clampTextNoteWidth(editingTextNote.boxWidth);
+    const currentHeightUnits = getTextNoteHeight(editingTextNote);
+
+    if (Math.abs(nextWidthUnits - currentWidthUnits) < 0.001 && Math.abs(nextHeightUnits - currentHeightUnits) < 0.001) return;
+    updateTextNote(editingTextNote.id, { boxWidth: nextWidthUnits, boxHeight: nextHeightUnits });
+  }, [editingTextNote, canvasDims]);
+
+  useEffect(() => {
+    if (!editingTextId || !canvasDims) return;
+    const raf = requestAnimationFrame(() => syncEditingTextBoxFromDom({ forceGrow: true }));
+    return () => cancelAnimationFrame(raf);
+  }, [editingTextId, canvasDims, syncEditingTextBoxFromDom]);
 
   const toGridPointRaw = useCallback((clientX: number, clientY: number): Point | null => {
     const svg = svgRef.current;
@@ -462,10 +454,24 @@ export default function DrawSitePlanPage() {
     setSelectedTextId(note.id);
     setEditingTextId(note.id);
     setTextEditValue(note.text);
+    if (note.boxWidth == null || note.boxHeight == null) {
+      updateTextNote(note.id, {
+        boxWidth: clampTextNoteWidth(note.boxWidth),
+        boxHeight: getTextNoteHeight(note),
+      });
+    }
   }
 
   function placeTextNote(at: Point) {
-    const note: TextNote = { id: makeId(), text: "", x: at.x, y: at.y, fontSize: TEXT_NOTE_DEFAULT_FONT_SIZE };
+    const note: TextNote = {
+      id: makeId(),
+      text: "",
+      x: at.x,
+      y: at.y,
+      fontSize: TEXT_NOTE_DEFAULT_FONT_SIZE,
+      boxWidth: TEXT_NOTE_DEFAULT_WIDTH,
+      boxHeight: getTextNoteMinHeight(TEXT_NOTE_DEFAULT_FONT_SIZE),
+    };
     pushHistory();
     setTextNotes((prev) => [...prev, note]);
     setTextMode("idle");
@@ -1452,16 +1458,13 @@ export default function DrawSitePlanPage() {
             const layout = getTextNoteLayout(editingTextNote, textEditValue);
             const pxX = (units: number) => (units / CELLS_X) * canvasDims.w;
             const pxY = (units: number) => (units / CELLS_Y) * canvasDims.h;
-            const minWidthPx = pxX(TEXT_NOTE_DEFAULT_WIDTH);
-            const maxWidthPx = pxX(TEXT_NOTE_MAX_WIDTH);
-            const liveWidthPx = editingTextWidthPx ? Math.min(maxWidthPx, Math.max(minWidthPx, editingTextWidthPx + pxX(TEXT_NOTE_GROW_BUFFER))) : pxX(layout.width);
             return (
               <div
                 className="absolute pointer-events-none"
                 style={{
                   left: `${pxX(layout.x)}px`,
                   top: `${pxY(layout.y)}px`,
-                  width: `${liveWidthPx}px`,
+                  width: `${pxX(layout.width)}px`,
                   height: `${pxY(layout.height)}px`,
                 }}
               >
@@ -1474,10 +1477,13 @@ export default function DrawSitePlanPage() {
                   onChange={(e) => {
                     const v = e.target.value;
                     setTextEditValue(v);
-                    setEditingTextWidthPx(Math.max(e.currentTarget.scrollWidth, e.currentTarget.clientWidth));
                     updateTextNote(editingTextNote.id, { text: v });
+                    requestAnimationFrame(() => syncEditingTextBoxFromDom());
                   }}
-                  onBlur={() => setEditingTextId(null)}
+                  onBlur={() => {
+                    syncEditingTextBoxFromDom({ forceGrow: true });
+                    setEditingTextId(null);
+                  }}
                   className="pointer-events-auto w-full h-full text-gray-900 outline-none resize-none overflow-hidden rounded-[inherit]"
                   style={{
                     fontSize: `${pxY(editingTextNote.fontSize)}px`,
@@ -1486,6 +1492,7 @@ export default function DrawSitePlanPage() {
                     padding: `${pxY(TEXT_NOTE_PADDING_Y)}px ${pxX(TEXT_NOTE_PADDING_X)}px`,
                     background: "transparent",
                     border: "none",
+                    boxSizing: "border-box",
                   }}
                 />
               </div>
