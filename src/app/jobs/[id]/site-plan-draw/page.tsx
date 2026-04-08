@@ -508,7 +508,6 @@ export default function DrawSitePlanPage() {
     setSelectedWallId(null);
     setSelectedWallIds([]);
   }
-  }
 
   function pointerMove(e: React.PointerEvent<SVGSVGElement>) {
     const p = (mode === "trace" || mode === "single")
