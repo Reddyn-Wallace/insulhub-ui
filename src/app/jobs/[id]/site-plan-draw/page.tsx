@@ -78,6 +78,7 @@ const TEXT_NOTE_MAX_WIDTH = 10.5;
 const TEXT_NOTE_CHAR_WIDTH = 0.19;
 const TEXT_NOTE_BASE_WIDTH = 1.2;
 const TEXT_NOTE_FONT_FAMILY = 'Arial, Helvetica, sans-serif';
+const TEXT_NOTE_TEXTAREA_EXTRA_PAD_X = 0.08;
 const TEXT_NOTE_HEIGHT = 0.8;
 const TEXT_NOTE_LINE_HEIGHT = 1.2;
 const TEXT_NOTE_PADDING_X = 0.18;
@@ -144,7 +145,7 @@ function getMeasuredTextWidth(line: string, fontSize: number) {
     return line.length * TEXT_NOTE_CHAR_WIDTH * scale + TEXT_NOTE_BASE_WIDTH + scale * 0.4;
   }
   context.font = `${fontSize}m ${TEXT_NOTE_FONT_FAMILY}`;
-  return context.measureText(line || " ").width;
+  return context.measureText((line || " ") + " ").width;
 }
 getMeasuredTextWidth.canvas = null as HTMLCanvasElement | null;
 
@@ -154,7 +155,7 @@ function getTextNoteMetrics(text: string, fontSize: number) {
   const longestLineWidth = lines.reduce((max, line) => Math.max(max, getMeasuredTextWidth(line, fontSize)), 0);
   const width = Math.max(
     TEXT_NOTE_MIN_WIDTH,
-    Math.min(TEXT_NOTE_MAX_WIDTH, longestLineWidth + TEXT_NOTE_PADDING_X * 2)
+    Math.min(TEXT_NOTE_MAX_WIDTH, longestLineWidth + (TEXT_NOTE_PADDING_X + TEXT_NOTE_TEXTAREA_EXTRA_PAD_X) * 2)
   );
   const height = Math.max(
     TEXT_NOTE_HEIGHT,
@@ -1458,7 +1459,7 @@ export default function DrawSitePlanPage() {
                     fontSize: `${pxY(editingTextNote.fontSize)}px`,
                     fontFamily: TEXT_NOTE_FONT_FAMILY,
                     lineHeight: TEXT_NOTE_LINE_HEIGHT,
-                    padding: `${pxY(TEXT_NOTE_PADDING_Y)}px ${pxX(TEXT_NOTE_PADDING_X)}px`,
+                    padding: `${pxY(TEXT_NOTE_PADDING_Y)}px ${pxX(TEXT_NOTE_PADDING_X + TEXT_NOTE_TEXTAREA_EXTRA_PAD_X)}px`,
                     background: "transparent",
                     border: "none",
                   }}
