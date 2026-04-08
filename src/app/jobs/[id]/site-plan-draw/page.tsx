@@ -9,9 +9,8 @@ type WallStyle = "solid" | "dotted";
 type Point = { x: number; y: number };
 type Wall = { id: string; start: Point; end: Point; style: WallStyle; lengthOverride?: number | null };
 type WallSnapshot = { id: string; start: Point; end: Point };
-type TextNote = { id: string; text: string; x: number; y: number };
+type TextNote = { id: string; text: string; x: number; y: number; fontSize: number };
 type TextMode = "idle" | "placing";
-type TextHitTarget = "body" | "handle";
 type SnapGuide = { kind: "horizontal" | "vertical" | "endpoint"; point?: Point; lineValue?: number } | null;
 
 type Job = {
@@ -75,13 +74,15 @@ const DRAG_DEAD_ZONE = 0.18;
 const ROTATE_SOFT_SNAP_DEG = 2.5;
 const ROTATE_RELEASE_SNAP_DEG = 3.0;
 const TEXT_NOTE_MIN_WIDTH = 2.2;
-const TEXT_NOTE_MAX_WIDTH = 6.8;
+const TEXT_NOTE_MAX_WIDTH = 8.6;
 const TEXT_NOTE_CHAR_WIDTH = 0.19;
 const TEXT_NOTE_BASE_WIDTH = 1.2;
 const TEXT_NOTE_HEIGHT = 0.8;
-const TEXT_NOTE_HANDLE_GAP = 0.22;
-const TEXT_NOTE_HANDLE_RADIUS = 0.2;
-const TEXT_NOTE_HIT_PAD = 0.16;
+const TEXT_NOTE_HIT_PAD = 0.22;
+const TEXT_NOTE_DEFAULT_FONT_SIZE = 0.5;
+const TEXT_NOTE_MIN_FONT_SIZE = 0.32;
+const TEXT_NOTE_MAX_FONT_SIZE = 0.82;
+const TEXT_NOTE_FONT_STEP = 0.06;
 
 function snap(v: number) { return Math.round(v / SNAP_STEP) * SNAP_STEP; }
 function distance(a: Point, b: Point) { return Math.hypot(a.x - b.x, a.y - b.y); }
@@ -122,23 +123,21 @@ function orthoKind(start: Point, end: Point, threshold: number = ORTHO_SNAP_THRE
   if (Math.abs(dx) <= Math.abs(dy) * threshold) return "vertical";
   return null;
 }
-function getTextNoteWidth(text: string): number {
-  return Math.max(TEXT_NOTE_MIN_WIDTH, Math.min(TEXT_NOTE_MAX_WIDTH, text.length * TEXT_NOTE_CHAR_WIDTH + TEXT_NOTE_BASE_WIDTH));
+function clampTextFontSize(size: number): number {
+  return Math.max(TEXT_NOTE_MIN_FONT_SIZE, Math.min(TEXT_NOTE_MAX_FONT_SIZE, Number(size.toFixed(2))));
+}
+function getTextNoteWidth(text: string, fontSize: number): number {
+  const scale = fontSize / TEXT_NOTE_DEFAULT_FONT_SIZE;
+  return Math.max(TEXT_NOTE_MIN_WIDTH, Math.min(TEXT_NOTE_MAX_WIDTH, text.length * TEXT_NOTE_CHAR_WIDTH * scale + TEXT_NOTE_BASE_WIDTH + scale * 0.4));
 }
 function getTextNoteBox(note: TextNote, liveText: string) {
-  const width = getTextNoteWidth(liveText || "");
+  const width = getTextNoteWidth(liveText || "", note.fontSize);
+  const height = TEXT_NOTE_HEIGHT + Math.max(0, (note.fontSize - TEXT_NOTE_DEFAULT_FONT_SIZE) * 0.9);
   return {
     width,
-    height: TEXT_NOTE_HEIGHT,
+    height,
     x: note.x - width / 2,
-    y: note.y - TEXT_NOTE_HEIGHT * 0.72,
-  };
-}
-function getTextNoteHandleCenter(note: TextNote, liveText: string): Point {
-  const box = getTextNoteBox(note, liveText);
-  return {
-    x: box.x + box.width + TEXT_NOTE_HANDLE_GAP,
-    y: box.y + box.height / 2,
+    y: note.y - height * 0.72,
   };
 }
 
@@ -175,6 +174,7 @@ export default function DrawSitePlanPage() {
   const [draggingWallId, setDraggingWallId] = useState<string | null>(null);
   const [draggingTextId, setDraggingTextId] = useState<string | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
+  const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
   const [textEditValue, setTextEditValue] = useState("");
   const [textMode, setTextMode] = useState<TextMode>("idle");
   const [draggingGroup, setDraggingGroup] = useState(false);
@@ -381,20 +381,31 @@ export default function DrawSitePlanPage() {
     setTextMode("placing");
     setMode("select");
     setEditingTextId(null);
+    setSelectedTextId(null);
     setTextEditValue("");
+  }
+
+  function selectTextNote(noteId: string | null) {
+    setSelectedTextId(noteId);
+    if (noteId === null) {
+      setEditingTextId(null);
+      setTextEditValue("");
+    }
   }
 
   function startEditingTextNote(note: TextNote) {
     setTextMode("idle");
+    setSelectedTextId(note.id);
     setEditingTextId(note.id);
     setTextEditValue(note.text);
   }
 
   function placeTextNote(at: Point) {
-    const note: TextNote = { id: makeId(), text: "", x: at.x, y: at.y };
+    const note: TextNote = { id: makeId(), text: "", x: at.x, y: at.y, fontSize: TEXT_NOTE_DEFAULT_FONT_SIZE };
     pushHistory();
     setTextNotes((prev) => [...prev, note]);
     setTextMode("idle");
+    setSelectedTextId(note.id);
     setEditingTextId(note.id);
     setTextEditValue("");
   }
@@ -407,23 +418,22 @@ export default function DrawSitePlanPage() {
     pushHistory();
     setTextNotes((prev) => prev.filter((n) => n.id !== id));
     if (editingTextId === id) setEditingTextId(null);
+    if (selectedTextId === id) setSelectedTextId(null);
   }
 
-  function findTextHit(p: Point): { note: TextNote; target: TextHitTarget } | null {
+  function adjustTextFontSize(id: string, delta: number) {
+    pushHistory();
+    setTextNotes((prev) => prev.map((n) => n.id === id ? { ...n, fontSize: clampTextFontSize(n.fontSize + delta) } : n));
+  }
+
+  function findTextHit(p: Point): TextNote | null {
     for (let i = textNotes.length - 1; i >= 0; i -= 1) {
       const note = textNotes[i];
       const liveText = editingTextId === note.id ? textEditValue : note.text;
       const box = getTextNoteBox(note, liveText);
-      const handle = getTextNoteHandleCenter(note, liveText);
-      const handleRadius = activePointerType === "touch" ? 0.34 : TEXT_NOTE_HANDLE_RADIUS + 0.08;
-      if (distance(p, handle) <= handleRadius) {
-        return { note, target: "handle" };
-      }
       const inX = p.x >= box.x - TEXT_NOTE_HIT_PAD && p.x <= box.x + box.width + TEXT_NOTE_HIT_PAD;
       const inY = p.y >= box.y - TEXT_NOTE_HIT_PAD && p.y <= box.y + box.height + TEXT_NOTE_HIT_PAD;
-      if (inX && inY) {
-        return { note, target: "body" };
-      }
+      if (inX && inY) return note;
     }
     return null;
   }
@@ -487,25 +497,26 @@ export default function DrawSitePlanPage() {
     if (textHit) {
       setSelectedWallId(null);
       setSelectedWallIds([]);
-      if (textHit.target === "body") {
-        startEditingTextNote(textHit.note);
+      setTextMode("idle");
+      if (editingTextId === textHit.id) return;
+      if (selectedTextId === textHit.id) {
+        pushHistory();
+        setDraggingTextId(textHit.id);
+        setDragStartPoint(p);
+        textDragOffsetRef.current = { x: p.x - textHit.x, y: p.y - textHit.y };
+        dragActivatedRef.current = false;
+        svgRef.current?.setPointerCapture(e.pointerId);
+        capturedPointerIdRef.current = e.pointerId;
         return;
       }
-      pushHistory();
-      setTextMode("idle");
-      setEditingTextId(null);
-      setDraggingTextId(textHit.note.id);
-      setDragStartPoint(p);
-      textDragOffsetRef.current = { x: p.x - textHit.note.x, y: p.y - textHit.note.y };
-      dragActivatedRef.current = true;
-      svgRef.current?.setPointerCapture(e.pointerId);
-      capturedPointerIdRef.current = e.pointerId;
+      selectTextNote(textHit.id);
       return;
     }
 
     if (editingTextId) {
       setEditingTextId(null);
     }
+    setSelectedTextId(null);
 
     if (activeSelectionIds.length > 0 && findRotateHandleNear(p) && selectionBounds) {
       pushHistory();
@@ -546,6 +557,7 @@ export default function DrawSitePlanPage() {
       if (!alreadySelected) setSelectedWallIds([hit.id]);
       setSelectedWallId(hit.id);
       setEditingTextId(null);
+      setSelectedTextId(null);
       setDragStartPoint(p);
       setDragSnapshot(
         walls
@@ -591,6 +603,7 @@ export default function DrawSitePlanPage() {
     setSelectedWallId(null);
     setSelectedWallIds([]);
     setEditingTextId(null);
+    setSelectedTextId(null);
   }
 
   function pointerMove(e: React.PointerEvent<SVGSVGElement>) {
@@ -650,6 +663,10 @@ export default function DrawSitePlanPage() {
     }
 
     if (draggingTextId) {
+      if (!dragActivatedRef.current) {
+        if (distance(p, dragStartPoint ?? p) < DRAG_DEAD_ZONE) return;
+        dragActivatedRef.current = true;
+      }
       const offset = textDragOffsetRef.current ?? { x: 0, y: 0 };
       const nextCenter = clampPoint({ x: p.x - offset.x, y: p.y - offset.y });
       setTextNotes((prev) => prev.map((n) => n.id === draggingTextId ? { ...n, x: nextCenter.x, y: nextCenter.y } : n));
@@ -1115,6 +1132,47 @@ export default function DrawSitePlanPage() {
             );
           })()}
 
+          {mode === "select" && selectedTextId && (() => {
+            const selectedText = textNotes.find((n) => n.id === selectedTextId);
+            if (!selectedText) return null;
+            const box = getTextNoteBox(selectedText, editingTextId === selectedText.id ? textEditValue : selectedText.text);
+            const aboveY = ((box.y - 1.3) / CELLS_Y) * 100;
+            const belowY = ((box.y + box.height + 0.35) / CELLS_Y) * 100;
+            const centerPct = ((box.x + box.width / 2) / CELLS_X) * 100;
+            const showAbove = aboveY > 12;
+            return (
+              <div
+                className="absolute z-20 flex items-center gap-1.5 bg-white/96 backdrop-blur-sm border border-gray-200 rounded-xl shadow-lg px-2 py-2"
+                style={{
+                  left: `clamp(140px, ${centerPct}%, calc(100% - 140px))`,
+                  top: showAbove ? `max(4px, ${aboveY}%)` : `min(calc(100% - 4px), ${belowY}%)`,
+                  transform: showAbove ? "translate(-50%, -100%)" : "translate(-50%, 0%)",
+                }}
+              >
+                <button
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => startEditingTextNote(selectedText)}
+                  className="px-3 h-8 rounded-lg text-xs font-medium bg-blue-50 text-blue-700 active:bg-blue-100"
+                >Edit</button>
+                <button
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => adjustTextFontSize(selectedText.id, -TEXT_NOTE_FONT_STEP)}
+                  className="px-3 h-8 rounded-lg text-xs font-medium bg-gray-100 text-gray-700 active:bg-gray-200"
+                >A-</button>
+                <button
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => adjustTextFontSize(selectedText.id, TEXT_NOTE_FONT_STEP)}
+                  className="px-3 h-8 rounded-lg text-xs font-medium bg-gray-100 text-gray-700 active:bg-gray-200"
+                >A+</button>
+                <button
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => deleteTextNote(selectedText.id)}
+                  className="px-3 h-8 rounded-lg text-xs font-medium bg-red-50 text-red-600 active:bg-red-100"
+                >Delete</button>
+              </div>
+            );
+          })()}
+
           {/* SVG drawing canvas */}
           <svg
             ref={svgRef}
@@ -1189,9 +1247,9 @@ export default function DrawSitePlanPage() {
             {/* Text annotations */}
             {textNotes.map((note) => {
               const isEditing = editingTextId === note.id;
+              const isSelected = selectedTextId === note.id;
               const liveLabel = isEditing ? textEditValue : note.text;
               const box = getTextNoteBox(note, liveLabel);
-              const handle = getTextNoteHandleCenter(note, liveLabel);
               return (
                 <g key={note.id}>
                   <rect
@@ -1199,50 +1257,24 @@ export default function DrawSitePlanPage() {
                     y={box.y}
                     width={box.width}
                     height={box.height}
-                    fill={isEditing ? "#eff6ff" : "#fff7ed"}
-                    stroke={isEditing ? "#2563eb" : "#f59e0b"}
-                    strokeWidth={0.06}
+                    fill={isEditing ? "#eff6ff" : isSelected ? "#fef3c7" : "#fff7ed"}
+                    stroke={isEditing ? "#2563eb" : isSelected ? "#d97706" : "#f59e0b"}
+                    strokeWidth={isSelected ? 0.08 : 0.06}
                     rx={0.12}
                   />
                   <text
                     x={box.x + 0.18}
                     y={box.y + box.height / 2 + 0.02}
-                    fontSize={0.42}
+                    fontSize={note.fontSize}
                     fill={liveLabel ? "#1f2937" : "#6b7280"}
                     textAnchor="start"
                     dominantBaseline="middle"
                     direction="ltr"
                     unicodeBidi="normal"
-                    style={{ cursor: "text", pointerEvents: "none" }}
+                    style={{ cursor: isSelected ? "grab" : "pointer", pointerEvents: "none" }}
                   >
                     {liveLabel || "Text"}
                   </text>
-                  <circle
-                    cx={handle.x}
-                    cy={handle.y}
-                    r={TEXT_NOTE_HANDLE_RADIUS}
-                    fill={draggingTextId === note.id ? "#0f766e" : "white"}
-                    stroke={draggingTextId === note.id ? "#0f766e" : "#475569"}
-                    strokeWidth={0.07}
-                  />
-                  <line
-                    x1={handle.x - 0.08}
-                    y1={handle.y}
-                    x2={handle.x + 0.08}
-                    y2={handle.y}
-                    stroke={draggingTextId === note.id ? "white" : "#334155"}
-                    strokeWidth={0.04}
-                    strokeLinecap="round"
-                  />
-                  <line
-                    x1={handle.x}
-                    y1={handle.y - 0.08}
-                    x2={handle.x}
-                    y2={handle.y + 0.08}
-                    stroke={draggingTextId === note.id ? "white" : "#334155"}
-                    strokeWidth={0.04}
-                    strokeLinecap="round"
-                  />
                 </g>
               );
             })}
@@ -1379,7 +1411,8 @@ export default function DrawSitePlanPage() {
                     updateTextNote(editingTextNote.id, { text: v });
                   }}
                   onBlur={() => setEditingTextId(null)}
-                  className="pointer-events-auto w-full h-full px-2 rounded-md border border-blue-300 bg-white text-[16px] text-gray-900 outline-none"
+                  className="pointer-events-auto w-full h-full px-2 rounded-md border border-blue-300 bg-white text-gray-900 outline-none"
+                  style={{ fontSize: `${Math.max(16, editingTextNote.fontSize * 22)}px` }}
                 />
               </div>
             );
@@ -1447,15 +1480,6 @@ export default function DrawSitePlanPage() {
         )}
 
         <div className="flex-1" />
-
-        {editingTextId && (
-          <button
-            onClick={() => deleteTextNote(editingTextId)}
-            className="h-10 px-3 rounded-xl text-sm font-medium bg-red-50 text-red-600 active:bg-red-100"
-          >
-            Delete Text
-          </button>
-        )}
 
         {textMode === "placing" && (
           <span className="text-xs text-amber-700 font-medium">Tap anywhere on the plan to place text</span>
