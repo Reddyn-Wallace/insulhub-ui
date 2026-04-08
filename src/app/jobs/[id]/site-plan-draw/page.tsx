@@ -150,6 +150,7 @@ export default function DrawSitePlanPage() {
   const [textEditValue, setTextEditValue] = useState("");
   const [textMode, setTextMode] = useState<TextMode>("idle");
   const [draggingGroup, setDraggingGroup] = useState(false);
+  const textWasEditingRef = useRef(false);
   const textInputRef = useRef<HTMLInputElement | null>(null);
   const [selectionStart, setSelectionStart] = useState<Point | null>(null);
   const [selectionCurrent, setSelectionCurrent] = useState<Point | null>(null);
@@ -478,7 +479,13 @@ export default function DrawSitePlanPage() {
 
     const textHit = findTextNear(p);
     if (textHit) {
-      startEditingTextNote(textHit);
+      setDraggingTextId(textHit.id);
+      setDragStartPoint(p);
+      dragActivatedRef.current = false;
+      textWasEditingRef.current = editingTextId === textHit.id;
+      if (editingTextId !== textHit.id) startEditingTextNote(textHit);
+      svgRef.current?.setPointerCapture(e.pointerId);
+      capturedPointerIdRef.current = e.pointerId;
       return;
     }
 
@@ -699,12 +706,14 @@ export default function DrawSitePlanPage() {
     }
     const wasDraggingText = draggingTextId;
     const textDragActivated = dragActivatedRef.current;
+    const textWasEditing = textWasEditingRef.current;
     linkedEndpointsRef.current = [];
     dragAnchorRef.current = null;
     wallDragLinkedSnapshotRef.current = [];
     setDraggingWallId(null);
     setDraggingTextId(null);
     setDraggingEndpoint(null);
+    textWasEditingRef.current = false;
     setDraggingGroup(false);
     setDragStartPoint(null);
     setDragSnapshot([]);
@@ -758,9 +767,9 @@ export default function DrawSitePlanPage() {
     setSelectionCurrent(null);
     setSnapGuide(null);
 
-    if (wasDraggingText && !textDragActivated) {
+    if (wasDraggingText) {
       const note = textNotes.find((n) => n.id === wasDraggingText);
-      if (note) startEditingTextNote(note);
+      if (note && !textDragActivated && !textWasEditing) startEditingTextNote(note);
     }
   }
 
@@ -1155,7 +1164,19 @@ export default function DrawSitePlanPage() {
                     strokeWidth={0.06}
                     rx={0.12}
                   />
-                  {isEditing ? (
+                  <text
+                    x={note.x}
+                    y={note.y - 0.02}
+                    fontSize={0.42}
+                    fill="#1f2937"
+                    textAnchor="middle"
+                    direction="ltr"
+                    unicodeBidi="plaintext"
+                    style={{ cursor: isEditing ? "move" : "text", pointerEvents: isEditing ? "none" : "auto" }}
+                  >
+                    {label || "Text"}
+                  </text>
+                  {isEditing && (
                     <foreignObject
                       x={note.x - boxWidth / 2}
                       y={note.y - 0.58}
@@ -1165,27 +1186,17 @@ export default function DrawSitePlanPage() {
                       <input
                         ref={textInputRef}
                         value={textEditValue}
+                        dir="ltr"
                         onChange={(e) => {
                           const v = e.target.value;
                           setTextEditValue(v);
                           updateTextNote(note.id, { text: v });
                         }}
                         onBlur={() => setEditingTextId(null)}
-                        className="w-full h-full px-2 rounded-md border border-amber-300 bg-white text-[16px] text-gray-900 outline-none"
+                        className="w-full h-full px-2 rounded-md border border-amber-300 bg-white/15 text-[16px] text-gray-900 outline-none"
+                        style={{ background: "transparent" }}
                       />
                     </foreignObject>
-                  ) : (
-                    <text
-                      x={note.x}
-                      y={note.y - 0.02}
-                      fontSize={0.42}
-                      fill="#1f2937"
-                      textAnchor="middle"
-                      onClick={() => startEditingTextNote(note)}
-                      style={{ cursor: "text" }}
-                    >
-                      {label || "Text"}
-                    </text>
                   )}
                 </g>
               );
