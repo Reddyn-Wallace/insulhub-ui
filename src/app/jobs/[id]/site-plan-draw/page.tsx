@@ -238,6 +238,7 @@ export default function DrawSitePlanPage() {
   const [activePointerType, setActivePointerType] = useState<"mouse" | "touch" | "pen">("mouse");
   const [snapGuide, setSnapGuide] = useState<SnapGuide>(null);
   const [lengthEditValue, setLengthEditValue] = useState("");
+  const [editingTextWidthPx, setEditingTextWidthPx] = useState<number | null>(null);
 
   const svgRef = useRef<SVGSVGElement | null>(null);
   const canvasAreaRef = useRef<HTMLDivElement>(null);
@@ -344,8 +345,25 @@ export default function DrawSitePlanPage() {
         textInputRef.current?.focus();
         textInputRef.current?.select();
       });
+    } else {
+      setEditingTextWidthPx(null);
     }
   }, [editingTextId]);
+
+  useEffect(() => {
+    if (!editingTextId) return;
+    const textarea = textInputRef.current;
+    if (!textarea) return;
+    const measure = () => {
+      const nextWidth = Math.max(textarea.scrollWidth, textarea.clientWidth);
+      setEditingTextWidthPx((prev) => {
+        if (prev !== null && Math.abs(prev - nextWidth) < 1) return prev;
+        return nextWidth;
+      });
+    };
+    measure();
+    requestAnimationFrame(measure);
+  }, [editingTextId, textEditValue, canvasDims]);
 
   const toGridPointRaw = useCallback((clientX: number, clientY: number): Point | null => {
     const svg = svgRef.current;
@@ -1434,13 +1452,16 @@ export default function DrawSitePlanPage() {
             const layout = getTextNoteLayout(editingTextNote, textEditValue);
             const pxX = (units: number) => (units / CELLS_X) * canvasDims.w;
             const pxY = (units: number) => (units / CELLS_Y) * canvasDims.h;
+            const minWidthPx = pxX(TEXT_NOTE_DEFAULT_WIDTH);
+            const maxWidthPx = pxX(TEXT_NOTE_MAX_WIDTH);
+            const liveWidthPx = editingTextWidthPx ? Math.min(maxWidthPx, Math.max(minWidthPx, editingTextWidthPx + pxX(TEXT_NOTE_GROW_BUFFER))) : pxX(layout.width);
             return (
               <div
                 className="absolute pointer-events-none"
                 style={{
                   left: `${pxX(layout.x)}px`,
                   top: `${pxY(layout.y)}px`,
-                  width: `${pxX(layout.width)}px`,
+                  width: `${liveWidthPx}px`,
                   height: `${pxY(layout.height)}px`,
                 }}
               >
@@ -1453,6 +1474,7 @@ export default function DrawSitePlanPage() {
                   onChange={(e) => {
                     const v = e.target.value;
                     setTextEditValue(v);
+                    setEditingTextWidthPx(Math.max(e.currentTarget.scrollWidth, e.currentTarget.clientWidth));
                     updateTextNote(editingTextNote.id, { text: v });
                   }}
                   onBlur={() => setEditingTextId(null)}
