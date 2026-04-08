@@ -128,9 +128,12 @@ function orthoKind(start: Point, end: Point, threshold: number = ORTHO_SNAP_THRE
 function clampTextFontSize(size: number): number {
   return Math.max(TEXT_NOTE_MIN_FONT_SIZE, Math.min(TEXT_NOTE_MAX_FONT_SIZE, Number(size.toFixed(2))));
 }
+function getTextNoteLines(text: string): string[] {
+  return (text || "").split("\n");
+}
 function getTextNoteMetrics(text: string, fontSize: number) {
   const scale = fontSize / TEXT_NOTE_DEFAULT_FONT_SIZE;
-  const lines = (text || "").split("\n");
+  const lines = getTextNoteLines(text);
   const longestLine = lines.reduce((max, line) => Math.max(max, line.length), 0);
   const lineCount = Math.max(1, lines.length);
   const width = Math.max(
@@ -143,14 +146,26 @@ function getTextNoteMetrics(text: string, fontSize: number) {
   );
   return { width, height, lineCount };
 }
-function getTextNoteBox(note: TextNote, liveText: string) {
-  const { width, height } = getTextNoteMetrics(liveText || "", note.fontSize);
+function getTextNoteLayout(note: TextNote, liveText: string) {
+  const text = liveText || "";
+  const lines = getTextNoteLines(text);
+  const { width, height } = getTextNoteMetrics(text, note.fontSize);
+  const x = note.x - width / 2;
+  const y = note.y - height * 0.72;
   return {
+    text,
+    lines,
     width,
     height,
-    x: note.x - width / 2,
-    y: note.y - height * 0.72,
+    x,
+    y,
+    textX: x + TEXT_NOTE_PADDING_X,
+    textY: y + TEXT_NOTE_PADDING_Y + note.fontSize,
   };
+}
+function getTextNoteBox(note: TextNote, liveText: string) {
+  const layout = getTextNoteLayout(note, liveText);
+  return { width: layout.width, height: layout.height, x: layout.x, y: layout.y };
 }
 
 const JUNCTION_EPSILON = 0.012;
@@ -1246,39 +1261,41 @@ export default function DrawSitePlanPage() {
               const isEditing = editingTextId === note.id;
               const isSelected = selectedTextId === note.id;
               const liveLabel = isEditing ? textEditValue : note.text;
-              const box = getTextNoteBox(note, liveLabel);
+              const layout = getTextNoteLayout(note, liveLabel);
               return (
                 <g key={note.id}>
                   <rect
-                    x={box.x}
-                    y={box.y}
-                    width={box.width}
-                    height={box.height}
+                    x={layout.x}
+                    y={layout.y}
+                    width={layout.width}
+                    height={layout.height}
                     fill={isEditing ? "#eff6ff" : isSelected ? "#fef3c7" : "#fff7ed"}
                     stroke={isEditing ? "#2563eb" : isSelected ? "#d97706" : "#f59e0b"}
                     strokeWidth={isSelected ? 0.08 : 0.06}
                     rx={0.12}
                   />
-                  <text
-                    x={box.x + TEXT_NOTE_PADDING_X}
-                    y={box.y + TEXT_NOTE_PADDING_Y + note.fontSize}
-                    fontSize={note.fontSize}
-                    fill={liveLabel ? "#1f2937" : "#6b7280"}
-                    textAnchor="start"
-                    direction="ltr"
-                    unicodeBidi="normal"
-                    style={{ cursor: isSelected ? "grab" : "pointer", pointerEvents: "none", whiteSpace: "pre" }}
-                  >
-                    {(liveLabel || "Text").split("\n").map((line, index) => (
-                      <tspan
-                        key={`${note.id}-${index}`}
-                        x={box.x + TEXT_NOTE_PADDING_X}
-                        dy={index === 0 ? 0 : note.fontSize * TEXT_NOTE_LINE_HEIGHT}
-                      >
-                        {line || " "}
-                      </tspan>
-                    ))}
-                  </text>
+                  {!isEditing && (
+                    <text
+                      x={layout.textX}
+                      y={layout.textY}
+                      fontSize={note.fontSize}
+                      fill="#1f2937"
+                      textAnchor="start"
+                      direction="ltr"
+                      unicodeBidi="normal"
+                      style={{ cursor: isSelected ? "grab" : "pointer", pointerEvents: "none", whiteSpace: "pre" }}
+                    >
+                      {layout.lines.map((line, index) => (
+                        <tspan
+                          key={`${note.id}-${index}`}
+                          x={layout.textX}
+                          dy={index === 0 ? 0 : note.fontSize * TEXT_NOTE_LINE_HEIGHT}
+                        >
+                          {line || " "}
+                        </tspan>
+                      ))}
+                    </text>
+                  )}
                 </g>
               );
             })}
@@ -1394,32 +1411,38 @@ export default function DrawSitePlanPage() {
             )}
           </svg>
           {canvasDims && editingTextNote && (() => {
-            const box = getTextNoteBox(editingTextNote, textEditValue);
+            const layout = getTextNoteLayout(editingTextNote, textEditValue);
+            const pxX = (units: number) => (units / CELLS_X) * canvasDims.w;
+            const pxY = (units: number) => (units / CELLS_Y) * canvasDims.h;
             return (
               <div
                 className="absolute pointer-events-none"
                 style={{
-                  left: `${(box.x / CELLS_X) * canvasDims.w}px`,
-                  top: `${(box.y / CELLS_Y) * canvasDims.h}px`,
-                  width: `${(box.width / CELLS_X) * canvasDims.w}px`,
-                  height: `${(box.height / CELLS_Y) * canvasDims.h}px`,
+                  left: `${pxX(layout.x)}px`,
+                  top: `${pxY(layout.y)}px`,
+                  width: `${pxX(layout.width)}px`,
+                  height: `${pxY(layout.height)}px`,
                 }}
               >
                 <textarea
                   ref={textInputRef as React.RefObject<HTMLTextAreaElement>}
                   value={textEditValue}
                   dir="ltr"
+                  wrap="off"
+                  spellCheck={false}
                   onChange={(e) => {
                     const v = e.target.value;
                     setTextEditValue(v);
                     updateTextNote(editingTextNote.id, { text: v });
                   }}
                   onBlur={() => setEditingTextId(null)}
-                  className="pointer-events-auto w-full h-full rounded-md border border-blue-300 bg-white text-gray-900 outline-none resize-none"
+                  className="pointer-events-auto w-full h-full text-gray-900 outline-none resize-none overflow-hidden rounded-[inherit]"
                   style={{
-                    fontSize: `${Math.max(16, editingTextNote.fontSize * 22)}px`,
+                    fontSize: `${pxY(editingTextNote.fontSize)}px`,
                     lineHeight: TEXT_NOTE_LINE_HEIGHT,
-                    padding: `${TEXT_NOTE_PADDING_Y * 22}px ${TEXT_NOTE_PADDING_X * 22}px`,
+                    padding: `${pxY(TEXT_NOTE_PADDING_Y)}px ${pxX(TEXT_NOTE_PADDING_X)}px`,
+                    background: "transparent",
+                    border: "none",
                   }}
                 />
               </div>
