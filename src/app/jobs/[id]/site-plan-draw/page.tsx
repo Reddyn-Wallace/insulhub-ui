@@ -74,10 +74,13 @@ const DRAG_DEAD_ZONE = 0.18;
 const ROTATE_SOFT_SNAP_DEG = 2.5;
 const ROTATE_RELEASE_SNAP_DEG = 3.0;
 const TEXT_NOTE_MIN_WIDTH = 2.2;
-const TEXT_NOTE_MAX_WIDTH = 8.6;
+const TEXT_NOTE_MAX_WIDTH = 10.5;
 const TEXT_NOTE_CHAR_WIDTH = 0.19;
 const TEXT_NOTE_BASE_WIDTH = 1.2;
 const TEXT_NOTE_HEIGHT = 0.8;
+const TEXT_NOTE_LINE_HEIGHT = 1.2;
+const TEXT_NOTE_PADDING_X = 0.18;
+const TEXT_NOTE_PADDING_Y = 0.14;
 const TEXT_NOTE_HIT_PAD = 0.22;
 const TEXT_NOTE_DEFAULT_FONT_SIZE = 0.82;
 const TEXT_NOTE_MIN_FONT_SIZE = 0.32;
@@ -125,13 +128,23 @@ function orthoKind(start: Point, end: Point, threshold: number = ORTHO_SNAP_THRE
 function clampTextFontSize(size: number): number {
   return Math.max(TEXT_NOTE_MIN_FONT_SIZE, Math.min(TEXT_NOTE_MAX_FONT_SIZE, Number(size.toFixed(2))));
 }
-function getTextNoteWidth(text: string, fontSize: number): number {
+function getTextNoteMetrics(text: string, fontSize: number) {
   const scale = fontSize / TEXT_NOTE_DEFAULT_FONT_SIZE;
-  return Math.max(TEXT_NOTE_MIN_WIDTH, Math.min(TEXT_NOTE_MAX_WIDTH, text.length * TEXT_NOTE_CHAR_WIDTH * scale + TEXT_NOTE_BASE_WIDTH + scale * 0.4));
+  const lines = (text || "").split("\n");
+  const longestLine = lines.reduce((max, line) => Math.max(max, line.length), 0);
+  const lineCount = Math.max(1, lines.length);
+  const width = Math.max(
+    TEXT_NOTE_MIN_WIDTH,
+    Math.min(TEXT_NOTE_MAX_WIDTH, longestLine * TEXT_NOTE_CHAR_WIDTH * scale + TEXT_NOTE_BASE_WIDTH + scale * 0.4)
+  );
+  const height = Math.max(
+    TEXT_NOTE_HEIGHT,
+    lineCount * fontSize * TEXT_NOTE_LINE_HEIGHT + TEXT_NOTE_PADDING_Y * 2
+  );
+  return { width, height, lineCount };
 }
 function getTextNoteBox(note: TextNote, liveText: string) {
-  const width = getTextNoteWidth(liveText || "", note.fontSize);
-  const height = TEXT_NOTE_HEIGHT + Math.max(0, (note.fontSize - TEXT_NOTE_DEFAULT_FONT_SIZE) * 0.9);
+  const { width, height } = getTextNoteMetrics(liveText || "", note.fontSize);
   return {
     width,
     height,
@@ -1247,17 +1260,24 @@ export default function DrawSitePlanPage() {
                     rx={0.12}
                   />
                   <text
-                    x={box.x + 0.18}
-                    y={box.y + box.height / 2 + 0.02}
+                    x={box.x + TEXT_NOTE_PADDING_X}
+                    y={box.y + TEXT_NOTE_PADDING_Y + note.fontSize}
                     fontSize={note.fontSize}
                     fill={liveLabel ? "#1f2937" : "#6b7280"}
                     textAnchor="start"
-                    dominantBaseline="middle"
                     direction="ltr"
                     unicodeBidi="normal"
-                    style={{ cursor: isSelected ? "grab" : "pointer", pointerEvents: "none" }}
+                    style={{ cursor: isSelected ? "grab" : "pointer", pointerEvents: "none", whiteSpace: "pre" }}
                   >
-                    {liveLabel || "Text"}
+                    {(liveLabel || "Text").split("\n").map((line, index) => (
+                      <tspan
+                        key={`${note.id}-${index}`}
+                        x={box.x + TEXT_NOTE_PADDING_X}
+                        dy={index === 0 ? 0 : note.fontSize * TEXT_NOTE_LINE_HEIGHT}
+                      >
+                        {line || " "}
+                      </tspan>
+                    ))}
                   </text>
                 </g>
               );
@@ -1395,8 +1415,12 @@ export default function DrawSitePlanPage() {
                     updateTextNote(editingTextNote.id, { text: v });
                   }}
                   onBlur={() => setEditingTextId(null)}
-                  className="pointer-events-auto w-full h-full px-2 py-1 rounded-md border border-blue-300 bg-white text-gray-900 outline-none resize-none"
-                  style={{ fontSize: `${Math.max(16, editingTextNote.fontSize * 22)}px`, lineHeight: 1.2 }}
+                  className="pointer-events-auto w-full h-full rounded-md border border-blue-300 bg-white text-gray-900 outline-none resize-none"
+                  style={{
+                    fontSize: `${Math.max(16, editingTextNote.fontSize * 22)}px`,
+                    lineHeight: TEXT_NOTE_LINE_HEIGHT,
+                    padding: `${TEXT_NOTE_PADDING_Y * 22}px ${TEXT_NOTE_PADDING_X * 22}px`,
+                  }}
                 />
               </div>
             );
