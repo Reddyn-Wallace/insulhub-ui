@@ -148,6 +148,7 @@ export default function DrawSitePlanPage() {
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [textEditValue, setTextEditValue] = useState("");
   const [draggingGroup, setDraggingGroup] = useState(false);
+  const textInputRef = useRef<HTMLInputElement | null>(null);
   const [selectionStart, setSelectionStart] = useState<Point | null>(null);
   const [selectionCurrent, setSelectionCurrent] = useState<Point | null>(null);
   const [draggingEndpoint, setDraggingEndpoint] = useState<{ wallId: string; end: "start" | "end" } | null>(null);
@@ -256,6 +257,15 @@ export default function DrawSitePlanPage() {
     }
   }, [id, job]);
 
+  useEffect(() => {
+    if (editingTextId) {
+      requestAnimationFrame(() => {
+        textInputRef.current?.focus();
+        textInputRef.current?.select();
+      });
+    }
+  }, [editingTextId]);
+
   const toGridPointRaw = useCallback((clientX: number, clientY: number): Point | null => {
     const svg = svgRef.current;
     if (!svg) return null;
@@ -341,6 +351,11 @@ export default function DrawSitePlanPage() {
     setEditingTextId(note.id);
     setTextEditValue(note.text);
     setMode("select");
+  }
+
+  function startEditingTextNote(note: TextNote) {
+    setEditingTextId(note.id);
+    setTextEditValue(note.text);
   }
 
   function updateTextNote(id: string, patch: Partial<TextNote>) {
@@ -448,12 +463,23 @@ export default function DrawSitePlanPage() {
       return;
     }
 
+    const textHit = findTextNear(p);
+    if (textHit) {
+      setDraggingTextId(textHit.id);
+      setDragStartPoint(p);
+      dragActivatedRef.current = false;
+      svgRef.current?.setPointerCapture(e.pointerId);
+      capturedPointerIdRef.current = e.pointerId;
+      return;
+    }
+
     const hit = findWallNear(p);
     if (hit) {
       const alreadySelected = activeSelectionIds.includes(hit.id);
       const moveIds = alreadySelected ? activeSelectionIds : [hit.id];
       if (!alreadySelected) setSelectedWallIds([hit.id]);
       setSelectedWallId(hit.id);
+      setEditingTextId(null);
       setDragStartPoint(p);
       setDragSnapshot(
         walls
@@ -465,7 +491,7 @@ export default function DrawSitePlanPage() {
       const wdLinked: { wallId: string; end: "start" | "end"; originalPos: Point }[] = [];
       const seenKey = new Set<string>();
       for (const mw of walls.filter(w => moveIds.includes(w.id))) {
-        for (const { pt, e } of [{ pt: mw.start, e: "start" as const }, { pt: mw.end, e: "end" as const }]) {
+        for (const { pt } of [{ pt: mw.start }, { pt: mw.end }]) {
           for (const neighbor of findLinkedEndpoints(pt, mw.id, walls)) {
             if (!moveIdSet.has(neighbor.wallId)) {
               const key = `${neighbor.wallId}:${neighbor.end}`;
@@ -491,15 +517,6 @@ export default function DrawSitePlanPage() {
       } else {
         setDraggingWallId(hit.id);
       }
-    }
-
-    const textHit = findTextNear(p);
-    if (textHit) {
-      setDraggingTextId(textHit.id);
-      setEditingTextId(textHit.id);
-      setTextEditValue(textHit.text);
-      svgRef.current?.setPointerCapture(e.pointerId);
-      capturedPointerIdRef.current = e.pointerId;
       return;
     }
 
@@ -507,6 +524,7 @@ export default function DrawSitePlanPage() {
     setSelectionCurrent(p);
     setSelectedWallId(null);
     setSelectedWallIds([]);
+    setEditingTextId(null);
   }
 
   function pointerMove(e: React.PointerEvent<SVGSVGElement>) {
@@ -566,6 +584,10 @@ export default function DrawSitePlanPage() {
     }
 
     if (draggingTextId) {
+      if (!dragActivatedRef.current) {
+        if (distance(p, dragStartPoint ?? p) < DRAG_DEAD_ZONE) return;
+        dragActivatedRef.current = true;
+      }
       setTextNotes((prev) => prev.map((n) => n.id === draggingTextId ? { ...n, x: p.x, y: p.y } : n));
       return;
     }
@@ -666,6 +688,8 @@ export default function DrawSitePlanPage() {
       try { svgRef.current.releasePointerCapture(capturedPointerIdRef.current); } catch {}
       capturedPointerIdRef.current = null;
     }
+    const wasDraggingText = draggingTextId;
+    const textDragActivated = dragActivatedRef.current;
     linkedEndpointsRef.current = [];
     dragAnchorRef.current = null;
     wallDragLinkedSnapshotRef.current = [];
@@ -724,6 +748,11 @@ export default function DrawSitePlanPage() {
     setSelectionStart(null);
     setSelectionCurrent(null);
     setSnapGuide(null);
+
+    if (wasDraggingText && !textDragActivated) {
+      const note = textNotes.find((n) => n.id === wasDraggingText);
+      if (note) startEditingTextNote(note);
+    }
   }
 
   function removeSelectedWall() {
@@ -1106,7 +1135,7 @@ export default function DrawSitePlanPage() {
               return (
                 <g
                   key={note.id}
-                  onDoubleClick={() => { setEditingTextId(note.id); setTextEditValue(note.text); }}
+                  onDoubleClick={() => startEditingTextNote(note)}
                   style={{ cursor: "move" }}
                 >
                   <rect
@@ -1119,9 +1148,31 @@ export default function DrawSitePlanPage() {
                     strokeWidth={0.05}
                     rx={0.08}
                   />
-                  <text x={note.x} y={note.y - 0.06} fontSize={0.28} fill="#1f2937" textAnchor="middle">
-                    {label || "Text"}
-                  </text>
+                  {isEditing ? (
+                    <foreignObject
+                      x={note.x - 1.7}
+                      y={note.y - 0.48}
+                      width={3.4}
+                      height={0.7}
+                    >
+                      <input
+                        ref={textInputRef}
+                        value={textEditValue}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setTextEditValue(v);
+                          updateTextNote(note.id, { text: v });
+                        }}
+                        onBlur={() => setEditingTextId(null)}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        className="w-full h-full px-2 rounded-md border border-amber-300 bg-white text-[12px] text-gray-900 outline-none"
+                      />
+                    </foreignObject>
+                  ) : (
+                    <text x={note.x} y={note.y - 0.06} fontSize={0.28} fill="#1f2937" textAnchor="middle">
+                      {label || "Text"}
+                    </text>
+                  )}
                 </g>
               );
             })}
@@ -1301,30 +1352,12 @@ export default function DrawSitePlanPage() {
         <div className="flex-1" />
 
         {editingTextId && (
-          <div className="flex items-center gap-2 max-w-[42vw]">
-            <input
-              value={textEditValue}
-              onChange={(e) => {
-                const v = e.target.value;
-                setTextEditValue(v);
-                updateTextNote(editingTextId, { text: v });
-              }}
-              placeholder="Text"
-              className="min-w-0 w-full max-w-[240px] h-10 px-3 rounded-xl border border-amber-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400/30"
-            />
-            <button
-              onClick={() => setEditingTextId(null)}
-              className="h-10 px-3 rounded-xl text-sm font-medium bg-amber-100 text-amber-800 active:bg-amber-200"
-            >
-              Done
-            </button>
-            <button
-              onClick={() => deleteTextNote(editingTextId)}
-              className="h-10 px-3 rounded-xl text-sm font-medium bg-red-50 text-red-600 active:bg-red-100"
-            >
-              Delete
-            </button>
-          </div>
+          <button
+            onClick={() => deleteTextNote(editingTextId)}
+            className="h-10 px-3 rounded-xl text-sm font-medium bg-red-50 text-red-600 active:bg-red-100"
+          >
+            Delete Text
+          </button>
         )}
 
         {/* Undo */}
