@@ -9,10 +9,12 @@ type WallStyle = "solid" | "dotted";
 type Point = { x: number; y: number };
 type Wall = { id: string; start: Point; end: Point; style: WallStyle; lengthOverride?: number | null };
 type WallSnapshot = { id: string; start: Point; end: Point };
+type TextNote = { id: string; text: string; x: number; y: number };
 type SnapGuide = { kind: "horizontal" | "vertical" | "endpoint"; point?: Point; lineValue?: number } | null;
 
 type Job = {
   _id: string;
+  jobNumber?: string;
   quote?: { date?: string; files_QuoteSitePlan?: string[] };
   client?: { contactDetails?: { streetAddress?: string; suburb?: string; city?: string; postCode?: string } };
 };
@@ -21,6 +23,7 @@ const JOB_QUERY = `
   query Job($_id: ObjectId!) {
     job(_id: $_id) {
       _id
+      jobNumber
       quote { date files_QuoteSitePlan }
       client { contactDetails { streetAddress suburb city postCode } }
     }
@@ -128,17 +131,22 @@ export default function DrawSitePlanPage() {
 
   const [job, setJob] = useState<Job | null>(null);
   const [walls, setWalls] = useState<Wall[]>([]);
-  const [wallHistory, setWallHistory] = useState<Wall[][]>([]);
+  const [textNotes, setTextNotes] = useState<TextNote[]>([]);
+  const [history, setHistory] = useState<{ walls: Wall[]; textNotes: TextNote[] }[]>([]);
   const [selectedWallId, setSelectedWallId] = useState<string | null>(null);
   const [selectedWallIds, setSelectedWallIds] = useState<string[]>([]);
   const [mode, setMode] = useState<"trace" | "single" | "select">("trace");
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
   const [showDimensions, setShowDimensions] = useState(true);
+  const [saveFilename, setSaveFilename] = useState("");
 
   const [drawStart, setDrawStart] = useState<Point | null>(null);
   const [hoverPoint, setHoverPoint] = useState<Point | null>(null);
   const [draggingWallId, setDraggingWallId] = useState<string | null>(null);
+  const [draggingTextId, setDraggingTextId] = useState<string | null>(null);
+  const [editingTextId, setEditingTextId] = useState<string | null>(null);
+  const [textEditValue, setTextEditValue] = useState("");
   const [draggingGroup, setDraggingGroup] = useState(false);
   const [selectionStart, setSelectionStart] = useState<Point | null>(null);
   const [selectionCurrent, setSelectionCurrent] = useState<Point | null>(null);
@@ -241,6 +249,13 @@ export default function DrawSitePlanPage() {
     })().catch((e) => setNotice(e instanceof Error ? e.message : "Failed to load"));
   }, [id]);
 
+  useEffect(() => {
+    if (job) {
+      const fallback = `siteplan-${job.jobNumber || id}-${Date.now()}.pdf`;
+      setSaveFilename(fallback);
+    }
+  }, [id, job]);
+
   const toGridPointRaw = useCallback((clientX: number, clientY: number): Point | null => {
     const svg = svgRef.current;
     if (!svg) return null;
@@ -289,16 +304,18 @@ export default function DrawSitePlanPage() {
   }
 
   function pushHistory() {
-    setWallHistory(prev => [...prev.slice(-50), walls]);
+    setHistory(prev => [...prev.slice(-50), { walls, textNotes }]);
   }
 
   function undo() {
-    if (!wallHistory.length) return;
-    const previous = wallHistory[wallHistory.length - 1];
-    setWalls(previous);
-    setWallHistory(prev => prev.slice(0, -1));
+    if (!history.length) return;
+    const previous = history[history.length - 1];
+    setWalls(previous.walls);
+    setTextNotes(previous.textNotes);
+    setHistory(prev => prev.slice(0, -1));
     setSelectedWallId(null);
     setSelectedWallIds([]);
+    setEditingTextId(null);
     setDrawStart(null);
     setHoverPoint(null);
   }
@@ -313,6 +330,40 @@ export default function DrawSitePlanPage() {
     setDrawStart(null);
     setHoverPoint(null);
     setMode("select");
+  }
+
+  function addTextNote() {
+    const nextX = Math.max(1, Math.min(CELLS_X - 1, (selectionBounds?.cx ?? CELLS_X / 2)));
+    const nextY = Math.max(1, Math.min(CELLS_Y - 1, (selectionBounds?.cy ?? CELLS_Y / 2)));
+    pushHistory();
+    const note: TextNote = { id: makeId(), text: "New text", x: nextX, y: nextY };
+    setTextNotes((prev) => [...prev, note]);
+    setEditingTextId(note.id);
+    setTextEditValue(note.text);
+    setMode("select");
+  }
+
+  function updateTextNote(id: string, patch: Partial<TextNote>) {
+    setTextNotes((prev) => prev.map((n) => n.id === id ? { ...n, ...patch } : n));
+  }
+
+  function deleteTextNote(id: string) {
+    pushHistory();
+    setTextNotes((prev) => prev.filter((n) => n.id !== id));
+    if (editingTextId === id) setEditingTextId(null);
+  }
+
+  function findTextNear(p: Point) {
+    let best: TextNote | null = null;
+    let bestDist = 999;
+    for (const note of textNotes) {
+      const d = distance(p, { x: note.x, y: note.y });
+      if (d < bestDist) {
+        bestDist = d;
+        best = note;
+      }
+    }
+    return bestDist <= 0.6 ? best : null;
   }
 
   function pointerDown(e: React.PointerEvent<SVGSVGElement>) {
@@ -440,12 +491,23 @@ export default function DrawSitePlanPage() {
       } else {
         setDraggingWallId(hit.id);
       }
-    } else {
-      setSelectionStart(p);
-      setSelectionCurrent(p);
-      setSelectedWallId(null);
-      setSelectedWallIds([]);
     }
+
+    const textHit = findTextNear(p);
+    if (textHit) {
+      setDraggingTextId(textHit.id);
+      setEditingTextId(textHit.id);
+      setTextEditValue(textHit.text);
+      svgRef.current?.setPointerCapture(e.pointerId);
+      capturedPointerIdRef.current = e.pointerId;
+      return;
+    }
+
+    setSelectionStart(p);
+    setSelectionCurrent(p);
+    setSelectedWallId(null);
+    setSelectedWallIds([]);
+  }
   }
 
   function pointerMove(e: React.PointerEvent<SVGSVGElement>) {
@@ -501,6 +563,11 @@ export default function DrawSitePlanPage() {
         };
         return { ...w, start: rot(src.start), end: rot(src.end) };
       }));
+      return;
+    }
+
+    if (draggingTextId) {
+      setTextNotes((prev) => prev.map((n) => n.id === draggingTextId ? { ...n, x: p.x, y: p.y } : n));
       return;
     }
 
@@ -604,6 +671,7 @@ export default function DrawSitePlanPage() {
     dragAnchorRef.current = null;
     wallDragLinkedSnapshotRef.current = [];
     setDraggingWallId(null);
+    setDraggingTextId(null);
     setDraggingEndpoint(null);
     setDraggingGroup(false);
     setDragStartPoint(null);
@@ -763,6 +831,17 @@ export default function DrawSitePlanPage() {
         }
       }
 
+      for (const note of textNotes) {
+        const p = toPdf({ x: note.x, y: note.y });
+        page.drawText(toWinAnsiSafe(note.text), {
+          x: p.x,
+          y: p.y,
+          size: 11,
+          color: rgb(0.1, 0.1, 0.1),
+          maxWidth: 220,
+        });
+      }
+
       if (address) {
         page.drawText(toWinAnsiSafe(address), {
           x: 145,
@@ -775,7 +854,8 @@ export default function DrawSitePlanPage() {
 
       const pdfBytes = await pdfDoc.save();
       const blob = new Blob([new Uint8Array(pdfBytes)], { type: "application/pdf" });
-      const filename = `siteplan-${id}-${Date.now()}.pdf`;
+      const cleanedFilename = saveFilename.trim().replace(/\.pdf$/i, "").replace(/[\\/]/g, "-") || `siteplan-${job?.jobNumber || id}-${Date.now()}`;
+      const filename = `${cleanedFilename}.pdf`;
       const file = new File([blob], filename, { type: "application/pdf" });
 
       const uploadData = new FormData();
@@ -789,9 +869,6 @@ export default function DrawSitePlanPage() {
       const uploaded = (uploadJson.fileNames || []) as string[];
       if (!uploaded.length) throw new Error("Upload failed");
 
-      for (const existing of job?.quote?.files_QuoteSitePlan || []) {
-        await gql(REMOVE_FILE, { _id: id, documentType: "QUOTE_SITE_PLAN", fileName: existing });
-      }
       await gql(ADD_FILES, { _id: id, documentType: "QUOTE_SITE_PLAN", fileNames: [uploaded[0]] });
 
       setNotice("Site plan saved successfully.");
@@ -819,13 +896,21 @@ export default function DrawSitePlanPage() {
         <span className="absolute left-1/2 -translate-x-1/2 text-sm font-semibold text-[#1a3a4a] pointer-events-none">
           Site Plan
         </span>
-        <button
-          onClick={saveCompletedSitePlan}
-          disabled={saving}
-          className="bg-[#1a3a4a] text-white px-4 h-10 rounded-xl text-sm font-semibold disabled:opacity-60 active:opacity-80"
-        >
-          {saving ? "Saving…" : "Save & Done"}
-        </button>
+        <div className="flex items-center gap-2 flex-1 justify-end max-w-[68vw]">
+          <input
+            value={saveFilename}
+            onChange={(e) => setSaveFilename(e.target.value)}
+            placeholder="siteplan filename"
+            className="min-w-0 w-full max-w-[280px] h-10 px-3 rounded-xl border border-gray-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1a3a4a]/20"
+          />
+          <button
+            onClick={saveCompletedSitePlan}
+            disabled={saving}
+            className="bg-[#1a3a4a] text-white px-4 h-10 rounded-xl text-sm font-semibold disabled:opacity-60 active:opacity-80"
+          >
+            {saving ? "Saving…" : "Save & Done"}
+          </button>
+        </div>
       </div>
 
       {/* Notice toast */}
@@ -1015,6 +1100,33 @@ export default function DrawSitePlanPage() {
               <circle key={`j${i}`} cx={pt.x} cy={pt.y} r={0.13} fill="#0f766e" opacity={0.75} />
             ))}
 
+            {/* Text annotations */}
+            {textNotes.map((note) => {
+              const isEditing = editingTextId === note.id;
+              const label = note.text || "";
+              return (
+                <g
+                  key={note.id}
+                  onDoubleClick={() => { setEditingTextId(note.id); setTextEditValue(note.text); }}
+                  style={{ cursor: "move" }}
+                >
+                  <rect
+                    x={note.x - Math.min(2.2, Math.max(1.6, label.length * 0.12 + 0.8)) / 2}
+                    y={note.y - 0.42}
+                    width={Math.min(2.2, Math.max(1.6, label.length * 0.12 + 0.8))}
+                    height={0.5}
+                    fill={isEditing ? "#eff6ff" : "#fff7ed"}
+                    stroke={isEditing ? "#2563eb" : "#f59e0b"}
+                    strokeWidth={0.05}
+                    rx={0.08}
+                  />
+                  <text x={note.x} y={note.y - 0.06} fontSize={0.28} fill="#1f2937" textAnchor="middle">
+                    {label || "Text"}
+                  </text>
+                </g>
+              );
+            })}
+
             {/* Draw start dot */}
             {drawStart && (mode === "trace" || mode === "single") && (
               <circle cx={drawStart.x} cy={drawStart.y} r={0.18} fill="#0f766e" />
@@ -1171,20 +1283,55 @@ export default function DrawSitePlanPage() {
           </>
         )}
         {mode === "select" && (
-          <button
-            onClick={() => { setMode("single"); setDrawStart(null); setHoverPoint(null); }}
-            className="h-10 px-4 rounded-xl text-sm font-medium bg-gray-100 text-gray-700 flex-shrink-0 active:bg-gray-200"
-          >
-            + Wall
-          </button>
+          <>
+            <button
+              onClick={() => { setMode("single"); setDrawStart(null); setHoverPoint(null); }}
+              className="h-10 px-4 rounded-xl text-sm font-medium bg-gray-100 text-gray-700 flex-shrink-0 active:bg-gray-200"
+            >
+              + Wall
+            </button>
+            <button
+              onClick={addTextNote}
+              className="h-10 px-4 rounded-xl text-sm font-medium bg-amber-100 text-amber-800 flex-shrink-0 active:bg-amber-200"
+            >
+              + Text
+            </button>
+          </>
         )}
 
         <div className="flex-1" />
 
+        {editingTextId && (
+          <div className="flex items-center gap-2 max-w-[42vw]">
+            <input
+              value={textEditValue}
+              onChange={(e) => {
+                const v = e.target.value;
+                setTextEditValue(v);
+                updateTextNote(editingTextId, { text: v });
+              }}
+              placeholder="Text"
+              className="min-w-0 w-full max-w-[240px] h-10 px-3 rounded-xl border border-amber-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400/30"
+            />
+            <button
+              onClick={() => setEditingTextId(null)}
+              className="h-10 px-3 rounded-xl text-sm font-medium bg-amber-100 text-amber-800 active:bg-amber-200"
+            >
+              Done
+            </button>
+            <button
+              onClick={() => deleteTextNote(editingTextId)}
+              className="h-10 px-3 rounded-xl text-sm font-medium bg-red-50 text-red-600 active:bg-red-100"
+            >
+              Delete
+            </button>
+          </div>
+        )}
+
         {/* Undo */}
         <button
           onClick={undo}
-          disabled={!wallHistory.length}
+          disabled={!history.length}
           className="h-10 w-10 rounded-xl flex items-center justify-center bg-gray-100 text-gray-700 disabled:opacity-30 flex-shrink-0 active:bg-gray-200 text-base"
           title="Undo"
         >
@@ -1208,8 +1355,10 @@ export default function DrawSitePlanPage() {
             if (!walls.length) return;
             pushHistory();
             setWalls([]);
+            setTextNotes([]);
             setSelectedWallId(null);
             setSelectedWallIds([]);
+            setEditingTextId(null);
             setDrawStart(null);
             setHoverPoint(null);
           }}
