@@ -2027,22 +2027,35 @@ export default function JobDetailPage() {
 
           <div className="flex flex-col py-2 border-b border-gray-50">
             <span className="text-xs text-gray-400 uppercase tracking-wide font-medium">Quote Booking</span>
-            <div className="mt-1.5 flex items-center gap-2">
+            <div className="mt-1.5 flex items-center justify-between gap-3">
               <span className="text-sm text-gray-800">{job.lead?.quoteBookingDate ? fmtDateTime(job.lead.quoteBookingDate, true) : "Not set"}</span>
-              <button onClick={() => openSheet("booking")} className="text-xs text-[#e85d04] font-medium">{job.lead?.quoteBookingDate ? "Edit" : "Set"}</button>
-              {job.lead?.quoteBookingDate && (
-                <button onClick={clearQuoteBookingDate} className="text-xs text-red-600 font-medium">Remove</button>
-              )}
+              <div className="flex items-center gap-2 shrink-0">
+                <button onClick={() => openSheet("booking")} className="h-8 w-8 rounded-full bg-orange-50 text-[#e85d04] flex items-center justify-center text-sm font-medium" aria-label={job.lead?.quoteBookingDate ? "Edit quote booking date" : "Set quote booking date"}>
+                  ✏️
+                </button>
+                {job.lead?.quoteBookingDate && (
+                  <button onClick={clearQuoteBookingDate} className="h-8 w-8 rounded-full bg-red-50 text-red-600 flex items-center justify-center text-sm font-medium" aria-label="Remove quote booking date">
+                    🗑️
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
           <div className="flex flex-col py-2">
             <span className="text-xs text-gray-400 uppercase tracking-wide font-medium">Callback</span>
-            <div className="mt-1.5 flex items-center gap-2">
+            <div className="mt-1.5 flex items-center justify-between gap-3">
               <span className="text-sm text-gray-800">{displayCallbackDate ? fmt(displayCallbackDate) : "Not set"}</span>
-              {displayCallbackDate && (
-                <button onClick={() => openSheet("callback")} className="text-xs text-[#e85d04] font-medium">Edit</button>
-              )}
+              <div className="flex items-center gap-2 shrink-0">
+                <button onClick={() => openSheet("callback")} className="h-8 w-8 rounded-full bg-orange-50 text-[#e85d04] flex items-center justify-center text-sm font-medium" aria-label={displayCallbackDate ? "Edit callback date" : "Set callback date"}>
+                  ✏️
+                </button>
+                {displayCallbackDate && (
+                  <button onClick={clearCallbackDate} className="h-8 w-8 rounded-full bg-red-50 text-red-600 flex items-center justify-center text-sm font-medium" aria-label="Remove callback date">
+                    🗑️
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </Section>
@@ -2435,10 +2448,6 @@ export default function JobDetailPage() {
           <button onClick={saveCallbackDate} disabled={saving || !callbackDate}
             className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
             {saving ? "Saving..." : "Save"}
-          </button>
-          <button onClick={clearCallbackDate} disabled={saving || !job?.lead?.callbackDate}
-            className="px-4 py-3 bg-red-50 text-red-600 rounded-xl text-sm font-medium disabled:opacity-40">
-            Remove
           </button>
           <a href={buildGCalUrl("Callback", callbackDate, 30)}
             target="_blank" rel="noopener noreferrer"
