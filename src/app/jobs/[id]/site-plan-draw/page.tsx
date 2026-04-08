@@ -11,6 +11,7 @@ type Wall = { id: string; start: Point; end: Point; style: WallStyle; lengthOver
 type WallSnapshot = { id: string; start: Point; end: Point };
 type TextNote = { id: string; text: string; x: number; y: number };
 type TextMode = "idle" | "placing";
+type TextHitTarget = "body" | "handle";
 type SnapGuide = { kind: "horizontal" | "vertical" | "endpoint"; point?: Point; lineValue?: number } | null;
 
 type Job = {
@@ -73,6 +74,14 @@ const WALL_DRAG_ENDPOINT_SNAP_RADIUS = 0.3;
 const DRAG_DEAD_ZONE = 0.18;
 const ROTATE_SOFT_SNAP_DEG = 2.5;
 const ROTATE_RELEASE_SNAP_DEG = 3.0;
+const TEXT_NOTE_MIN_WIDTH = 2.2;
+const TEXT_NOTE_MAX_WIDTH = 6.8;
+const TEXT_NOTE_CHAR_WIDTH = 0.19;
+const TEXT_NOTE_BASE_WIDTH = 1.2;
+const TEXT_NOTE_HEIGHT = 0.8;
+const TEXT_NOTE_HANDLE_GAP = 0.22;
+const TEXT_NOTE_HANDLE_RADIUS = 0.2;
+const TEXT_NOTE_HIT_PAD = 0.16;
 
 function snap(v: number) { return Math.round(v / SNAP_STEP) * SNAP_STEP; }
 function distance(a: Point, b: Point) { return Math.hypot(a.x - b.x, a.y - b.y); }
@@ -113,6 +122,25 @@ function orthoKind(start: Point, end: Point, threshold: number = ORTHO_SNAP_THRE
   if (Math.abs(dx) <= Math.abs(dy) * threshold) return "vertical";
   return null;
 }
+function getTextNoteWidth(text: string): number {
+  return Math.max(TEXT_NOTE_MIN_WIDTH, Math.min(TEXT_NOTE_MAX_WIDTH, text.length * TEXT_NOTE_CHAR_WIDTH + TEXT_NOTE_BASE_WIDTH));
+}
+function getTextNoteBox(note: TextNote, liveText: string) {
+  const width = getTextNoteWidth(liveText || "");
+  return {
+    width,
+    height: TEXT_NOTE_HEIGHT,
+    x: note.x - width / 2,
+    y: note.y - TEXT_NOTE_HEIGHT * 0.72,
+  };
+}
+function getTextNoteHandleCenter(note: TextNote, liveText: string): Point {
+  const box = getTextNoteBox(note, liveText);
+  return {
+    x: box.x + box.width + TEXT_NOTE_HANDLE_GAP,
+    y: box.y + box.height / 2,
+  };
+}
 
 const JUNCTION_EPSILON = 0.012;
 function findLinkedEndpoints(pt: Point, excludeWallId: string, walls: Wall[]): { wallId: string; end: "start" | "end" }[] {
@@ -150,7 +178,6 @@ export default function DrawSitePlanPage() {
   const [textEditValue, setTextEditValue] = useState("");
   const [textMode, setTextMode] = useState<TextMode>("idle");
   const [draggingGroup, setDraggingGroup] = useState(false);
-  const textWasEditingRef = useRef(false);
   const textInputRef = useRef<HTMLInputElement | null>(null);
   const [selectionStart, setSelectionStart] = useState<Point | null>(null);
   const [selectionCurrent, setSelectionCurrent] = useState<Point | null>(null);
@@ -170,6 +197,7 @@ export default function DrawSitePlanPage() {
   const canvasAreaRef = useRef<HTMLDivElement>(null);
   const [canvasDims, setCanvasDims] = useState<{ w: number; h: number } | null>(null);
   const dragActivatedRef = useRef(false);
+  const textDragOffsetRef = useRef<Point | null>(null);
   const capturedPointerIdRef = useRef<number | null>(null);
   const isEditingLengthRef = useRef(false);
   const linkedEndpointsRef = useRef<{ wallId: string; end: "start" | "end" }[]>([]);
@@ -244,6 +272,10 @@ export default function DrawSitePlanPage() {
     }
     return points;
   }, [walls]);
+  const editingTextNote = useMemo(
+    () => (editingTextId ? textNotes.find((n) => n.id === editingTextId) ?? null : null),
+    [editingTextId, textNotes]
+  );
 
   useEffect(() => {
     if (!id) return;
@@ -377,17 +409,23 @@ export default function DrawSitePlanPage() {
     if (editingTextId === id) setEditingTextId(null);
   }
 
-  function findTextNear(p: Point) {
-    let best: TextNote | null = null;
-    let bestDist = 999;
-    for (const note of textNotes) {
-      const d = distance(p, { x: note.x, y: note.y });
-      if (d < bestDist) {
-        bestDist = d;
-        best = note;
+  function findTextHit(p: Point): { note: TextNote; target: TextHitTarget } | null {
+    for (let i = textNotes.length - 1; i >= 0; i -= 1) {
+      const note = textNotes[i];
+      const liveText = editingTextId === note.id ? textEditValue : note.text;
+      const box = getTextNoteBox(note, liveText);
+      const handle = getTextNoteHandleCenter(note, liveText);
+      const handleRadius = activePointerType === "touch" ? 0.34 : TEXT_NOTE_HANDLE_RADIUS + 0.08;
+      if (distance(p, handle) <= handleRadius) {
+        return { note, target: "handle" };
+      }
+      const inX = p.x >= box.x - TEXT_NOTE_HIT_PAD && p.x <= box.x + box.width + TEXT_NOTE_HIT_PAD;
+      const inY = p.y >= box.y - TEXT_NOTE_HIT_PAD && p.y <= box.y + box.height + TEXT_NOTE_HIT_PAD;
+      if (inX && inY) {
+        return { note, target: "body" };
       }
     }
-    return bestDist <= 0.6 ? best : null;
+    return null;
   }
 
   function pointerDown(e: React.PointerEvent<SVGSVGElement>) {
@@ -445,6 +483,30 @@ export default function DrawSitePlanPage() {
       return;
     }
 
+    const textHit = findTextHit(p);
+    if (textHit) {
+      setSelectedWallId(null);
+      setSelectedWallIds([]);
+      if (textHit.target === "body") {
+        startEditingTextNote(textHit.note);
+        return;
+      }
+      pushHistory();
+      setTextMode("idle");
+      setEditingTextId(null);
+      setDraggingTextId(textHit.note.id);
+      setDragStartPoint(p);
+      textDragOffsetRef.current = { x: p.x - textHit.note.x, y: p.y - textHit.note.y };
+      dragActivatedRef.current = true;
+      svgRef.current?.setPointerCapture(e.pointerId);
+      capturedPointerIdRef.current = e.pointerId;
+      return;
+    }
+
+    if (editingTextId) {
+      setEditingTextId(null);
+    }
+
     if (activeSelectionIds.length > 0 && findRotateHandleNear(p) && selectionBounds) {
       pushHistory();
       const snap = walls
@@ -472,18 +534,6 @@ export default function DrawSitePlanPage() {
         linkedEndpointsRef.current = findLinkedEndpoints(origPt, endpoint.wallId, walls);
         dragAnchorRef.current = endpoint.end === "start" ? { ...ew.end } : { ...ew.start };
       }
-      svgRef.current?.setPointerCapture(e.pointerId);
-      capturedPointerIdRef.current = e.pointerId;
-      return;
-    }
-
-    const textHit = findTextNear(p);
-    if (textHit) {
-      setDraggingTextId(textHit.id);
-      setDragStartPoint(p);
-      dragActivatedRef.current = false;
-      textWasEditingRef.current = editingTextId === textHit.id;
-      if (editingTextId !== textHit.id) startEditingTextNote(textHit);
       svgRef.current?.setPointerCapture(e.pointerId);
       capturedPointerIdRef.current = e.pointerId;
       return;
@@ -600,11 +650,9 @@ export default function DrawSitePlanPage() {
     }
 
     if (draggingTextId) {
-      if (!dragActivatedRef.current) {
-        if (distance(p, dragStartPoint ?? p) < DRAG_DEAD_ZONE) return;
-        dragActivatedRef.current = true;
-      }
-      setTextNotes((prev) => prev.map((n) => n.id === draggingTextId ? { ...n, x: p.x, y: p.y } : n));
+      const offset = textDragOffsetRef.current ?? { x: 0, y: 0 };
+      const nextCenter = clampPoint({ x: p.x - offset.x, y: p.y - offset.y });
+      setTextNotes((prev) => prev.map((n) => n.id === draggingTextId ? { ...n, x: nextCenter.x, y: nextCenter.y } : n));
       return;
     }
 
@@ -704,16 +752,13 @@ export default function DrawSitePlanPage() {
       try { svgRef.current.releasePointerCapture(capturedPointerIdRef.current); } catch {}
       capturedPointerIdRef.current = null;
     }
-    const wasDraggingText = draggingTextId;
-    const textDragActivated = dragActivatedRef.current;
-    const textWasEditing = textWasEditingRef.current;
     linkedEndpointsRef.current = [];
     dragAnchorRef.current = null;
     wallDragLinkedSnapshotRef.current = [];
+    textDragOffsetRef.current = null;
     setDraggingWallId(null);
     setDraggingTextId(null);
     setDraggingEndpoint(null);
-    textWasEditingRef.current = false;
     setDraggingGroup(false);
     setDragStartPoint(null);
     setDragSnapshot([]);
@@ -766,11 +811,6 @@ export default function DrawSitePlanPage() {
     setSelectionStart(null);
     setSelectionCurrent(null);
     setSnapGuide(null);
-
-    if (wasDraggingText) {
-      const note = textNotes.find((n) => n.id === wasDraggingText);
-      if (note && !textDragActivated && !textWasEditing) startEditingTextNote(note);
-    }
   }
 
   function removeSelectedWall() {
@@ -1150,54 +1190,59 @@ export default function DrawSitePlanPage() {
             {textNotes.map((note) => {
               const isEditing = editingTextId === note.id;
               const liveLabel = isEditing ? textEditValue : note.text;
-              const label = liveLabel || "";
-              const boxWidth = Math.max(2.2, Math.min(6.8, label.length * 0.19 + 1.2));
+              const box = getTextNoteBox(note, liveLabel);
+              const handle = getTextNoteHandleCenter(note, liveLabel);
               return (
                 <g key={note.id}>
                   <rect
-                    x={note.x - boxWidth / 2}
-                    y={note.y - 0.58}
-                    width={boxWidth}
-                    height={0.8}
+                    x={box.x}
+                    y={box.y}
+                    width={box.width}
+                    height={box.height}
                     fill={isEditing ? "#eff6ff" : "#fff7ed"}
                     stroke={isEditing ? "#2563eb" : "#f59e0b"}
                     strokeWidth={0.06}
                     rx={0.12}
                   />
                   <text
-                    x={note.x}
-                    y={note.y - 0.02}
+                    x={box.x + 0.18}
+                    y={box.y + box.height / 2 + 0.02}
                     fontSize={0.42}
-                    fill="#1f2937"
-                    textAnchor="middle"
+                    fill={liveLabel ? "#1f2937" : "#6b7280"}
+                    textAnchor="start"
+                    dominantBaseline="middle"
                     direction="ltr"
-                    unicodeBidi="plaintext"
-                    style={{ cursor: isEditing ? "move" : "text", pointerEvents: isEditing ? "none" : "auto" }}
+                    unicodeBidi="normal"
+                    style={{ cursor: "text", pointerEvents: "none" }}
                   >
-                    {label || "Text"}
+                    {liveLabel || "Text"}
                   </text>
-                  {isEditing && (
-                    <foreignObject
-                      x={note.x - boxWidth / 2}
-                      y={note.y - 0.58}
-                      width={boxWidth}
-                      height={0.8}
-                    >
-                      <input
-                        ref={textInputRef}
-                        value={textEditValue}
-                        dir="ltr"
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setTextEditValue(v);
-                          updateTextNote(note.id, { text: v });
-                        }}
-                        onBlur={() => setEditingTextId(null)}
-                        className="w-full h-full px-2 rounded-md border border-amber-300 bg-white/15 text-[16px] text-gray-900 outline-none"
-                        style={{ background: "transparent" }}
-                      />
-                    </foreignObject>
-                  )}
+                  <circle
+                    cx={handle.x}
+                    cy={handle.y}
+                    r={TEXT_NOTE_HANDLE_RADIUS}
+                    fill={draggingTextId === note.id ? "#0f766e" : "white"}
+                    stroke={draggingTextId === note.id ? "#0f766e" : "#475569"}
+                    strokeWidth={0.07}
+                  />
+                  <line
+                    x1={handle.x - 0.08}
+                    y1={handle.y}
+                    x2={handle.x + 0.08}
+                    y2={handle.y}
+                    stroke={draggingTextId === note.id ? "white" : "#334155"}
+                    strokeWidth={0.04}
+                    strokeLinecap="round"
+                  />
+                  <line
+                    x1={handle.x}
+                    y1={handle.y - 0.08}
+                    x2={handle.x}
+                    y2={handle.y + 0.08}
+                    stroke={draggingTextId === note.id ? "white" : "#334155"}
+                    strokeWidth={0.04}
+                    strokeLinecap="round"
+                  />
                 </g>
               );
             })}
@@ -1312,6 +1357,33 @@ export default function DrawSitePlanPage() {
               </>
             )}
           </svg>
+          {canvasDims && editingTextNote && (() => {
+            const box = getTextNoteBox(editingTextNote, textEditValue);
+            return (
+              <div
+                className="absolute pointer-events-none"
+                style={{
+                  left: `${(box.x / CELLS_X) * canvasDims.w}px`,
+                  top: `${(box.y / CELLS_Y) * canvasDims.h}px`,
+                  width: `${(box.width / CELLS_X) * canvasDims.w}px`,
+                  height: `${(box.height / CELLS_Y) * canvasDims.h}px`,
+                }}
+              >
+                <input
+                  ref={textInputRef}
+                  value={textEditValue}
+                  dir="ltr"
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setTextEditValue(v);
+                    updateTextNote(editingTextNote.id, { text: v });
+                  }}
+                  onBlur={() => setEditingTextId(null)}
+                  className="pointer-events-auto w-full h-full px-2 rounded-md border border-blue-300 bg-white text-[16px] text-gray-900 outline-none"
+                />
+              </div>
+            );
+          })()}
         </div>
         )}
         </div>
