@@ -378,7 +378,6 @@ export default function JobDetailPage() {
     wallSQMPrice: "", wallSQM: "", wallCavityDepth: "0.1",
     ceilingSQMPrice: "", ceilingSQM: "", ceilingRValue: "", ceilingDownlights: "",
     hasWall: false, hasCeiling: false,
-    emailCustomer: false,
     extras: [] as { name: string; price: string }[],
     totalManual: "",
     depositManual: "",
@@ -388,6 +387,7 @@ export default function JobDetailPage() {
   // Callback / booking dates
   const [callbackDate, setCallbackDate] = useState("");
   const [quoteBookingDate, setQuoteBookingDate] = useState("");
+  const [quoteBookingReminder, setQuoteBookingReminder] = useState(false);
   const [installDate, setInstallDate] = useState("");
   const [consentNumber, setConsentNumber] = useState("");
   const [creatingFinalInvoice, setCreatingFinalInvoice] = useState(false);
@@ -451,6 +451,7 @@ export default function JobDetailPage() {
       });
       setCallbackDate(toDatetimeLocal(j.lead?.callbackDate));
       setQuoteBookingDate(toDatetimeLocal(j.lead?.quoteBookingDate));
+      setQuoteBookingReminder(false);
       setSelectedUserId(j.lead?.allocatedTo?._id || "");
       setLeadSourceForm(j.lead?.leadSource || []);
 
@@ -473,7 +474,6 @@ export default function JobDetailPage() {
           ceilingDownlights: j.quote.ceiling?.downlights?.toString() || "",
           hasWall: !!j.quote.wall?.SQM,
           hasCeiling: !!j.quote.ceiling?.SQM,
-          emailCustomer: false,
           extras: (j.quote.extras && j.quote.extras.length ? j.quote.extras : []).map((x) => ({ name: x.name || "", price: x.price?.toString() || "" })),
           totalManual: "",
           depositManual: "",
@@ -487,7 +487,6 @@ export default function JobDetailPage() {
           date: toDatetimeLocal(j.lead?.quoteBookingDate),
           consentFee: "380",
           depositManual: "",
-          emailCustomer: false,
         }));
       }
     } catch (err) {
@@ -589,6 +588,7 @@ export default function JobDetailPage() {
     allocatedTo: { _id: string } | null;
     callbackDate: string | null;
     quoteBookingDate: string | null;
+    quoteBookingReminder: boolean;
   };
 
   function buildLeadInput(overrides: Partial<LeadInput> = {}) {
@@ -599,6 +599,7 @@ export default function JobDetailPage() {
       allocatedTo: job?.lead?.allocatedTo?._id ? { _id: job.lead.allocatedTo._id } : null,
       callbackDate: job?.lead?.callbackDate || null,
       quoteBookingDate: job?.lead?.quoteBookingDate || null,
+      quoteBookingReminder: false,
       ...overrides,
     };
     return lead;
@@ -903,7 +904,7 @@ export default function JobDetailPage() {
 
   async function saveQuoteBookingDate() {
     await run(() => gql(UPDATE_JOB_LEAD, {
-      input: { _id: id, lead: buildLeadInput({ quoteBookingDate: fromDatetimeLocal(quoteBookingDate) }) },
+      input: { _id: id, lead: buildLeadInput({ quoteBookingDate: fromDatetimeLocal(quoteBookingDate), quoteBookingReminder }) },
     }));
   }
 
@@ -2471,6 +2472,10 @@ export default function JobDetailPage() {
         <div className="mb-4">
           <DateTimeCalendarField value={quoteBookingDate} onChange={setQuoteBookingDate} />
         </div>
+        <label className="flex items-start gap-3 mb-4 text-sm text-gray-700">
+          <input type="checkbox" className="mt-1 w-4 h-4 accent-[#e85d04]" checked={quoteBookingReminder} onChange={(e) => setQuoteBookingReminder(e.target.checked)} />
+          <span>Enable Automated Email Reminder the day before</span>
+        </label>
         <div className="flex gap-2">
           <button onClick={saveQuoteBookingDate} disabled={saving || !quoteBookingDate}
             className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
@@ -2730,10 +2735,6 @@ export default function JobDetailPage() {
               <DateTimeCalendarField value={quoteForm.date} onChange={(next) => setQuoteForm((f) => ({ ...f, date: next }))} />
             </div>
           </div>
-          <label className="flex items-center gap-2 text-sm text-gray-700 -mt-1">
-            <input type="checkbox" checked={quoteForm.emailCustomer} onChange={(e) => setQuoteForm((f) => ({ ...f, emailCustomer: e.target.checked }))} className="w-4 h-4 accent-[#e85d04]" />
-            Email quote to customer
-          </label>
 
           <div className="text-xs uppercase tracking-wide text-gray-400 font-semibold">2) Insulation Inputs</div>
           <div className="border border-gray-200 rounded-xl p-3">
@@ -2854,12 +2855,12 @@ export default function JobDetailPage() {
           {/* Save buttons */}
           <div className="flex flex-col gap-2 pt-2">
             {job.stage === "LEAD" ? (
-              <button onClick={() => saveQuote(false, quoteForm.emailCustomer)} disabled={saving}
+              <button onClick={() => saveQuote(false)} disabled={saving}
                 className="w-full bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
                 {saving ? "Saving..." : "Save & Progress to Quote Stage"}
               </button>
             ) : (
-              <button onClick={() => saveQuote(false, quoteForm.emailCustomer)} disabled={saving}
+              <button onClick={() => saveQuote(false)} disabled={saving}
                 className="w-full bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
                 {saving ? "Saving..." : "Save Quote"}
               </button>
