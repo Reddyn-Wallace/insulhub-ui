@@ -378,6 +378,7 @@ export default function JobDetailPage() {
     wallSQMPrice: "", wallSQM: "", wallCavityDepth: "0.1",
     ceilingSQMPrice: "", ceilingSQM: "", ceilingRValue: "", ceilingDownlights: "",
     hasWall: false, hasCeiling: false,
+    emailCustomer: false,
     extras: [] as { name: string; price: string }[],
     totalManual: "",
     depositManual: "",
@@ -472,6 +473,7 @@ export default function JobDetailPage() {
           ceilingDownlights: j.quote.ceiling?.downlights?.toString() || "",
           hasWall: !!j.quote.wall?.SQM,
           hasCeiling: !!j.quote.ceiling?.SQM,
+          emailCustomer: false,
           extras: (j.quote.extras && j.quote.extras.length ? j.quote.extras : []).map((x) => ({ name: x.name || "", price: x.price?.toString() || "" })),
           totalManual: "",
           depositManual: "",
@@ -485,6 +487,7 @@ export default function JobDetailPage() {
           date: toDatetimeLocal(j.lead?.quoteBookingDate),
           consentFee: "380",
           depositManual: "",
+          emailCustomer: false,
         }));
       }
     } catch (err) {
@@ -2727,6 +2730,10 @@ export default function JobDetailPage() {
               <DateTimeCalendarField value={quoteForm.date} onChange={(next) => setQuoteForm((f) => ({ ...f, date: next }))} />
             </div>
           </div>
+          <label className="flex items-center gap-2 text-sm text-gray-700 -mt-1">
+            <input type="checkbox" checked={quoteForm.emailCustomer} onChange={(e) => setQuoteForm((f) => ({ ...f, emailCustomer: e.target.checked }))} className="w-4 h-4 accent-[#e85d04]" />
+            Email quote to customer
+          </label>
 
           <div className="text-xs uppercase tracking-wide text-gray-400 font-semibold">2) Insulation Inputs</div>
           <div className="border border-gray-200 rounded-xl p-3">
@@ -2847,12 +2854,12 @@ export default function JobDetailPage() {
           {/* Save buttons */}
           <div className="flex flex-col gap-2 pt-2">
             {job.stage === "LEAD" ? (
-              <button onClick={() => saveQuote(false)} disabled={saving}
+              <button onClick={() => saveQuote(false, quoteForm.emailCustomer)} disabled={saving}
                 className="w-full bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
                 {saving ? "Saving..." : "Save & Progress to Quote Stage"}
               </button>
             ) : (
-              <button onClick={() => saveQuote(false)} disabled={saving}
+              <button onClick={() => saveQuote(false, quoteForm.emailCustomer)} disabled={saving}
                 className="w-full bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
                 {saving ? "Saving..." : "Save Quote"}
               </button>
