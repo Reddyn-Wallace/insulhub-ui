@@ -191,6 +191,8 @@ export default function DrawSitePlanPage() {
   const [notice, setNotice] = useState("");
   const [showDimensions, setShowDimensions] = useState(true);
   const [saveFilename, setSaveFilename] = useState("");
+  const [saveChoiceOpen, setSaveChoiceOpen] = useState(false);
+  const [saveMode, setSaveMode] = useState<"exit" | "continue">("exit");
 
   const [drawStart, setDrawStart] = useState<Point | null>(null);
   const [hoverPoint, setHoverPoint] = useState<Point | null>(null);
@@ -929,7 +931,7 @@ export default function DrawSitePlanPage() {
     });
   }
 
-  async function saveCompletedSitePlan() {
+  async function saveCompletedSitePlan(shouldExit = true) {
     if (!walls.length) {
       setNotice("Draw at least one wall.");
       return;
@@ -1040,7 +1042,7 @@ export default function DrawSitePlanPage() {
       await gql(ADD_FILES, { _id: id, documentType: "QUOTE_SITE_PLAN", fileNames: [uploaded[0]] });
 
       setNotice("Site plan saved successfully.");
-      setTimeout(() => router.push(`/jobs/${id}`), 400);
+      if (shouldExit) setTimeout(() => router.push(`/jobs/${id}`), 400);
     } catch (e) {
       setNotice(e instanceof Error ? e.message : "Failed to save site plan");
     } finally {
@@ -1072,14 +1074,52 @@ export default function DrawSitePlanPage() {
             className="min-w-0 w-full max-w-[280px] h-10 px-3 rounded-xl border border-gray-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1a3a4a]/20"
           />
           <button
-            onClick={saveCompletedSitePlan}
+            onClick={() => { setSaveMode("exit"); setSaveChoiceOpen(true); }}
             disabled={saving}
             className="bg-[#1a3a4a] text-white px-4 h-10 rounded-xl text-sm font-semibold disabled:opacity-60 active:opacity-80"
           >
-            {saving ? "Saving…" : "Save & Done"}
+            {saving ? "Saving…" : "Save & Exit"}
+          </button>
+          <button
+            onClick={() => { setSaveMode("continue"); setSaveChoiceOpen(true); }}
+            disabled={saving}
+            className="bg-white text-[#1a3a4a] border border-[#1a3a4a]/20 px-4 h-10 rounded-xl text-sm font-semibold disabled:opacity-60 active:opacity-80"
+          >
+            Save
           </button>
         </div>
       </div>
+
+      {/* Save choice modal */}
+      {saveChoiceOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl border border-gray-100">
+            <h3 className="text-base font-semibold text-gray-900 mb-2">
+              {saveMode === "exit" ? "Save and exit?" : "Save?"}
+            </h3>
+            <p className="text-sm text-gray-600 mb-5">
+              {saveMode === "exit"
+                ? "Are you sure you'll no longer be able to edit this floor plan?"
+                : "This will save the current floor plan and allow you to continue editing."}
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setSaveChoiceOpen(false)}
+                className="px-4 h-10 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 bg-white"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { setSaveChoiceOpen(false); void saveCompletedSitePlan(saveMode === "exit"); }}
+                disabled={saving}
+                className="px-4 h-10 rounded-xl text-sm font-semibold text-white bg-[#1a3a4a] disabled:opacity-60"
+              >
+                {saving ? "Saving…" : "Confirm"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Notice toast */}
       {notice && (
