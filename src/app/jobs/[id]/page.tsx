@@ -387,7 +387,8 @@ export default function JobDetailPage() {
   // Callback / booking dates
   const [callbackDate, setCallbackDate] = useState("");
   const [quoteBookingDate, setQuoteBookingDate] = useState("");
-  const [quoteBookingReminder, setQuoteBookingReminder] = useState(false);
+  const [quoteBookingSendEmailReminder, setQuoteBookingSendEmailReminder] = useState(false);
+  const [quoteBookingSendTextReminder, setQuoteBookingSendTextReminder] = useState(false);
   const [installDate, setInstallDate] = useState("");
   const [consentNumber, setConsentNumber] = useState("");
   const [creatingFinalInvoice, setCreatingFinalInvoice] = useState(false);
@@ -451,7 +452,8 @@ export default function JobDetailPage() {
       });
       setCallbackDate(toDatetimeLocal(j.lead?.callbackDate));
       setQuoteBookingDate(toDatetimeLocal(j.lead?.quoteBookingDate));
-      setQuoteBookingReminder(false);
+      setQuoteBookingSendEmailReminder(false);
+      setQuoteBookingSendTextReminder(false);
       setSelectedUserId(j.lead?.allocatedTo?._id || "");
       setLeadSourceForm(j.lead?.leadSource || []);
 
@@ -588,7 +590,8 @@ export default function JobDetailPage() {
     allocatedTo: { _id: string } | null;
     callbackDate: string | null;
     quoteBookingDate: string | null;
-    quoteBookingReminder: boolean;
+    quoteBookingSendEmailReminder: boolean;
+    quoteBookingSendTextReminder: boolean;
   };
 
   function buildLeadInput(overrides: Partial<LeadInput> = {}) {
@@ -599,7 +602,8 @@ export default function JobDetailPage() {
       allocatedTo: job?.lead?.allocatedTo?._id ? { _id: job.lead.allocatedTo._id } : null,
       callbackDate: job?.lead?.callbackDate || null,
       quoteBookingDate: job?.lead?.quoteBookingDate || null,
-      quoteBookingReminder: false,
+      quoteBookingSendEmailReminder: false,
+      quoteBookingSendTextReminder: false,
       ...overrides,
     };
     return lead;
@@ -904,7 +908,7 @@ export default function JobDetailPage() {
 
   async function saveQuoteBookingDate() {
     await run(() => gql(UPDATE_JOB_LEAD, {
-      input: { _id: id, lead: buildLeadInput({ quoteBookingDate: fromDatetimeLocal(quoteBookingDate), quoteBookingReminder }) },
+      input: { _id: id, lead: buildLeadInput({ quoteBookingDate: fromDatetimeLocal(quoteBookingDate), quoteBookingSendEmailReminder, quoteBookingSendTextReminder }) },
     }));
   }
 
@@ -2473,7 +2477,7 @@ export default function JobDetailPage() {
           <DateTimeCalendarField value={quoteBookingDate} onChange={setQuoteBookingDate} />
         </div>
         <label className="flex items-start gap-3 mb-4 text-sm text-gray-700">
-          <input type="checkbox" className="mt-1 w-4 h-4 accent-[#e85d04]" checked={quoteBookingReminder} onChange={(e) => setQuoteBookingReminder(e.target.checked)} />
+          <input type="checkbox" className="mt-1 w-4 h-4 accent-[#e85d04]" checked={quoteBookingSendEmailReminder} onChange={(e) => setQuoteBookingSendEmailReminder(e.target.checked)} />
           <span>Enable Automated Email Reminder the day before</span>
         </label>
         <div className="flex gap-2">
