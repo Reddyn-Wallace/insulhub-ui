@@ -997,9 +997,23 @@ export default function JobDetailPage() {
   }
 
   async function printQuoteSitePlanPDF() {
-    const quoteDate = fromDatetimeLocal(quoteForm.date) || new Date().toISOString();
-    const params = new URLSearchParams({ jobId: id, quoteDate, token: encodeURIComponent(getToken()) });
-    window.open(`${API_BASE}/pdf/quote-siteplan?${params.toString()}`, "_blank");
+    try {
+      const quoteDate = fromDatetimeLocal(quoteForm.date) || new Date().toISOString();
+      const params = new URLSearchParams({ jobId: id, quoteDate, token: encodeURIComponent(getToken()) });
+      const res = await fetch(`${API_BASE}/pdf/quote-siteplan?${params.toString()}`);
+      if (!res.ok) throw new Error("Could not generate site plan PDF.");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `site-plan-${job?.jobNumber || id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert("Could not download site plan PDF.");
+    }
   }
 
   async function uploadQuoteSitePlan(files: FileList | null) {
