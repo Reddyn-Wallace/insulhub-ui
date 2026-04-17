@@ -1178,24 +1178,24 @@ export default function DrawSitePlanPage() {
         <span className="absolute left-1/2 -translate-x-1/2 text-sm font-semibold text-[#1a3a4a] pointer-events-none">
           Site Plan
         </span>
-        <div className="flex items-center gap-2 flex-1 justify-end max-w-[68vw]">
+        <div className="flex items-center gap-2 flex-1 justify-end min-w-0">
           <input
             value={saveFilename}
             onChange={(e) => setSaveFilename(e.target.value)}
             placeholder="siteplan filename"
-            className="min-w-0 w-full max-w-[560px] h-10 px-3 rounded-xl border border-gray-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1a3a4a]/20"
+            className="flex-1 min-w-[320px] h-10 px-3 rounded-xl border border-gray-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1a3a4a]/20"
           />
           <button
             onClick={() => { setSaveMode("exit"); setSaveChoiceOpen(true); }}
             disabled={saving}
-            className="bg-[#1a3a4a] text-white px-4 h-10 rounded-xl text-sm font-semibold disabled:opacity-60 active:opacity-80"
+            className="shrink-0 bg-[#1a3a4a] text-white px-4 h-10 rounded-xl text-sm font-semibold disabled:opacity-60 active:opacity-80"
           >
             {saving ? "Saving…" : "Save & Exit"}
           </button>
           <button
             onClick={() => { setSaveMode("continue"); setSaveChoiceOpen(true); }}
             disabled={saving}
-            className="bg-white text-[#1a3a4a] border border-[#1a3a4a]/20 px-4 h-10 rounded-xl text-sm font-semibold disabled:opacity-60 active:opacity-80"
+            className="shrink-0 bg-white text-[#1a3a4a] border border-[#1a3a4a]/20 px-4 h-10 rounded-xl text-sm font-semibold disabled:opacity-60 active:opacity-80"
           >
             Save
           </button>
