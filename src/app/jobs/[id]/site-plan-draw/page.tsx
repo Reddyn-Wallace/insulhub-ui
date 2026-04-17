@@ -1175,9 +1175,6 @@ export default function DrawSitePlanPage() {
         >
           ← Back
         </button>
-        <span className="absolute left-1/2 -translate-x-1/2 text-sm font-semibold text-[#1a3a4a] pointer-events-none">
-          Site Plan
-        </span>
         <div className="flex items-center gap-2 flex-1 justify-end min-w-0">
           <input
             value={saveFilename}
