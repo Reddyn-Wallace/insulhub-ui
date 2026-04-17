@@ -251,6 +251,7 @@ export default function DrawSitePlanPage() {
   const linkedEndpointsRef = useRef<{ wallId: string; end: "start" | "end" }[]>([]);
   const dragAnchorRef = useRef<Point | null>(null);
   const wallDragLinkedSnapshotRef = useRef<{ wallId: string; end: "start" | "end"; originalPos: Point }[]>([]);
+  const pendingDrawPlacementRef = useRef<{ pointerId: number; origin: Point; latest: Point } | null>(null);
 
   useEffect(() => {
     const el = canvasAreaRef.current;
@@ -547,6 +548,42 @@ export default function DrawSitePlanPage() {
     return null;
   }
 
+  function resolveDrawEndpoint(start: Point, rawPoint: Point) {
+    let endPoint = snapToExistingEndpoints(snapOrtho(start, rawPoint), walls);
+    if (mode === "trace" && walls.length >= 2) {
+      const first = walls[0]?.start;
+      if (first && distance(rawPoint, first) <= 0.6) endPoint = first;
+    }
+    return endPoint;
+  }
+
+  function commitDrawSegment(endPoint: Point) {
+    if (!drawStart) return;
+
+    if (distance(drawStart, endPoint) >= 0.25) {
+      pushHistory();
+      setWalls((prev) => [...prev, { id: makeId(), start: drawStart, end: endPoint, style: "solid", color: DEFAULT_WALL_COLOR }]);
+    }
+
+    if (mode === "single") {
+      setDrawStart(null);
+      setHoverPoint(null);
+      setMode("select");
+      return;
+    }
+
+    const first = walls[0]?.start;
+    if (first && distance(endPoint, first) <= 0.0001 && walls.length >= 2) {
+      setDrawStart(null);
+      setHoverPoint(null);
+      setMode("select");
+      return;
+    }
+
+    setDrawStart(endPoint);
+    setHoverPoint(endPoint);
+  }
+
   function pointerDown(e: React.PointerEvent<SVGSVGElement>) {
     const pt = (e.pointerType === "touch" || e.pointerType === "pen") ? e.pointerType : "mouse";
     setActivePointerType(pt);
@@ -558,42 +595,21 @@ export default function DrawSitePlanPage() {
 
     if (mode === "trace" || mode === "single") {
       if (!drawStart) {
-        // Snap first point to nearest grid intersection for a clean anchor
         const snappedStart = { x: Math.round(p.x), y: Math.round(p.y) };
         setDrawStart(snappedStart);
         setHoverPoint(snappedStart);
         return;
       }
 
-      // Apply same ortho + endpoint snapping as pointerMove so click lands where indicator shows
-      let endPoint = snapToExistingEndpoints(snapOrtho(drawStart, p), walls);
-      if (mode === "trace" && walls.length >= 2) {
-        const first = walls[0]?.start;
-        if (first && distance(p, first) <= 0.6) endPoint = first;
-      }
-
-      if (distance(drawStart, endPoint) >= 0.25) {
-        pushHistory();
-        setWalls((prev) => [...prev, { id: makeId(), start: drawStart, end: endPoint, style: "solid", color: DEFAULT_WALL_COLOR }]);
-      }
-
-      if (mode === "single") {
-        setDrawStart(null);
-        setHoverPoint(null);
-        setMode("select");
+      if (pt === "pen" || pt === "touch") {
+        pendingDrawPlacementRef.current = { pointerId: e.pointerId, origin: p, latest: p };
+        setHoverPoint(resolveDrawEndpoint(drawStart, p));
+        svgRef.current?.setPointerCapture(e.pointerId);
+        capturedPointerIdRef.current = e.pointerId;
         return;
       }
 
-      const first = walls[0]?.start;
-      if (first && distance(endPoint, first) <= 0.0001 && walls.length >= 2) {
-        setDrawStart(null);
-        setHoverPoint(null);
-        setMode("select");
-        return;
-      }
-
-      setDrawStart(endPoint);
-      setHoverPoint(endPoint);
+      commitDrawSegment(resolveDrawEndpoint(drawStart, p));
       return;
     }
 
@@ -751,6 +767,10 @@ export default function DrawSitePlanPage() {
     if (!p) return;
 
     if (mode === "trace" || mode === "single") {
+      const pending = pendingDrawPlacementRef.current;
+      if (pending && pending.pointerId === e.pointerId) {
+        pending.latest = p;
+      }
       updateDrawPreview(e.clientX, e.clientY);
       return;
     }
@@ -910,11 +930,22 @@ export default function DrawSitePlanPage() {
     };
   }, []);
 
-  function pointerUp() {
+  function pointerUp(e?: React.PointerEvent<SVGSVGElement>) {
+    if (e && (mode === "trace" || mode === "single")) {
+      const pending = pendingDrawPlacementRef.current;
+      const pt = (e.pointerType === "touch" || e.pointerType === "pen") ? e.pointerType : "mouse";
+      if (pending && pending.pointerId === e.pointerId && drawStart && (pt === "pen" || pt === "touch")) {
+        const rawPoint = toGridPointSnapped(e.clientX, e.clientY) ?? pending.latest;
+        pendingDrawPlacementRef.current = null;
+        commitDrawSegment(resolveDrawEndpoint(drawStart, rawPoint));
+      }
+    }
+
     if (capturedPointerIdRef.current !== null && svgRef.current) {
       try { svgRef.current.releasePointerCapture(capturedPointerIdRef.current); } catch {}
       capturedPointerIdRef.current = null;
     }
+    pendingDrawPlacementRef.current = null;
     linkedEndpointsRef.current = [];
     dragAnchorRef.current = null;
     wallDragLinkedSnapshotRef.current = [];
