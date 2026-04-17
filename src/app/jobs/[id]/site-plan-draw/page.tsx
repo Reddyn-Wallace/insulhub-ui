@@ -85,7 +85,7 @@ const CELLS_X = 18;
 const CELLS_Y = 17;
 const SNAP_STEP = 0.1;
 const ENDPOINT_SNAP_RADIUS = 0.32;
-const ORTHO_SNAP_THRESHOLD = 0.27;         // ~15°, was 0.14 (~8°)
+const ORTHO_SNAP_THRESHOLD = 0.14;         // softened from ~15° back toward ~8°
 const ENDPOINT_DRAG_SNAP_RADIUS = 0.20;
 const ENDPOINT_DRAG_ORTHO_THRESHOLD = 0.035;  // ~2°
 const WALL_DRAG_ENDPOINT_SNAP_RADIUS = 0.3;
@@ -1183,7 +1183,7 @@ export default function DrawSitePlanPage() {
             value={saveFilename}
             onChange={(e) => setSaveFilename(e.target.value)}
             placeholder="siteplan filename"
-            className="min-w-0 w-full max-w-[280px] h-10 px-3 rounded-xl border border-gray-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1a3a4a]/20"
+            className="min-w-0 w-full max-w-[560px] h-10 px-3 rounded-xl border border-gray-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1a3a4a]/20"
           />
           <button
             onClick={() => { setSaveMode("exit"); setSaveChoiceOpen(true); }}
