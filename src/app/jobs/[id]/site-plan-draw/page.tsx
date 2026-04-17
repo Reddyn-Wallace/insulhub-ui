@@ -237,9 +237,6 @@ export default function DrawSitePlanPage() {
   const [activePointerType, setActivePointerType] = useState<"mouse" | "touch" | "pen">("mouse");
   const [snapGuide, setSnapGuide] = useState<SnapGuide>(null);
   const [lengthEditValue, setLengthEditValue] = useState("");
-  const drawStartRef = useRef<Point | null>(null);
-  const modeRef = useRef<"trace" | "single" | "select">("trace");
-  const wallsRef = useRef<Wall[]>([]);
 
   const svgRef = useRef<SVGSVGElement | null>(null);
   const canvasAreaRef = useRef<HTMLDivElement>(null);
@@ -287,15 +284,6 @@ export default function DrawSitePlanPage() {
     if (!selectedWall) return null;
     return wallLengthMeters(selectedWall);
   }, [walls, selectedWallId]);
-  useEffect(() => {
-    drawStartRef.current = drawStart;
-  }, [drawStart]);
-  useEffect(() => {
-    modeRef.current = mode;
-  }, [mode]);
-  useEffect(() => {
-    wallsRef.current = walls;
-  }, [walls]);
   useEffect(() => {
     if (selectedWallLength === null) { setLengthEditValue(""); return; }
     if (isEditingLengthRef.current) return;
@@ -715,38 +703,35 @@ export default function DrawSitePlanPage() {
     setSelectedTextId(null);
   }
 
-  function updateDrawPreview(clientX: number, clientY: number) {
-    const modeNow = modeRef.current;
-    if (modeNow !== "trace" && modeNow !== "single") return;
-    const p = toGridPointSnapped(clientX, clientY);
+  function pointerMove(e: React.PointerEvent<SVGSVGElement>) {
+    const p = (mode === "trace" || mode === "single")
+      ? toGridPointSnapped(e.clientX, e.clientY)
+      : toGridPointRaw(e.clientX, e.clientY);
     if (!p) return;
-    const start = drawStartRef.current;
-    const snapped = snapPoint(p);
-    if (start) {
-      const kind = orthoKind(start, snapped);
-      const ortho = snapOrtho(start, snapped);
-      const endpointSnapped = snapToExistingEndpoints(ortho, wallsRef.current);
-      setHoverPoint(endpointSnapped);
-      if (endpointSnapped.x !== ortho.x || endpointSnapped.y !== ortho.y) {
-        setSnapGuide({ kind: "endpoint", point: endpointSnapped });
-      } else if (kind === "horizontal") {
-        setSnapGuide({ kind: "horizontal", lineValue: start.y });
-      } else if (kind === "vertical") {
-        setSnapGuide({ kind: "vertical", lineValue: start.x });
+    setSnapGuide(null);
+
+    if (mode === "trace" || mode === "single") {
+      const snapped = snapPoint(p);
+      if (drawStart) {
+        const kind = orthoKind(drawStart, snapped);
+        const ortho = snapOrtho(drawStart, snapped);
+        const endpointSnapped = snapToExistingEndpoints(ortho, walls);
+        setHoverPoint(endpointSnapped);
+        if (endpointSnapped.x !== ortho.x || endpointSnapped.y !== ortho.y) {
+          setSnapGuide({ kind: "endpoint", point: endpointSnapped });
+        } else if (kind === "horizontal") {
+          setSnapGuide({ kind: "horizontal", lineValue: drawStart.y });
+        } else if (kind === "vertical") {
+          setSnapGuide({ kind: "vertical", lineValue: drawStart.x });
+        } else {
+          setSnapGuide(null);
+        }
       } else {
+        setHoverPoint(snapped);
         setSnapGuide(null);
       }
-    } else {
-      setHoverPoint(snapped);
-      setSnapGuide(null);
+      return;
     }
-  }
-
-  function pointerMove(e: React.PointerEvent<SVGSVGElement>) {
-    const p = toGridPointRaw(e.clientX, e.clientY);
-    if (!p) return;
-    updateDrawPreview(e.clientX, e.clientY);
-    if (mode === "trace" || mode === "single") return;
 
     if (rotating && rotateOrigin && rotateSnapshot.length) {
       const currentAngle = Math.atan2(p.y - rotateOrigin.y, p.x - rotateOrigin.x);
@@ -875,16 +860,6 @@ export default function DrawSitePlanPage() {
       return;
     }
   }
-
-  useEffect(() => {
-    const handleMove = (e: PointerEvent | MouseEvent) => updateDrawPreview(e.clientX, e.clientY);
-    window.addEventListener("pointermove", handleMove);
-    window.addEventListener("mousemove", handleMove);
-    return () => {
-      window.removeEventListener("pointermove", handleMove);
-      window.removeEventListener("mousemove", handleMove);
-    };
-  }, []);
 
   function pointerUp() {
     if (capturedPointerIdRef.current !== null && svgRef.current) {
@@ -1360,8 +1335,9 @@ export default function DrawSitePlanPage() {
             onPointerMove={pointerMove}
             onPointerUp={pointerUp}
             onPointerLeave={() => {
-              // Keep the live trace preview visible after release, only clear snap guides here.
+              // Only clear preview when no active drag (pointer capture keeps events during drag)
               if (capturedPointerIdRef.current === null) {
+                setHoverPoint(null);
                 setSnapGuide(null);
               }
             }}
