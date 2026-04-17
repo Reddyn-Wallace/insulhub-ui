@@ -6,8 +6,9 @@ import { PDFDocument, rgb } from "pdf-lib";
 import { gql } from "@/lib/graphql";
 
 type WallStyle = "solid" | "dotted";
+type WallColor = "slate" | "teal" | "blue" | "amber" | "red";
 type Point = { x: number; y: number };
-type Wall = { id: string; start: Point; end: Point; style: WallStyle; lengthOverride?: number | null };
+type Wall = { id: string; start: Point; end: Point; style: WallStyle; color?: WallColor; lengthOverride?: number | null };
 type WallSnapshot = { id: string; start: Point; end: Point };
 type TextNote = { id: string; text: string; x: number; y: number; fontSize: number; boxWidth?: number; boxHeight?: number };
 type TextMode = "idle" | "placing";
@@ -53,6 +54,24 @@ const BASE_CELL_X = (BASE_GRID.right - BASE_GRID.left) / BASE_COLS;
 const BASE_CELL_Y = (BASE_GRID.top - BASE_GRID.bottom) / BASE_ROWS;
 const CAL_X_CELLS = 0.8;
 const CAL_Y_CELLS = -3.0;
+const WALL_COLOR_OPTIONS: Array<{ key: WallColor; label: string; stroke: string }> = [
+  { key: "slate", label: "Slate", stroke: "#1e293b" },
+  { key: "teal", label: "Teal", stroke: "#0f766e" },
+  { key: "blue", label: "Blue", stroke: "#2563eb" },
+  { key: "amber", label: "Amber", stroke: "#d97706" },
+  { key: "red", label: "Red", stroke: "#dc2626" },
+];
+const WALL_COLOR_STROKES: Record<WallColor, string> = Object.fromEntries(WALL_COLOR_OPTIONS.map((o) => [o.key, o.stroke])) as Record<WallColor, string>;
+const DEFAULT_WALL_COLOR: WallColor = "slate";
+const hexToRgb = (hex: string) => {
+  const clean = hex.replace("#", "");
+  const parts = clean.length === 3
+    ? clean.split("").map((c) => c + c)
+    : clean.match(/.{1,2}/g) || ["00", "00", "00"];
+  const [r, g, b] = parts.map((p) => parseInt(p, 16) / 255) as [number, number, number];
+  return { r, g, b };
+};
+
 const GRID = {
   left: BASE_GRID.left + CAL_X_CELLS * BASE_CELL_X,
   right: BASE_GRID.right + CAL_X_CELLS * BASE_CELL_X + BASE_CELL_X,
@@ -536,7 +555,7 @@ export default function DrawSitePlanPage() {
 
       if (distance(drawStart, endPoint) >= 0.25) {
         pushHistory();
-        setWalls((prev) => [...prev, { id: makeId(), start: drawStart, end: endPoint, style: "solid" }]);
+        setWalls((prev) => [...prev, { id: makeId(), start: drawStart, end: endPoint, style: "solid", color: DEFAULT_WALL_COLOR }]);
       }
 
       if (mode === "single") {
@@ -986,11 +1005,13 @@ export default function DrawSitePlanPage() {
       for (const w of walls) {
         const a = toPdf(w.start);
         const b = toPdf(w.end);
+        const wallStroke = WALL_COLOR_STROKES[w.color ?? DEFAULT_WALL_COLOR] ?? WALL_COLOR_STROKES[DEFAULT_WALL_COLOR];
+        const { r, g, b: bColor } = hexToRgb(wallStroke);
         page.drawLine({
           start: { x: a.x, y: a.y },
           end: { x: b.x, y: b.y },
           thickness: 3.5,
-          color: rgb(0, 0, 0),
+          color: rgb(r, g, bColor),
           dashArray: w.style === "dotted" ? [5, 4] : undefined,
         });
 
@@ -1168,7 +1189,7 @@ export default function DrawSitePlanPage() {
                 transform: showAbove ? "translate(-50%, -100%)" : "translate(-50%, 0%)",
               }}
             >
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap max-w-[280px]">
                 <button
                   onClick={() => {
                     const ids = activeSelectionIds;
@@ -1183,6 +1204,23 @@ export default function DrawSitePlanPage() {
                   }}
                   className="px-3 h-8 rounded-lg text-xs font-medium bg-gray-100 active:bg-gray-200"
                 >Dotted</button>
+                {WALL_COLOR_OPTIONS.map((opt) => {
+                  const selected = activeSelectionIds.length > 0 && activeSelectionIds.every((id) => walls.find((w) => w.id === id)?.color === opt.key);
+                  return (
+                    <button
+                      key={opt.key}
+                      onClick={() => {
+                        const ids = activeSelectionIds;
+                        setWalls((prev) => prev.map((w) => ids.includes(w.id) ? { ...w, color: opt.key } : w));
+                      }}
+                      className={`px-3 h-8 rounded-lg text-xs font-medium border ${selected ? "border-gray-400" : "border-gray-200"} active:opacity-90`}
+                      style={{ backgroundColor: opt.stroke, color: "white" }}
+                      title={opt.label}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
                 {selectedWall && selectedWallId && (() => {
                   const lStart = findLinkedEndpoints(selectedWall.start, selectedWallId, walls);
                   const lEnd = findLinkedEndpoints(selectedWall.end, selectedWallId, walls);
@@ -1300,8 +1338,8 @@ export default function DrawSitePlanPage() {
                   <line
                     x1={w.start.x} y1={w.start.y}
                     x2={w.end.x} y2={w.end.y}
-                    stroke={isSelected ? "#0f766e" : "#1e293b"}
-                    strokeWidth={0.12}
+                    stroke={WALL_COLOR_STROKES[w.color ?? DEFAULT_WALL_COLOR] ?? WALL_COLOR_STROKES[DEFAULT_WALL_COLOR]}
+                    strokeWidth={isSelected ? 0.16 : 0.12}
                     strokeDasharray={w.style === "dotted" ? "0.35 0.24" : undefined}
                     strokeLinecap="round"
                   />
