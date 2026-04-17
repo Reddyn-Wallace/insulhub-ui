@@ -1006,7 +1006,8 @@ export default function JobDetailPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `site-plan-${job?.jobNumber || id}.pdf`;
+      const firstStreetLine = job?.client?.contactDetails?.streetAddress?.split(/\r?\n/)[0]?.trim() || "site plan";
+      a.download = `${firstStreetLine} - site plan.pdf`.replace(/[\\/]/g, "-");
       document.body.appendChild(a);
       a.click();
       a.remove();

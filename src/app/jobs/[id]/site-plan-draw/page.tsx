@@ -254,6 +254,11 @@ export default function DrawSitePlanPage() {
     return [c?.streetAddress, c?.suburb, c?.city, c?.postCode].filter(Boolean).join(", ");
   }, [job]);
 
+  const sitePlanFilenameBase = useMemo(() => {
+    const firstStreetLine = job?.client?.contactDetails?.streetAddress?.split(/\r?\n/)[0]?.trim() || "";
+    return firstStreetLine ? `${firstStreetLine} - site plan` : "site plan";
+  }, [job]);
+
   const selectedWall = useMemo(() => walls.find((w) => w.id === selectedWallId) || null, [walls, selectedWallId]);
   const selectedWallLength = useMemo(() => {
     if (!selectedWall) return null;
@@ -312,10 +317,9 @@ export default function DrawSitePlanPage() {
 
   useEffect(() => {
     if (job) {
-      const fallback = `siteplan-${job.jobNumber || id}-${Date.now()}.pdf`;
-      setSaveFilename(fallback);
+      setSaveFilename(`${sitePlanFilenameBase}.pdf`);
     }
-  }, [id, job]);
+  }, [sitePlanFilenameBase, job]);
 
   useEffect(() => {
     if (editingTextId) {
@@ -1024,7 +1028,7 @@ export default function DrawSitePlanPage() {
 
       const pdfBytes = await pdfDoc.save();
       const blob = new Blob([new Uint8Array(pdfBytes)], { type: "application/pdf" });
-      const cleanedFilename = saveFilename.trim().replace(/\.pdf$/i, "").replace(/[\\/]/g, "-") || `siteplan-${job?.jobNumber || id}-${Date.now()}`;
+      const cleanedFilename = saveFilename.trim().replace(/\.pdf$/i, "").replace(/[\\/]/g, "-") || sitePlanFilenameBase;
       const filename = `${cleanedFilename}.pdf`;
       const file = new File([blob], filename, { type: "application/pdf" });
 
@@ -1277,9 +1281,8 @@ export default function DrawSitePlanPage() {
             onPointerMove={pointerMove}
             onPointerUp={pointerUp}
             onPointerLeave={() => {
-              // Only clear preview when no active drag (pointer capture keeps events during drag)
+              // Keep the live trace preview visible after release, only clear snap guides here.
               if (capturedPointerIdRef.current === null) {
-                setHoverPoint(null);
                 setSnapGuide(null);
               }
             }}
