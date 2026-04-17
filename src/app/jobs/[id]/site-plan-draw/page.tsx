@@ -212,6 +212,7 @@ export default function DrawSitePlanPage() {
   const [saveFilename, setSaveFilename] = useState("");
   const [saveChoiceOpen, setSaveChoiceOpen] = useState(false);
   const [saveMode, setSaveMode] = useState<"exit" | "continue">("exit");
+  const [wallColorPaletteOpen, setWallColorPaletteOpen] = useState(false);
 
   const [drawStart, setDrawStart] = useState<Point | null>(null);
   const [hoverPoint, setHoverPoint] = useState<Point | null>(null);
@@ -305,6 +306,12 @@ export default function DrawSitePlanPage() {
     () => (selectedWallIds.length ? selectedWallIds : (selectedWallId ? [selectedWallId] : [])),
     [selectedWallIds, selectedWallId]
   );
+  const selectedWallColor = useMemo(() => {
+    const ids = activeSelectionIds;
+    if (!ids.length) return DEFAULT_WALL_COLOR;
+    const colors = ids.map((id) => walls.find((w) => w.id === id)?.color ?? DEFAULT_WALL_COLOR);
+    return colors.every((c) => c === colors[0]) ? colors[0] : DEFAULT_WALL_COLOR;
+  }, [activeSelectionIds, walls]);
   const selectionBounds = useMemo(() => {
     if (!activeSelectionIds.length) return null;
     const sel = walls.filter((w) => activeSelectionIds.includes(w.id));
@@ -1229,16 +1236,25 @@ export default function DrawSitePlanPage() {
                   }}
                   className="px-3 h-8 rounded-lg text-xs font-medium bg-gray-100 active:bg-gray-200"
                 >Dotted</button>
-                {WALL_COLOR_OPTIONS.map((opt) => {
-                  const selected = activeSelectionIds.length > 0 && activeSelectionIds.every((id) => walls.find((w) => w.id === id)?.color === opt.key);
+                <button
+                  onClick={() => setWallColorPaletteOpen((open) => !open)}
+                  className="px-3 h-8 rounded-lg text-xs font-medium text-white border border-black/10 active:opacity-90"
+                  style={{ backgroundColor: WALL_COLOR_STROKES[selectedWallColor] }}
+                  title="Change wall color"
+                >
+                  Color
+                </button>
+                {wallColorPaletteOpen && WALL_COLOR_OPTIONS.map((opt) => {
+                  const selected = activeSelectionIds.length > 0 && activeSelectionIds.every((id) => (walls.find((w) => w.id === id)?.color ?? DEFAULT_WALL_COLOR) === opt.key);
                   return (
                     <button
                       key={opt.key}
                       onClick={() => {
                         const ids = activeSelectionIds;
                         setWalls((prev) => prev.map((w) => ids.includes(w.id) ? { ...w, color: opt.key } : w));
+                        setWallColorPaletteOpen(false);
                       }}
-                      className={`px-3 h-8 rounded-lg text-xs font-medium border ${selected ? "border-gray-400" : "border-gray-200"} active:opacity-90`}
+                      className={`px-3 h-8 rounded-lg text-xs font-medium border ${selected ? "border-gray-400 ring-2 ring-gray-300" : "border-gray-200"} active:opacity-90`}
                       style={{ backgroundColor: opt.stroke, color: "white" }}
                       title={opt.label}
                     >
