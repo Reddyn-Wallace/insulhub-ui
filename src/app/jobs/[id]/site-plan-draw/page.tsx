@@ -886,10 +886,27 @@ export default function DrawSitePlanPage() {
   }
 
   useEffect(() => {
-    const handleMove = (e: PointerEvent) => updateDrawPreview(e.clientX, e.clientY);
-    window.addEventListener("pointermove", handleMove, { passive: true });
+    const handleHoverLikeEvent = (e: Event) => {
+      const evt = e as MouseEvent | PointerEvent;
+      if (typeof evt.clientX !== "number" || typeof evt.clientY !== "number") return;
+      updateDrawPreview(evt.clientX, evt.clientY);
+    };
+
+    const targets: EventTarget[] = [window, document];
+    const eventNames = ["pointermove", "pointerrawupdate", "mousemove", "pointerover", "mouseover", "pointerenter", "mouseenter"];
+
+    for (const target of targets) {
+      for (const eventName of eventNames) {
+        target.addEventListener(eventName, handleHoverLikeEvent, { passive: true, capture: true });
+      }
+    }
+
     return () => {
-      window.removeEventListener("pointermove", handleMove);
+      for (const target of targets) {
+        for (const eventName of eventNames) {
+          target.removeEventListener(eventName, handleHoverLikeEvent, true);
+        }
+      }
     };
   }, []);
 
@@ -1365,6 +1382,10 @@ export default function DrawSitePlanPage() {
             className="w-full h-full touch-none"
             onPointerDown={pointerDown}
             onPointerMove={pointerMove}
+            onPointerEnter={(e) => updateDrawPreview(e.clientX, e.clientY)}
+            onPointerOver={(e) => updateDrawPreview(e.clientX, e.clientY)}
+            onMouseMove={(e) => updateDrawPreview(e.clientX, e.clientY)}
+            onMouseEnter={(e) => updateDrawPreview(e.clientX, e.clientY)}
             onPointerUp={pointerUp}
             onPointerLeave={() => {
               // In draw modes, keep the last preview alive so pen hover can resume cleanly after lifting.
