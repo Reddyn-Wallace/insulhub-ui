@@ -418,6 +418,12 @@ export default function JobDetailPage() {
   const [contactForm, setContactForm] = useState<ContactDetails>({});
 
   // Quote form
+  const defaultQuoteExtras = [{ name: "Council Fee", price: "330" }];
+  const withQuoteDefaults = <T extends { consentFee?: string; extras?: { name: string; price: string }[] }>(value: T): T => ({
+    ...value,
+    consentFee: value.consentFee || "0",
+    extras: value.extras && value.extras.length > 0 ? value.extras : defaultQuoteExtras,
+  });
   const [quoteForm, setQuoteForm] = useState({
     quoteNumber: "", date: "", consentFee: "", depositPercentage: "25",
     wallSQMPrice: "", wallSQM: "", wallCavityDepth: "0.1",
@@ -585,9 +591,8 @@ export default function JobDetailPage() {
       const initials = ((me.firstname?.[0] || "") + (me.lastname?.[0] || "")).toUpperCase();
       const autoQuoteNum = initials ? `${initials}${j.jobNumber}` : `${j.jobNumber}`;
 
-      const hasEnteredQuoteDetails = quoteHasEnteredDetails(j.quote);
-      if (j.quote && hasEnteredQuoteDetails) {
-        setQuoteForm({
+      if (j.quote) {
+        setQuoteForm(withQuoteDefaults({
           quoteNumber: j.quote.quoteNumber || autoQuoteNum,
           date: toDatetimeLocal(j.quote.date),
           consentFee: j.quote.consentFee !== null && j.quote.consentFee !== undefined ? j.quote.consentFee.toString() : "0",
@@ -606,7 +611,7 @@ export default function JobDetailPage() {
           depositManual: "",
           quoteNote: j.quote.quoteNote || "",
           quoteResultNote: j.quote.quoteResultNote || "",
-        });
+        }));
       } else {
         setQuoteForm(prev => ({
           ...prev,
@@ -1024,7 +1029,13 @@ export default function JobDetailPage() {
     if (!job?.client?._id) return;
     await run(() => gql(UPDATE_CLIENT, {
       _id: job.client!._id,
-      input: { _id: job.client!._id, billingSameAsPhysical: true, contactDetails: contactForm, billingDetails: contactForm },
+      input: {
+        _id: job.client!._id,
+        name: contactForm.name,
+        billingSameAsPhysical: true,
+        contactDetails: contactForm,
+        billingDetails: contactForm,
+      },
     }));
   }
 
@@ -1299,6 +1310,19 @@ export default function JobDetailPage() {
     }));
   }
 
+
+  function openQuoteSheet() {
+    setQuoteForm((f) => {
+      if (!job || job.stage !== "LEAD" || job.quote) return f;
+      const extras = f.extras.length > 0 ? f.extras : [{ name: "Council Fee", price: "330" }];
+      return {
+        ...f,
+        consentFee: f.consentFee || "0",
+        extras,
+      };
+    });
+    openSheet("quote");
+  }
 
   async function downloadQuotePDF() {
     try {
@@ -2568,7 +2592,7 @@ export default function JobDetailPage() {
                 <button onClick={() => setQuoteExpanded((v) => !v)} className="text-xs text-gray-500 font-medium">
                   {quoteExpanded ? "Collapse" : "Expand"}
                 </button>
-                <EditBtn onClick={() => openSheet("quote")} />
+                <EditBtn onClick={openQuoteSheet} />
               </div>
             }
           >
@@ -2631,7 +2655,7 @@ export default function JobDetailPage() {
           </Section>
         ) : job.stage === "LEAD" ? (
           <div className="mb-3">
-            <button onClick={() => openSheet("quote")}
+            <button onClick={openQuoteSheet}
               className="w-full bg-[#e85d04] text-white font-semibold py-3.5 rounded-xl text-sm">
               📝 Enter Quote Details &amp; Progress
             </button>
