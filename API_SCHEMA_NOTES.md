@@ -400,6 +400,10 @@ client {
 - `sendFollowupText`
 - `files_QuoteSitePlan`
 - `extras[]`
+
+### Default behavior
+- `sendFollowupEmail` defaults to `false` in the quote editor when unset
+- `sendFollowupText` defaults to `false` in the quote editor when unset
   - `name`
   - `price`
 - `wall`

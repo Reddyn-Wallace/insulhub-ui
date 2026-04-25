@@ -641,8 +641,8 @@ export default function JobDetailPage() {
       quoteNote: q?.quoteNote || "",
       quoteResultNote: q?.quoteResultNote || "",
       deferralDate: q?.deferralDate || null,
-      sendFollowupEmail: q?.sendFollowupEmail ?? true,
-      sendFollowupText: q?.sendFollowupText ?? true,
+      sendFollowupEmail: q?.sendFollowupEmail ?? false,
+      sendFollowupText: q?.sendFollowupText ?? false,
       files_QuoteSitePlan: q?.files_QuoteSitePlan || [],
       ...overrides,
     };
