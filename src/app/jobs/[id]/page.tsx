@@ -141,6 +141,8 @@ function normalizeEmailHtml(input: string) {
   return html || `<p>${fallback}</p>`;
 }
 
+const NEW_QUOTE_DEFAULT_EXTRAS = [{ name: "Council fee", price: "330" }];
+
 function prepareEmailHtmlForSend(input: string) {
   const body = normalizeEmailHtml(input);
   return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.25;color:#1f2937;">${body}</div>`;
@@ -465,7 +467,7 @@ export default function JobDetailPage() {
         setQuoteForm({
           quoteNumber: j.quote.quoteNumber || autoQuoteNum,
           date: toDatetimeLocal(j.quote.date),
-          consentFee: j.quote.consentFee?.toString() || "",
+          consentFee: j.quote.consentFee !== null && j.quote.consentFee !== undefined ? j.quote.consentFee.toString() : "",
           depositPercentage: j.quote.depositPercentage?.toString() || "25",
           wallSQMPrice: j.quote.wall?.SQMPrice?.toString() || "",
           wallSQM: j.quote.wall?.SQM?.toString() || "",
@@ -487,7 +489,8 @@ export default function JobDetailPage() {
           ...prev,
           quoteNumber: autoQuoteNum,
           date: toDatetimeLocal(j.lead?.quoteBookingDate),
-          consentFee: "380",
+          consentFee: "0",
+          extras: NEW_QUOTE_DEFAULT_EXTRAS.map((extra) => ({ ...extra })),
           depositManual: "",
         }));
       }
@@ -942,7 +945,9 @@ export default function JobDetailPage() {
       quoteNumber: q.quoteNumber,
       status: "UNSET",
       date: fromDatetimeLocal(q.date),
-      consentFee: q.consentFee ? parseFloat(q.consentFee) : null,
+      consentFee: q.consentFee !== "" && q.consentFee !== null && q.consentFee !== undefined
+        ? parseFloat(q.consentFee)
+        : null,
       depositPercentage: q.depositPercentage ? parseFloat(q.depositPercentage) : 25,
       c_contractPrice: quoteCalc.contractPrice,
       c_gst: quoteCalc.gst,
