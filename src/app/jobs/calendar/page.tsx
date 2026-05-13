@@ -44,6 +44,32 @@ interface CalendarPlaceholder {
   linkedJobId?: string | null;
 }
 
+interface InstallPlanningMeta {
+  source?: "overlay";
+  jobId?: string;
+  status: "confirmed" | "pencilled";
+  note: string;
+  scope: "internal" | "external" | "both" | "";
+}
+
+interface InstallPlanningApiRow {
+  jobId?: string;
+  status?: "confirmed" | "pencilled";
+  note?: string;
+  installScope?: "internal" | "external" | "both" | "";
+  scope?: "internal" | "external" | "both" | "";
+}
+
+function toCalendarInstallPlanning(row: InstallPlanningApiRow): InstallPlanningMeta {
+  return {
+    source: "overlay",
+    jobId: row.jobId,
+    status: row.status || "confirmed",
+    note: row.note || "",
+    scope: row.installScope || row.scope || "",
+  };
+}
+
 interface JobsData {
   jobs: {
     total: number;
@@ -85,11 +111,6 @@ const CALENDAR_JOBS_QUERY = `
 `;
 
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const UPDATE_JOB_NOTES = `
-  mutation UpdateJobNotes($input: UpdateJobInput!) {
-    updateJob(input: $input) { _id notes }
-  }
-`;
 const UPDATE_INSTALLATION = `
   mutation UpdateInstallation($input: UpdateJobInput!) {
     updateJob(input: $input) {
@@ -205,18 +226,6 @@ function parseInstallMeta(notes?: string | null): { status: "confirmed" | "penci
   };
 }
 
-function stripInstallMeta(notes?: string | null) {
-  const text = notes || "";
-  const block = new RegExp(`\n?${INSTALL_META_START.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([\\s\\S]*?)${INSTALL_META_END.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\n?`, "m");
-  return text.replace(block, "\n").replace(/\n{3,}/g, "\n\n").trim();
-}
-
-function buildNotesWithInstallMeta(existingNotes: string | null | undefined, status: "confirmed" | "pencilled", note: string, scope: "internal" | "external" | "both" | "") {
-  const cleaned = stripInstallMeta(existingNotes);
-  const block = `${INSTALL_META_START}\nstatus: ${status}\nnote: ${note.trim()}\ninstall_scope: ${scope}\n${INSTALL_META_END}`;
-  return cleaned ? `${cleaned}\n\n${block}` : block;
-}
-
 function toDatetimeLocal(iso?: string | null) {
   if (!iso) return "";
   const date = new Date(iso);
@@ -311,6 +320,7 @@ export default function JobsCalendarPage() {
   const [monthCursor, setMonthCursor] = useState(() => startOfMonth(new Date()));
   const [jobs, setJobs] = useState<CalendarJob[]>([]);
   const [placeholders, setPlaceholders] = useState<CalendarPlaceholder[]>([]);
+  const [installPlanningByJobId, setInstallPlanningByJobId] = useState<Record<string, InstallPlanningMeta>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -319,8 +329,6 @@ export default function JobsCalendarPage() {
   const [placeholderForm, setPlaceholderForm] = useState({
     title: "",
     time: "12:00",
-    status: "pencilled" as "pencilled" | "confirmed",
-    scope: "" as "" | "internal" | "external" | "both",
     note: "",
   });
   const [selectedJob, setSelectedJob] = useState<CalendarJob | null>(null);
@@ -418,6 +426,37 @@ export default function JobsCalendarPage() {
     }
   }, [monthCursor]);
 
+  const getInstallPlanning = useCallback((job: CalendarJob): InstallPlanningMeta => {
+    return installPlanningByJobId[job._id] || parseInstallMeta(job.notes);
+  }, [installPlanningByJobId]);
+
+  const saveInstallPlanningMeta = useCallback(async (
+    jobId: string,
+    planning: InstallPlanningMeta,
+  ) => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    if (!token) throw new Error("Missing auth token");
+
+    const res = await fetch("/api/install-planning", {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-access-token": token,
+      },
+      body: JSON.stringify({
+        jobId,
+        status: planning.status,
+        installScope: planning.scope,
+        planningNote: planning.note,
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json?.error || "Could not save install planning");
+    const nextPlanning = toCalendarInstallPlanning(json.planning);
+    setInstallPlanningByJobId((prev) => ({ ...prev, [jobId]: nextPlanning }));
+    return nextPlanning;
+  }, []);
+
   const loadPlaceholders = useCallback(async () => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (!token) return;
@@ -440,6 +479,30 @@ export default function JobsCalendarPage() {
     }
   }, [monthCursor]);
 
+  const loadInstallPlanning = useCallback(async (calendarJobs: CalendarJob[]) => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    if (!token || calendarJobs.length === 0) return;
+
+    const params = new URLSearchParams({
+      jobIds: calendarJobs.map((job) => job._id).join(","),
+    });
+
+    try {
+      const res = await fetch(`/api/install-planning?${params.toString()}`, {
+        headers: { "x-access-token": token },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "Failed to load install planning");
+      const next: Record<string, InstallPlanningMeta> = {};
+      for (const row of json.planning || []) {
+        next[row.jobId] = toCalendarInstallPlanning(row);
+      }
+      setInstallPlanningByJobId(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load install planning");
+    }
+  }, []);
+
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (!token) {
@@ -449,6 +512,10 @@ export default function JobsCalendarPage() {
     load();
     loadPlaceholders();
   }, [load, loadPlaceholders, router]);
+
+  useEffect(() => {
+    loadInstallPlanning(jobs);
+  }, [jobs, loadInstallPlanning]);
 
   const placeholdersByDay = useMemo(() => {
     const map = new Map<string, CalendarPlaceholder[]>();
@@ -481,8 +548,6 @@ export default function JobsCalendarPage() {
     setPlaceholderForm({
       title: "",
       time: defaultTime,
-      status: "pencilled",
-      scope: "",
       note: "",
     });
     setPlaceholderSheetOpen(true);
@@ -515,8 +580,6 @@ export default function JobsCalendarPage() {
         body: JSON.stringify({
           startsAt,
           title: placeholderForm.title,
-          status: placeholderForm.status,
-          scope: placeholderForm.scope,
           note: placeholderForm.note,
         }),
       });
@@ -554,7 +617,7 @@ export default function JobsCalendarPage() {
   };
 
   const openJobSheet = (job: CalendarJob) => {
-    const meta = parseInstallMeta(job.notes);
+    const meta = getInstallPlanning(job);
     setSelectedJob(job);
     setInstallStatus(meta.status);
     setInstallScope(meta.scope || "");
@@ -582,10 +645,14 @@ export default function JobsCalendarPage() {
     setSaving(true);
     setError("");
     try {
-      const nextNotes = buildNotesWithInstallMeta(selectedJob.notes, installStatus, installMetaNote, installScope);
       const nextInstallDate = fromDatetimeLocal(installDate);
+      const nextPlanning = {
+        status: installStatus,
+        note: installMetaNote,
+        scope: installScope,
+      };
       await Promise.all([
-        gql(UPDATE_JOB_NOTES, { input: { _id: selectedJob._id, notes: nextNotes } }),
+        saveInstallPlanningMeta(selectedJob._id, nextPlanning),
         gql(UPDATE_INSTALLATION, {
           input: {
             _id: selectedJob._id,
@@ -600,7 +667,6 @@ export default function JobsCalendarPage() {
       ]);
       setJobs((prev) => prev.map((job) => job._id === selectedJob._id ? {
         ...job,
-        notes: nextNotes,
         installation: {
           ...job.installation,
           installDate: nextInstallDate,
@@ -835,20 +901,14 @@ export default function JobsCalendarPage() {
                           {day.items.map((item) => {
                             if (item.type === "placeholder") {
                               const placeholder = item.placeholder;
-                              const scopeLabel = placeholder.scope === "internal" ? "Internal" : placeholder.scope === "external" ? "External" : placeholder.scope === "both" ? "Internal + External" : "Scope not set";
                               return (
                                 <div key={placeholder.id} className="w-full rounded-xl border border-dashed border-violet-300 bg-violet-50/70 p-1.5 shadow-sm">
-                                  <div className="flex items-start justify-between gap-2 mb-1">
-                                    <div className="min-w-0">
-                                      <div className="text-[10px] uppercase tracking-wide font-bold text-violet-700 mb-0.5">Placeholder</div>
-                                      <div className="text-[15px] leading-5 font-semibold text-gray-900 line-clamp-2">{placeholder.title}</div>
-                                    </div>
-                                    <span className={`shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full ${placeholder.status === "confirmed" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
-                                      {placeholder.status === "confirmed" ? "Confirmed" : "Pencilled"}
-                                    </span>
+                                  <div className="mb-1">
+                                    <div className="text-[10px] uppercase tracking-wide font-bold text-violet-700 mb-0.5">Placeholder</div>
+                                    <div className="text-[15px] leading-5 font-semibold text-gray-900 line-clamp-2">{placeholder.title}</div>
                                   </div>
                                   <div className="text-[11px] text-gray-700 mb-1">
-                                    {timeFromDatetimeLocal(placeholder.startsAt) || "Any time"} • {scopeLabel}
+                                    {timeFromDatetimeLocal(placeholder.startsAt) || "Any time"}
                                   </div>
                                   {placeholder.note && (
                                     <div className="text-[11px] text-gray-600 line-clamp-2 rounded-lg bg-white/70 border border-violet-100 px-2 py-1.5">
@@ -867,7 +927,7 @@ export default function JobsCalendarPage() {
                             }
 
                             const job = item.job;
-                            const meta = parseInstallMeta(job.notes);
+                            const meta = getInstallPlanning(job);
                             const isInstalled = ["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"].includes(job.installation?.installStatus || "");
                             const isPencilled = meta.status === "pencilled";
                             const scopeLabel = meta.scope === "internal" ? "Internal" : meta.scope === "external" ? "External" : meta.scope === "both" ? "Internal + External" : "Scope not set";
@@ -984,44 +1044,6 @@ export default function JobsCalendarPage() {
                 onChange={(e) => setPlaceholderForm((prev) => ({ ...prev, time: e.target.value }))}
                 className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
               />
-            </div>
-
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Status</div>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => setPlaceholderForm((prev) => ({ ...prev, status: "pencilled" }))}
-                  className={`py-3 rounded-xl text-sm font-semibold border ${placeholderForm.status === "pencilled" ? "bg-amber-50 text-amber-700 border-amber-300" : "bg-white text-gray-700 border-gray-200"}`}
-                >
-                  Pencilled
-                </button>
-                <button
-                  onClick={() => setPlaceholderForm((prev) => ({ ...prev, status: "confirmed" }))}
-                  className={`py-3 rounded-xl text-sm font-semibold border ${placeholderForm.status === "confirmed" ? "bg-emerald-50 text-emerald-700 border-emerald-300" : "bg-white text-gray-700 border-gray-200"}`}
-                >
-                  Confirmed
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Scope</div>
-              <div className="grid grid-cols-4 gap-2">
-                {[
-                  { label: "None", value: "" },
-                  { label: "Internal", value: "internal" },
-                  { label: "External", value: "external" },
-                  { label: "Both", value: "both" },
-                ].map((option) => (
-                  <button
-                    key={option.label}
-                    onClick={() => setPlaceholderForm((prev) => ({ ...prev, scope: option.value as typeof placeholderForm.scope }))}
-                    className={`py-3 rounded-xl text-xs font-semibold border ${placeholderForm.scope === option.value ? "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
             </div>
 
             <div>

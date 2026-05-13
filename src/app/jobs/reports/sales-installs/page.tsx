@@ -48,6 +48,11 @@ type FutureJob = {
   } | null;
 };
 
+type InstallPlanningRow = {
+  jobId: string;
+  status: "confirmed" | "pencilled";
+};
+
 // ─── Queries ──────────────────────────────────────────────────────────────────
 
 const BULK_QUERY = `
@@ -157,6 +162,24 @@ function parseInstallMeta(notes?: string | null): string | null {
   if (!match) return null;
   const statusMatch = match[1].match(/status:\s*(\w+)/i);
   return statusMatch ? statusMatch[1].toLowerCase() : null;
+}
+
+async function fetchInstallPlanningStatuses(jobIds: string[]): Promise<Record<string, "confirmed" | "pencilled">> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  if (!token || jobIds.length === 0) return {};
+
+  const params = new URLSearchParams({ jobIds: jobIds.join(",") });
+  const res = await fetch(`/api/install-planning?${params.toString()}`, {
+    headers: { "x-access-token": token },
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json?.error || "Failed to load install planning");
+
+  const statuses: Record<string, "confirmed" | "pencilled"> = {};
+  for (const row of (json.planning || []) as InstallPlanningRow[]) {
+    statuses[row.jobId] = row.status;
+  }
+  return statuses;
 }
 
 // ─── Stat card ────────────────────────────────────────────────────────────────
@@ -312,12 +335,13 @@ export default function SalesInstallsPage() {
         const key = toNzDateKey(j.installation?.installDate);
         return !!key && key > todayKey;
       });
+      const futurePlanningStatuses = await fetchInstallPlanningStatuses(futureJobs.map((j) => j._id));
 
       let confirmed = { count: 0, sqm: 0, total: 0 };
       let pencilled = { count: 0, sqm: 0, total: 0 };
 
       for (const j of futureJobs) {
-        const status = parseInstallMeta(j.notes);
+        const status = futurePlanningStatuses[j._id] || parseInstallMeta(j.notes);
         const sqm = jobSqm(j);
         const total = j.quote?.c_total ?? 0;
         if (status === "pencilled") {

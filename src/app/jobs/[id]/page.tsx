@@ -60,6 +60,15 @@ interface Job {
   };
 }
 
+interface InstallPlanningMeta {
+  source?: "overlay";
+  jobId?: string;
+  status: "confirmed" | "pencilled";
+  note: string;
+  councilApprovalNA: boolean;
+  installScope: "internal" | "external" | "both" | "";
+}
+
 // ── Helpers ────────────────────────────────────────────────────────
 function fmt(iso?: string | null) {
   if (!iso) return "";
@@ -292,18 +301,6 @@ function stripInstallMeta(notes?: string | null) {
     .trim();
 }
 
-function buildNotesWithInstallMeta(
-  existingNotes: string | null | undefined,
-  status: "confirmed" | "pencilled",
-  note: string,
-  councilApprovalNA = false,
-  installScope: "internal" | "external" | "both" | "" = "",
-) {
-  const cleaned = stripInstallMeta(existingNotes);
-  const block = `${INSTALL_META_START}\nstatus: ${status}\nnote: ${note.trim()}\ncouncil_approval_na: ${councilApprovalNA ? "true" : "false"}\ninstall_scope: ${installScope}\n${INSTALL_META_END}`;
-  return cleaned ? `${cleaned}\n\n${block}` : block;
-}
-
 // ── Sub-components ─────────────────────────────────────────────────
 function InfoRow({ label, value }: { label: string; value?: string | null }) {
   if (!value) return null;
@@ -399,6 +396,7 @@ export default function JobDetailPage() {
   const [installPlanningStatus, setInstallPlanningStatus] = useState<"confirmed" | "pencilled">("confirmed");
   const [installPlanningScope, setInstallPlanningScope] = useState<"internal" | "external" | "both" | "">("");
   const [installPlanningNote, setInstallPlanningNote] = useState("");
+  const [installPlanningMeta, setInstallPlanningMeta] = useState<InstallPlanningMeta | null>(null);
 
   // Selected salesperson
   const [selectedUserId, setSelectedUserId] = useState("");
@@ -411,9 +409,47 @@ export default function JobDetailPage() {
   const quoteEmailEditorRef = useRef<HTMLDivElement | null>(null);
   const [quoteSentAt, setQuoteSentAt] = useState<string | null>(null);
 
+  const fetchInstallPlanning = useCallback(async (jobId: string) => {
+    const token = getToken();
+    if (!token) return null;
+
+    const params = new URLSearchParams({ jobIds: jobId });
+    const res = await fetch(`/api/install-planning?${params.toString()}`, {
+      headers: { "x-access-token": token },
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json?.error || "Failed to load install planning");
+    return (json.planning?.[0] || null) as InstallPlanningMeta | null;
+  }, []);
+
+  const saveInstallPlanningMeta = useCallback(async (next: InstallPlanningMeta) => {
+    const token = getToken();
+    if (!token) throw new Error("Missing auth token");
+
+    const res = await fetch("/api/install-planning", {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-access-token": token,
+      },
+      body: JSON.stringify({
+        jobId: id,
+        status: next.status,
+        installScope: next.installScope,
+        planningNote: next.note,
+        councilApprovalNA: next.councilApprovalNA,
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json?.error || "Could not save install planning");
+    setInstallPlanningMeta(json.planning);
+    return json.planning as InstallPlanningMeta;
+  }, [id]);
+
   // Load job + users
   const load = useCallback(async () => {
     try {
+      setInstallPlanningMeta(null);
       if (typeof window !== "undefined") {
         const rawJob = sessionStorage.getItem(`job-cache:${id}`);
         const rawUsers = sessionStorage.getItem("users-cache");
@@ -438,6 +474,9 @@ export default function JobDetailPage() {
       ]);
       setJob(jobData.job);
       setUsers(usersData.users.results);
+      fetchInstallPlanning(id)
+        .then((planning) => setInstallPlanningMeta(planning))
+        .catch(() => setInstallPlanningMeta(null));
       if (typeof window !== "undefined") {
         sessionStorage.setItem(`job-cache:${id}`, JSON.stringify({ ts: Date.now(), job: jobData.job }));
         sessionStorage.setItem("users-cache", JSON.stringify({ ts: Date.now(), users: usersData.users.results }));
@@ -500,7 +539,7 @@ export default function JobDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [fetchInstallPlanning, id]);
 
   useEffect(() => {
     if (!localStorage.getItem("token")) { router.push("/login"); return; }
@@ -722,8 +761,12 @@ export default function JobDetailPage() {
     }
     setSaving(true);
     try {
-      const nextNotes = buildNotesWithInstallMeta(job?.notes, installPlanningStatus, installPlanningNote, installMeta.councilApprovalNA, installPlanningScope || installMeta.installScope);
-      await gql(UPDATE_JOB_NOTES, { input: { _id: id, notes: nextNotes } });
+      await saveInstallPlanningMeta({
+        status: installPlanningStatus,
+        note: installPlanningNote,
+        councilApprovalNA: installMeta.councilApprovalNA,
+        installScope: installPlanningScope || installMeta.installScope,
+      });
       await load();
       closeSheet();
       const msg = { type: "success" as const, text: "Install planning details saved." };
@@ -739,8 +782,12 @@ export default function JobDetailPage() {
   async function toggleCouncilApprovalNA(nextValue: boolean) {
     setSaving(true);
     try {
-      const nextNotes = buildNotesWithInstallMeta(job?.notes, installMeta.status, installMeta.note, nextValue, installMeta.installScope);
-      await gql(UPDATE_JOB_NOTES, { input: { _id: id, notes: nextNotes } });
+      await saveInstallPlanningMeta({
+        status: installMeta.status,
+        note: installMeta.note,
+        councilApprovalNA: nextValue,
+        installScope: installMeta.installScope,
+      });
       await load();
       const msg = { type: "success" as const, text: nextValue ? "Council approval marked as N/A." : "Council approval requirement restored." };
       setNotice(msg);
@@ -753,8 +800,7 @@ export default function JobDetailPage() {
   }
 
   async function saveFullNote() {
-    const nextNotes = buildNotesWithInstallMeta(fullNoteText, installMeta.status, installMeta.note, installMeta.councilApprovalNA, installMeta.installScope);
-    await run(() => gql(UPDATE_JOB_NOTES, { input: { _id: id, notes: nextNotes } }));
+    await run(() => gql(UPDATE_JOB_NOTES, { input: { _id: id, notes: fullNoteText } }));
   }
 
   async function saveContact() {
@@ -1203,25 +1249,31 @@ export default function JobDetailPage() {
     }
     setSaving(true);
     try {
-      const nextNotes = buildNotesWithInstallMeta(job?.notes, installPlanningStatus, installPlanningNote, installMeta.councilApprovalNA, installPlanningScope || installMeta.installScope);
       const nextInstallDate = fromDatetimeLocal(installDate);
       const shouldMoveToInstallation = !!nextInstallDate && !["INSTALLATION", "INVOICE", "COMPLETED"].includes(job?.stage || "");
-      await gql(
-        `mutation UpdateInstall($input: UpdateJobInput!) { updateJob(input: $input) { _id stage installation { installDate installNote installStatus checkSheetSignedAsComplete } notes } }`,
-        {
-          input: {
-            _id: id,
-            ...(shouldMoveToInstallation ? { stage: "INSTALLATION" } : {}),
-            installation: {
-              installDate: nextInstallDate,
-              installNote: job?.installation?.installNote || "",
-              installStatus: job?.installation?.installStatus || "JOB_NOT_STARTED_YET",
-              checkSheetSignedAsComplete: job?.installation?.checkSheetSignedAsComplete ?? false,
+      await Promise.all([
+        saveInstallPlanningMeta({
+          status: installPlanningStatus,
+          note: installPlanningNote,
+          councilApprovalNA: installMeta.councilApprovalNA,
+          installScope: installPlanningScope || installMeta.installScope,
+        }),
+        gql(
+          `mutation UpdateInstall($input: UpdateJobInput!) { updateJob(input: $input) { _id stage installation { installDate installNote installStatus checkSheetSignedAsComplete } } }`,
+          {
+            input: {
+              _id: id,
+              ...(shouldMoveToInstallation ? { stage: "INSTALLATION" } : {}),
+              installation: {
+                installDate: nextInstallDate,
+                installNote: job?.installation?.installNote || "",
+                installStatus: job?.installation?.installStatus || "JOB_NOT_STARTED_YET",
+                checkSheetSignedAsComplete: job?.installation?.checkSheetSignedAsComplete ?? false,
+              },
             },
-            notes: nextNotes,
-          },
-        }
-      );
+          }
+        ),
+      ]);
       await load();
       closeSheet();
       const msg = { type: "success" as const, text: "Installation date saved." };
@@ -1525,7 +1577,7 @@ export default function JobDetailPage() {
     ? [checksheetBagMetrics, checksheetWallMetrics].filter(Boolean)
     : [];
   const installNoteDisplay = job.installation?.installNote?.trim() || "No install notes yet";
-  const installMeta = parseInstallMeta(job.notes);
+  const installMeta = installPlanningMeta || parseInstallMeta(job.notes);
   const installScopeLabel = installMeta.installScope === "internal" ? "Internal" : installMeta.installScope === "external" ? "External" : installMeta.installScope === "both" ? "Internal + External" : "Not set";
   const councilApprovalMarkedNA = installMeta.councilApprovalNA;
   const hasCouncilApprovalFile = !!job.council?.files_CouncilApprovalLetters?.length;
