@@ -56,4 +56,33 @@ export async function ensureOverlaySchema() {
     CREATE INDEX IF NOT EXISTS job_install_planning_job_id_idx
       ON job_install_planning (insulhub_job_id)
   `;
+
+  await overlaySql`
+    CREATE TABLE IF NOT EXISTS contact_templates (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      title text NOT NULL,
+      channel text NOT NULL,
+      description text NOT NULL DEFAULT '',
+      subject text NOT NULL DEFAULT '',
+      body text NOT NULL,
+      sort_order integer NOT NULL DEFAULT 0,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      CONSTRAINT contact_templates_channel_check
+        CHECK (channel IN ('sms', 'email'))
+    )
+  `;
+
+  await overlaySql`
+    CREATE INDEX IF NOT EXISTS contact_templates_channel_sort_idx
+      ON contact_templates (channel, sort_order, title)
+  `;
+
+  await overlaySql`
+    CREATE TABLE IF NOT EXISTS overlay_settings (
+      key text PRIMARY KEY,
+      value text NOT NULL,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+  `;
 }

@@ -69,6 +69,18 @@ interface InstallPlanningMeta {
   installScope: "internal" | "external" | "both" | "";
 }
 
+type ContactTemplate = {
+  id: string;
+  title: string;
+  channel: "sms" | "email";
+  description: string;
+  subject: string;
+  body: string;
+  sortOrder: number;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 // ── Helpers ────────────────────────────────────────────────────────
 function fmt(iso?: string | null) {
   if (!iso) return "";
@@ -301,6 +313,22 @@ function stripInstallMeta(notes?: string | null) {
     .trim();
 }
 
+function applyTemplateFields(template: string, fields: Record<string, string>) {
+  return template.replace(/\{([^}]+)\}/g, (_match, key) => {
+    const normalizedKey = String(key).trim().toLowerCase().replace(/[\s_-]+/g, "");
+    return fields[normalizedKey] || "";
+  });
+}
+
+function buildSmsHref(phone: string, body: string) {
+  const cleanPhone = phone.replace(/[^\d+]/g, "");
+  return `sms:${encodeURIComponent(cleanPhone)}?&body=${encodeURIComponent(body)}`;
+}
+
+function buildMailtoHref(email: string, subject: string, body: string) {
+  return `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
 // ── Sub-components ─────────────────────────────────────────────────
 function InfoRow({ label, value }: { label: string; value?: string | null }) {
   if (!value) return null;
@@ -408,6 +436,18 @@ export default function JobDetailPage() {
   const [loadingQuoteEmailBody, setLoadingQuoteEmailBody] = useState(false);
   const quoteEmailEditorRef = useRef<HTMLDivElement | null>(null);
   const [quoteSentAt, setQuoteSentAt] = useState<string | null>(null);
+  const [contactTemplates, setContactTemplates] = useState<ContactTemplate[]>([]);
+  const [loadingContactTemplates, setLoadingContactTemplates] = useState(false);
+  const [contactTemplateMode, setContactTemplateMode] = useState<"sms" | "email">("sms");
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+  const [templateForm, setTemplateForm] = useState({
+    title: "",
+    channel: "sms" as "sms" | "email",
+    description: "",
+    subject: "",
+    body: "",
+    sortOrder: "0",
+  });
 
   const fetchInstallPlanning = useCallback(async (jobId: string) => {
     const token = getToken();
@@ -445,6 +485,25 @@ export default function JobDetailPage() {
     setInstallPlanningMeta(json.planning);
     return json.planning as InstallPlanningMeta;
   }, [id]);
+
+  const loadContactTemplates = useCallback(async () => {
+    const token = getToken();
+    if (!token) return;
+
+    setLoadingContactTemplates(true);
+    try {
+      const res = await fetch("/api/contact-templates", {
+        headers: { "x-access-token": token },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "Failed to load contact templates");
+      setContactTemplates(json.templates || []);
+    } catch (err) {
+      setToast({ type: "error", text: err instanceof Error ? err.message : "Failed to load contact templates" });
+    } finally {
+      setLoadingContactTemplates(false);
+    }
+  }, []);
 
   // Load job + users
   const load = useCallback(async () => {
@@ -544,7 +603,8 @@ export default function JobDetailPage() {
   useEffect(() => {
     if (!localStorage.getItem("token")) { router.push("/login"); return; }
     load();
-  }, [load, router]);
+    loadContactTemplates();
+  }, [load, loadContactTemplates, router]);
 
   useEffect(() => {
     const email = job?.client?.contactDetails?.email?.trim().toLowerCase();
@@ -615,6 +675,116 @@ export default function JobDetailPage() {
     const t = setTimeout(() => setToast(null), 4500);
     return () => clearTimeout(t);
   }, [toast]);
+
+  async function copyContactTemplate(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setToast({ type: "success", text: "Template copied." });
+    } catch {
+      setToast({ type: "error", text: "Could not copy template." });
+    }
+  }
+
+  function resetTemplateForm(channel: "sms" | "email" = contactTemplateMode) {
+    setEditingTemplateId(null);
+    setTemplateForm({
+      title: "",
+      channel,
+      description: "",
+      subject: "",
+      body: "",
+      sortOrder: "0",
+    });
+  }
+
+  function openContactTemplates(channel: "sms" | "email") {
+    setContactTemplateMode(channel);
+    resetTemplateForm(channel);
+    openSheet("contactTemplatePicker");
+    if (!contactTemplates.length) loadContactTemplates();
+  }
+
+  function openTemplateManager(channel: "sms" | "email" = contactTemplateMode) {
+    setContactTemplateMode(channel);
+    resetTemplateForm(channel);
+    openSheet("contactTemplateManager");
+    if (!contactTemplates.length) loadContactTemplates();
+  }
+
+  function editContactTemplate(template: ContactTemplate) {
+    setEditingTemplateId(template.id);
+    setTemplateForm({
+      title: template.title,
+      channel: template.channel,
+      description: template.description || "",
+      subject: template.subject || "",
+      body: template.body,
+      sortOrder: String(template.sortOrder || 0),
+    });
+    setContactTemplateMode(template.channel);
+    openSheet("contactTemplateManager");
+  }
+
+  async function saveContactTemplate() {
+    const token = getToken();
+    if (!token) return;
+    const title = templateForm.title.trim();
+    const body = templateForm.body.trim();
+    if (!title || !body) {
+      setToast({ type: "error", text: "Template title and body are required." });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const res = await fetch(editingTemplateId ? `/api/contact-templates/${editingTemplateId}` : "/api/contact-templates", {
+        method: editingTemplateId ? "PATCH" : "POST",
+        headers: { "content-type": "application/json", "x-access-token": token },
+        body: JSON.stringify({
+          ...templateForm,
+          subject: templateForm.channel === "email" ? templateForm.subject : "",
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "Could not save contact template");
+
+      const saved = json.template as ContactTemplate;
+      setContactTemplates((prev) => {
+        const withoutSaved = prev.filter((template) => template.id !== saved.id);
+        return [...withoutSaved, saved].sort((a, b) => a.channel.localeCompare(b.channel) || a.sortOrder - b.sortOrder || a.title.localeCompare(b.title));
+      });
+      setContactTemplateMode(saved.channel);
+      resetTemplateForm(saved.channel);
+      setToast({ type: "success", text: "Template saved." });
+    } catch (err) {
+      setToast({ type: "error", text: err instanceof Error ? err.message : "Could not save contact template" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteContactTemplate(templateId: string) {
+    const token = getToken();
+    if (!token) return;
+    if (!window.confirm("Delete this template?")) return;
+
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/contact-templates/${templateId}`, {
+        method: "DELETE",
+        headers: { "x-access-token": token },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "Could not delete contact template");
+      setContactTemplates((prev) => prev.filter((template) => template.id !== templateId));
+      if (editingTemplateId === templateId) resetTemplateForm(contactTemplateMode);
+      setToast({ type: "success", text: "Template deleted." });
+    } catch (err) {
+      setToast({ type: "error", text: err instanceof Error ? err.message : "Could not delete contact template" });
+    } finally {
+      setSaving(false);
+    }
+  }
 
   useEffect(() => {
     if (!job) return;
@@ -1531,6 +1701,8 @@ export default function JobDetailPage() {
   const c = job.client?.contactDetails;
   const phone = c?.phoneMobile || c?.phoneSecondary;
   const address = [c?.streetAddress, c?.suburb, c?.city, c?.postCode].filter(Boolean).join(", ");
+  const contactName = c?.name?.trim() || "there";
+  const firstName = contactName.split(/\s+/)[0] || "there";
   const statusRaw = (job.lead?.leadStatus || "NEW").toUpperCase();
   const leadStatus = statusRaw === "ON_HOLD" ? "CALLBACK" : statusRaw;
   const quoteStatus = (job.quote?.status || "").toUpperCase();
@@ -1543,6 +1715,28 @@ export default function JobDetailPage() {
     : leadStatus;
   const salesperson = job.lead?.allocatedTo
     ? `${job.lead.allocatedTo.firstname} ${job.lead.allocatedTo.lastname}` : "Unallocated";
+  let loggedInUserName = "";
+  try {
+    if (typeof window !== "undefined") {
+      const me = JSON.parse(localStorage.getItem("me") || "{}");
+      loggedInUserName = [me.firstname, me.lastname].filter(Boolean).join(" ");
+    }
+  } catch {
+    loggedInUserName = "";
+  }
+  const templateSalesperson = salesperson !== "Unallocated" ? salesperson : loggedInUserName || "Insulmax";
+  const templateFields = {
+    customername: contactName,
+    name: contactName,
+    firstname: firstName,
+    salesperson: templateSalesperson,
+    address: address || "your property",
+    quotebookingdate: fmtDateTime(job.lead?.quoteBookingDate, true) || "the booked time",
+    jobnumber: String(job.jobNumber),
+    phone: phone || "",
+    email: c?.email || "",
+  };
+  const visibleContactTemplates = contactTemplates.filter((template) => template.channel === contactTemplateMode);
   const assignableUsers = users.filter((u) => (u.role || "").toUpperCase() !== "INSTALLER");
   const hasWall = !!job.quote?.wall?.SQM;
   const hasCeiling = !!job.quote?.ceiling?.SQM;
@@ -1861,8 +2055,8 @@ export default function JobDetailPage() {
         {/* Quick contact */}
         <div className="flex gap-2 mb-3">
           {phone && <a href={`tel:${phone}`} className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl text-center text-sm">📞 Call</a>}
-          {phone && <a href={`sms:${phone}`} className="flex-1 bg-teal-700 text-white font-semibold py-3 rounded-xl text-center text-sm">💬 Text</a>}
-          {c?.email && <a href={`mailto:${c.email}`} className="flex-1 bg-[#1a3a4a] text-white font-semibold py-3 rounded-xl text-center text-sm">✉️ Email</a>}
+          {phone && <button type="button" onClick={() => openContactTemplates("sms")} className="flex-1 bg-teal-700 text-white font-semibold py-3 rounded-xl text-center text-sm">💬 Text</button>}
+          {c?.email && <button type="button" onClick={() => openContactTemplates("email")} className="flex-1 bg-[#1a3a4a] text-white font-semibold py-3 rounded-xl text-center text-sm">✉️ Email</button>}
         </div>
 
         {activeDetailTab === "job" ? (
@@ -2328,6 +2522,219 @@ export default function JobDetailPage() {
           </div>
         </div>
       )}
+
+      {/* Contact template picker */}
+      <BottomSheet open={sheet === "contactTemplatePicker"} onClose={closeSheet} title={contactTemplateMode === "sms" ? "Choose Text Template" : "Choose Email Template"}>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Templates</div>
+              <div className="text-sm text-gray-600 mt-0.5">{contactTemplateMode === "sms" ? phone : c?.email}</div>
+            </div>
+            <button type="button" onClick={() => openTemplateManager(contactTemplateMode)} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold">
+              Manage
+            </button>
+          </div>
+
+          {loadingContactTemplates ? (
+            <div className="text-sm text-gray-500 py-8 text-center">Loading templates...</div>
+          ) : visibleContactTemplates.length ? (
+            <div className="space-y-2">
+              {visibleContactTemplates.map((template) => {
+                const body = applyTemplateFields(template.body, templateFields);
+                const subject = applyTemplateFields(template.subject || "", templateFields);
+                const launchHref = contactTemplateMode === "sms"
+                  ? buildSmsHref(phone || "", body)
+                  : buildMailtoHref(c?.email || "", subject, body);
+
+                return (
+                  <div key={template.id} className="border border-gray-200 rounded-xl p-3 bg-white">
+                    <div className="text-sm font-semibold text-gray-900">{template.title}</div>
+                    {template.description && <div className="text-xs text-gray-500 mt-0.5">{template.description}</div>}
+                    {contactTemplateMode === "email" && subject && (
+                      <div className="mt-2 text-xs text-gray-500">
+                        <span className="font-semibold text-gray-600">Subject:</span> {subject}
+                      </div>
+                    )}
+                    <p className="mt-2 text-sm text-gray-700 whitespace-pre-wrap line-clamp-4">{body}</p>
+                    <div className="flex gap-2 mt-3">
+                      <a
+                        href={launchHref}
+                        onClick={closeSheet}
+                        className="flex-1 bg-[#1a3a4a] text-white text-sm font-semibold py-2.5 rounded-xl text-center"
+                      >
+                        Use
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => copyContactTemplate(body)}
+                        className="px-4 bg-gray-100 text-gray-700 text-sm font-semibold py-2.5 rounded-xl"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="border border-dashed border-gray-200 rounded-xl p-5 text-center">
+              <div className="text-sm text-gray-600 mb-3">No {contactTemplateMode === "sms" ? "text" : "email"} templates yet.</div>
+              <button type="button" onClick={() => openTemplateManager(contactTemplateMode)} className="bg-[#e85d04] text-white text-sm font-semibold py-2.5 px-4 rounded-xl">
+                Create Template
+              </button>
+            </div>
+          )}
+        </div>
+      </BottomSheet>
+
+      {/* Contact template manager */}
+      <BottomSheet open={sheet === "contactTemplateManager"} onClose={closeSheet} title="Manage Templates">
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setContactTemplateMode("sms");
+                resetTemplateForm("sms");
+              }}
+              className={`py-2.5 rounded-xl text-sm font-semibold border ${contactTemplateMode === "sms" ? "bg-teal-50 text-teal-700 border-teal-300" : "bg-white text-gray-700 border-gray-200"}`}
+            >
+              Text
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setContactTemplateMode("email");
+                resetTemplateForm("email");
+              }}
+              className={`py-2.5 rounded-xl text-sm font-semibold border ${contactTemplateMode === "email" ? "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
+            >
+              Email
+            </button>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Existing Templates</div>
+              <button type="button" onClick={loadContactTemplates} className="text-xs text-gray-500 font-medium">Refresh</button>
+            </div>
+
+            {loadingContactTemplates ? (
+              <div className="text-sm text-gray-500 py-5 text-center">Loading templates...</div>
+            ) : visibleContactTemplates.length ? (
+              <div className="space-y-2">
+                {visibleContactTemplates.map((template) => (
+                  <button
+                    key={template.id}
+                    type="button"
+                    onClick={() => editContactTemplate(template)}
+                    className={`w-full text-left border rounded-xl p-3 ${editingTemplateId === template.id ? "border-[#e85d04] bg-orange-50" : "border-gray-200 bg-white"}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-gray-900">{template.title}</div>
+                        {template.description && <div className="text-xs text-gray-500 mt-0.5">{template.description}</div>}
+                      </div>
+                      <span className="text-xs text-gray-400">Edit</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-gray-500 py-5 text-center">No templates yet.</div>
+            )}
+          </div>
+
+          <div className="border-t border-gray-100 pt-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">{editingTemplateId ? "Edit Template" : "New Template"}</div>
+              {editingTemplateId && (
+                <button type="button" onClick={() => resetTemplateForm(contactTemplateMode)} className="text-xs text-gray-500 font-medium">Create New</button>
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTemplateForm((prev) => ({ ...prev, channel: "sms", subject: "" }))}
+                  className={`py-2.5 rounded-xl text-sm font-semibold border ${templateForm.channel === "sms" ? "bg-teal-50 text-teal-700 border-teal-300" : "bg-white text-gray-700 border-gray-200"}`}
+                >
+                  Text
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTemplateForm((prev) => ({ ...prev, channel: "email" }))}
+                  className={`py-2.5 rounded-xl text-sm font-semibold border ${templateForm.channel === "email" ? "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
+                >
+                  Email
+                </button>
+                <input
+                  value={templateForm.sortOrder}
+                  onChange={(e) => setTemplateForm((prev) => ({ ...prev, sortOrder: e.target.value }))}
+                  inputMode="numeric"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+                  placeholder="Order"
+                />
+              </div>
+
+              <input
+                value={templateForm.title}
+                onChange={(e) => setTemplateForm((prev) => ({ ...prev, title: e.target.value }))}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+                placeholder="Template name"
+              />
+              <input
+                value={templateForm.description}
+                onChange={(e) => setTemplateForm((prev) => ({ ...prev, description: e.target.value }))}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+                placeholder="Short description"
+              />
+              {templateForm.channel === "email" && (
+                <input
+                  value={templateForm.subject}
+                  onChange={(e) => setTemplateForm((prev) => ({ ...prev, subject: e.target.value }))}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+                  placeholder="Email subject"
+                />
+              )}
+              <textarea
+                value={templateForm.body}
+                onChange={(e) => setTemplateForm((prev) => ({ ...prev, body: e.target.value }))}
+                rows={6}
+                className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04] resize-none"
+                placeholder="Template body. Use fields like {customer name}, {first name}, {salesperson}, {address}, {quote booking date}, {job number}."
+              />
+
+              <div className="rounded-xl bg-gray-50 border border-gray-200 p-3 text-xs text-gray-600">
+                Available fields: {"{customer name}"}, {"{first name}"}, {"{salesperson}"}, {"{address}"}, {"{quote booking date}"}, {"{job number}"}, {"{phone}"}, {"{email}"}.
+              </div>
+
+              <div className="flex gap-2">
+                {editingTemplateId && (
+                  <button
+                    type="button"
+                    onClick={() => deleteContactTemplate(editingTemplateId)}
+                    disabled={saving}
+                    className="bg-red-50 text-red-600 font-semibold py-3 px-4 rounded-xl disabled:opacity-50"
+                  >
+                    Delete
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={saveContactTemplate}
+                  disabled={saving || !templateForm.title.trim() || !templateForm.body.trim()}
+                  className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50"
+                >
+                  {saving ? "Saving..." : editingTemplateId ? "Save Template" : "Create Template"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </BottomSheet>
 
       {/* Add note */}
       <BottomSheet open={sheet === "addNote"} onClose={closeSheet} title="Add Note">
