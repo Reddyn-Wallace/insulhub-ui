@@ -31,6 +31,19 @@ interface CalendarJob {
   };
 }
 
+interface CalendarPlaceholder {
+  source: "overlay";
+  kind: "placeholder";
+  id: string;
+  startsAt: string;
+  endsAt?: string | null;
+  title: string;
+  status: "pencilled" | "confirmed";
+  scope: "" | "internal" | "external" | "both";
+  note?: string | null;
+  linkedJobId?: string | null;
+}
+
 interface JobsData {
   jobs: {
     total: number;
@@ -217,6 +230,17 @@ function fromDatetimeLocal(value: string) {
   return new Date(value).toISOString();
 }
 
+function timeFromDatetimeLocal(value?: string | null) {
+  const local = toDatetimeLocal(value);
+  if (!local || !local.includes("T")) return "";
+  return local.split("T")[1]?.slice(0, 5) || "";
+}
+
+function mergeDateAndTime(date: Date, time: string) {
+  const safeTime = /^\d{2}:\d{2}$/.test(time) ? time : "12:00";
+  return `${dateKeyLocal(date)}T${safeTime}`;
+}
+
 const CALENDAR_RAW_CACHE_KEY = "calendar:all-install-jobs-v2";
 const CALENDAR_VIEW_CACHE_PREFIX = "calendar:view:";
 const CALENDAR_RAW_CACHE_TTL_MS = 20 * 60 * 1000;
@@ -286,9 +310,19 @@ export default function JobsCalendarPage() {
   const router = useRouter();
   const [monthCursor, setMonthCursor] = useState(() => startOfMonth(new Date()));
   const [jobs, setJobs] = useState<CalendarJob[]>([]);
+  const [placeholders, setPlaceholders] = useState<CalendarPlaceholder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [placeholderSheetOpen, setPlaceholderSheetOpen] = useState(false);
+  const [placeholderDate, setPlaceholderDate] = useState<Date | null>(null);
+  const [placeholderForm, setPlaceholderForm] = useState({
+    title: "",
+    time: "12:00",
+    status: "pencilled" as "pencilled" | "confirmed",
+    scope: "" as "" | "internal" | "external" | "both",
+    note: "",
+  });
   const [selectedJob, setSelectedJob] = useState<CalendarJob | null>(null);
   const [installStatus, setInstallStatus] = useState<"confirmed" | "pencilled">("confirmed");
   const [installScope, setInstallScope] = useState<"internal" | "external" | "both" | "">("");
@@ -384,6 +418,28 @@ export default function JobsCalendarPage() {
     }
   }, [monthCursor]);
 
+  const loadPlaceholders = useCallback(async () => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    if (!token) return;
+
+    const { calendarStart, calendarEnd } = calendarRangeForMonth(monthCursor);
+    const params = new URLSearchParams({
+      start: new Date(calendarStart.getFullYear(), calendarStart.getMonth(), calendarStart.getDate(), 0, 0, 0, 0).toISOString(),
+      end: new Date(calendarEnd.getFullYear(), calendarEnd.getMonth(), calendarEnd.getDate(), 23, 59, 59, 999).toISOString(),
+    });
+
+    try {
+      const res = await fetch(`/api/calendar/placeholders?${params.toString()}`, {
+        headers: { "x-access-token": token },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "Failed to load placeholders");
+      setPlaceholders(json.placeholders || []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load placeholders");
+    }
+  }, [monthCursor]);
+
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (!token) {
@@ -391,7 +447,111 @@ export default function JobsCalendarPage() {
       return;
     }
     load();
-  }, [load, router]);
+    loadPlaceholders();
+  }, [load, loadPlaceholders, router]);
+
+  const placeholdersByDay = useMemo(() => {
+    const map = new Map<string, CalendarPlaceholder[]>();
+    for (const placeholder of placeholders) {
+      const key = dateKeyFromIsoNz(placeholder.startsAt);
+      if (!key) continue;
+      const arr = map.get(key) || [];
+      arr.push(placeholder);
+      map.set(key, arr);
+    }
+    for (const arr of map.values()) {
+      arr.sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());
+    }
+    return map;
+  }, [placeholders]);
+
+  const openPlaceholderSheet = (date: Date, jobsForDay: CalendarJob[]) => {
+    const sortedJobs = [...jobsForDay].sort((a, b) => {
+      const aTs = new Date(a.installation?.installDate || 0).getTime();
+      const bTs = new Date(b.installation?.installDate || 0).getTime();
+      return aTs - bTs;
+    });
+    const lastJob = sortedJobs[sortedJobs.length - 1];
+    const lastJobDate = lastJob?.installation?.installDate ? new Date(lastJob.installation.installDate) : null;
+    const afterLastJob = lastJobDate && !Number.isNaN(lastJobDate.getTime())
+      ? toDatetimeLocal(new Date(lastJobDate.getTime() + 60 * 60 * 1000).toISOString())
+      : "";
+    const defaultTime = afterLastJob.split("T")[1]?.slice(0, 5) || "12:00";
+    setPlaceholderDate(date);
+    setPlaceholderForm({
+      title: "",
+      time: defaultTime,
+      status: "pencilled",
+      scope: "",
+      note: "",
+    });
+    setPlaceholderSheetOpen(true);
+  };
+
+  const closePlaceholderSheet = () => {
+    if (saving) return;
+    setPlaceholderSheetOpen(false);
+    setPlaceholderDate(null);
+  };
+
+  const savePlaceholder = async () => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    if (!token || !placeholderDate) return;
+    if (!placeholderForm.title.trim()) {
+      setError("Placeholder title is required.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    try {
+      const startsAt = fromDatetimeLocal(mergeDateAndTime(placeholderDate, placeholderForm.time));
+      const res = await fetch("/api/calendar/placeholders", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-access-token": token,
+        },
+        body: JSON.stringify({
+          startsAt,
+          title: placeholderForm.title,
+          status: placeholderForm.status,
+          scope: placeholderForm.scope,
+          note: placeholderForm.note,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "Could not create placeholder");
+      setPlaceholders((prev) => [...prev, json.placeholder]);
+      closePlaceholderSheet();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create placeholder");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deletePlaceholder = async (placeholderId: string) => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    if (!token) return;
+    if (!confirm("Remove this placeholder?")) return;
+
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/calendar/placeholders/${placeholderId}`, {
+        method: "DELETE",
+        headers: { "x-access-token": token },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "Could not remove placeholder");
+      setPlaceholders((prev) => prev.filter((placeholder) => placeholder.id !== placeholderId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not remove placeholder");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const openJobSheet = (job: CalendarJob) => {
     const meta = parseInstallMeta(job.notes);
@@ -521,8 +681,18 @@ export default function JobsCalendarPage() {
 
     const rows: Array<{
       weekStart: Date;
-      days: Array<{ date: Date; key: string; jobs: CalendarJob[]; inMonth: boolean }>;
-      totals: { jobs: number; sqm: number; amount: number };
+      days: Array<{
+        date: Date;
+        key: string;
+        jobs: CalendarJob[];
+        placeholders: CalendarPlaceholder[];
+        items: Array<
+          | { type: "job"; sortTs: number; job: CalendarJob }
+          | { type: "placeholder"; sortTs: number; placeholder: CalendarPlaceholder }
+        >;
+        inMonth: boolean;
+      }>;
+      totals: { jobs: number; placeholders: number; sqm: number; amount: number };
     }> = [];
 
     let cursor = gridStart;
@@ -531,10 +701,25 @@ export default function JobsCalendarPage() {
         const date = addDays(cursor, idx);
         const key = dateKeyLocal(date);
         const dayJobs = jobsByDay.get(key) || [];
+        const dayPlaceholders = placeholdersByDay.get(key) || [];
+        const items = [
+          ...dayJobs.map((job) => ({
+            type: "job" as const,
+            sortTs: new Date(job.installation?.installDate || `${key}T00:00`).getTime(),
+            job,
+          })),
+          ...dayPlaceholders.map((placeholder) => ({
+            type: "placeholder" as const,
+            sortTs: new Date(placeholder.startsAt).getTime(),
+            placeholder,
+          })),
+        ].sort((a, b) => a.sortTs - b.sortTs);
         return {
           date,
           key,
           jobs: dayJobs,
+          placeholders: dayPlaceholders,
+          items,
           inMonth: date.getMonth() === monthStart.getMonth(),
         };
       });
@@ -545,11 +730,12 @@ export default function JobsCalendarPage() {
         totals: days.reduce(
           (acc, day) => {
             acc.jobs += day.jobs.length;
+            acc.placeholders += day.placeholders.length;
             acc.sqm += day.jobs.reduce((sum, job) => sum + combinedSqm(job), 0);
             acc.amount += day.jobs.reduce((sum, job) => sum + (job.quote?.c_total || 0), 0);
             return acc;
           },
-          { jobs: 0, sqm: 0, amount: 0 }
+          { jobs: 0, placeholders: 0, sqm: 0, amount: 0 }
         ),
       });
 
@@ -557,7 +743,7 @@ export default function JobsCalendarPage() {
     }
 
     return rows;
-  }, [jobsByDay, monthCursor]);
+  }, [jobsByDay, monthCursor, placeholdersByDay]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -631,15 +817,56 @@ export default function JobsCalendarPage() {
                           <span className={`text-sm font-bold ${day.inMonth ? "text-gray-900" : "text-gray-400"}`}>
                             {day.date.getDate()}
                           </span>
-                          {day.jobs.length > 0 && (
-                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#e85d04]/10 text-[#e85d04]">
-                              {day.jobs.length} job{day.jobs.length === 1 ? "" : "s"}
-                            </span>
-                          )}
+                          <div className="flex items-center gap-1">
+                            {day.placeholders.length > 0 && (
+                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-50 text-violet-700">
+                                {day.placeholders.length} hold{day.placeholders.length === 1 ? "" : "s"}
+                              </span>
+                            )}
+                            {day.jobs.length > 0 && (
+                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#e85d04]/10 text-[#e85d04]">
+                                {day.jobs.length} job{day.jobs.length === 1 ? "" : "s"}
+                              </span>
+                            )}
+                          </div>
                         </div>
 
                         <div className="space-y-2">
-                          {day.jobs.map((job) => {
+                          {day.items.map((item) => {
+                            if (item.type === "placeholder") {
+                              const placeholder = item.placeholder;
+                              const scopeLabel = placeholder.scope === "internal" ? "Internal" : placeholder.scope === "external" ? "External" : placeholder.scope === "both" ? "Internal + External" : "Scope not set";
+                              return (
+                                <div key={placeholder.id} className="w-full rounded-xl border border-dashed border-violet-300 bg-violet-50/70 p-1.5 shadow-sm">
+                                  <div className="flex items-start justify-between gap-2 mb-1">
+                                    <div className="min-w-0">
+                                      <div className="text-[10px] uppercase tracking-wide font-bold text-violet-700 mb-0.5">Placeholder</div>
+                                      <div className="text-[15px] leading-5 font-semibold text-gray-900 line-clamp-2">{placeholder.title}</div>
+                                    </div>
+                                    <span className={`shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full ${placeholder.status === "confirmed" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                                      {placeholder.status === "confirmed" ? "Confirmed" : "Pencilled"}
+                                    </span>
+                                  </div>
+                                  <div className="text-[11px] text-gray-700 mb-1">
+                                    {timeFromDatetimeLocal(placeholder.startsAt) || "Any time"} • {scopeLabel}
+                                  </div>
+                                  {placeholder.note && (
+                                    <div className="text-[11px] text-gray-600 line-clamp-2 rounded-lg bg-white/70 border border-violet-100 px-2 py-1.5">
+                                      {placeholder.note}
+                                    </div>
+                                  )}
+                                  <button
+                                    onClick={() => deletePlaceholder(placeholder.id)}
+                                    disabled={saving}
+                                    className="mt-2 h-8 w-full text-[11px] font-semibold text-red-600 bg-white border border-red-100 rounded-lg disabled:opacity-50"
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              );
+                            }
+
+                            const job = item.job;
                             const meta = parseInstallMeta(job.notes);
                             const isInstalled = ["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"].includes(job.installation?.installStatus || "");
                             const isPencilled = meta.status === "pencilled";
@@ -689,7 +916,13 @@ export default function JobsCalendarPage() {
                               </div>
                             );
                           })}
-                          {day.jobs.length === 0 && <div className="text-xs text-gray-300 pt-2">No jobs</div>}
+                          {day.items.length === 0 && <div className="text-xs text-gray-300 pt-2">No jobs or placeholders</div>}
+                          <button
+                            onClick={() => openPlaceholderSheet(day.date, day.jobs)}
+                            className="w-full h-8 text-[11px] font-semibold rounded-lg border border-dashed border-gray-300 text-gray-500 bg-white/70 hover:bg-gray-50"
+                          >
+                            + Add placeholder
+                          </button>
                         </div>
                       </div>
                     ))}
@@ -700,6 +933,10 @@ export default function JobsCalendarPage() {
                         <div>
                           <div className="text-[11px] text-white/60">Jobs</div>
                           <div className="text-2xl font-bold">{week.totals.jobs}</div>
+                        </div>
+                        <div>
+                          <div className="text-[11px] text-white/60">Placeholders</div>
+                          <div className="text-2xl font-bold">{week.totals.placeholders}</div>
                         </div>
                         <div>
                           <div className="text-[11px] text-white/60">Square metres</div>
@@ -718,6 +955,99 @@ export default function JobsCalendarPage() {
           </div>
         )}
       </div>
+
+      <BottomSheet open={placeholderSheetOpen} onClose={closePlaceholderSheet} title="Add placeholder">
+        {placeholderDate && (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-violet-100 bg-violet-50 px-3 py-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-violet-700 mb-1">Calendar overlay</div>
+              <div className="text-sm font-semibold text-gray-900">
+                {placeholderDate.toLocaleDateString("en-NZ", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5 block">Title</label>
+              <input
+                value={placeholderForm.title}
+                onChange={(e) => setPlaceholderForm((prev) => ({ ...prev, title: e.target.value }))}
+                placeholder="Hold for install gap"
+                className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5 block">Time</label>
+              <input
+                type="time"
+                value={placeholderForm.time}
+                onChange={(e) => setPlaceholderForm((prev) => ({ ...prev, time: e.target.value }))}
+                className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+              />
+            </div>
+
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Status</div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setPlaceholderForm((prev) => ({ ...prev, status: "pencilled" }))}
+                  className={`py-3 rounded-xl text-sm font-semibold border ${placeholderForm.status === "pencilled" ? "bg-amber-50 text-amber-700 border-amber-300" : "bg-white text-gray-700 border-gray-200"}`}
+                >
+                  Pencilled
+                </button>
+                <button
+                  onClick={() => setPlaceholderForm((prev) => ({ ...prev, status: "confirmed" }))}
+                  className={`py-3 rounded-xl text-sm font-semibold border ${placeholderForm.status === "confirmed" ? "bg-emerald-50 text-emerald-700 border-emerald-300" : "bg-white text-gray-700 border-gray-200"}`}
+                >
+                  Confirmed
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Scope</div>
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { label: "None", value: "" },
+                  { label: "Internal", value: "internal" },
+                  { label: "External", value: "external" },
+                  { label: "Both", value: "both" },
+                ].map((option) => (
+                  <button
+                    key={option.label}
+                    onClick={() => setPlaceholderForm((prev) => ({ ...prev, scope: option.value as typeof placeholderForm.scope }))}
+                    className={`py-3 rounded-xl text-xs font-semibold border ${placeholderForm.scope === option.value ? "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5 block">Note</label>
+              <textarea
+                value={placeholderForm.note}
+                onChange={(e) => setPlaceholderForm((prev) => ({ ...prev, note: e.target.value }))}
+                rows={4}
+                placeholder="Why this gap is being held..."
+                className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04] resize-none"
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <button onClick={closePlaceholderSheet} className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">Cancel</button>
+              <button
+                onClick={savePlaceholder}
+                disabled={saving || !placeholderForm.title.trim()}
+                className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50"
+              >
+                {saving ? "Saving..." : "Add placeholder"}
+              </button>
+            </div>
+          </div>
+        )}
+      </BottomSheet>
 
       <BottomSheet open={sheetOpen} onClose={closeSheet} title="Installation planning">
         {selectedJob && (
