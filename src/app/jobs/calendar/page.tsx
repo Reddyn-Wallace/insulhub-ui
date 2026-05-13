@@ -217,6 +217,71 @@ function fromDatetimeLocal(value: string) {
   return new Date(value).toISOString();
 }
 
+const CALENDAR_RAW_CACHE_KEY = "calendar:all-install-jobs-v2";
+const CALENDAR_VIEW_CACHE_PREFIX = "calendar:view:";
+const CALENDAR_RAW_CACHE_TTL_MS = 20 * 60 * 1000;
+const CALENDAR_VIEW_CACHE_TTL_MS = 20 * 60 * 1000;
+const CALENDAR_STAGES = ["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"];
+
+type CalendarCachePayload = { jobs: CalendarJob[]; ts: number };
+
+function calendarRangeForMonth(month: Date) {
+  const monthStart = startOfMonth(month);
+  const monthEnd = endOfMonth(month);
+  const calendarStart = startOfWeekMonday(monthStart);
+  const calendarEnd = addDays(startOfWeekMonday(addDays(monthEnd, 1)), 6);
+  const cacheKey = `${dateKeyLocal(calendarStart)}_${dateKeyLocal(calendarEnd)}`;
+  return { calendarStart, calendarEnd, cacheKey };
+}
+
+function filterJobsForRange(jobs: CalendarJob[], calendarStart: Date, calendarEnd: Date) {
+  const startKey = dateKeyLocal(calendarStart);
+  const endKey = dateKeyLocal(calendarEnd);
+  return jobs.filter((job) => {
+    const key = dateKeyFromIsoNz(job.installation?.installDate);
+    if (!key) return false;
+    return key >= startKey && key <= endKey;
+  });
+}
+
+function readSessionPayload(key: string): CalendarCachePayload | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CalendarJob[] | CalendarCachePayload;
+    if (Array.isArray(parsed)) return { jobs: parsed, ts: 0 };
+    return { jobs: parsed.jobs || [], ts: parsed.ts || 0 };
+  } catch {
+    return null;
+  }
+}
+
+function writeSessionPayload(key: string, payload: CalendarCachePayload) {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(key, JSON.stringify(payload));
+  } catch {
+    // Storage can fail in private mode or when quota is exceeded.
+  }
+}
+
+function clearCalendarSessionCache() {
+  if (typeof window === "undefined") return;
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < window.sessionStorage.length; i += 1) {
+      const key = window.sessionStorage.key(i);
+      if (key === CALENDAR_RAW_CACHE_KEY || key?.startsWith(CALENDAR_VIEW_CACHE_PREFIX) || key?.startsWith("calendar:")) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach((key) => window.sessionStorage.removeItem(key));
+  } catch {
+    // Best-effort cache invalidation only.
+  }
+}
+
 export default function JobsCalendarPage() {
   const router = useRouter();
   const [monthCursor, setMonthCursor] = useState(() => startOfMonth(new Date()));
@@ -230,118 +295,92 @@ export default function JobsCalendarPage() {
   const [installMetaNote, setInstallMetaNote] = useState("");
   const [installDate, setInstallDate] = useState("");
   const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const calendarCache = useRef<Map<string, { jobs: CalendarJob[]; ts: number }>>(new Map());
-  const CALENDAR_CACHE_TTL_MS = 60_000;
+  const rawJobsCache = useRef<CalendarCachePayload | null>(null);
+  const visibleJobsCountRef = useRef(0);
+
+  useEffect(() => {
+    visibleJobsCountRef.current = jobs.length;
+  }, [jobs.length]);
 
   const load = useCallback(async (force = false) => {
-    setLoading(true);
     setError("");
-    try {
-      const monthStart = startOfMonth(monthCursor);
-      const monthEnd = endOfMonth(monthCursor);
-      const calendarStart = startOfWeekMonday(monthStart);
-      const calendarEnd = addDays(startOfWeekMonday(addDays(monthEnd, 1)), 6);
-      const cacheKey = `${dateKeyLocal(calendarStart)}_${dateKeyLocal(calendarEnd)}`;
-      const installBetween = {
-        start: new Date(calendarStart.getFullYear(), calendarStart.getMonth(), calendarStart.getDate(), 0, 0, 0, 0).toISOString(),
-        end: new Date(calendarEnd.getFullYear(), calendarEnd.getMonth(), calendarEnd.getDate(), 23, 59, 59, 999).toISOString(),
-      };
+    const { calendarStart, calendarEnd, cacheKey } = calendarRangeForMonth(monthCursor);
+    const viewCacheKey = `${CALENDAR_VIEW_CACHE_PREFIX}${cacheKey}`;
+    const now = Date.now();
+    let renderedFromCache = force && visibleJobsCountRef.current > 0;
 
+    const renderFromRaw = (payload: CalendarCachePayload) => {
+      const filtered = filterJobsForRange(payload.jobs, calendarStart, calendarEnd);
+      const viewPayload = { jobs: filtered, ts: payload.ts || Date.now() };
+      calendarCache.current.set(cacheKey, viewPayload);
+      writeSessionPayload(viewCacheKey, viewPayload);
+      setJobs(filtered);
+      setLoading(false);
+      renderedFromCache = true;
+    };
+
+    try {
       if (!force) {
-        const now = Date.now();
         const memoryCached = calendarCache.current.get(cacheKey);
-        if (memoryCached && now - memoryCached.ts < CALENDAR_CACHE_TTL_MS) {
+        if (memoryCached) {
           setJobs(memoryCached.jobs);
           setLoading(false);
-          return;
+          renderedFromCache = true;
+          if (now - memoryCached.ts < CALENDAR_VIEW_CACHE_TTL_MS) return;
         }
 
-        if (typeof window !== "undefined") {
-          const raw = window.sessionStorage.getItem(`calendar:${cacheKey}`);
-          if (raw) {
-            try {
-              const parsed = JSON.parse(raw) as CalendarJob[] | { jobs: CalendarJob[]; ts?: number };
-              const payload = Array.isArray(parsed) ? { jobs: parsed, ts: 0 } : { jobs: parsed.jobs || [], ts: parsed.ts || 0 };
-              if (now - payload.ts < CALENDAR_CACHE_TTL_MS) {
-                calendarCache.current.set(cacheKey, { jobs: payload.jobs, ts: payload.ts || now });
-                setJobs(payload.jobs);
-                setLoading(false);
-                return;
-              }
-            } catch {
-              // ignore bad cache payload
-            }
-          }
+        const viewCached = readSessionPayload(viewCacheKey) || readSessionPayload(`calendar:${cacheKey}`);
+        if (viewCached) {
+          calendarCache.current.set(cacheKey, viewCached);
+          setJobs(viewCached.jobs);
+          setLoading(false);
+          renderedFromCache = true;
+          if (now - viewCached.ts < CALENDAR_VIEW_CACHE_TTL_MS) return;
+        }
+
+        const rawCached = rawJobsCache.current || readSessionPayload(CALENDAR_RAW_CACHE_KEY);
+        if (rawCached?.jobs.length) {
+          rawJobsCache.current = rawCached;
+          renderFromRaw(rawCached);
+          if (now - rawCached.ts < CALENDAR_RAW_CACHE_TTL_MS) return;
         }
       }
 
-      let data: JobsData;
-      try {
-        const monthQuery = `
-          query CalendarJobs($stages: [JobStage!], $installBetween: DateRangeInput, $skip: Int, $limit: Int) {
-            jobs(stages: $stages, installBetween: $installBetween, skip: $skip, limit: $limit) {
-              total
-              results {
-                _id
-                jobNumber
-                stage
-                notes
-                installation {
-                  installDate
-                  installNote
-                  installStatus
-                  checkSheetSignedAsComplete
-                }
-                client {
-                  contactDetails {
-                    name
-                    streetAddress
-                    suburb
-                    city
-                  }
-                }
-                quote {
-                  c_total
-                  wall { SQM }
-                  ceiling { SQM }
-                }
-              }
-            }
-          }
-        `;
-
-        data = await gql<JobsData>(monthQuery, {
-          stages: ["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"],
-          installBetween,
-          skip: 0,
-          limit: 2000,
-        });
-      } catch {
-        data = await gql<JobsData>(CALENDAR_JOBS_QUERY, {
-          stages: ["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"],
-          skip: 0,
-          limit: 5000,
-        });
+      if (renderedFromCache || force) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
       }
 
-      const filtered = (data.jobs.results || []).filter((job) => {
-        const key = dateKeyFromIsoNz(job.installation?.installDate);
-        if (!key) return false;
-        return key >= dateKeyLocal(calendarStart) && key <= dateKeyLocal(calendarEnd);
+      const data = await gql<JobsData>(CALENDAR_JOBS_QUERY, {
+        stages: CALENDAR_STAGES,
+        skip: 0,
+        limit: 5000,
       });
 
-      const payload = { jobs: filtered, ts: Date.now() };
-      calendarCache.current.set(cacheKey, payload);
-      if (typeof window !== "undefined") {
-        window.sessionStorage.setItem(`calendar:${cacheKey}`, JSON.stringify(payload));
-      }
+      const rawPayload = { jobs: data.jobs.results || [], ts: Date.now() };
+      rawJobsCache.current = rawPayload;
+      writeSessionPayload(CALENDAR_RAW_CACHE_KEY, rawPayload);
 
-      setJobs(filtered);
+      renderFromRaw(rawPayload);
+
+      for (const adjacentMonth of [addMonths(monthCursor, -1), addMonths(monthCursor, 1)]) {
+        const adjacentRange = calendarRangeForMonth(adjacentMonth);
+        const adjacentPayload = {
+          jobs: filterJobsForRange(rawPayload.jobs, adjacentRange.calendarStart, adjacentRange.calendarEnd),
+          ts: rawPayload.ts,
+        };
+        calendarCache.current.set(adjacentRange.cacheKey, adjacentPayload);
+        writeSessionPayload(`${CALENDAR_VIEW_CACHE_PREFIX}${adjacentRange.cacheKey}`, adjacentPayload);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load installation calendar";
-      if (msg !== "Unauthorized") setError(msg);
+      if (msg !== "Unauthorized" && !renderedFromCache) setError(msg);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [monthCursor]);
 
@@ -407,6 +446,9 @@ export default function JobsCalendarPage() {
           installDate: nextInstallDate,
         },
       } : job));
+      calendarCache.current.clear();
+      rawJobsCache.current = null;
+      clearCalendarSessionCache();
       setSheetOpen(false);
       setSelectedJob(null);
     } catch (err) {
@@ -439,6 +481,9 @@ export default function JobsCalendarPage() {
           installDate: null,
         },
       } : job));
+      calendarCache.current.clear();
+      rawJobsCache.current = null;
+      clearCalendarSessionCache();
       setInstallDate("");
       setSheetOpen(false);
       setSelectedJob(null);
@@ -524,9 +569,10 @@ export default function JobsCalendarPage() {
           </div>
           <button
             onClick={() => load(true)}
-            className="px-3 py-2 text-xs font-semibold rounded-lg border border-gray-200 bg-white text-gray-700"
+            disabled={refreshing}
+            className="px-3 py-2 text-xs font-semibold rounded-lg border border-gray-200 bg-white text-gray-700 disabled:opacity-50"
           >
-            Refresh
+            {refreshing ? "Refreshing..." : "Refresh"}
           </button>
         </div>
 
