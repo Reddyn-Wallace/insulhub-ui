@@ -326,6 +326,7 @@ export default function JobsCalendarPage() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [placeholderSheetOpen, setPlaceholderSheetOpen] = useState(false);
   const [placeholderDate, setPlaceholderDate] = useState<Date | null>(null);
+  const [selectedPlaceholder, setSelectedPlaceholder] = useState<CalendarPlaceholder | null>(null);
   const [placeholderForm, setPlaceholderForm] = useState({
     title: "",
     time: "12:00",
@@ -545,6 +546,7 @@ export default function JobsCalendarPage() {
       : "";
     const defaultTime = afterLastJob.split("T")[1]?.slice(0, 5) || "12:00";
     setPlaceholderDate(date);
+    setSelectedPlaceholder(null);
     setPlaceholderForm({
       title: "",
       time: defaultTime,
@@ -553,10 +555,23 @@ export default function JobsCalendarPage() {
     setPlaceholderSheetOpen(true);
   };
 
+  const openEditPlaceholderSheet = (placeholder: CalendarPlaceholder) => {
+    const startsAt = new Date(placeholder.startsAt);
+    setPlaceholderDate(Number.isNaN(startsAt.getTime()) ? null : startsAt);
+    setSelectedPlaceholder(placeholder);
+    setPlaceholderForm({
+      title: placeholder.title || "",
+      time: timeFromDatetimeLocal(placeholder.startsAt) || "12:00",
+      note: placeholder.note || "",
+    });
+    setPlaceholderSheetOpen(true);
+  };
+
   const closePlaceholderSheet = () => {
     if (saving) return;
     setPlaceholderSheetOpen(false);
     setPlaceholderDate(null);
+    setSelectedPlaceholder(null);
   };
 
   const savePlaceholder = async () => {
@@ -571,24 +586,30 @@ export default function JobsCalendarPage() {
     setError("");
     try {
       const startsAt = fromDatetimeLocal(mergeDateAndTime(placeholderDate, placeholderForm.time));
-      const res = await fetch("/api/calendar/placeholders", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-access-token": token,
-        },
-        body: JSON.stringify({
-          startsAt,
-          title: placeholderForm.title,
-          note: placeholderForm.note,
-        }),
-      });
+      const res = await fetch(
+        selectedPlaceholder ? `/api/calendar/placeholders/${selectedPlaceholder.id}` : "/api/calendar/placeholders",
+        {
+          method: selectedPlaceholder ? "PATCH" : "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-access-token": token,
+          },
+          body: JSON.stringify({
+            startsAt,
+            title: placeholderForm.title,
+            note: placeholderForm.note,
+          }),
+        }
+      );
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || "Could not create placeholder");
-      setPlaceholders((prev) => [...prev, json.placeholder]);
+      if (!res.ok) throw new Error(json?.error || "Could not save placeholder");
+      setPlaceholders((prev) => {
+        if (!selectedPlaceholder) return [...prev, json.placeholder];
+        return prev.map((placeholder) => placeholder.id === selectedPlaceholder.id ? json.placeholder : placeholder);
+      });
       closePlaceholderSheet();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create placeholder");
+      setError(err instanceof Error ? err.message : "Could not save placeholder");
     } finally {
       setSaving(false);
     }
@@ -609,6 +630,11 @@ export default function JobsCalendarPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Could not remove placeholder");
       setPlaceholders((prev) => prev.filter((placeholder) => placeholder.id !== placeholderId));
+      if (selectedPlaceholder?.id === placeholderId) {
+        setPlaceholderSheetOpen(false);
+        setPlaceholderDate(null);
+        setSelectedPlaceholder(null);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not remove placeholder");
     } finally {
@@ -915,13 +941,22 @@ export default function JobsCalendarPage() {
                                       {placeholder.note}
                                     </div>
                                   )}
-                                  <button
-                                    onClick={() => deletePlaceholder(placeholder.id)}
-                                    disabled={saving}
-                                    className="mt-2 h-8 w-full text-[11px] font-semibold text-red-600 bg-white border border-red-100 rounded-lg disabled:opacity-50"
-                                  >
-                                    Remove
-                                  </button>
+                                  <div className="mt-2 grid grid-cols-2 gap-1.5">
+                                    <button
+                                      onClick={() => openEditPlaceholderSheet(placeholder)}
+                                      disabled={saving}
+                                      className="h-8 text-[11px] font-semibold text-violet-700 bg-white border border-violet-100 rounded-lg disabled:opacity-50"
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      onClick={() => deletePlaceholder(placeholder.id)}
+                                      disabled={saving}
+                                      className="h-8 text-[11px] font-semibold text-red-600 bg-white border border-red-100 rounded-lg disabled:opacity-50"
+                                    >
+                                      Remove
+                                    </button>
+                                  </div>
                                 </div>
                               );
                             }
@@ -1016,7 +1051,7 @@ export default function JobsCalendarPage() {
         )}
       </div>
 
-      <BottomSheet open={placeholderSheetOpen} onClose={closePlaceholderSheet} title="Add placeholder">
+      <BottomSheet open={placeholderSheetOpen} onClose={closePlaceholderSheet} title={selectedPlaceholder ? "Edit placeholder" : "Add placeholder"}>
         {placeholderDate && (
           <div className="space-y-4">
             <div className="rounded-xl border border-violet-100 bg-violet-50 px-3 py-2">
@@ -1059,12 +1094,21 @@ export default function JobsCalendarPage() {
 
             <div className="flex gap-2">
               <button onClick={closePlaceholderSheet} className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">Cancel</button>
+              {selectedPlaceholder && (
+                <button
+                  onClick={() => deletePlaceholder(selectedPlaceholder.id)}
+                  disabled={saving}
+                  className="flex-1 bg-white text-red-600 border border-red-100 font-semibold py-3 rounded-xl disabled:opacity-50"
+                >
+                  Remove
+                </button>
+              )}
               <button
                 onClick={savePlaceholder}
                 disabled={saving || !placeholderForm.title.trim()}
                 className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50"
               >
-                {saving ? "Saving..." : "Add placeholder"}
+                {saving ? "Saving..." : selectedPlaceholder ? "Save changes" : "Add placeholder"}
               </button>
             </div>
           </div>
