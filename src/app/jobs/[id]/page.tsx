@@ -972,11 +972,50 @@ export default function JobDetailPage() {
     return existingNotes ? `${existingNotes}\n\n${stamped}` : stamped;
   }
 
+  function setJobNotes(notes: string) {
+    setJob((prev) => {
+      if (!prev) return prev;
+      const nextJob = { ...prev, notes };
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem(`job-cache:${id}`, JSON.stringify({ ts: Date.now(), job: nextJob }));
+      }
+      return nextJob;
+    });
+  }
+
+  async function saveNotesFast(nextNotes: string, onError?: () => void) {
+    const previousJob = job;
+    setSaving(true);
+    setError("");
+    setJobNotes(nextNotes);
+    closeSheet();
+
+    try {
+      const result = await gql<{ updateJob: Pick<Job, "_id" | "notes"> }>(UPDATE_JOB_NOTES, {
+        input: { _id: id, notes: nextNotes },
+      });
+      setJobNotes(result.updateJob.notes || "");
+    } catch (err) {
+      setJob(previousJob);
+      if (previousJob && typeof window !== "undefined") {
+        sessionStorage.setItem(`job-cache:${id}`, JSON.stringify({ ts: Date.now(), job: previousJob }));
+      }
+      onError?.();
+      setError(err instanceof Error ? err.message : "Could not save notes");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function saveNote() {
     if (!noteText.trim()) return;
+    const submittedText = noteText;
     const combined = appendNote(job?.notes, noteText);
-    await run(() => gql(UPDATE_JOB_NOTES, { input: { _id: id, notes: combined } }));
     setNoteText("");
+    await saveNotesFast(combined, () => {
+      setNoteText(submittedText);
+      openSheet("addNote");
+    });
   }
 
   async function saveInstallPlanning() {
@@ -1022,7 +1061,11 @@ export default function JobDetailPage() {
   }
 
   async function saveFullNote() {
-    await run(() => gql(UPDATE_JOB_NOTES, { input: { _id: id, notes: fullNoteText } }));
+    const submittedText = fullNoteText;
+    await saveNotesFast(fullNoteText, () => {
+      setFullNoteText(submittedText);
+      openSheet("editNote");
+    });
   }
 
   async function saveContact() {
