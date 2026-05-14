@@ -993,21 +993,14 @@ export default function JobsCalendarPage() {
                           {day.items.map((item) => {
                             if (item.type === "placeholder") {
                               const placeholder = item.placeholder;
-                              const scopeBadge = installScopeBadge(placeholder.scope);
                               return (
                                 <div key={placeholder.id} className="w-full rounded-xl border border-dashed border-violet-300 bg-violet-50/70 p-1.5 shadow-sm">
                                   <div className="mb-1">
                                     <div className="text-[10px] uppercase tracking-wide font-bold text-violet-700 mb-0.5">Placeholder</div>
                                     <div className="text-[15px] leading-5 font-semibold text-gray-900 line-clamp-2">{placeholder.title}</div>
                                   </div>
-                                  <div className="flex items-center justify-between gap-1.5 mb-1.5">
-                                    <div className="text-[11px] text-gray-700">
-                                      {timeFromDatetimeLocal(placeholder.startsAt) || "Any time"}
-                                    </div>
-                                    <div className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${scopeBadge.className}`} title={scopeBadge.label}>
-                                      <span className={`h-2 w-2 rounded-full ${scopeBadge.dotClassName}`} />
-                                      {scopeBadge.shortLabel}
-                                    </div>
+                                  <div className="mb-1.5 text-[11px] text-gray-700">
+                                    {timeFromDatetimeLocal(placeholder.startsAt) || "Any time"}
                                   </div>
                                   {placeholder.note && (
                                     <div className="text-[11px] text-gray-600 line-clamp-2 rounded-lg bg-white/70 border border-violet-100 px-2 py-1.5">
@@ -1037,59 +1030,42 @@ export default function JobsCalendarPage() {
                             const job = item.job;
                             const meta = getInstallPlanning(job);
                             const isInstalled = ["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"].includes(job.installation?.installStatus || "");
+                            const isCompleted = job.stage === "COMPLETED";
                             const isPencilled = meta.status === "pencilled";
                             const scopeBadge = installScopeBadge(meta.scope);
+                            const installTime = timeFromDatetimeLocal(job.installation?.installDate);
+                            const statusLabel = isCompleted ? "Completed" : isInstalled ? "Installed" : isPencilled ? "Pencilled" : "Confirmed";
                             return (
-                              <div key={job._id} className={`w-full rounded-xl border p-1.5 shadow-sm border-l-4 ${isInstalled ? "border-emerald-200 bg-emerald-50/60" : "border-orange-100 bg-orange-50/50"} ${isPencilled ? "border-l-amber-500" : "border-l-emerald-500"}`}>
+                              <div key={job._id} className={`group w-full rounded-xl border p-2 shadow-sm transition-colors border-l-4 ${isCompleted ? "border-emerald-200 bg-emerald-50/70 hover:bg-emerald-50" : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/70"} ${isPencilled ? "border-l-amber-500" : "border-l-emerald-500"}`}>
                                 <button onClick={() => openJobSheet(job)} className="w-full text-left">
-                                  <div className="mb-1.5">
-                                    <div className="text-[16px] leading-5 font-semibold text-gray-900 line-clamp-2">{job.client?.contactDetails?.name || `Job #${job.jobNumber}`}</div>
-                                  </div>
-                                  <div className="text-[12px] text-gray-600 leading-4 mb-2 line-clamp-2">{address(job) || "No address"}</div>
-
-                                  <div className={`mb-2 flex items-center justify-between gap-2 rounded-lg border px-2 py-1 ${scopeBadge.className}`}>
+                                  <div className="mb-1 flex items-start justify-between gap-2">
                                     <div className="min-w-0">
-                                      <div className="text-[9px] font-bold uppercase tracking-wide opacity-75">Install scope</div>
-                                      <div className="truncate text-[12px] font-black leading-4">{scopeBadge.label}</div>
+                                      <div className="text-[15px] leading-5 font-semibold text-gray-900 line-clamp-2">{job.client?.contactDetails?.name || "Unknown customer"}</div>
+                                      <div className="mt-0.5 text-[13px] leading-4 font-semibold text-gray-800 line-clamp-2">{address(job) || "No address"}</div>
+                                      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-500">
+                                        {installTime && <span>{installTime}</span>}
+                                        {installTime && <span className="text-gray-300">/</span>}
+                                        <span className={isCompleted ? "rounded-full bg-emerald-100 px-1.5 py-0.5 font-black text-emerald-700" : ""}>{statusLabel}</span>
+                                      </div>
                                     </div>
-                                    <div className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white/70 px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wide">
-                                      <span className={`h-2 w-2 rounded-full ${scopeBadge.dotClassName}`} />
+                                    <div className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wide ${scopeBadge.className}`} title={scopeBadge.label}>
+                                      <span className={`h-1.5 w-1.5 rounded-full ${scopeBadge.dotClassName}`} />
                                       {scopeBadge.shortLabel}
                                     </div>
                                   </div>
 
-                                  <div className="grid grid-cols-2 gap-1 mb-1.5">
-                                    <div className="rounded-lg bg-white/70 border border-white px-1.5 py-0.5">
-                                      <div className="text-[9px] uppercase tracking-wide text-gray-500">Area</div>
-                                      <div className="text-[13px] leading-tight font-semibold text-gray-800">{formatSqm(combinedSqm(job))}</div>
-                                    </div>
-                                    <div className="rounded-lg bg-white/70 border border-white px-1.5 py-0.5">
-                                      <div className="text-[9px] uppercase tracking-wide text-gray-500">Value</div>
-                                      <div className="text-[13px] leading-tight font-semibold text-gray-800 whitespace-nowrap tabular-nums">{formatCurrency(job.quote?.c_total || 0)}</div>
-                                    </div>
+                                  <div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] font-semibold text-gray-800">
+                                    <span>{formatSqm(combinedSqm(job))}</span>
+                                    <span className="text-gray-300">/</span>
+                                    <span className="tabular-nums">{formatCurrency(job.quote?.c_total || 0)}</span>
                                   </div>
 
                                   {meta.note && (
-                                    <div className="text-[11px] text-gray-600 line-clamp-2 rounded-lg bg-white/60 border border-white px-2 py-1.5">
-                                      📝 {meta.note}
+                                    <div className="border-t border-gray-100 pt-1.5 text-[11px] leading-4 text-gray-500 line-clamp-2">
+                                      {meta.note}
                                     </div>
                                   )}
                                 </button>
-
-                                <div className={`mt-2 pt-2 border-t grid grid-cols-2 gap-1.5 ${isInstalled ? "border-emerald-100" : "border-orange-100"}`}>
-                                  <button
-                                    onClick={() => openJobSheet(job)}
-                                    className="h-8 text-[11px] font-semibold text-[#e85d04] bg-white border border-orange-200 rounded-lg hover:bg-orange-50"
-                                  >
-                                    Plan install
-                                  </button>
-                                  <button
-                                    onClick={() => openJobPage(job._id)}
-                                    className="h-8 text-[11px] font-semibold text-[#1a3a4a] bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
-                                  >
-                                    Open job
-                                  </button>
-                                </div>
                               </div>
                             );
                           })}
@@ -1110,10 +1086,6 @@ export default function JobsCalendarPage() {
                         <div>
                           <div className="text-[11px] text-white/60">Jobs</div>
                           <div className="text-2xl font-bold">{week.totals.jobs}</div>
-                        </div>
-                        <div>
-                          <div className="text-[11px] text-white/60">Placeholders</div>
-                          <div className="text-2xl font-bold">{week.totals.placeholders}</div>
                         </div>
                         <div>
                           <div className="text-[11px] text-white/60">Square metres</div>

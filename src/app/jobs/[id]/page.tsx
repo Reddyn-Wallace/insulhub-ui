@@ -453,6 +453,7 @@ export default function JobDetailPage() {
   const [quoteEmailBody, setQuoteEmailBody] = useState("Please find your insulation quote attached.");
   const [loadingQuoteEmailBody, setLoadingQuoteEmailBody] = useState(false);
   const quoteEmailEditorRef = useRef<HTMLDivElement | null>(null);
+  const templateBodyRef = useRef<HTMLTextAreaElement | null>(null);
   const [quoteSentAt, setQuoteSentAt] = useState<string | null>(null);
   const [contactTemplates, setContactTemplates] = useState<ContactTemplate[]>([]);
   const [loadingContactTemplates, setLoadingContactTemplates] = useState(false);
@@ -534,6 +535,7 @@ export default function JobDetailPage() {
           const parsed = JSON.parse(rawJob) as { ts: number; job: Job };
           if (Date.now() - parsed.ts < JOB_CACHE_TTL_MS) {
             setJob(parsed.job);
+            setConsentNumber(parsed.job.council?.consentNumber || "");
             setLoading(false);
           }
         }
@@ -577,6 +579,7 @@ export default function JobDetailPage() {
       setQuoteBookingSendTextReminder(false);
       setSelectedUserId(j.lead?.allocatedTo?._id || "");
       setLeadSourceForm(j.lead?.leadSource || []);
+      setConsentNumber(j.council?.consentNumber || "");
 
       const me = JSON.parse(localStorage.getItem("me") || "{}");
       const initials = ((me.firstname?.[0] || "") + (me.lastname?.[0] || "")).toUpperCase();
@@ -814,6 +817,25 @@ export default function JobDetailPage() {
     }
   }
 
+  function insertTemplateField(field: string) {
+    const token = `{${field}}`;
+    const input = templateBodyRef.current;
+    if (!input) {
+      setTemplateForm((prev) => ({ ...prev, body: `${prev.body}${prev.body ? " " : ""}${token}` }));
+      return;
+    }
+
+    const start = input.selectionStart ?? templateForm.body.length;
+    const end = input.selectionEnd ?? templateForm.body.length;
+    const nextBody = `${templateForm.body.slice(0, start)}${token}${templateForm.body.slice(end)}`;
+    setTemplateForm((prev) => ({ ...prev, body: nextBody }));
+
+    window.requestAnimationFrame(() => {
+      input.focus();
+      input.setSelectionRange(start + token.length, start + token.length);
+    });
+  }
+
   useEffect(() => {
     if (!job) return;
     setDetailTab(["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"].includes(job.stage) ? "job" : "quote");
@@ -987,9 +1009,6 @@ export default function JobDetailPage() {
         installScope: installMeta.installScope,
       });
       await load();
-      const msg = { type: "success" as const, text: nextValue ? "Council approval marked as N/A." : "Council approval requirement restored." };
-      setNotice(msg);
-      setToast(msg);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not update council approval requirement");
     } finally {
@@ -1010,9 +1029,55 @@ export default function JobDetailPage() {
   }
 
   async function saveAllocate(nextUserId = selectedUserId) {
-    await run(() => gql(UPDATE_JOB_LEAD, {
-      input: { _id: id, lead: buildLeadInput({ allocatedTo: nextUserId ? { _id: nextUserId } : null, allocation: nextUserId ? "ALLOCATED" : "UNALLOCATED" }) },
-    }));
+    if (nextUserId === (job?.lead?.allocatedTo?._id || "")) {
+      closeSheet();
+      return;
+    }
+
+    const previousJob = job;
+    const nextUser = nextUserId ? users.find((u) => u._id === nextUserId) : undefined;
+    const nextAllocatedTo = nextUser
+      ? { _id: nextUser._id, firstname: nextUser.firstname, lastname: nextUser.lastname }
+      : undefined;
+
+    setSaving(true);
+    setSelectedUserId(nextUserId);
+    setJob((prev) => prev
+      ? {
+        ...prev,
+        lead: {
+          ...(prev.lead || {}),
+          allocatedTo: nextAllocatedTo,
+        },
+      }
+      : prev);
+    closeSheet();
+
+    try {
+      const result = await gql<{ updateJob: Pick<Job, "_id" | "stage" | "notes" | "lead"> }>(UPDATE_JOB_LEAD, {
+        input: { _id: id, lead: buildLeadInput({ allocatedTo: nextUserId ? { _id: nextUserId } : null, allocation: nextUserId ? "ALLOCATED" : "UNALLOCATED" }) },
+      });
+
+      setJob((prev) => {
+        if (!prev) return prev;
+        const nextJob = {
+          ...prev,
+          stage: result.updateJob.stage,
+          notes: result.updateJob.notes,
+          lead: result.updateJob.lead,
+        };
+        if (typeof window !== "undefined") {
+          sessionStorage.setItem(`job-cache:${id}`, JSON.stringify({ ts: Date.now(), job: nextJob }));
+        }
+        return nextJob;
+      });
+    } catch (err) {
+      setJob(previousJob);
+      setSelectedUserId(previousJob?.lead?.allocatedTo?._id || "");
+      setError(err instanceof Error ? err.message : "Could not assign salesperson");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function saveLeadStatus(status: string) {
@@ -1549,7 +1614,7 @@ export default function JobDetailPage() {
     }
   }
 
-  async function saveConsentNumber() {
+  async function saveConsentNumber(options: { closeAfterSave?: boolean; showToast?: boolean } = {}) {
     setSaving(true);
     try {
       await gql(
@@ -1565,10 +1630,12 @@ export default function JobDetailPage() {
         }
       );
       await load();
-      closeSheet();
-      const msg = { type: "success" as const, text: "Consent number saved." };
-      setNotice(msg);
-      setToast(msg);
+      if (options.closeAfterSave) closeSheet();
+      if (options.showToast) {
+        const msg = { type: "success" as const, text: "Consent number saved." };
+        setNotice(msg);
+        setToast(msg);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save consent number");
     } finally {
@@ -1800,6 +1867,9 @@ export default function JobDetailPage() {
     phone: phone || "",
     email: c?.email || "",
   };
+  const templateFieldOptions = ["customer name", "first name", "salesperson", "address", "quote booking date", "job number", "phone", "email"];
+  const templatePreviewSubject = applyTemplateFields(templateForm.subject || "", templateFields);
+  const templatePreviewBody = applyTemplateFields(templateForm.body || "", templateFields);
   const visibleContactTemplates = contactTemplates.filter((template) => template.channel === contactTemplateMode);
   const assignableUsers = users.filter((u) => (u.role || "").toUpperCase() !== "INSTALLER");
   const hasWall = !!job.quote?.wall?.SQM;
@@ -1841,6 +1911,7 @@ export default function JobDetailPage() {
   const hasCouncilApprovalFile = !!job.council?.files_CouncilApprovalLetters?.length;
   const councilApplicationFileCount = job.council?.files_Other?.length || 0;
   const councilApprovalFileCount = job.council?.files_CouncilApprovalLetters?.length || 0;
+  const consentNumberChanged = consentNumber.trim() !== (job.council?.consentNumber || "").trim();
   const hasFinalInvoiceInXero = !!(job.finalInvoice?.xeroInvoiceId || job.finalInvoice?.xeroInvoiceNumber);
   const visibleJobNotes = stripInstallMeta(job.notes);
   const completionActions = [
@@ -2241,38 +2312,63 @@ export default function JobDetailPage() {
                             </div>
                           ) : item.title === "Council approval & consent number" ? (
                             <div className="mt-3 border border-gray-200 rounded-xl p-3 space-y-3">
-                              <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
-                                <div className="flex items-center justify-between gap-3">
-                                  <div>
-                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Consent #</div>
-                                    <div className="text-sm text-gray-900 mt-0.5">{job.council?.consentNumber || "Not set"}</div>
-                                  </div>
-                                  <button
-                                    onClick={() => {
-                                      setConsentNumber(job.council?.consentNumber || "");
-                                      openSheet("consentNumber");
+                              <div className="space-y-1.5">
+                                <label htmlFor="completion-consent-number" className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Consent #</label>
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    id="completion-consent-number"
+                                    value={consentNumber}
+                                    onChange={(e) => setConsentNumber(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter" && consentNumberChanged && !saving) {
+                                        e.preventDefault();
+                                        saveConsentNumber();
+                                      }
                                     }}
-                                    disabled={saving}
-                                    className="shrink-0 px-3 py-2 rounded-lg bg-white text-[#e85d04] border border-orange-200 text-xs font-semibold disabled:opacity-50"
+                                    className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+                                    placeholder="Enter consent number"
+                                  />
+                                  <button
+                                    onClick={() => saveConsentNumber()}
+                                    disabled={saving || !consentNumberChanged}
+                                    className="shrink-0 px-3 py-2 rounded-lg bg-[#1a3a4a] text-white text-xs font-semibold disabled:opacity-40"
                                   >
-                                    {job.council?.consentNumber ? "Edit" : "Add"}
+                                    {saving && consentNumberChanged ? "Saving..." : "Save"}
                                   </button>
                                 </div>
+                                {consentNumberChanged && (
+                                  <p className="text-[11px] text-amber-700">Unsaved consent number.</p>
+                                )}
+                              </div>
+
+                              <div className={`rounded-lg border px-3 py-3 ${councilApprovalMarkedNA ? "border-amber-200 bg-amber-50" : "border-gray-200 bg-white"}`}>
+                                <label className="flex items-start gap-3">
+                                  <input
+                                    type="checkbox"
+                                    checked={councilApprovalMarkedNA}
+                                    onChange={(e) => toggleCouncilApprovalNA(e.target.checked)}
+                                    disabled={saving || uploadingCouncilApproval}
+                                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-[#e85d04] focus:ring-[#e85d04]"
+                                  />
+                                  <span className="min-w-0">
+                                    <span className={`block text-sm font-semibold ${councilApprovalMarkedNA ? "text-amber-900" : "text-gray-900"}`}>
+                                      Council approval not required
+                                    </span>
+                                    <span className={`block text-xs mt-0.5 ${councilApprovalMarkedNA ? "text-amber-800" : "text-gray-500"}`}>
+                                      {councilApprovalMarkedNA
+                                        ? "Approval upload is skipped. The completion pack can proceed without an approval document once the other required docs are ready."
+                                        : "Leave unchecked when an approval document is expected, then upload the approval PDF below."}
+                                    </span>
+                                  </span>
+                                </label>
                               </div>
 
                               <div className="flex items-center justify-between gap-3">
                                 <div className="text-xs text-gray-500">
-                                  {councilApprovalMarkedNA ? "Consent not required for this job" : "Usually one council approval PDF"}
+                                  {councilApprovalMarkedNA ? "Approval upload skipped for this job" : "Usually one council approval PDF"}
                                 </div>
                                 <div className="flex items-center gap-2">
-                                  <button
-                                    onClick={() => toggleCouncilApprovalNA(!councilApprovalMarkedNA)}
-                                    disabled={saving || uploadingCouncilApproval}
-                                    className={`px-3 py-2 rounded-lg text-xs font-semibold border ${councilApprovalMarkedNA ? "bg-amber-50 text-amber-700 border-amber-300" : "bg-white text-gray-700 border-gray-200"}`}
-                                  >
-                                    {councilApprovalMarkedNA ? "N/A selected" : "Mark N/A"}
-                                  </button>
-                                  <label className="inline-flex items-center px-3 py-2 rounded-lg bg-[#1a3a4a] text-white text-sm font-semibold cursor-pointer hover:opacity-95 disabled:opacity-50">
+                                  <label className={`inline-flex items-center px-3 py-2 rounded-lg bg-[#1a3a4a] text-white text-sm font-semibold hover:opacity-95 ${councilApprovalMarkedNA || uploadingCouncilApproval ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}>
                                     <input type="file" onChange={(e) => uploadCouncilApprovalFiles(e.target.files)} disabled={uploadingCouncilApproval || councilApprovalMarkedNA} className="hidden" />
                                     {uploadingCouncilApproval ? "Uploading..." : "Upload file"}
                                   </label>
@@ -2619,6 +2715,24 @@ export default function JobDetailPage() {
             </button>
           </div>
 
+          <a
+            href={contactTemplateMode === "sms" ? `sms:${encodeURIComponent((phone || "").replace(/[^\d+]/g, ""))}` : `mailto:${encodeURIComponent(c?.email || "")}`}
+            onClick={closeSheet}
+            className="block w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-left"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-gray-900">
+                  {contactTemplateMode === "sms" ? "Write text without template" : "Write email without template"}
+                </div>
+                <div className="text-xs text-gray-500 mt-0.5">
+                  Opens the {contactTemplateMode === "sms" ? "SMS" : "email"} app with no saved copy inserted.
+                </div>
+              </div>
+              <span className="text-gray-400 text-lg">›</span>
+            </div>
+          </a>
+
           {loadingContactTemplates ? (
             <div className="text-sm text-gray-500 py-8 text-center">Loading templates...</div>
           ) : visibleContactTemplates.length ? (
@@ -2673,145 +2787,207 @@ export default function JobDetailPage() {
 
       {/* Contact template manager */}
       <BottomSheet open={sheet === "contactTemplateManager"} onClose={closeSheet} title="Manage Templates">
-        <div className="space-y-4">
+        <div className="space-y-5">
           <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setContactTemplateMode("sms");
-                resetTemplateForm("sms");
-              }}
-              className={`py-2.5 rounded-xl text-sm font-semibold border ${contactTemplateMode === "sms" ? "bg-teal-50 text-teal-700 border-teal-300" : "bg-white text-gray-700 border-gray-200"}`}
-            >
-              Text
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setContactTemplateMode("email");
-                resetTemplateForm("email");
-              }}
-              className={`py-2.5 rounded-xl text-sm font-semibold border ${contactTemplateMode === "email" ? "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
-            >
-              Email
-            </button>
+            {(["sms", "email"] as const).map((channel) => (
+              <button
+                key={channel}
+                type="button"
+                onClick={() => {
+                  setContactTemplateMode(channel);
+                  resetTemplateForm(channel);
+                }}
+                className={`py-2.5 rounded-xl text-sm font-semibold border ${contactTemplateMode === channel ? channel === "sms" ? "bg-teal-50 text-teal-700 border-teal-300" : "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
+              >
+                {channel === "sms" ? "Text" : "Email"}
+              </button>
+            ))}
           </div>
 
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Existing Templates</div>
-              <button type="button" onClick={loadContactTemplates} className="text-xs text-gray-500 font-medium">Refresh</button>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Templates</div>
+                <div className="text-xs text-gray-400">{visibleContactTemplates.length} {contactTemplateMode === "sms" ? "text" : "email"} template{visibleContactTemplates.length === 1 ? "" : "s"}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => resetTemplateForm(contactTemplateMode)}
+                className="bg-[#e85d04] text-white text-sm font-semibold py-2 px-3 rounded-xl"
+              >
+                New
+              </button>
             </div>
 
             {loadingContactTemplates ? (
               <div className="text-sm text-gray-500 py-5 text-center">Loading templates...</div>
             ) : visibleContactTemplates.length ? (
               <div className="space-y-2">
-                {visibleContactTemplates.map((template) => (
-                  <button
-                    key={template.id}
-                    type="button"
-                    onClick={() => editContactTemplate(template)}
-                    className={`w-full text-left border rounded-xl p-3 ${editingTemplateId === template.id ? "border-[#e85d04] bg-orange-50" : "border-gray-200 bg-white"}`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-semibold text-gray-900">{template.title}</div>
-                        {template.description && <div className="text-xs text-gray-500 mt-0.5">{template.description}</div>}
+                {visibleContactTemplates.map((template) => {
+                  const active = editingTemplateId === template.id;
+                  return (
+                    <button
+                      key={template.id}
+                      type="button"
+                      onClick={() => editContactTemplate(template)}
+                      className={`w-full text-left border rounded-xl p-3 transition-colors ${active ? "border-[#e85d04] bg-orange-50" : "border-gray-200 bg-white"}`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <div className="text-sm font-semibold text-gray-900 truncate">{template.title}</div>
+                            <span className={`shrink-0 text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${template.channel === "sms" ? "bg-teal-100 text-teal-700" : "bg-blue-100 text-blue-700"}`}>
+                              {template.channel === "sms" ? "Text" : "Email"}
+                            </span>
+                          </div>
+                          {template.description && <div className="text-xs text-gray-500 mt-0.5 truncate">{template.description}</div>}
+                          <div className="text-xs text-gray-400 mt-1 line-clamp-2 whitespace-pre-wrap">{template.body}</div>
+                        </div>
+                        <span className={`text-xs font-medium ${active ? "text-[#e85d04]" : "text-gray-400"}`}>{active ? "Selected" : "Edit"}</span>
                       </div>
-                      <span className="text-xs text-gray-400">Edit</span>
-                    </div>
-                  </button>
-                ))}
+                    </button>
+                  );
+                })}
               </div>
             ) : (
-              <div className="text-sm text-gray-500 py-5 text-center">No templates yet.</div>
+              <div className="border border-dashed border-gray-200 rounded-xl p-5 text-center">
+                <div className="text-sm font-medium text-gray-700">No templates yet</div>
+                <div className="text-xs text-gray-500 mt-1">Create the first {contactTemplateMode === "sms" ? "text" : "email"} template below.</div>
+              </div>
             )}
           </div>
 
-          <div className="border-t border-gray-100 pt-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">{editingTemplateId ? "Edit Template" : "New Template"}</div>
+          <div className="border-t border-gray-100 pt-4 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">{editingTemplateId ? "Edit Template" : "New Template"}</div>
+                <div className="text-sm font-semibold text-gray-900 mt-0.5">{templateForm.title.trim() || "Untitled template"}</div>
+              </div>
               {editingTemplateId && (
-                <button type="button" onClick={() => resetTemplateForm(contactTemplateMode)} className="text-xs text-gray-500 font-medium">Create New</button>
+                <button
+                  type="button"
+                  onClick={() => deleteContactTemplate(editingTemplateId)}
+                  disabled={saving}
+                  className="bg-red-50 text-red-600 text-sm font-semibold py-2 px-3 rounded-xl disabled:opacity-50"
+                >
+                  Delete
+                </button>
               )}
             </div>
 
             <div className="space-y-3">
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setTemplateForm((prev) => ({ ...prev, channel: "sms", subject: "" }))}
-                  className={`py-2.5 rounded-xl text-sm font-semibold border ${templateForm.channel === "sms" ? "bg-teal-50 text-teal-700 border-teal-300" : "bg-white text-gray-700 border-gray-200"}`}
-                >
-                  Text
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTemplateForm((prev) => ({ ...prev, channel: "email" }))}
-                  className={`py-2.5 rounded-xl text-sm font-semibold border ${templateForm.channel === "email" ? "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
-                >
-                  Email
-                </button>
+              <div className="grid grid-cols-[1fr_96px] gap-2">
+                <div className="grid grid-cols-2 gap-2">
+                  {(["sms", "email"] as const).map((channel) => (
+                    <button
+                      key={channel}
+                      type="button"
+                      onClick={() => setTemplateForm((prev) => ({ ...prev, channel, subject: channel === "sms" ? "" : prev.subject }))}
+                      className={`py-2.5 rounded-xl text-sm font-semibold border ${templateForm.channel === channel ? channel === "sms" ? "bg-teal-50 text-teal-700 border-teal-300" : "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
+                    >
+                      {channel === "sms" ? "Text" : "Email"}
+                    </button>
+                  ))}
+                </div>
+                <div>
+                  <label className="block text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-1">Order</label>
+                  <input
+                    value={templateForm.sortOrder}
+                    onChange={(e) => setTemplateForm((prev) => ({ ...prev, sortOrder: e.target.value }))}
+                    inputMode="numeric"
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-1">Name</label>
                 <input
-                  value={templateForm.sortOrder}
-                  onChange={(e) => setTemplateForm((prev) => ({ ...prev, sortOrder: e.target.value }))}
-                  inputMode="numeric"
+                  value={templateForm.title}
+                  onChange={(e) => setTemplateForm((prev) => ({ ...prev, title: e.target.value }))}
                   className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
-                  placeholder="Order"
+                  placeholder="Lead follow-up"
                 />
               </div>
 
-              <input
-                value={templateForm.title}
-                onChange={(e) => setTemplateForm((prev) => ({ ...prev, title: e.target.value }))}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
-                placeholder="Template name"
-              />
-              <input
-                value={templateForm.description}
-                onChange={(e) => setTemplateForm((prev) => ({ ...prev, description: e.target.value }))}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
-                placeholder="Short description"
-              />
-              {templateForm.channel === "email" && (
+              <div>
+                <label className="block text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-1">Description</label>
                 <input
-                  value={templateForm.subject}
-                  onChange={(e) => setTemplateForm((prev) => ({ ...prev, subject: e.target.value }))}
+                  value={templateForm.description}
+                  onChange={(e) => setTemplateForm((prev) => ({ ...prev, description: e.target.value }))}
                   className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
-                  placeholder="Email subject"
+                  placeholder="Quick first response"
                 />
-              )}
-              <textarea
-                value={templateForm.body}
-                onChange={(e) => setTemplateForm((prev) => ({ ...prev, body: e.target.value }))}
-                rows={6}
-                className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04] resize-none"
-                placeholder="Template body. Use fields like {customer name}, {first name}, {salesperson}, {address}, {quote booking date}, {job number}."
-              />
+              </div>
 
-              <div className="rounded-xl bg-gray-50 border border-gray-200 p-3 text-xs text-gray-600">
-                Available fields: {"{customer name}"}, {"{first name}"}, {"{salesperson}"}, {"{address}"}, {"{quote booking date}"}, {"{job number}"}, {"{phone}"}, {"{email}"}.
+              {templateForm.channel === "email" && (
+                <div>
+                  <label className="block text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-1">Subject</label>
+                  <input
+                    value={templateForm.subject}
+                    onChange={(e) => setTemplateForm((prev) => ({ ...prev, subject: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+                    placeholder="Insulmax enquiry #{job number}"
+                  />
+                </div>
+              )}
+
+              <div>
+                <div className="flex items-center justify-between gap-3 mb-1">
+                  <label className="block text-[11px] text-gray-500 font-semibold uppercase tracking-wide">Message</label>
+                  <span className="text-[11px] text-gray-400">{templateForm.body.length} chars</span>
+                </div>
+                <textarea
+                  ref={templateBodyRef}
+                  value={templateForm.body}
+                  onChange={(e) => setTemplateForm((prev) => ({ ...prev, body: e.target.value }))}
+                  rows={7}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04] resize-none"
+                  placeholder="Hi {customer name}, {salesperson} from Insulmax here..."
+                />
+              </div>
+
+              <div>
+                <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-2">Insert Field</div>
+                <div className="flex flex-wrap gap-2">
+                  {templateFieldOptions.map((field) => (
+                    <button
+                      key={field}
+                      type="button"
+                      onClick={() => insertTemplateField(field)}
+                      className="px-2.5 py-1.5 rounded-full bg-gray-100 text-gray-700 text-xs font-medium"
+                    >
+                      {`{${field}}`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-gray-50 border border-gray-200 p-3">
+                <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-2">Preview</div>
+                {templateForm.channel === "email" && (
+                  <div className="text-xs text-gray-600 mb-2">
+                    <span className="font-semibold text-gray-700">Subject:</span> {templatePreviewSubject || "-"}
+                  </div>
+                )}
+                <p className="text-sm text-gray-700 whitespace-pre-wrap">{templatePreviewBody || "Template body preview will appear here."}</p>
               </div>
 
               <div className="flex gap-2">
-                {editingTemplateId && (
-                  <button
-                    type="button"
-                    onClick={() => deleteContactTemplate(editingTemplateId)}
-                    disabled={saving}
-                    className="bg-red-50 text-red-600 font-semibold py-3 px-4 rounded-xl disabled:opacity-50"
-                  >
-                    Delete
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => resetTemplateForm(contactTemplateMode)}
+                  className="px-4 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl"
+                >
+                  Clear
+                </button>
                 <button
                   type="button"
                   onClick={saveContactTemplate}
                   disabled={saving || !templateForm.title.trim() || !templateForm.body.trim()}
                   className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50"
                 >
-                  {saving ? "Saving..." : editingTemplateId ? "Save Template" : "Create Template"}
+                  {saving ? "Saving..." : editingTemplateId ? "Save Changes" : "Create Template"}
                 </button>
               </div>
             </div>
@@ -3145,7 +3321,7 @@ export default function JobDetailPage() {
         />
         <div className="flex gap-2">
           <button onClick={closeSheet} className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">Cancel</button>
-          <button onClick={saveConsentNumber} disabled={saving}
+          <button onClick={() => saveConsentNumber({ closeAfterSave: true, showToast: true })} disabled={saving}
             className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
             {saving ? "Saving..." : "Save"}
           </button>
