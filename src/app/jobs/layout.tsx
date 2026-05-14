@@ -2,6 +2,7 @@
 
 import { ReactNode, Suspense, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { clearBrowserCachePrefixes } from "@/lib/client-cache";
 
 const OTHER_STAGES = [
   { label: "Completion", value: "COMPLETED" },
@@ -56,8 +57,18 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
     return () => document.removeEventListener("mousedown", handleOutside);
   }, []);
 
+  useEffect(() => {
+    router.prefetch("/jobs?stage=LEAD&subTab=NEW");
+    router.prefetch("/jobs?stage=QUOTE&subTab=OPEN");
+    router.prefetch("/jobs?stage=JOBS");
+    router.prefetch("/jobs/calendar");
+    router.prefetch("/jobs/reports");
+    router.prefetch("/jobs/reports/sales-installs");
+  }, [router]);
+
   const handleLogout = () => {
     if (typeof window !== "undefined") {
+      clearBrowserCachePrefixes(["gql:", "jobs-cache:", "job-cache:", "users-cache", "calendar:", "install-planning:", "calendar-placeholders:"], ["session", "local"]);
       localStorage.removeItem("token");
       localStorage.removeItem("me");
       window.location.href = "/login";

@@ -2,6 +2,8 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 
 const INSULHUB_GRAPHQL_URL = "https://api.insulhub.nz/graphql";
+const AUTH_CACHE_TTL_MS = 60 * 1000;
+const authOkCache = new Map<string, number>();
 
 function tokenFromRequest(request: NextRequest) {
   const auth = request.headers.get("authorization");
@@ -13,6 +15,11 @@ export async function requireInsulhubAuth(request: NextRequest) {
   const token = tokenFromRequest(request);
   if (!token) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const cachedAt = authOkCache.get(token);
+  if (cachedAt && Date.now() - cachedAt < AUTH_CACHE_TTL_MS) {
+    return null;
   }
 
   try {
@@ -34,9 +41,11 @@ export async function requireInsulhubAuth(request: NextRequest) {
 
     const json = await response.json();
     if (json.errors?.length) {
+      authOkCache.delete(token);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    authOkCache.set(token, Date.now());
     return null;
   } catch {
     return NextResponse.json({ error: "Could not verify auth" }, { status: 503 });

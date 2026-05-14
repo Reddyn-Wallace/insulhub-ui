@@ -277,11 +277,17 @@ export default function SalesInstallsPage() {
           stages: ["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"],
           skip: 0,
           limit: 5000,
+        }, {
+          cacheKey: "report:sales-installs:bulk",
+          ttlMs: 5 * 60 * 1000,
         }),
         gql<{ jobs: { results: FutureJob[] } }>(FUTURE_QUERY, {
           stages: ["SCHEDULED", "INSTALLATION", "INVOICE"],
           skip: 0,
           limit: 5000,
+        }, {
+          cacheKey: "report:sales-installs:future",
+          ttlMs: 5 * 60 * 1000,
         }),
       ]);
 
@@ -311,7 +317,10 @@ export default function SalesInstallsPage() {
       // Fetch each candidate individually to read acceptedAt
       const detailResults = await Promise.allSettled(
         acceptedCandidates.map((j) =>
-          gql<{ job: DetailJob }>(DETAIL_QUERY, { _id: j._id })
+          gql<{ job: DetailJob }>(DETAIL_QUERY, { _id: j._id }, {
+            cacheKey: `report:sales-installs:detail:${j._id}`,
+            ttlMs: 5 * 60 * 1000,
+          })
         )
       );
 

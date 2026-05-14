@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { PDFDocument, rgb } from "pdf-lib";
 import { gql } from "@/lib/graphql";
+import { AppDialog } from "@/components/AppDialog";
 
 type WallStyle = "solid" | "dotted";
 type WallColor = "slate" | "teal" | "blue" | "amber" | "red";
@@ -349,7 +350,10 @@ export default function DrawSitePlanPage() {
   useEffect(() => {
     if (!id) return;
     (async () => {
-      const data = await gql<{ job: Job }>(JOB_QUERY, { _id: id });
+      const data = await gql<{ job: Job }>(JOB_QUERY, { _id: id }, {
+        cacheKey: `site-plan-job:${id}`,
+        ttlMs: 5 * 60 * 1000,
+      });
       setJob(data.job);
     })().catch((e) => setNotice(e instanceof Error ? e.message : "Failed to load"));
   }, [id]);
@@ -1199,36 +1203,19 @@ export default function DrawSitePlanPage() {
         </div>
       </div>
 
-      {/* Save choice modal */}
-      {saveChoiceOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl border border-gray-100">
-            <h3 className="text-base font-semibold text-gray-900 mb-2">
-              {saveMode === "exit" ? "Save and exit?" : "Save?"}
-            </h3>
-            <p className="text-sm text-gray-600 mb-5">
-              {saveMode === "exit"
-                ? "Are you sure you'll no longer be able to edit this floor plan?"
-                : "This will save the current floor plan and allow you to continue editing."}
-            </p>
-            <div className="flex gap-2 justify-end">
-              <button
-                onClick={() => setSaveChoiceOpen(false)}
-                className="px-4 h-10 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 bg-white"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => { setSaveChoiceOpen(false); void saveCompletedSitePlan(saveMode === "exit"); }}
-                disabled={saving}
-                className="px-4 h-10 rounded-xl text-sm font-semibold text-white bg-[#1a3a4a] disabled:opacity-60"
-              >
-                {saving ? "Saving…" : "Confirm"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AppDialog
+        open={saveChoiceOpen}
+        title={saveMode === "exit" ? "Save and exit?" : "Save site plan?"}
+        description={
+          saveMode === "exit"
+            ? "This will save the completed floor plan and return to the job. You will no longer be able to edit this version."
+            : "This will save the current floor plan and keep the editor open."
+        }
+        confirmLabel={saving ? "Saving..." : saveMode === "exit" ? "Save & Exit" : "Save"}
+        cancelLabel="Cancel"
+        onCancel={() => setSaveChoiceOpen(false)}
+        onConfirm={() => { setSaveChoiceOpen(false); void saveCompletedSitePlan(saveMode === "exit"); }}
+      />
 
       {/* Notice toast */}
       {notice && (

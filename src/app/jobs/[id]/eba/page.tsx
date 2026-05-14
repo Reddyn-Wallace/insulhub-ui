@@ -585,7 +585,10 @@ export default function EbaPage() {
     setLoading(true);
     setError("");
     try {
-      const data = await gql<{ job: Job }>(EBA_JOB_QUERY, { _id: id });
+      const data = await gql<{ job: Job }>(EBA_JOB_QUERY, { _id: id }, {
+        cacheKey: `eba-job:${id}`,
+        ttlMs: 5 * 60 * 1000,
+      });
       setJob(data.job);
       const cachedPhotos = typeof window !== "undefined"
         ? (sessionStorage.getItem(`eba-photos:${id}`) || localStorage.getItem(`eba-photos:${id}`))

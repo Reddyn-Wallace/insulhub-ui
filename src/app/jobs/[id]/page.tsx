@@ -12,6 +12,7 @@ import {
 } from "@/lib/mutations";
 import BottomSheet from "@/components/BottomSheet";
 import AddressAutocomplete from "@/components/AddressAutocomplete";
+import { useAppDialog } from "@/components/AppDialog";
 
 // ── Types ──────────────────────────────────────────────────────────
 interface User { _id: string; firstname: string; lastname: string; email: string; role?: string; }
@@ -162,7 +163,23 @@ function normalizeEmailHtml(input: string) {
   return html || `<p>${fallback}</p>`;
 }
 
-const NEW_QUOTE_DEFAULT_EXTRAS = [{ name: "Council fee", price: "330" }];
+const NEW_QUOTE_DEFAULT_EXTRAS = [{ name: "Council Fee", price: "330" }];
+
+function quoteHasEnteredDetails(quote?: Job["quote"] | null) {
+  if (!quote) return false;
+  return Boolean(
+    quote.wall?.SQM ||
+    quote.wall?.SQMPrice ||
+    quote.ceiling?.SQM ||
+    quote.ceiling?.SQMPrice ||
+    quote.extras?.length ||
+    quote.c_contractPrice ||
+    quote.c_gst ||
+    quote.c_total ||
+    quote.quoteNote ||
+    quote.quoteResultNote
+  );
+}
 
 function prepareEmailHtmlForSend(input: string) {
   const body = normalizeEmailHtml(input);
@@ -361,6 +378,7 @@ export default function JobDetailPage() {
   const searchParams = useSearchParams();
   const id = params.id as string;
   const returnTo = searchParams.get("returnTo");
+  const { alert, confirm, dialog } = useAppDialog();
 
   const handleBack = useCallback(() => {
     if (returnTo && returnTo.startsWith("/jobs")) {
@@ -529,7 +547,10 @@ export default function JobDetailPage() {
 
       const [jobData, usersData] = await Promise.all([
         gql<{ job: Job }>(JOB_QUERY, { _id: id }),
-        gql<{ users: { results: User[] } }>(USERS_QUERY),
+        gql<{ users: { results: User[] } }>(USERS_QUERY, undefined, {
+          cacheKey: "users",
+          ttlMs: JOB_CACHE_TTL_MS,
+        }),
       ]);
       setJob(jobData.job);
       setUsers(usersData.users.results);
@@ -561,11 +582,12 @@ export default function JobDetailPage() {
       const initials = ((me.firstname?.[0] || "") + (me.lastname?.[0] || "")).toUpperCase();
       const autoQuoteNum = initials ? `${initials}${j.jobNumber}` : `${j.jobNumber}`;
 
-      if (j.quote) {
+      const hasEnteredQuoteDetails = quoteHasEnteredDetails(j.quote);
+      if (j.quote && hasEnteredQuoteDetails) {
         setQuoteForm({
           quoteNumber: j.quote.quoteNumber || autoQuoteNum,
           date: toDatetimeLocal(j.quote.date),
-          consentFee: j.quote.consentFee !== null && j.quote.consentFee !== undefined ? j.quote.consentFee.toString() : "",
+          consentFee: j.quote.consentFee !== null && j.quote.consentFee !== undefined ? j.quote.consentFee.toString() : "0",
           depositPercentage: j.quote.depositPercentage?.toString() || "25",
           wallSQMPrice: j.quote.wall?.SQMPrice?.toString() || "",
           wallSQM: j.quote.wall?.SQM?.toString() || "",
@@ -766,7 +788,13 @@ export default function JobDetailPage() {
   async function deleteContactTemplate(templateId: string) {
     const token = getToken();
     if (!token) return;
-    if (!window.confirm("Delete this template?")) return;
+    const shouldDelete = await confirm({
+      title: "Delete template?",
+      description: "This contact template will be removed for everyone using this job screen.",
+      confirmLabel: "Delete",
+      tone: "danger",
+    });
+    if (!shouldDelete) return;
 
     setSaving(true);
     try {
@@ -1213,7 +1241,11 @@ export default function JobDetailPage() {
       const params = new URLSearchParams({ token: encodeURIComponent(getToken()), input: JSON.stringify(input) });
       window.open(`${API_BASE}/pdf/saveJobAndGetQuotePDF?${params.toString()}`, "_blank");
     } catch {
-      alert("Could not open quote PDF.");
+      await alert({
+        title: "Could not open quote PDF",
+        description: "Try again in a moment. If it keeps failing, the quote data may need to be saved again.",
+        tone: "warning",
+      });
     }
   }
 
@@ -1234,7 +1266,11 @@ export default function JobDetailPage() {
       a.remove();
       URL.revokeObjectURL(url);
     } catch {
-      alert("Could not download site plan PDF.");
+      await alert({
+        title: "Could not download site plan PDF",
+        description: "The PDF service did not return a file for this quote site plan.",
+        tone: "warning",
+      });
     }
   }
 
@@ -1255,14 +1291,24 @@ export default function JobDetailPage() {
       await gql(ADD_FILES, { _id: id, documentType: "QUOTE_SITE_PLAN", fileNames });
       await load();
     } catch {
-      alert("Failed to upload site plan.");
+      await alert({
+        title: "Failed to upload site plan",
+        description: "Check the file and try uploading it again.",
+        tone: "warning",
+      });
     } finally {
       setUploadingSitePlan(false);
     }
   }
 
   async function removeQuoteSitePlan(fileName: string) {
-    if (!confirm("Remove this uploaded site plan file?")) return;
+    const shouldRemove = await confirm({
+      title: "Remove uploaded site plan?",
+      description: "This file will be detached from the quote. The job record will update immediately.",
+      confirmLabel: "Remove",
+      tone: "danger",
+    });
+    if (!shouldRemove) return;
     await run(() => gql(REMOVE_FILE, { _id: id, documentType: "QUOTE_SITE_PLAN", fileName }));
   }
 
@@ -1326,12 +1372,24 @@ export default function JobDetailPage() {
   }
 
   async function removeCompletionFile(fileName: string) {
-    if (!confirm("Remove this council application file?")) return;
+    const shouldRemove = await confirm({
+      title: "Remove council application file?",
+      description: "This file will be detached from the job council application.",
+      confirmLabel: "Remove",
+      tone: "danger",
+    });
+    if (!shouldRemove) return;
     await run(() => gql(REMOVE_FILE, { _id: id, documentType: "OTHER", fileName }));
   }
 
   async function removeCouncilApprovalFile(fileName: string) {
-    if (!confirm("Remove this council approval file?")) return;
+    const shouldRemove = await confirm({
+      title: "Remove council approval file?",
+      description: "This approval file will be detached from the job.",
+      confirmLabel: "Remove",
+      tone: "danger",
+    });
+    if (!shouldRemove) return;
     await run(() => gql(REMOVE_FILE, { _id: id, documentType: "COUNCIL_APPROVAL_LETTER", fileName }));
   }
 
@@ -1394,7 +1452,13 @@ export default function JobDetailPage() {
   }
 
   async function archiveJob() {
-    if (!confirm("Archive this job?")) return;
+    const shouldArchive = await confirm({
+      title: "Archive this job?",
+      description: "The job will be moved out of active workflows. You can restore it later if needed.",
+      confirmLabel: "Archive",
+      tone: "warning",
+    });
+    if (!shouldArchive) return;
     await run(() => gql(ARCHIVE_JOB, { _id: id }));
     router.push("/jobs");
   }
@@ -1775,6 +1839,8 @@ export default function JobDetailPage() {
   const installScopeLabel = installMeta.installScope === "internal" ? "Internal" : installMeta.installScope === "external" ? "External" : installMeta.installScope === "both" ? "Internal + External" : "Not set";
   const councilApprovalMarkedNA = installMeta.councilApprovalNA;
   const hasCouncilApprovalFile = !!job.council?.files_CouncilApprovalLetters?.length;
+  const councilApplicationFileCount = job.council?.files_Other?.length || 0;
+  const councilApprovalFileCount = job.council?.files_CouncilApprovalLetters?.length || 0;
   const hasFinalInvoiceInXero = !!(job.finalInvoice?.xeroInvoiceId || job.finalInvoice?.xeroInvoiceNumber);
   const visibleJobNotes = stripInstallMeta(job.notes);
   const completionActions = [
@@ -1806,47 +1872,37 @@ export default function JobDetailPage() {
       title: "See signed EBA / download",
       description: job.ebaForm?.clientApproved
         ? `EBA signed ${job.ebaForm?.clientApprovedAt ? fmtDateTime(job.ebaForm.clientApprovedAt) : ""}`.trim()
-        : "Waiting for client signature",
-      status: job.ebaForm?.clientApproved ? "Signed" : "Pending",
+        : job.ebaForm?.complete
+          ? "Send the EBA before expecting a client signature"
+          : "Complete and send the EBA first",
+      status: job.ebaForm?.clientApproved ? "Signed" : "Blocked",
       wired: true,
-      actionLabel: job.ebaForm?.clientApproved ? "Open EBA PDF" : "Open EBA",
-      action: job.ebaForm?.clientApproved ? openSignedEBAPdf : openEBAClientApprovalPage,
+      actionLabel: job.ebaForm?.clientApproved ? "Open EBA PDF" : undefined,
+      action: job.ebaForm?.clientApproved ? openSignedEBAPdf : undefined,
     },
     {
       title: "Upload Council Application",
-      description: job.council?.files_Other?.length
-        ? `${job.council.files_Other.length} file${job.council.files_Other.length === 1 ? "" : "s"} uploaded`
+      description: councilApplicationFileCount
+        ? `${councilApplicationFileCount} file${councilApplicationFileCount === 1 ? "" : "s"} uploaded`
         : "Upload council application files",
-      status: uploadingCompletionFiles ? `Uploading ${completionUploadProgress}%` : job.council?.files_Other?.length ? "Available" : "Empty",
+      status: uploadingCompletionFiles ? `Uploading ${completionUploadProgress}%` : councilApplicationFileCount ? "Available" : "Empty",
       wired: true,
+      completionDocsLabel: true,
     },
     {
-      title: "Consent Number",
-      description: job.council?.consentNumber || "Not set",
-      status: job.council?.consentNumber ? "Recorded" : "Missing",
-      wired: true,
-      actionLabel: job.council?.consentNumber ? "Edit" : "Set",
-      action: () => {
-        setConsentNumber(job.council?.consentNumber || "");
-        openSheet("consentNumber");
-      },
-      disabled: saving,
-    },
-    {
-      title: "Upload Council Approval",
+      title: "Council approval & consent number",
       description: councilApprovalMarkedNA
-        ? "Marked as N/A (no consent required)"
-        : hasCouncilApprovalFile
-          ? `${job.council?.files_CouncilApprovalLetters?.length || 0} file${(job.council?.files_CouncilApprovalLetters?.length || 0) === 1 ? "" : "s"} uploaded`
-          : "Upload council approval files",
-      status: councilApprovalMarkedNA
-        ? "N/A"
-        : uploadingCouncilApproval
+        ? `Consent # ${job.council?.consentNumber || "not set"} • approval marked N/A`
+        : `${job.council?.consentNumber ? `Consent # ${job.council.consentNumber}` : "Consent # not set"} • ${councilApprovalFileCount ? `${councilApprovalFileCount} approval file${councilApprovalFileCount === 1 ? "" : "s"} uploaded` : "upload approval files"}`,
+      status: uploadingCouncilApproval
           ? `Uploading ${councilApprovalProgress}%`
-          : hasCouncilApprovalFile
+          : job.council?.consentNumber && (councilApprovalMarkedNA || hasCouncilApprovalFile)
             ? "Available"
-            : "Empty",
+            : !job.council?.consentNumber
+              ? "Missing"
+              : "Empty",
       wired: true,
+      completionDocsLabel: true,
     },
     {
       title: "Install notes & status",
@@ -2018,6 +2074,7 @@ export default function JobDetailPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 pb-10">
+      {dialog}
       {/* Header */}
       <div className="bg-[#1a3a4a] px-4 pt-3 pb-2">
         <button onClick={handleBack} className="text-gray-300 text-sm mb-1">← Back</button>
@@ -2098,7 +2155,14 @@ export default function JobDetailPage() {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start justify-between gap-3 mb-1.5">
                             <div className="min-w-0 flex-1">
-                              <div className="text-sm font-semibold text-gray-900">{item.title}</div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <div className="text-sm font-semibold text-gray-900">{item.title}</div>
+                                {item.completionDocsLabel && (
+                                  <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-700 bg-blue-50 border border-blue-200 rounded-full px-2 py-0.5">
+                                    Sent to customer as completion docs
+                                  </span>
+                                )}
+                              </div>
                               {item.title !== "Install notes & status" && (
                                 <div className="text-xs text-gray-500 mt-1">{item.description}</div>
                               )}
@@ -2175,8 +2239,27 @@ export default function JobDetailPage() {
                                 )}
                               </div>
                             </div>
-                          ) : item.title === "Upload Council Approval" ? (
+                          ) : item.title === "Council approval & consent number" ? (
                             <div className="mt-3 border border-gray-200 rounded-xl p-3 space-y-3">
+                              <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                                <div className="flex items-center justify-between gap-3">
+                                  <div>
+                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Consent #</div>
+                                    <div className="text-sm text-gray-900 mt-0.5">{job.council?.consentNumber || "Not set"}</div>
+                                  </div>
+                                  <button
+                                    onClick={() => {
+                                      setConsentNumber(job.council?.consentNumber || "");
+                                      openSheet("consentNumber");
+                                    }}
+                                    disabled={saving}
+                                    className="shrink-0 px-3 py-2 rounded-lg bg-white text-[#e85d04] border border-orange-200 text-xs font-semibold disabled:opacity-50"
+                                  >
+                                    {job.council?.consentNumber ? "Edit" : "Add"}
+                                  </button>
+                                </div>
+                              </div>
+
                               <div className="flex items-center justify-between gap-3">
                                 <div className="text-xs text-gray-500">
                                   {councilApprovalMarkedNA ? "Consent not required for this job" : "Usually one council approval PDF"}
@@ -2404,7 +2487,7 @@ export default function JobDetailPage() {
 
             {quoteExpanded && (
               <>
-                <InfoRow label="Consent Fee" value={job.quote?.consentFee ? fmtCurrency(job.quote.consentFee) : null} />
+                <InfoRow label="Consent Fee" value={job.quote?.consentFee !== null && job.quote?.consentFee !== undefined ? fmtCurrency(job.quote.consentFee) : null} />
                 <InfoRow label="Deposit" value={job.quote?.depositPercentage ? `${job.quote.depositPercentage}% — ${fmtCurrency(job.quote.c_deposit)}` : null} />
                 {job.quote?.quoteNote && (
                   <div className="mt-2 pt-2 border-t border-gray-50">

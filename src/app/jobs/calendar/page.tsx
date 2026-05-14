@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { gql } from "@/lib/graphql";
+import { readBrowserCache, writeBrowserCache } from "@/lib/client-cache";
 import BottomSheet from "@/components/BottomSheet";
+import { useAppDialog } from "@/components/AppDialog";
 
 interface CalendarJob {
   _id: string;
@@ -51,6 +53,8 @@ interface InstallPlanningMeta {
   note: string;
   scope: "internal" | "external" | "both" | "";
 }
+
+type InstallScope = InstallPlanningMeta["scope"];
 
 interface InstallPlanningApiRow {
   jobId?: string;
@@ -190,6 +194,42 @@ function formatSqm(value: number) {
   return `${rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(1)} sqm`;
 }
 
+function installScopeBadge(scope: InstallScope) {
+  if (scope === "internal") {
+    return {
+      label: "Internal",
+      shortLabel: "INT",
+      className: "border-blue-200 bg-blue-100 text-blue-800",
+      dotClassName: "bg-blue-600",
+    };
+  }
+
+  if (scope === "external") {
+    return {
+      label: "External",
+      shortLabel: "EXT",
+      className: "border-teal-200 bg-teal-100 text-teal-800",
+      dotClassName: "bg-teal-600",
+    };
+  }
+
+  if (scope === "both") {
+    return {
+      label: "Internal + External",
+      shortLabel: "BOTH",
+      className: "border-fuchsia-200 bg-fuchsia-100 text-fuchsia-800",
+      dotClassName: "bg-fuchsia-600",
+    };
+  }
+
+  return {
+    label: "Scope not set",
+    shortLabel: "SET",
+    className: "border-red-200 bg-red-50 text-red-700",
+    dotClassName: "bg-red-500",
+  };
+}
+
 function combinedSqm(job: CalendarJob) {
   return (job.quote?.wall?.SQM || 0) + (job.quote?.ceiling?.SQM || 0);
 }
@@ -254,6 +294,7 @@ const CALENDAR_RAW_CACHE_KEY = "calendar:all-install-jobs-v2";
 const CALENDAR_VIEW_CACHE_PREFIX = "calendar:view:";
 const CALENDAR_RAW_CACHE_TTL_MS = 20 * 60 * 1000;
 const CALENDAR_VIEW_CACHE_TTL_MS = 20 * 60 * 1000;
+const OVERLAY_CACHE_TTL_MS = 60 * 1000;
 const CALENDAR_STAGES = ["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"];
 
 type CalendarCachePayload = { jobs: CalendarJob[]; ts: number };
@@ -305,7 +346,13 @@ function clearCalendarSessionCache() {
     const keysToRemove: string[] = [];
     for (let i = 0; i < window.sessionStorage.length; i += 1) {
       const key = window.sessionStorage.key(i);
-      if (key === CALENDAR_RAW_CACHE_KEY || key?.startsWith(CALENDAR_VIEW_CACHE_PREFIX) || key?.startsWith("calendar:")) {
+      if (
+        key === CALENDAR_RAW_CACHE_KEY ||
+        key?.startsWith(CALENDAR_VIEW_CACHE_PREFIX) ||
+        key?.startsWith("calendar:") ||
+        key?.startsWith("install-planning:") ||
+        key?.startsWith("calendar-placeholders:")
+      ) {
         keysToRemove.push(key);
       }
     }
@@ -317,6 +364,7 @@ function clearCalendarSessionCache() {
 
 export default function JobsCalendarPage() {
   const router = useRouter();
+  const { confirm, dialog } = useAppDialog();
   const [monthCursor, setMonthCursor] = useState(() => startOfMonth(new Date()));
   const [jobs, setJobs] = useState<CalendarJob[]>([]);
   const [placeholders, setPlaceholders] = useState<CalendarPlaceholder[]>([]);
@@ -467,6 +515,9 @@ export default function JobsCalendarPage() {
       start: new Date(calendarStart.getFullYear(), calendarStart.getMonth(), calendarStart.getDate(), 0, 0, 0, 0).toISOString(),
       end: new Date(calendarEnd.getFullYear(), calendarEnd.getMonth(), calendarEnd.getDate(), 23, 59, 59, 999).toISOString(),
     });
+    const cacheKey = `calendar-placeholders:${params.toString()}`;
+    const cached = readBrowserCache<CalendarPlaceholder[]>(cacheKey, OVERLAY_CACHE_TTL_MS);
+    if (cached) setPlaceholders(cached);
 
     try {
       const res = await fetch(`/api/calendar/placeholders?${params.toString()}`, {
@@ -474,7 +525,9 @@ export default function JobsCalendarPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Failed to load placeholders");
-      setPlaceholders(json.placeholders || []);
+      const nextPlaceholders = json.placeholders || [];
+      setPlaceholders(nextPlaceholders);
+      writeBrowserCache(cacheKey, nextPlaceholders);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load placeholders");
     }
@@ -487,6 +540,9 @@ export default function JobsCalendarPage() {
     const params = new URLSearchParams({
       jobIds: calendarJobs.map((job) => job._id).join(","),
     });
+    const cacheKey = `install-planning:${params.toString()}`;
+    const cached = readBrowserCache<Record<string, InstallPlanningMeta>>(cacheKey, OVERLAY_CACHE_TTL_MS);
+    if (cached) setInstallPlanningByJobId(cached);
 
     try {
       const res = await fetch(`/api/install-planning?${params.toString()}`, {
@@ -499,6 +555,7 @@ export default function JobsCalendarPage() {
         next[row.jobId] = toCalendarInstallPlanning(row);
       }
       setInstallPlanningByJobId(next);
+      writeBrowserCache(cacheKey, next);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load install planning");
     }
@@ -607,6 +664,7 @@ export default function JobsCalendarPage() {
         if (!selectedPlaceholder) return [...prev, json.placeholder];
         return prev.map((placeholder) => placeholder.id === selectedPlaceholder.id ? json.placeholder : placeholder);
       });
+      clearCalendarSessionCache();
       closePlaceholderSheet();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save placeholder");
@@ -618,7 +676,13 @@ export default function JobsCalendarPage() {
   const deletePlaceholder = async (placeholderId: string) => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (!token) return;
-    if (!confirm("Remove this placeholder?")) return;
+    const shouldDelete = await confirm({
+      title: "Remove placeholder?",
+      description: "This will remove the pencilled calendar entry from the installation planner.",
+      confirmLabel: "Remove",
+      tone: "danger",
+    });
+    if (!shouldDelete) return;
 
     setSaving(true);
     setError("");
@@ -630,6 +694,7 @@ export default function JobsCalendarPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Could not remove placeholder");
       setPlaceholders((prev) => prev.filter((placeholder) => placeholder.id !== placeholderId));
+      clearCalendarSessionCache();
       if (selectedPlaceholder?.id === placeholderId) {
         setPlaceholderSheetOpen(false);
         setPlaceholderDate(null);
@@ -839,6 +904,7 @@ export default function JobsCalendarPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {dialog}
       <div className="px-4 py-4 border-b border-gray-100 bg-white sticky z-30" style={{ top: "var(--nav-height, 80px)" }}>
         <div className="flex items-center justify-between gap-3 mb-3">
           <div>
@@ -927,14 +993,21 @@ export default function JobsCalendarPage() {
                           {day.items.map((item) => {
                             if (item.type === "placeholder") {
                               const placeholder = item.placeholder;
+                              const scopeBadge = installScopeBadge(placeholder.scope);
                               return (
                                 <div key={placeholder.id} className="w-full rounded-xl border border-dashed border-violet-300 bg-violet-50/70 p-1.5 shadow-sm">
                                   <div className="mb-1">
                                     <div className="text-[10px] uppercase tracking-wide font-bold text-violet-700 mb-0.5">Placeholder</div>
                                     <div className="text-[15px] leading-5 font-semibold text-gray-900 line-clamp-2">{placeholder.title}</div>
                                   </div>
-                                  <div className="text-[11px] text-gray-700 mb-1">
-                                    {timeFromDatetimeLocal(placeholder.startsAt) || "Any time"}
+                                  <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                                    <div className="text-[11px] text-gray-700">
+                                      {timeFromDatetimeLocal(placeholder.startsAt) || "Any time"}
+                                    </div>
+                                    <div className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${scopeBadge.className}`} title={scopeBadge.label}>
+                                      <span className={`h-2 w-2 rounded-full ${scopeBadge.dotClassName}`} />
+                                      {scopeBadge.shortLabel}
+                                    </div>
                                   </div>
                                   {placeholder.note && (
                                     <div className="text-[11px] text-gray-600 line-clamp-2 rounded-lg bg-white/70 border border-violet-100 px-2 py-1.5">
@@ -965,7 +1038,7 @@ export default function JobsCalendarPage() {
                             const meta = getInstallPlanning(job);
                             const isInstalled = ["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"].includes(job.installation?.installStatus || "");
                             const isPencilled = meta.status === "pencilled";
-                            const scopeLabel = meta.scope === "internal" ? "Internal" : meta.scope === "external" ? "External" : meta.scope === "both" ? "Internal + External" : "Scope not set";
+                            const scopeBadge = installScopeBadge(meta.scope);
                             return (
                               <div key={job._id} className={`w-full rounded-xl border p-1.5 shadow-sm border-l-4 ${isInstalled ? "border-emerald-200 bg-emerald-50/60" : "border-orange-100 bg-orange-50/50"} ${isPencilled ? "border-l-amber-500" : "border-l-emerald-500"}`}>
                                 <button onClick={() => openJobSheet(job)} className="w-full text-left">
@@ -974,7 +1047,16 @@ export default function JobsCalendarPage() {
                                   </div>
                                   <div className="text-[12px] text-gray-600 leading-4 mb-2 line-clamp-2">{address(job) || "No address"}</div>
 
-                                  <div className={`text-[11px] mb-1 ${meta.scope ? "text-gray-700" : "text-red-600"}`}>{scopeLabel}</div>
+                                  <div className={`mb-2 flex items-center justify-between gap-2 rounded-lg border px-2 py-1 ${scopeBadge.className}`}>
+                                    <div className="min-w-0">
+                                      <div className="text-[9px] font-bold uppercase tracking-wide opacity-75">Install scope</div>
+                                      <div className="truncate text-[12px] font-black leading-4">{scopeBadge.label}</div>
+                                    </div>
+                                    <div className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white/70 px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wide">
+                                      <span className={`h-2 w-2 rounded-full ${scopeBadge.dotClassName}`} />
+                                      {scopeBadge.shortLabel}
+                                    </div>
+                                  </div>
 
                                   <div className="grid grid-cols-2 gap-1 mb-1.5">
                                     <div className="rounded-lg bg-white/70 border border-white px-1.5 py-0.5">

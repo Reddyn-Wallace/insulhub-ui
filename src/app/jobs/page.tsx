@@ -126,10 +126,14 @@ function JobsPageContent() {
 
   const prefetchJobsForStage = useCallback(async (stage: string) => {
     try {
+      const stageFilter = stage === "JOBS" ? ["SCHEDULED", "INSTALLATION", "INVOICE"] : [stage];
       const data = await gql<JobsData>(JOBS_QUERY, {
-        stages: [stage],
+        stages: stageFilter,
         skip: 0,
         limit: 5000,
+      }, {
+        cacheKey: `jobs:${stage}`,
+        ttlMs: 2 * 60 * 1000,
       });
       const activeJobs = data.jobs.results.filter((j) => !j.archivedAt);
       cacheRef.current[stage] = { jobs: activeJobs, total: data.jobs.total };
@@ -307,7 +311,10 @@ function JobsPageContent() {
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (!token) return;
-    gql<{ users: { results: User[] } }>(USERS_QUERY)
+    gql<{ users: { results: User[] } }>(USERS_QUERY, undefined, {
+      cacheKey: "users",
+      ttlMs: 30 * 60 * 1000,
+    })
       .then((d) => setUsers((d.users?.results || []).filter((u) => (u.role || "").toUpperCase() !== "INSTALLER")))
       .catch(() => {});
   }, []);

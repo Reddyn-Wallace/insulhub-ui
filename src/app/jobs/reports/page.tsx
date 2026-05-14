@@ -128,6 +128,9 @@ export default function ReportsPage() {
         stages: ["INSTALLATION", "INVOICE", "COMPLETED"],
         skip: 0,
         limit: 5000,
+      }, {
+        cacheKey: "report:usage-jobs",
+        ttlMs: 5 * 60 * 1000,
       });
 
       const rows = (data.jobs.results || [])
