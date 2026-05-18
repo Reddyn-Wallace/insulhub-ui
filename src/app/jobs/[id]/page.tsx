@@ -458,6 +458,7 @@ export default function JobDetailPage() {
   const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [quoteEmailBody, setQuoteEmailBody] = useState("Please find your insulation quote attached.");
   const [loadingQuoteEmailBody, setLoadingQuoteEmailBody] = useState(false);
+  const quoteNoteTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const quoteEmailEditorRef = useRef<HTMLDivElement | null>(null);
   const templateBodyRef = useRef<HTMLTextAreaElement | null>(null);
   const [quoteSentAt, setQuoteSentAt] = useState<string | null>(null);
@@ -1292,7 +1293,10 @@ export default function JobDetailPage() {
   }
 
   function buildQuoteUpdateInput(andProgress = false, quoteOverrides: Record<string, unknown> = {}) {
-    const q = quoteForm;
+    const q = {
+      ...quoteForm,
+      quoteNote: quoteNoteTextareaRef.current?.value ?? quoteForm.quoteNote,
+    };
     const existing = job?.quote || {} as Record<string, unknown>;
     const existingWall = (job?.quote?.wall || {}) as Record<string, unknown>;
     const existingCeiling = (job?.quote?.ceiling || {}) as Record<string, unknown>;
@@ -3656,7 +3660,7 @@ export default function JobDetailPage() {
           {/* Comments */}
           <div>
             <label className="text-xs text-gray-500 font-medium mb-1 block">Quote Comments</label>
-            <textarea value={quoteForm.quoteNote} onChange={(e) => setQuoteForm((f) => ({ ...f, quoteNote: e.target.value }))}
+            <textarea ref={quoteNoteTextareaRef} value={quoteForm.quoteNote} onChange={(e) => setQuoteForm((f) => ({ ...f, quoteNote: e.target.value }))}
               rows={3} placeholder="Quote details..."
               className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#e85d04] resize-none" />
           </div>
