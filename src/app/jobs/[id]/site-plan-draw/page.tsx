@@ -1152,10 +1152,16 @@ export default function DrawSitePlanPage() {
         body: uploadData,
       });
       const uploadJson = await uploadRes.json();
+      if (!uploadRes.ok) throw new Error(uploadJson?.message || "Upload failed");
       const uploaded = (uploadJson.fileNames || []) as string[];
       if (!uploaded.length) throw new Error("Upload failed");
 
       await gql(ADD_FILES, { _id: id, documentType: "QUOTE_SITE_PLAN", fileNames: [uploaded[0]] });
+      const fresh = await gql<{ job: Job }>(JOB_QUERY, { _id: id });
+      if (!fresh.job.quote?.files_QuoteSitePlan?.includes(uploaded[0])) {
+        throw new Error("Upload completed, but the site plan was not attached to this job.");
+      }
+      setJob(fresh.job);
 
       setNotice("Site plan saved successfully.");
       if (shouldExit) setTimeout(() => router.push(`/jobs/${id}`), 400);

@@ -233,6 +233,10 @@ function timeFromDatetimeLocal(val?: string | null) {
   return val.split("T")[1]?.slice(0, 5) || "09:00";
 }
 
+function persistedFileList(files?: string[] | null) {
+  return Array.isArray(files) && files.length > 0 ? files : undefined;
+}
+
 function mergeDateAndTime(date: Date | undefined, time: string) {
   if (!date) return "";
   const year = date.getFullYear();
@@ -911,7 +915,7 @@ export default function JobDetailPage() {
       deferralDate: q?.deferralDate || null,
       sendFollowupEmail: q?.sendFollowupEmail ?? false,
       sendFollowupText: q?.sendFollowupText ?? false,
-      files_QuoteSitePlan: q?.files_QuoteSitePlan || [],
+      files_QuoteSitePlan: persistedFileList(q?.files_QuoteSitePlan),
       ...overrides,
     };
   }
@@ -1339,6 +1343,7 @@ export default function JobDetailPage() {
         c_thickness: quoteCalc.ceilingThickness,
         c_bagCount: quoteCalc.ceilingBags,
       } : {},
+      files_QuoteSitePlan: persistedFileList(job?.quote?.files_QuoteSitePlan),
       ...quoteOverrides,
     };
 
@@ -1422,9 +1427,14 @@ export default function JobDetailPage() {
         body: form,
       });
       const json = await res.json();
+      if (!res.ok) throw new Error(json?.message || "Upload failed");
       const fileNames: string[] = json.fileNames || [];
       if (!fileNames.length) throw new Error("Upload failed");
       await gql(ADD_FILES, { _id: id, documentType: "QUOTE_SITE_PLAN", fileNames });
+      const fresh = await gql<{ job: Job }>(JOB_QUERY, { _id: id });
+      const persistedFiles = fresh.job.quote?.files_QuoteSitePlan || [];
+      const missingFiles = fileNames.filter((fileName) => !persistedFiles.includes(fileName));
+      if (missingFiles.length > 0) throw new Error("Upload completed, but the site plan was not attached to this job.");
       await load();
     } catch {
       await alert({
