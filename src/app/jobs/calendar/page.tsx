@@ -279,6 +279,18 @@ function fromDatetimeLocal(value: string) {
   return new Date(value).toISOString();
 }
 
+function sameInstallDate(a?: string | null, b?: string | null) {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  const aTime = new Date(a).getTime();
+  const bTime = new Date(b).getTime();
+  return !Number.isNaN(aTime) && !Number.isNaN(bTime) && aTime === bTime;
+}
+
+function sameInstallPlanning(a: InstallPlanningMeta, b: InstallPlanningMeta) {
+  return a.status === b.status && a.scope === b.scope && a.note === b.note;
+}
+
 function timeFromDatetimeLocal(value?: string | null) {
   const local = toDatetimeLocal(value);
   if (!local || !local.includes("T")) return "";
@@ -742,32 +754,71 @@ export default function JobsCalendarPage() {
         note: installMetaNote,
         scope: installScope,
       };
-      await Promise.all([
-        saveInstallPlanningMeta(selectedJob._id, nextPlanning),
-        gql(UPDATE_INSTALLATION, {
-          input: {
-            _id: selectedJob._id,
-            installation: {
-              installDate: nextInstallDate,
-              installNote: selectedJob.installation?.installNote || "",
-              installStatus: selectedJob.installation?.installStatus || "JOB_NOT_STARTED_YET",
-              checkSheetSignedAsComplete: selectedJob.installation?.checkSheetSignedAsComplete ?? false,
-            },
+      const originalPlanning = getInstallPlanning(selectedJob);
+      const installDateChanged = !sameInstallDate(selectedJob.installation?.installDate, nextInstallDate);
+      const planningChanged = !sameInstallPlanning(originalPlanning, nextPlanning);
+      const requests: Promise<unknown>[] = [];
+      const jobId = selectedJob._id;
+      const previousInstallDate = selectedJob.installation?.installDate || null;
+      const hadOverlayPlanning = Boolean(installPlanningByJobId[jobId]);
+
+      if (planningChanged) {
+        setInstallPlanningByJobId((prev) => ({ ...prev, [jobId]: nextPlanning }));
+        requests.push(saveInstallPlanningMeta(jobId, nextPlanning));
+      }
+      if (installDateChanged) {
+        setJobs((prev) => prev.map((job) => job._id === jobId ? {
+          ...job,
+          installation: {
+            ...job.installation,
+            installDate: nextInstallDate,
           },
-        }),
-      ]);
-      setJobs((prev) => prev.map((job) => job._id === selectedJob._id ? {
-        ...job,
-        installation: {
-          ...job.installation,
-          installDate: nextInstallDate,
-        },
-      } : job));
-      calendarCache.current.clear();
-      rawJobsCache.current = null;
-      clearCalendarSessionCache();
+        } : job));
+        requests.push(
+          gql(UPDATE_INSTALLATION, {
+            input: {
+              _id: jobId,
+              installation: {
+                installDate: nextInstallDate,
+                installNote: selectedJob.installation?.installNote || "",
+                installStatus: selectedJob.installation?.installStatus || "JOB_NOT_STARTED_YET",
+                checkSheetSignedAsComplete: selectedJob.installation?.checkSheetSignedAsComplete ?? false,
+              },
+            },
+          })
+        );
+      }
+
       setSheetOpen(false);
       setSelectedJob(null);
+
+      try {
+        if (requests.length > 0) {
+          await Promise.all(requests);
+          calendarCache.current.clear();
+          rawJobsCache.current = null;
+          clearCalendarSessionCache();
+        }
+      } catch (err) {
+        if (planningChanged) {
+          setInstallPlanningByJobId((prev) => {
+            const next = { ...prev };
+            if (hadOverlayPlanning) next[jobId] = originalPlanning;
+            else delete next[jobId];
+            return next;
+          });
+        }
+        if (installDateChanged) {
+          setJobs((prev) => prev.map((job) => job._id === jobId ? {
+            ...job,
+            installation: {
+              ...job.installation,
+              installDate: previousInstallDate,
+            },
+          } : job));
+        }
+        throw err;
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save install planning details");
     } finally {
@@ -1039,19 +1090,23 @@ export default function JobsCalendarPage() {
                               <div key={job._id} className={`group w-full rounded-xl border p-2 shadow-sm transition-colors border-l-4 ${isCompleted ? "border-emerald-200 bg-emerald-50/70 hover:bg-emerald-50" : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/70"} ${isPencilled ? "border-l-amber-500" : "border-l-emerald-500"}`}>
                                 <button onClick={() => openJobSheet(job)} className="w-full text-left">
                                   <div className="mb-1 flex items-start justify-between gap-2">
-                                    <div className="min-w-0">
-                                      <div className="text-[15px] leading-5 font-semibold text-gray-900 line-clamp-2">{job.client?.contactDetails?.name || "Unknown customer"}</div>
-                                      <div className="mt-0.5 text-[13px] leading-4 font-semibold text-gray-800 line-clamp-2">{address(job) || "No address"}</div>
-                                      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-500">
-                                        {installTime && <span>{installTime}</span>}
-                                        {installTime && <span className="text-gray-300">/</span>}
-                                        <span className={isCompleted ? "rounded-full bg-emerald-100 px-1.5 py-0.5 font-black text-emerald-700" : ""}>{statusLabel}</span>
-                                      </div>
+                                    <div className="min-w-0 text-[15px] leading-5 font-semibold text-gray-900 line-clamp-2">
+                                      {job.client?.contactDetails?.name || "Unknown customer"}
                                     </div>
                                     <div className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wide ${scopeBadge.className}`} title={scopeBadge.label}>
                                       <span className={`h-1.5 w-1.5 rounded-full ${scopeBadge.dotClassName}`} />
                                       {scopeBadge.shortLabel}
                                     </div>
+                                  </div>
+
+                                  <div className="mb-1 text-[13px] leading-4 font-semibold text-gray-800 line-clamp-3">
+                                    {address(job) || "No address"}
+                                  </div>
+
+                                  <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-500">
+                                    {installTime && <span>{installTime}</span>}
+                                    {installTime && <span className="text-gray-300">/</span>}
+                                    <span className={isCompleted ? "rounded-full bg-emerald-100 px-1.5 py-0.5 font-black text-emerald-700" : ""}>{statusLabel}</span>
                                   </div>
 
                                   <div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] font-semibold text-gray-800">
