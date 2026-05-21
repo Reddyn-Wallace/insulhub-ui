@@ -99,6 +99,7 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
     <div
       ref={headerRef}
       className="bg-[#1a3a4a] sticky top-0 z-50 border-b border-[#2f4b57]"
+      style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
     >
       {/* Row 1: Brand + actions */}
       <div className="flex items-center justify-between px-3 pt-2.5 pb-1.5">

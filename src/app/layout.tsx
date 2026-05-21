@@ -10,6 +10,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false, // Prevents zooming on inputs for mobile native feel
+  viewportFit: "cover",
 };
 
 export const metadata: Metadata = {
