@@ -43,6 +43,7 @@ interface Job {
   ebaLastSentAt?: string;
   installation?: {
     installDate?: string;
+    installStatus?: string;
   };
   lead?: {
     leadStatus?: string;
@@ -103,7 +104,7 @@ function JobsPageContent() {
   // Cache for first page of stage jobs to enable instant switching
   const cacheRef = useRef<Record<string, { jobs: Job[]; total: number }>>({});
 
-  const cacheKey = useCallback((stage: string) => `jobs-cache:${stage}`, []);
+  const cacheKey = useCallback((stage: string) => `jobs-cache-v2:${stage}`, []);
   const sortPreferenceKey = useCallback((stage: string) => `${SORT_PREFERENCE_KEY}:${stage}`, []);
 
   const readStageCache = useCallback((stage: string): { jobs: Job[]; total: number; counts?: Record<string, number>; ts: number } | null => {
@@ -124,6 +125,14 @@ function JobsPageContent() {
     sessionStorage.setItem(cacheKey(stage), JSON.stringify({ ...data, ts: Date.now() }));
   }, [cacheKey]);
 
+  const installedStatuses = useMemo(() => new Set(["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"]), []);
+  const isInstalledJob = useCallback((job: Job) => installedStatuses.has((job.installation?.installStatus || "").trim().toUpperCase()), [installedStatuses]);
+  const isActiveForStage = useCallback((job: Job, stage: string) => {
+    if (job.archivedAt) return false;
+    if (stage === "JOBS" && isInstalledJob(job)) return false;
+    return true;
+  }, [isInstalledJob]);
+
   const prefetchJobsForStage = useCallback(async (stage: string) => {
     try {
       const stageFilter = stage === "JOBS" ? ["SCHEDULED", "INSTALLATION", "INVOICE"] : [stage];
@@ -135,8 +144,9 @@ function JobsPageContent() {
         cacheKey: `jobs:${stage}`,
         ttlMs: 2 * 60 * 1000,
       });
-      const activeJobs = data.jobs.results.filter((j) => !j.archivedAt);
-      cacheRef.current[stage] = { jobs: activeJobs, total: data.jobs.total };
+      const activeJobs = data.jobs.results.filter((j) => isActiveForStage(j, stage));
+      const activeTotal = stage === "JOBS" ? activeJobs.length : data.jobs.total;
+      cacheRef.current[stage] = { jobs: activeJobs, total: activeTotal };
 
       const isQuoteBooked = (job: Job) => Boolean(job.lead?.quoteBookingDate);
       const isCallbackLead = (job: Job) => ["CALLBACK", "ON_HOLD"].includes((job.lead?.leadStatus || "").toUpperCase());
@@ -154,12 +164,12 @@ function JobsPageContent() {
         OPEN: activeJobs.filter((j) => quoteState(j) === "OPEN").length,
         DEAD: activeJobs.filter((j) => stage === "QUOTE" ? quoteState(j) === "DEAD" : j.lead?.leadStatus === "DEAD").length,
       };
-      writeStageCache(stage, { jobs: activeJobs, total: data.jobs.total, counts });
+      writeStageCache(stage, { jobs: activeJobs, total: activeTotal, counts });
       return cacheRef.current[stage];
     } catch (err) {
       console.warn(`[Prefetch] Failed for ${stage}:`, err);
     }
-  }, [writeStageCache]);
+  }, [isActiveForStage, writeStageCache]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -230,11 +240,11 @@ function JobsPageContent() {
       if (currentFetchId !== fetchIdRef.current) return;
 
       const allFetched = data.jobs.results;
-      // Filter out archived jobs as requested
-      const activeJobs = allFetched.filter(j => !j.archivedAt);
+      // Filter out archived jobs and completed installs from the active Jobs tab.
+      const activeJobs = allFetched.filter((j) => isActiveForStage(j, activeStage));
 
       setJobs(activeJobs);
-      setTotal(data.jobs.total);
+      setTotal(activeStage === "JOBS" ? activeJobs.length : data.jobs.total);
       setStageHydrated(true);
 
       if (!isSearching && (activeStage === "LEAD" || activeStage === "QUOTE")) {
@@ -261,7 +271,11 @@ function JobsPageContent() {
 
       // Update cache for stage first page
       if (!isSearching && page === 0) {
-        cacheRef.current[activeStage] = { jobs: activeJobs, total: data.jobs.total };
+        const activeTotal = activeStage === "JOBS" ? activeJobs.length : data.jobs.total;
+        cacheRef.current[activeStage] = { jobs: activeJobs, total: activeTotal };
+        if (activeStage === "JOBS") {
+          writeStageCache(activeStage, { jobs: activeJobs, total: activeTotal });
+        }
       }
     } catch (err) {
       if (currentFetchId !== fetchIdRef.current) return;
@@ -273,7 +287,7 @@ function JobsPageContent() {
         setIsFetchingStage(false);
       }
     }
-  }, [activeStage, page, search, searchMode, stageHydrated, writeStageCache]);
+  }, [activeStage, isActiveForStage, page, search, searchMode, stageHydrated, writeStageCache]);
 
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;

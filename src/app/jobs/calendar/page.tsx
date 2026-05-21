@@ -234,6 +234,23 @@ function combinedSqm(job: CalendarJob) {
   return (job.quote?.wall?.SQM || 0) + (job.quote?.ceiling?.SQM || 0);
 }
 
+function normalizedInstallStatus(job: CalendarJob) {
+  return (job.installation?.installStatus || "").trim().toUpperCase();
+}
+
+function isCompleteForCalendar(job: CalendarJob) {
+  if (job.stage === "COMPLETED") return true;
+  return ["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"].includes(normalizedInstallStatus(job));
+}
+
+function calendarStatusLabel(job: CalendarJob) {
+  const installStatus = normalizedInstallStatus(job);
+  if (installStatus === "INSTALLED_WITH_VARIATIONS_FROM_QUOTE") return "Variation install";
+  if (installStatus === "INSTALLED_AS_QUOTED") return "Installed";
+  if (job.stage === "COMPLETED") return "Completed";
+  return "Planned";
+}
+
 function address(job: CalendarJob) {
   return [
     job.client?.contactDetails?.streetAddress,
@@ -1080,14 +1097,13 @@ export default function JobsCalendarPage() {
 
                             const job = item.job;
                             const meta = getInstallPlanning(job);
-                            const isInstalled = ["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"].includes(job.installation?.installStatus || "");
-                            const isCompleted = job.stage === "COMPLETED";
+                            const isInstalled = isCompleteForCalendar(job);
                             const isPencilled = meta.status === "pencilled";
                             const scopeBadge = installScopeBadge(meta.scope);
                             const installTime = timeFromDatetimeLocal(job.installation?.installDate);
-                            const statusLabel = isCompleted ? "Completed" : isInstalled ? "Installed" : isPencilled ? "Pencilled" : "Confirmed";
+                            const statusLabel = isInstalled ? calendarStatusLabel(job) : isPencilled ? "Pencilled" : "Confirmed";
                             return (
-                              <div key={job._id} className={`group w-full rounded-xl border p-2 shadow-sm transition-colors border-l-4 ${isCompleted ? "border-emerald-200 bg-emerald-50/70 hover:bg-emerald-50" : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/70"} ${isPencilled ? "border-l-amber-500" : "border-l-emerald-500"}`}>
+                              <div key={job._id} className={`group w-full rounded-xl border p-2 shadow-sm transition-colors border-l-4 ${isInstalled ? "border-emerald-200 bg-emerald-50/70 hover:bg-emerald-50" : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/70"} ${isPencilled ? "border-l-amber-500" : "border-l-emerald-500"}`}>
                                 <button onClick={() => openJobSheet(job)} className="w-full text-left">
                                   <div className="mb-1 flex items-start justify-between gap-2">
                                     <div className="min-w-0 text-[15px] leading-5 font-semibold text-gray-900 line-clamp-2">
@@ -1106,7 +1122,7 @@ export default function JobsCalendarPage() {
                                   <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-500">
                                     {installTime && <span>{installTime}</span>}
                                     {installTime && <span className="text-gray-300">/</span>}
-                                    <span className={isCompleted ? "rounded-full bg-emerald-100 px-1.5 py-0.5 font-black text-emerald-700" : ""}>{statusLabel}</span>
+                                    <span className={isInstalled ? "rounded-full bg-emerald-100 px-1.5 py-0.5 font-black text-emerald-700" : ""}>{statusLabel}</span>
                                   </div>
 
                                   <div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] font-semibold text-gray-800">

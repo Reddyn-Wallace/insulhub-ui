@@ -41,6 +41,7 @@ export const JOBS_QUERY = `
         }
         installation {
           installDate
+          installStatus
         }
         ebaForm {
           complete
