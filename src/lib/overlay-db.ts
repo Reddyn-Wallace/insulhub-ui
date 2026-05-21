@@ -1,11 +1,23 @@
 import "server-only";
 import { neon } from "@neondatabase/serverless";
 
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL is required for overlay storage");
+type OverlaySql = ReturnType<typeof neon>;
+type OverlayRows = Record<string, unknown>[];
+
+let cachedSql: OverlaySql | null = null;
+
+function getOverlaySql() {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    throw new Error("DATABASE_URL is required for overlay storage");
+  }
+  cachedSql ||= neon(databaseUrl);
+  return cachedSql;
 }
 
-export const overlaySql = neon(process.env.DATABASE_URL);
+export function overlaySql(strings: TemplateStringsArray, ...values: unknown[]): Promise<OverlayRows> {
+  return getOverlaySql()(strings, ...values) as Promise<OverlayRows>;
+}
 
 export async function ensureOverlaySchema() {
   await overlaySql`
