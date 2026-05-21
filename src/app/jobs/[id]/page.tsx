@@ -464,20 +464,10 @@ export default function JobDetailPage() {
   const [loadingQuoteEmailBody, setLoadingQuoteEmailBody] = useState(false);
   const quoteNoteTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const quoteEmailEditorRef = useRef<HTMLDivElement | null>(null);
-  const templateBodyRef = useRef<HTMLTextAreaElement | null>(null);
   const [quoteSentAt, setQuoteSentAt] = useState<string | null>(null);
   const [contactTemplates, setContactTemplates] = useState<ContactTemplate[]>([]);
   const [loadingContactTemplates, setLoadingContactTemplates] = useState(false);
   const [contactTemplateMode, setContactTemplateMode] = useState<"sms" | "email">("sms");
-  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
-  const [templateForm, setTemplateForm] = useState({
-    title: "",
-    channel: "sms" as "sms" | "email",
-    description: "",
-    subject: "",
-    body: "",
-    sortOrder: "0",
-  });
 
   const fetchInstallPlanning = useCallback(async (jobId: string) => {
     const token = getToken();
@@ -720,130 +710,10 @@ export default function JobDetailPage() {
     }
   }
 
-  function resetTemplateForm(channel: "sms" | "email" = contactTemplateMode) {
-    setEditingTemplateId(null);
-    setTemplateForm({
-      title: "",
-      channel,
-      description: "",
-      subject: "",
-      body: "",
-      sortOrder: "0",
-    });
-  }
-
   function openContactTemplates(channel: "sms" | "email") {
     setContactTemplateMode(channel);
-    resetTemplateForm(channel);
     openSheet("contactTemplatePicker");
     if (!contactTemplates.length) loadContactTemplates();
-  }
-
-  function openTemplateManager(channel: "sms" | "email" = contactTemplateMode) {
-    setContactTemplateMode(channel);
-    resetTemplateForm(channel);
-    openSheet("contactTemplateManager");
-    if (!contactTemplates.length) loadContactTemplates();
-  }
-
-  function editContactTemplate(template: ContactTemplate) {
-    setEditingTemplateId(template.id);
-    setTemplateForm({
-      title: template.title,
-      channel: template.channel,
-      description: template.description || "",
-      subject: template.subject || "",
-      body: template.body,
-      sortOrder: String(template.sortOrder || 0),
-    });
-    setContactTemplateMode(template.channel);
-    openSheet("contactTemplateManager");
-  }
-
-  async function saveContactTemplate() {
-    const token = getToken();
-    if (!token) return;
-    const title = templateForm.title.trim();
-    const body = templateForm.body.trim();
-    if (!title || !body) {
-      setToast({ type: "error", text: "Template title and body are required." });
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const res = await fetch(editingTemplateId ? `/api/contact-templates/${editingTemplateId}` : "/api/contact-templates", {
-        method: editingTemplateId ? "PATCH" : "POST",
-        headers: { "content-type": "application/json", "x-access-token": token },
-        body: JSON.stringify({
-          ...templateForm,
-          subject: templateForm.channel === "email" ? templateForm.subject : "",
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || "Could not save contact template");
-
-      const saved = json.template as ContactTemplate;
-      setContactTemplates((prev) => {
-        const withoutSaved = prev.filter((template) => template.id !== saved.id);
-        return [...withoutSaved, saved].sort((a, b) => a.channel.localeCompare(b.channel) || a.sortOrder - b.sortOrder || a.title.localeCompare(b.title));
-      });
-      setContactTemplateMode(saved.channel);
-      resetTemplateForm(saved.channel);
-      setToast({ type: "success", text: "Template saved." });
-    } catch (err) {
-      setToast({ type: "error", text: err instanceof Error ? err.message : "Could not save contact template" });
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function deleteContactTemplate(templateId: string) {
-    const token = getToken();
-    if (!token) return;
-    const shouldDelete = await confirm({
-      title: "Delete template?",
-      description: "This contact template will be removed for everyone using this job screen.",
-      confirmLabel: "Delete",
-      tone: "danger",
-    });
-    if (!shouldDelete) return;
-
-    setSaving(true);
-    try {
-      const res = await fetch(`/api/contact-templates/${templateId}`, {
-        method: "DELETE",
-        headers: { "x-access-token": token },
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || "Could not delete contact template");
-      setContactTemplates((prev) => prev.filter((template) => template.id !== templateId));
-      if (editingTemplateId === templateId) resetTemplateForm(contactTemplateMode);
-      setToast({ type: "success", text: "Template deleted." });
-    } catch (err) {
-      setToast({ type: "error", text: err instanceof Error ? err.message : "Could not delete contact template" });
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function insertTemplateField(field: string) {
-    const token = `{${field}}`;
-    const input = templateBodyRef.current;
-    if (!input) {
-      setTemplateForm((prev) => ({ ...prev, body: `${prev.body}${prev.body ? " " : ""}${token}` }));
-      return;
-    }
-
-    const start = input.selectionStart ?? templateForm.body.length;
-    const end = input.selectionEnd ?? templateForm.body.length;
-    const nextBody = `${templateForm.body.slice(0, start)}${token}${templateForm.body.slice(end)}`;
-    setTemplateForm((prev) => ({ ...prev, body: nextBody }));
-
-    window.requestAnimationFrame(() => {
-      input.focus();
-      input.setSelectionRange(start + token.length, start + token.length);
-    });
   }
 
   useEffect(() => {
@@ -1948,9 +1818,6 @@ export default function JobDetailPage() {
     phone: phone || "",
     email: c?.email || "",
   };
-  const templateFieldOptions = ["customer name", "first name", "salesperson", "address", "quote booking date", "job number", "phone", "email"];
-  const templatePreviewSubject = applyTemplateFields(templateForm.subject || "", templateFields);
-  const templatePreviewBody = applyTemplateFields(templateForm.body || "", templateFields);
   const visibleContactTemplates = contactTemplates.filter((template) => template.channel === contactTemplateMode);
   const assignableUsers = users.filter((u) => (u.role || "").toUpperCase() !== "INSTALLER");
   const hasWall = !!job.quote?.wall?.SQM;
@@ -2791,8 +2658,15 @@ export default function JobDetailPage() {
               <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Templates</div>
               <div className="text-sm text-gray-600 mt-0.5">{contactTemplateMode === "sms" ? phone : c?.email}</div>
             </div>
-            <button type="button" onClick={() => openTemplateManager(contactTemplateMode)} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold">
-              Manage
+            <button
+              type="button"
+              onClick={() => {
+                closeSheet();
+                router.push("/jobs/settings");
+              }}
+              className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold"
+            >
+              Settings
             </button>
           </div>
 
@@ -2858,221 +2732,18 @@ export default function JobDetailPage() {
           ) : (
             <div className="border border-dashed border-gray-200 rounded-xl p-5 text-center">
               <div className="text-sm text-gray-600 mb-3">No {contactTemplateMode === "sms" ? "text" : "email"} templates yet.</div>
-              <button type="button" onClick={() => openTemplateManager(contactTemplateMode)} className="bg-[#e85d04] text-white text-sm font-semibold py-2.5 px-4 rounded-xl">
-                Create Template
+              <button
+                type="button"
+                onClick={() => {
+                  closeSheet();
+                  router.push("/jobs/settings");
+                }}
+                className="bg-[#e85d04] text-white text-sm font-semibold py-2.5 px-4 rounded-xl"
+              >
+                Open Settings
               </button>
             </div>
           )}
-        </div>
-      </BottomSheet>
-
-      {/* Contact template manager */}
-      <BottomSheet open={sheet === "contactTemplateManager"} onClose={closeSheet} title="Manage Templates">
-        <div className="space-y-5">
-          <div className="grid grid-cols-2 gap-2">
-            {(["sms", "email"] as const).map((channel) => (
-              <button
-                key={channel}
-                type="button"
-                onClick={() => {
-                  setContactTemplateMode(channel);
-                  resetTemplateForm(channel);
-                }}
-                className={`py-2.5 rounded-xl text-sm font-semibold border ${contactTemplateMode === channel ? channel === "sms" ? "bg-teal-50 text-teal-700 border-teal-300" : "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
-              >
-                {channel === "sms" ? "Text" : "Email"}
-              </button>
-            ))}
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Templates</div>
-                <div className="text-xs text-gray-400">{visibleContactTemplates.length} {contactTemplateMode === "sms" ? "text" : "email"} template{visibleContactTemplates.length === 1 ? "" : "s"}</div>
-              </div>
-              <button
-                type="button"
-                onClick={() => resetTemplateForm(contactTemplateMode)}
-                className="bg-[#e85d04] text-white text-sm font-semibold py-2 px-3 rounded-xl"
-              >
-                New
-              </button>
-            </div>
-
-            {loadingContactTemplates ? (
-              <div className="text-sm text-gray-500 py-5 text-center">Loading templates...</div>
-            ) : visibleContactTemplates.length ? (
-              <div className="space-y-2">
-                {visibleContactTemplates.map((template) => {
-                  const active = editingTemplateId === template.id;
-                  return (
-                    <button
-                      key={template.id}
-                      type="button"
-                      onClick={() => editContactTemplate(template)}
-                      className={`w-full text-left border rounded-xl p-3 transition-colors ${active ? "border-[#e85d04] bg-orange-50" : "border-gray-200 bg-white"}`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <div className="text-sm font-semibold text-gray-900 truncate">{template.title}</div>
-                            <span className={`shrink-0 text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${template.channel === "sms" ? "bg-teal-100 text-teal-700" : "bg-blue-100 text-blue-700"}`}>
-                              {template.channel === "sms" ? "Text" : "Email"}
-                            </span>
-                          </div>
-                          {template.description && <div className="text-xs text-gray-500 mt-0.5 truncate">{template.description}</div>}
-                          <div className="text-xs text-gray-400 mt-1 line-clamp-2 whitespace-pre-wrap">{template.body}</div>
-                        </div>
-                        <span className={`text-xs font-medium ${active ? "text-[#e85d04]" : "text-gray-400"}`}>{active ? "Selected" : "Edit"}</span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="border border-dashed border-gray-200 rounded-xl p-5 text-center">
-                <div className="text-sm font-medium text-gray-700">No templates yet</div>
-                <div className="text-xs text-gray-500 mt-1">Create the first {contactTemplateMode === "sms" ? "text" : "email"} template below.</div>
-              </div>
-            )}
-          </div>
-
-          <div className="border-t border-gray-100 pt-4 space-y-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">{editingTemplateId ? "Edit Template" : "New Template"}</div>
-                <div className="text-sm font-semibold text-gray-900 mt-0.5">{templateForm.title.trim() || "Untitled template"}</div>
-              </div>
-              {editingTemplateId && (
-                <button
-                  type="button"
-                  onClick={() => deleteContactTemplate(editingTemplateId)}
-                  disabled={saving}
-                  className="bg-red-50 text-red-600 text-sm font-semibold py-2 px-3 rounded-xl disabled:opacity-50"
-                >
-                  Delete
-                </button>
-              )}
-            </div>
-
-            <div className="space-y-3">
-              <div className="grid grid-cols-[1fr_96px] gap-2">
-                <div className="grid grid-cols-2 gap-2">
-                  {(["sms", "email"] as const).map((channel) => (
-                    <button
-                      key={channel}
-                      type="button"
-                      onClick={() => setTemplateForm((prev) => ({ ...prev, channel, subject: channel === "sms" ? "" : prev.subject }))}
-                      className={`py-2.5 rounded-xl text-sm font-semibold border ${templateForm.channel === channel ? channel === "sms" ? "bg-teal-50 text-teal-700 border-teal-300" : "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
-                    >
-                      {channel === "sms" ? "Text" : "Email"}
-                    </button>
-                  ))}
-                </div>
-                <div>
-                  <label className="block text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-1">Order</label>
-                  <input
-                    value={templateForm.sortOrder}
-                    onChange={(e) => setTemplateForm((prev) => ({ ...prev, sortOrder: e.target.value }))}
-                    inputMode="numeric"
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-1">Name</label>
-                <input
-                  value={templateForm.title}
-                  onChange={(e) => setTemplateForm((prev) => ({ ...prev, title: e.target.value }))}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
-                  placeholder="Lead follow-up"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-1">Description</label>
-                <input
-                  value={templateForm.description}
-                  onChange={(e) => setTemplateForm((prev) => ({ ...prev, description: e.target.value }))}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
-                  placeholder="Quick first response"
-                />
-              </div>
-
-              {templateForm.channel === "email" && (
-                <div>
-                  <label className="block text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-1">Subject</label>
-                  <input
-                    value={templateForm.subject}
-                    onChange={(e) => setTemplateForm((prev) => ({ ...prev, subject: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
-                    placeholder="Insulmax enquiry #{job number}"
-                  />
-                </div>
-              )}
-
-              <div>
-                <div className="flex items-center justify-between gap-3 mb-1">
-                  <label className="block text-[11px] text-gray-500 font-semibold uppercase tracking-wide">Message</label>
-                  <span className="text-[11px] text-gray-400">{templateForm.body.length} chars</span>
-                </div>
-                <textarea
-                  ref={templateBodyRef}
-                  value={templateForm.body}
-                  onChange={(e) => setTemplateForm((prev) => ({ ...prev, body: e.target.value }))}
-                  rows={7}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04] resize-none"
-                  placeholder="Hi {customer name}, {salesperson} from Insulmax here..."
-                />
-              </div>
-
-              <div>
-                <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-2">Insert Field</div>
-                <div className="flex flex-wrap gap-2">
-                  {templateFieldOptions.map((field) => (
-                    <button
-                      key={field}
-                      type="button"
-                      onClick={() => insertTemplateField(field)}
-                      className="px-2.5 py-1.5 rounded-full bg-gray-100 text-gray-700 text-xs font-medium"
-                    >
-                      {`{${field}}`}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="rounded-xl bg-gray-50 border border-gray-200 p-3">
-                <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-2">Preview</div>
-                {templateForm.channel === "email" && (
-                  <div className="text-xs text-gray-600 mb-2">
-                    <span className="font-semibold text-gray-700">Subject:</span> {templatePreviewSubject || "-"}
-                  </div>
-                )}
-                <p className="text-sm text-gray-700 whitespace-pre-wrap">{templatePreviewBody || "Template body preview will appear here."}</p>
-              </div>
-
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => resetTemplateForm(contactTemplateMode)}
-                  className="px-4 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl"
-                >
-                  Clear
-                </button>
-                <button
-                  type="button"
-                  onClick={saveContactTemplate}
-                  disabled={saving || !templateForm.title.trim() || !templateForm.body.trim()}
-                  className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50"
-                >
-                  {saving ? "Saving..." : editingTemplateId ? "Save Changes" : "Create Template"}
-                </button>
-              </div>
-            </div>
-          </div>
         </div>
       </BottomSheet>
 
