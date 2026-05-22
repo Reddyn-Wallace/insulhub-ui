@@ -81,8 +81,19 @@ export async function ensureOverlaySchema() {
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now(),
       CONSTRAINT contact_templates_channel_check
-        CHECK (channel IN ('sms', 'email'))
+        CHECK (channel IN ('sms', 'email', 'calendar'))
     )
+  `;
+
+  await overlaySql`
+    ALTER TABLE contact_templates
+    DROP CONSTRAINT IF EXISTS contact_templates_channel_check
+  `;
+
+  await overlaySql`
+    ALTER TABLE contact_templates
+    ADD CONSTRAINT contact_templates_channel_check
+    CHECK (channel IN ('sms', 'email', 'calendar'))
   `;
 
   await overlaySql`

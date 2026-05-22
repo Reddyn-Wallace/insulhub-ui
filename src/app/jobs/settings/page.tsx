@@ -7,7 +7,7 @@ import { useAppDialog } from "@/components/AppDialog";
 type ContactTemplate = {
   id: string;
   title: string;
-  channel: "sms" | "email";
+  channel: "sms" | "email" | "calendar";
   description: string;
   subject: string;
   body: string;
@@ -18,14 +18,15 @@ type ContactTemplate = {
 
 const EMPTY_FORM = {
   title: "",
-  channel: "sms" as "sms" | "email",
+  channel: "sms" as "sms" | "email" | "calendar",
   description: "",
   subject: "",
   body: "",
   sortOrder: "0",
 };
 
-const FIELD_OPTIONS = ["customer name", "first name", "salesperson", "address", "quote booking date", "job number", "phone", "email"];
+const CHANNELS = ["sms", "email", "calendar"] as const;
+const FIELD_OPTIONS = ["customer name", "first name", "salesperson", "address", "quote booking date", "install date", "install time", "job number", "phone", "email"];
 const PREVIEW_FIELDS: Record<string, string> = {
   customername: "Jane Smith",
   name: "Jane Smith",
@@ -33,6 +34,8 @@ const PREVIEW_FIELDS: Record<string, string> = {
   salesperson: "Reddyn",
   address: "34 Rua Street",
   quotebookingdate: "Tue, 26 May 2026, 10:00 AM",
+  installdate: "Tue, 26 May 2026",
+  installtime: "8:00 AM",
   jobnumber: "1234",
   phone: "021 123 4567",
   email: "jane@example.com",
@@ -63,7 +66,7 @@ export default function SettingsPage() {
   const { confirm, dialog } = useAppDialog();
   const bodyRef = useRef<HTMLTextAreaElement | null>(null);
   const [templates, setTemplates] = useState<ContactTemplate[]>([]);
-  const [activeChannel, setActiveChannel] = useState<"sms" | "email">("sms");
+  const [activeChannel, setActiveChannel] = useState<"sms" | "email" | "calendar">("sms");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [loading, setLoading] = useState(true);
@@ -77,7 +80,7 @@ export default function SettingsPage() {
   const previewSubject = applyTemplateFields(form.subject || "", PREVIEW_FIELDS);
   const previewBody = applyTemplateFields(form.body || "", PREVIEW_FIELDS);
 
-  const resetForm = useCallback((channel: "sms" | "email" = activeChannel) => {
+  const resetForm = useCallback((channel: "sms" | "email" | "calendar" = activeChannel) => {
     setEditingId(null);
     setForm({ ...EMPTY_FORM, channel });
   }, [activeChannel]);
@@ -165,7 +168,7 @@ export default function SettingsPage() {
           ...form,
           title,
           body,
-          subject: form.channel === "email" ? form.subject.trim() : "",
+          subject: form.channel === "email" || form.channel === "calendar" ? form.subject.trim() : "",
           description: form.description.trim(),
         }),
       });
@@ -233,7 +236,7 @@ export default function SettingsPage() {
         <div className="mb-5 flex items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-            <p className="mt-1 text-sm text-gray-600">Manage the saved SMS and email templates used from job contact actions.</p>
+            <p className="mt-1 text-sm text-gray-600">Manage saved SMS, email, and calendar invite templates.</p>
           </div>
           <button
             type="button"
@@ -247,8 +250,8 @@ export default function SettingsPage() {
         <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
           <section className="rounded-lg border border-gray-200 bg-white">
             <div className="border-b border-gray-100 p-3">
-              <div className="grid grid-cols-2 gap-2">
-                {(["sms", "email"] as const).map((channel) => (
+              <div className="grid grid-cols-3 gap-2">
+                {CHANNELS.map((channel) => (
                   <button
                     key={channel}
                     type="button"
@@ -258,7 +261,7 @@ export default function SettingsPage() {
                     }}
                     className={`rounded-lg border py-2.5 text-sm font-semibold ${activeChannel === channel ? "border-[#e85d04] bg-orange-50 text-[#c2410c]" : "border-gray-200 bg-white text-gray-700"}`}
                   >
-                    {channel === "sms" ? "SMS" : "Email"}
+                    {channel === "sms" ? "SMS" : channel === "email" ? "Email" : "Calendar"}
                   </button>
                 ))}
               </div>
@@ -284,7 +287,7 @@ export default function SettingsPage() {
                             {template.description && <div className="mt-0.5 truncate text-xs text-gray-500">{template.description}</div>}
                           </div>
                           <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-gray-600">
-                            {template.channel === "sms" ? "SMS" : "Email"}
+                            {template.channel === "sms" ? "SMS" : template.channel === "email" ? "Email" : "Calendar"}
                           </span>
                         </div>
                         <div className="mt-2 line-clamp-2 whitespace-pre-wrap text-xs text-gray-500">{template.body}</div>
@@ -294,7 +297,7 @@ export default function SettingsPage() {
                 </div>
               ) : (
                 <div className="rounded-lg border border-dashed border-gray-200 p-5 text-center">
-                  <div className="text-sm font-semibold text-gray-800">No {activeChannel === "sms" ? "SMS" : "email"} templates</div>
+                  <div className="text-sm font-semibold text-gray-800">No {activeChannel === "sms" ? "SMS" : activeChannel === "email" ? "email" : "calendar"} templates</div>
                   <div className="mt-1 text-xs text-gray-500">Create one using the form.</div>
                 </div>
               )}
@@ -325,8 +328,8 @@ export default function SettingsPage() {
               <div className="grid gap-3 sm:grid-cols-[1fr_120px]">
                 <div>
                   <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Type</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {(["sms", "email"] as const).map((channel) => (
+                  <div className="grid grid-cols-3 gap-2">
+                    {CHANNELS.map((channel) => (
                       <button
                         key={channel}
                         type="button"
@@ -336,7 +339,7 @@ export default function SettingsPage() {
                         }}
                         className={`rounded-lg border py-2.5 text-sm font-semibold ${form.channel === channel ? "border-[#e85d04] bg-orange-50 text-[#c2410c]" : "border-gray-200 bg-white text-gray-700"}`}
                       >
-                        {channel === "sms" ? "SMS" : "Email"}
+                        {channel === "sms" ? "SMS" : channel === "email" ? "Email" : "Calendar"}
                       </button>
                     ))}
                   </div>
@@ -373,14 +376,14 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              {form.channel === "email" && (
+              {(form.channel === "email" || form.channel === "calendar") && (
                 <div>
-                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Subject</label>
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{form.channel === "calendar" ? "Event Title" : "Subject"}</label>
                   <input
                     value={form.subject}
                     onChange={(event) => setForm((prev) => ({ ...prev, subject: event.target.value }))}
                     className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
-                    placeholder="Insulmax enquiry #{job number}"
+                    placeholder={form.channel === "calendar" ? "{address} - Insulmax installation" : "Insulmax enquiry #{job number}"}
                   />
                 </div>
               )}
@@ -418,9 +421,9 @@ export default function SettingsPage() {
 
               <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                 <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Preview</div>
-                {form.channel === "email" && (
+                {(form.channel === "email" || form.channel === "calendar") && (
                   <div className="mb-2 text-xs text-gray-600">
-                    <span className="font-semibold text-gray-700">Subject:</span> {previewSubject || "-"}
+                    <span className="font-semibold text-gray-700">{form.channel === "calendar" ? "Title:" : "Subject:"}</span> {previewSubject || "-"}
                   </div>
                 )}
                 <p className="whitespace-pre-wrap text-sm text-gray-700">{previewBody || "Template body preview will appear here."}</p>

@@ -73,7 +73,7 @@ interface InstallPlanningMeta {
 type ContactTemplate = {
   id: string;
   title: string;
-  channel: "sms" | "email";
+  channel: "sms" | "email" | "calendar";
   description: string;
   subject: string;
   body: string;
@@ -101,6 +101,28 @@ function fmtDateTime(iso?: string | null, includeWeekday = false) {
     day: "numeric",
     month: "short",
     year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+function fmtDateOnly(iso?: string | null, includeWeekday = true) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-NZ", {
+    timeZone: "Pacific/Auckland",
+    weekday: includeWeekday ? "short" : undefined,
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+function fmtTimeOnly(iso?: string | null) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("en-NZ", {
+    timeZone: "Pacific/Auckland",
     hour: "numeric",
     minute: "2-digit",
   });
@@ -341,6 +363,14 @@ function applyTemplateFields(template: string, fields: Record<string, string>) {
   });
 }
 
+function escapeIcsText(input: string) {
+  return input
+    .replace(/\\/g, "\\\\")
+    .replace(/\n/g, "\\n")
+    .replace(/,/g, "\\,")
+    .replace(/;/g, "\\;");
+}
+
 function buildSmsHref(phone: string, body: string) {
   const cleanPhone = phone.replace(/[^\d+]/g, "");
   return `sms:${encodeURIComponent(cleanPhone)}?&body=${encodeURIComponent(body)}`;
@@ -468,6 +498,23 @@ export default function JobDetailPage() {
   const [contactTemplates, setContactTemplates] = useState<ContactTemplate[]>([]);
   const [loadingContactTemplates, setLoadingContactTemplates] = useState(false);
   const [contactTemplateMode, setContactTemplateMode] = useState<"sms" | "email">("sms");
+  const [selectedCalendarTemplateId, setSelectedCalendarTemplateId] = useState("");
+  const calendarContactTemplates = useMemo(
+    () => contactTemplates.filter((template) => template.channel === "calendar"),
+    [contactTemplates]
+  );
+  const bestCalendarTemplateId = useCallback((scope: "internal" | "external" | "both" | "") => {
+    if (!calendarContactTemplates.length) return "";
+    const scopeMatch = scope
+      ? calendarContactTemplates.find((template) => template.title.toLowerCase().includes(scope))
+      : null;
+    return scopeMatch?.id || calendarContactTemplates[0].id;
+  }, [calendarContactTemplates]);
+  const setInstallScopeAndTemplate = useCallback((scope: "internal" | "external" | "both") => {
+    setInstallPlanningScope(scope);
+    const nextTemplateId = bestCalendarTemplateId(scope);
+    if (nextTemplateId) setSelectedCalendarTemplateId(nextTemplateId);
+  }, [bestCalendarTemplateId]);
 
   const fetchInstallPlanning = useCallback(async (jobId: string) => {
     const token = getToken();
@@ -632,6 +679,12 @@ export default function JobDetailPage() {
   }, [load, loadContactTemplates, router]);
 
   useEffect(() => {
+    if (selectedCalendarTemplateId) return;
+    const nextTemplateId = bestCalendarTemplateId(installPlanningScope);
+    if (nextTemplateId) setSelectedCalendarTemplateId(nextTemplateId);
+  }, [bestCalendarTemplateId, installPlanningScope, selectedCalendarTemplateId]);
+
+  useEffect(() => {
     const email = job?.client?.contactDetails?.email?.trim().toLowerCase();
     if (!email || !(job?.stage === "QUOTE" || job?.stage === "SCHEDULED")) {
       setQuoteSentAt(null);
@@ -715,6 +768,7 @@ export default function JobDetailPage() {
     openSheet("contactTemplatePicker");
     if (!contactTemplates.length) loadContactTemplates();
   }
+
 
   useEffect(() => {
     if (!job) return;
@@ -1814,11 +1868,26 @@ export default function JobDetailPage() {
     salesperson: templateSalesperson,
     address: address || "your property",
     quotebookingdate: fmtDateTime(job.lead?.quoteBookingDate, true) || "the booked time",
+    installdate: fmtDateOnly(fromDatetimeLocal(installDate) || job.installation?.installDate, true) || "the install date",
+    installtime: fmtTimeOnly(fromDatetimeLocal(installDate) || job.installation?.installDate) || "8:00 AM",
     jobnumber: String(job.jobNumber),
     phone: phone || "",
     email: c?.email || "",
   };
   const visibleContactTemplates = contactTemplates.filter((template) => template.channel === contactTemplateMode);
+  const selectedCalendarTemplate = calendarContactTemplates.find((template) => template.id === selectedCalendarTemplateId) || calendarContactTemplates[0] || null;
+  const calendarInviteTitle = selectedCalendarTemplate
+    ? applyTemplateFields(selectedCalendarTemplate.subject || selectedCalendarTemplate.title, templateFields)
+    : `${address || c?.streetAddress || "Insulmax"} - installation`;
+  const calendarInviteBody = selectedCalendarTemplate
+    ? applyTemplateFields(selectedCalendarTemplate.body, templateFields)
+    : [
+      c?.name ? `Name: ${c.name}` : "",
+      phone ? `Phone: ${phone}` : "",
+      address ? `Address: ${address}` : "",
+      installPlanningScope ? `Install scope: ${installPlanningScope}` : "",
+      installPlanningNote ? `Notes: ${installPlanningNote}` : "",
+    ].filter(Boolean).join("\n");
   const assignableUsers = users.filter((u) => (u.role || "").toUpperCase() !== "INSTALLER");
   const hasWall = !!job.quote?.wall?.SQM;
   const hasCeiling = !!job.quote?.ceiling?.SQM;
@@ -2088,6 +2157,35 @@ export default function JobDetailPage() {
     const locationLine = type === "Quote" && address ? `\nLOCATION:${address}` : "";
 
     const ics = `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nSUMMARY:${title}\nDTSTART:${fmt(start)}\nDTEND:${fmt(end)}${locationLine}\nDESCRIPTION:${desc.replace(/\n/g, "\\n")}${attendeeLine}\nEND:VEVENT\nEND:VCALENDAR`;
+    return `data:text/calendar;charset=utf8,${encodeURIComponent(ics)}`;
+  };
+
+  const buildInstallGCalUrl = () => {
+    const startIso = fromDatetimeLocal(installDate);
+    if (!startIso) return "#";
+    const start = new Date(startIso);
+    const end = new Date(start.getTime() + 8 * 60 * 60000);
+    const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+    const params = new URLSearchParams({
+      action: "TEMPLATE",
+      text: calendarInviteTitle,
+      dates: `${fmt(start)}/${fmt(end)}`,
+      details: calendarInviteBody,
+      location: address,
+    });
+    if (c?.email) params.append("add", c.email);
+    return `https://calendar.google.com/calendar/render?${params.toString()}`;
+  };
+
+  const buildInstallIcsUrl = () => {
+    const startIso = fromDatetimeLocal(installDate);
+    if (!startIso) return "#";
+    const start = new Date(startIso);
+    const end = new Date(start.getTime() + 8 * 60 * 60000);
+    const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+    const locationLine = address ? `\nLOCATION:${escapeIcsText(address)}` : "";
+    const attendeeLine = c?.email ? `\nATTENDEE;RSVP=TRUE:mailto:${c.email}` : "";
+    const ics = `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nSUMMARY:${escapeIcsText(calendarInviteTitle)}\nDTSTART:${fmt(start)}\nDTEND:${fmt(end)}${locationLine}\nDESCRIPTION:${escapeIcsText(calendarInviteBody)}${attendeeLine}\nEND:VEVENT\nEND:VCALENDAR`;
     return `data:text/calendar;charset=utf8,${encodeURIComponent(ics)}`;
   };
 
@@ -2823,19 +2921,19 @@ export default function JobDetailPage() {
             <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Install scope <span className="text-red-600">*</span></div>
             <div className="grid grid-cols-3 gap-2">
               <button
-                onClick={() => setInstallPlanningScope("internal")}
+                onClick={() => setInstallScopeAndTemplate("internal")}
                 className={`py-3 rounded-xl text-sm font-semibold border ${installPlanningScope === "internal" ? "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
               >
                 Internal
               </button>
               <button
-                onClick={() => setInstallPlanningScope("external")}
+                onClick={() => setInstallScopeAndTemplate("external")}
                 className={`py-3 rounded-xl text-sm font-semibold border ${installPlanningScope === "external" ? "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
               >
                 External
               </button>
               <button
-                onClick={() => setInstallPlanningScope("both")}
+                onClick={() => setInstallScopeAndTemplate("both")}
                 className={`py-3 rounded-xl text-sm font-semibold border ${installPlanningScope === "both" ? "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
               >
                 Both
@@ -3049,6 +3147,46 @@ export default function JobDetailPage() {
             />
           </div>
 
+          <div className="border border-gray-200 rounded-xl p-3 bg-white">
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Calendar invite</div>
+                <div className="text-sm text-gray-600 mt-0.5">Choose the customer-facing invite text.</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => router.push("/jobs/settings")}
+                className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold"
+              >
+                Settings
+              </button>
+            </div>
+
+            {loadingContactTemplates ? (
+              <div className="text-sm text-gray-500 py-3">Loading calendar templates...</div>
+            ) : calendarContactTemplates.length ? (
+              <>
+                <select
+                  value={selectedCalendarTemplate?.id || ""}
+                  onChange={(e) => setSelectedCalendarTemplateId(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+                >
+                  {calendarContactTemplates.map((template) => (
+                    <option key={template.id} value={template.id}>{template.title}</option>
+                  ))}
+                </select>
+                <div className="mt-3 rounded-xl bg-gray-50 border border-gray-200 p-3">
+                  <div className="text-xs font-semibold text-gray-600 mb-1">{calendarInviteTitle}</div>
+                  <p className="text-xs text-gray-600 whitespace-pre-wrap line-clamp-6">{calendarInviteBody}</p>
+                </div>
+              </>
+            ) : (
+              <div className="text-sm text-gray-600">
+                No calendar templates yet. Open Settings to create one.
+              </div>
+            )}
+          </div>
+
           <div className="flex gap-2">
             {job.installation?.installDate && (
               <button onClick={clearInstallDate} disabled={saving}
@@ -3061,6 +3199,24 @@ export default function JobDetailPage() {
               className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
               {saving ? "Saving..." : "Save"}
             </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <a
+              href={buildInstallGCalUrl()}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`bg-blue-50 text-blue-700 font-semibold py-3 rounded-xl text-center text-sm ${!installDate || !selectedCalendarTemplate ? "opacity-40 pointer-events-none" : ""}`}
+            >
+              Create Google invite
+            </a>
+            <a
+              href={buildInstallIcsUrl()}
+              download="install-booking.ics"
+              className={`bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl text-center text-sm ${!installDate || !selectedCalendarTemplate ? "opacity-40 pointer-events-none" : ""}`}
+            >
+              Download .ics
+            </a>
           </div>
         </div>
       </BottomSheet>

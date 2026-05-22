@@ -4,12 +4,14 @@ import { ensureOverlaySchema, overlaySql } from "@/lib/overlay-db";
 
 type ContactTemplatePatch = {
   title?: string;
-  channel?: "sms" | "email";
+  channel?: "sms" | "email" | "calendar";
   description?: string | null;
   subject?: string | null;
   body?: string;
   sortOrder?: number | string | null;
 };
+
+const VALID_CHANNELS = ["sms", "email", "calendar"] as const;
 
 function parseSortOrder(value: ContactTemplatePatch["sortOrder"], fallback: unknown) {
   if (value === undefined) return Number(fallback || 0);
@@ -44,7 +46,7 @@ export async function PATCH(
     const { id } = await params;
     const input = (await request.json()) as ContactTemplatePatch;
 
-    if (input.channel && !["sms", "email"].includes(input.channel)) {
+    if (input.channel && !VALID_CHANNELS.includes(input.channel)) {
       return NextResponse.json({ error: "Invalid channel" }, { status: 400 });
     }
 
@@ -72,7 +74,7 @@ export async function PATCH(
         title = ${nextTitle},
         channel = ${nextChannel},
         description = ${input.description === undefined ? existing.description : input.description?.trim() || ""},
-        subject = ${nextChannel === "email" ? input.subject === undefined ? existing.subject : input.subject?.trim() || "" : ""},
+        subject = ${nextChannel === "email" || nextChannel === "calendar" ? input.subject === undefined ? existing.subject : input.subject?.trim() || "" : ""},
         body = ${nextBody},
         sort_order = ${parseSortOrder(input.sortOrder, existing.sort_order)},
         updated_at = now()
