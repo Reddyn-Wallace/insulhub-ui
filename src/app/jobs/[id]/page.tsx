@@ -2177,18 +2177,6 @@ export default function JobDetailPage() {
     return `https://calendar.google.com/calendar/render?${params.toString()}`;
   };
 
-  const buildInstallIcsUrl = () => {
-    const startIso = fromDatetimeLocal(installDate);
-    if (!startIso) return "#";
-    const start = new Date(startIso);
-    const end = new Date(start.getTime() + 8 * 60 * 60000);
-    const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
-    const locationLine = address ? `\nLOCATION:${escapeIcsText(address)}` : "";
-    const attendeeLine = c?.email ? `\nATTENDEE;RSVP=TRUE:mailto:${c.email}` : "";
-    const ics = `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nSUMMARY:${escapeIcsText(calendarInviteTitle)}\nDTSTART:${fmt(start)}\nDTEND:${fmt(end)}${locationLine}\nDESCRIPTION:${escapeIcsText(calendarInviteBody)}${attendeeLine}\nEND:VEVENT\nEND:VCALENDAR`;
-    return `data:text/calendar;charset=utf8,${encodeURIComponent(ics)}`;
-  };
-
   return (
     <div className="min-h-screen bg-gray-50 pb-10">
       {dialog}
@@ -3103,31 +3091,6 @@ export default function JobDetailPage() {
             />
           </div>
 
-          <div className="rounded-xl border border-gray-200 bg-white p-3">
-            <div className="mb-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Calendar invite</div>
-              <div className="mt-0.5 text-sm text-gray-600">Choose the customer-facing invite text.</div>
-            </div>
-
-            {loadingContactTemplates ? (
-              <div className="text-sm text-gray-500 py-3">Loading calendar templates...</div>
-            ) : calendarContactTemplates.length ? (
-              <>
-                <select
-                  value={selectedCalendarTemplate?.id || ""}
-                  onChange={(e) => setSelectedCalendarTemplateId(e.target.value)}
-                  className="w-full rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
-                >
-                  {calendarContactTemplates.map((template) => (
-                    <option key={template.id} value={template.id}>{template.title}</option>
-                  ))}
-                </select>
-              </>
-            ) : (
-              <div className="text-sm text-gray-600">No calendar templates yet.</div>
-            )}
-          </div>
-
           <div className="flex gap-2">
             {job.installation?.installDate && (
               <button onClick={clearInstallDate} disabled={saving}
@@ -3142,22 +3105,37 @@ export default function JobDetailPage() {
             </button>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <a
-              href={buildInstallGCalUrl()}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`bg-blue-50 text-blue-700 font-semibold py-3 rounded-xl text-center text-sm ${!installDate || !selectedCalendarTemplate ? "opacity-40 pointer-events-none" : ""}`}
-            >
-              Create Google invite
-            </a>
-            <a
-              href={buildInstallIcsUrl()}
-              download="install-booking.ics"
-              className={`bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl text-center text-sm ${!installDate || !selectedCalendarTemplate ? "opacity-40 pointer-events-none" : ""}`}
-            >
-              Download .ics
-            </a>
+          <div className="rounded-xl border border-gray-200 bg-white p-3">
+            <div className="mb-3">
+              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Google invite</div>
+              <div className="mt-0.5 text-sm text-gray-600">Select the customer-facing template when creating the invite.</div>
+            </div>
+
+            {loadingContactTemplates ? (
+              <div className="text-sm text-gray-500 py-3">Loading calendar templates...</div>
+            ) : calendarContactTemplates.length ? (
+              <div className="space-y-3">
+                <select
+                  value={selectedCalendarTemplate?.id || ""}
+                  onChange={(e) => setSelectedCalendarTemplateId(e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+                >
+                  {calendarContactTemplates.map((template) => (
+                    <option key={template.id} value={template.id}>{template.title}</option>
+                  ))}
+                </select>
+                <a
+                  href={buildInstallGCalUrl()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`block rounded-xl bg-blue-50 py-3 text-center text-sm font-semibold text-blue-700 ${!installDate || !selectedCalendarTemplate ? "opacity-40 pointer-events-none" : ""}`}
+                >
+                  Create Google invite
+                </a>
+              </div>
+            ) : (
+              <div className="text-sm text-gray-600">No calendar templates yet.</div>
+            )}
           </div>
         </div>
       </BottomSheet>
