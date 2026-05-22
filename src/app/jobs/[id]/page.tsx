@@ -2750,46 +2750,25 @@ export default function JobDetailPage() {
 
       {/* Contact template picker */}
       <BottomSheet open={sheet === "contactTemplatePicker"} onClose={closeSheet} title={contactTemplateMode === "sms" ? "Choose Text Template" : "Choose Email Template"}>
-        <div className="space-y-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Templates</div>
-              <div className="text-sm text-gray-600 mt-0.5">{contactTemplateMode === "sms" ? phone : c?.email}</div>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                closeSheet();
-                router.push("/jobs/settings");
-              }}
-              className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold"
-            >
-              Settings
-            </button>
+        <div className="space-y-3">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Send to</div>
+            <div className="mt-0.5 truncate text-sm text-gray-600">{contactTemplateMode === "sms" ? phone : c?.email}</div>
           </div>
 
           <a
             href={contactTemplateMode === "sms" ? `sms:${encodeURIComponent((phone || "").replace(/[^\d+]/g, ""))}` : `mailto:${encodeURIComponent(c?.email || "")}`}
             onClick={closeSheet}
-            className="block w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-left"
+            className="flex w-full items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 text-left"
           >
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-gray-900">
-                  {contactTemplateMode === "sms" ? "Write text without template" : "Write email without template"}
-                </div>
-                <div className="text-xs text-gray-500 mt-0.5">
-                  Opens the {contactTemplateMode === "sms" ? "SMS" : "email"} app with no saved copy inserted.
-                </div>
-              </div>
-              <span className="text-gray-400 text-lg">›</span>
-            </div>
+            <span className="text-sm font-semibold text-gray-900">No template</span>
+            <span className="text-gray-400 text-lg">›</span>
           </a>
 
           {loadingContactTemplates ? (
             <div className="text-sm text-gray-500 py-8 text-center">Loading templates...</div>
           ) : visibleContactTemplates.length ? (
-            <div className="space-y-2">
+            <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
               {visibleContactTemplates.map((template) => {
                 const body = applyTemplateFields(template.body, templateFields);
                 const subject = applyTemplateFields(template.subject || "", templateFields);
@@ -2798,28 +2777,15 @@ export default function JobDetailPage() {
                   : buildMailtoHref(c?.email || "", subject, body);
 
                 return (
-                  <div key={template.id} className="border border-gray-200 rounded-xl p-3 bg-white">
-                    <div className="text-sm font-semibold text-gray-900">{template.title}</div>
-                    {template.description && <div className="text-xs text-gray-500 mt-0.5">{template.description}</div>}
-                    {contactTemplateMode === "email" && subject && (
-                      <div className="mt-2 text-xs text-gray-500">
-                        <span className="font-semibold text-gray-600">Subject:</span> {subject}
-                      </div>
-                    )}
-                    <p className="mt-2 text-sm text-gray-700 whitespace-pre-wrap line-clamp-4">{body}</p>
-                    <div className="flex gap-2 mt-3">
-                      <a
-                        href={launchHref}
-                        onClick={closeSheet}
-                        className="flex-1 bg-[#1a3a4a] text-white text-sm font-semibold py-2.5 rounded-xl text-center"
-                      >
+                  <div key={template.id} className="flex items-center gap-2 border-b border-gray-100 px-3 py-2.5 last:border-b-0">
+                    <a href={launchHref} onClick={closeSheet} className="min-w-0 flex-1 py-1">
+                      <div className="truncate text-sm font-semibold text-gray-900">{template.title}</div>
+                    </a>
+                    <div className="flex shrink-0 gap-2">
+                      <a href={launchHref} onClick={closeSheet} className="rounded-lg bg-[#1a3a4a] px-3 py-2 text-xs font-semibold text-white">
                         Use
                       </a>
-                      <button
-                        type="button"
-                        onClick={() => copyContactTemplate(body)}
-                        className="px-4 bg-gray-100 text-gray-700 text-sm font-semibold py-2.5 rounded-xl"
-                      >
+                      <button type="button" onClick={() => copyContactTemplate(body)} className="rounded-lg bg-gray-100 px-3 py-2 text-xs font-semibold text-gray-700">
                         Copy
                       </button>
                     </div>
@@ -2828,18 +2794,8 @@ export default function JobDetailPage() {
               })}
             </div>
           ) : (
-            <div className="border border-dashed border-gray-200 rounded-xl p-5 text-center">
-              <div className="text-sm text-gray-600 mb-3">No {contactTemplateMode === "sms" ? "text" : "email"} templates yet.</div>
-              <button
-                type="button"
-                onClick={() => {
-                  closeSheet();
-                  router.push("/jobs/settings");
-                }}
-                className="bg-[#e85d04] text-white text-sm font-semibold py-2.5 px-4 rounded-xl"
-              >
-                Open Settings
-              </button>
+            <div className="rounded-xl border border-dashed border-gray-200 p-5 text-center text-sm text-gray-600">
+              No {contactTemplateMode === "sms" ? "text" : "email"} templates yet.
             </div>
           )}
         </div>
@@ -3147,19 +3103,10 @@ export default function JobDetailPage() {
             />
           </div>
 
-          <div className="border border-gray-200 rounded-xl p-3 bg-white">
-            <div className="flex items-start justify-between gap-3 mb-3">
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Calendar invite</div>
-                <div className="text-sm text-gray-600 mt-0.5">Choose the customer-facing invite text.</div>
-              </div>
-              <button
-                type="button"
-                onClick={() => router.push("/jobs/settings")}
-                className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold"
-              >
-                Settings
-              </button>
+          <div className="rounded-xl border border-gray-200 bg-white p-3">
+            <div className="mb-3">
+              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Calendar invite</div>
+              <div className="mt-0.5 text-sm text-gray-600">Choose the customer-facing invite text.</div>
             </div>
 
             {loadingContactTemplates ? (
@@ -3169,21 +3116,15 @@ export default function JobDetailPage() {
                 <select
                   value={selectedCalendarTemplate?.id || ""}
                   onChange={(e) => setSelectedCalendarTemplateId(e.target.value)}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+                  className="w-full rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
                 >
                   {calendarContactTemplates.map((template) => (
                     <option key={template.id} value={template.id}>{template.title}</option>
                   ))}
                 </select>
-                <div className="mt-3 rounded-xl bg-gray-50 border border-gray-200 p-3">
-                  <div className="text-xs font-semibold text-gray-600 mb-1">{calendarInviteTitle}</div>
-                  <p className="text-xs text-gray-600 whitespace-pre-wrap line-clamp-6">{calendarInviteBody}</p>
-                </div>
               </>
             ) : (
-              <div className="text-sm text-gray-600">
-                No calendar templates yet. Open Settings to create one.
-              </div>
+              <div className="text-sm text-gray-600">No calendar templates yet.</div>
             )}
           </div>
 
