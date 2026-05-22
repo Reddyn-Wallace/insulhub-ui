@@ -125,10 +125,10 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
       </div>
 
       {/* Row 2: Stage navigation */}
-      <div className="flex items-center gap-1.5 px-3 pb-2.5">
+      <div className="grid grid-cols-5 gap-1.5 px-2 pb-2.5 sm:flex sm:items-center sm:px-3">
         <button
           onClick={() => goStage("LEAD")}
-          className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+          className={`min-w-0 px-1.5 py-1.5 rounded-lg text-xs font-semibold transition-all sm:px-4 sm:text-sm ${
             stage === "LEAD" && isStageView
               ? "bg-[#e85d04] text-white shadow-md shadow-orange-500/30 ring-1 ring-orange-300/40"
               : "bg-[#27424d] text-gray-300"
@@ -138,7 +138,7 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
         </button>
         <button
           onClick={() => goStage("QUOTE")}
-          className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+          className={`min-w-0 px-1.5 py-1.5 rounded-lg text-xs font-semibold transition-all sm:px-4 sm:text-sm ${
             stage === "QUOTE" && isStageView
               ? "bg-[#e85d04] text-white shadow-md shadow-orange-500/30 ring-1 ring-orange-300/40"
               : "bg-[#27424d] text-gray-300"
@@ -148,7 +148,7 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
         </button>
         <button
           onClick={() => goStage("JOBS")}
-          className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+          className={`min-w-0 px-1.5 py-1.5 rounded-lg text-xs font-semibold transition-all sm:px-4 sm:text-sm ${
             stage === "JOBS" && isStageView
               ? "bg-[#e85d04] text-white shadow-md shadow-orange-500/30 ring-1 ring-orange-300/40"
               : "bg-[#27424d] text-gray-300"
@@ -158,7 +158,7 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
         </button>
         <button
           onClick={() => router.push("/jobs/calendar")}
-          className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+          className={`min-w-0 px-1.5 py-1.5 rounded-lg text-xs font-semibold transition-all sm:px-4 sm:text-sm ${
             isCalendarView
               ? "bg-[#e85d04] text-white shadow-md shadow-orange-500/30 ring-1 ring-orange-300/40"
               : "bg-[#27424d] text-gray-300"
@@ -168,28 +168,30 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
         </button>
 
         {/* More — post-sale stages */}
-        <div className="relative" ref={menuRef}>
+        <div className="relative min-w-0" ref={menuRef}>
           <button
             onClick={() => setIsMenuOpen((v) => !v)}
-            className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+            className={`flex w-full min-w-0 items-center justify-center gap-0.5 px-1.5 py-1.5 rounded-lg text-xs font-semibold transition-all sm:w-auto sm:gap-1 sm:px-3 sm:text-sm ${
               (activeOtherStage || isReportsView || isSettingsView)
                 ? "bg-[#e85d04] text-white shadow-md shadow-orange-500/30 ring-1 ring-orange-300/40"
                 : "bg-[#27424d] text-gray-300"
             }`}
           >
-            {isSettingsView ? "Settings" : isReportsView ? "Reports" : activeOtherStage ? activeOtherStage.label : "More"}
+            <span className="min-w-0 truncate">
+              {isSettingsView ? "Settings" : isReportsView ? "Reports" : activeOtherStage ? activeOtherStage.label : "More"}
+            </span>
             <svg
-              width="14" height="14" viewBox="0 0 24 24" fill="none"
+              width="12" height="12" viewBox="0 0 24 24" fill="none"
               stroke="currentColor" strokeWidth="2.5"
               strokeLinecap="round" strokeLinejoin="round"
-              className={`transition-transform duration-200 ${isMenuOpen ? "rotate-180" : ""}`}
+              className={`shrink-0 transition-transform duration-200 sm:h-3.5 sm:w-3.5 ${isMenuOpen ? "rotate-180" : ""}`}
             >
               <path d="m6 9 6 6 6-6" />
             </svg>
           </button>
 
           {isMenuOpen && (
-            <div className="absolute left-0 top-full mt-1.5 w-44 bg-white rounded-xl shadow-xl border border-gray-100 py-1.5 z-50">
+            <div className="absolute right-0 top-full mt-1.5 w-44 max-w-[calc(100vw-1rem)] bg-white rounded-xl shadow-xl border border-gray-100 py-1.5 z-50">
               <button
                 onClick={() => {
                   setIsMenuOpen(false);
