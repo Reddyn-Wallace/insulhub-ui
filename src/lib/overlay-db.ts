@@ -86,14 +86,28 @@ export async function ensureOverlaySchema() {
   `;
 
   await overlaySql`
-    ALTER TABLE contact_templates
-    DROP CONSTRAINT IF EXISTS contact_templates_channel_check
-  `;
+    DO $$
+    DECLARE
+      channel_check text;
+    BEGIN
+      LOCK TABLE contact_templates IN ACCESS EXCLUSIVE MODE;
+      SELECT pg_get_constraintdef(oid)
+      INTO channel_check
+      FROM pg_constraint
+      WHERE conname = 'contact_templates_channel_check';
 
-  await overlaySql`
-    ALTER TABLE contact_templates
-    ADD CONSTRAINT contact_templates_channel_check
-    CHECK (channel IN ('sms', 'email', 'calendar'))
+      IF channel_check IS NOT NULL AND channel_check LIKE '%calendar%' THEN
+        RETURN;
+      END IF;
+
+      ALTER TABLE contact_templates
+      DROP CONSTRAINT IF EXISTS contact_templates_channel_check;
+
+      ALTER TABLE contact_templates
+      ADD CONSTRAINT contact_templates_channel_check
+      CHECK (channel IN ('sms', 'email', 'calendar'));
+    END
+    $$;
   `;
 
   await overlaySql`
@@ -107,5 +121,10 @@ export async function ensureOverlaySchema() {
       value text NOT NULL,
       updated_at timestamptz NOT NULL DEFAULT now()
     )
+  `;
+
+  await overlaySql`
+    CREATE UNIQUE INDEX IF NOT EXISTS overlay_settings_key_unique_idx
+      ON overlay_settings (key)
   `;
 }
