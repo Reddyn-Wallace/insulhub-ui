@@ -499,6 +499,7 @@ export default function JobDetailPage() {
   const [loadingContactTemplates, setLoadingContactTemplates] = useState(false);
   const [contactTemplateMode, setContactTemplateMode] = useState<"sms" | "email">("sms");
   const [selectedCalendarTemplateId, setSelectedCalendarTemplateId] = useState("");
+  const [showCalendarTemplateChoice, setShowCalendarTemplateChoice] = useState(false);
   const calendarContactTemplates = useMemo(
     () => contactTemplates.filter((template) => template.channel === "calendar"),
     [contactTemplates]
@@ -753,15 +754,6 @@ export default function JobDetailPage() {
     const t = setTimeout(() => setToast(null), 4500);
     return () => clearTimeout(t);
   }, [toast]);
-
-  async function copyContactTemplate(text: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      setToast({ type: "success", text: "Template copied." });
-    } catch {
-      setToast({ type: "error", text: "Could not copy template." });
-    }
-  }
 
   function openContactTemplates(channel: "sms" | "email") {
     setContactTemplateMode(channel);
@@ -2160,17 +2152,25 @@ export default function JobDetailPage() {
     return `data:text/calendar;charset=utf8,${encodeURIComponent(ics)}`;
   };
 
-  const buildInstallGCalUrl = () => {
+  const buildInstallGCalUrl = (useTemplate = true) => {
     const startIso = fromDatetimeLocal(installDate);
     if (!startIso) return "#";
     const start = new Date(startIso);
     const end = new Date(start.getTime() + 8 * 60 * 60000);
     const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+    const fallbackTitle = `${address || c?.streetAddress || "Insulmax"} - installation`;
+    const fallbackBody = [
+      c?.name ? `Name: ${c.name}` : "",
+      phone ? `Phone: ${phone}` : "",
+      address ? `Address: ${address}` : "",
+      installPlanningScope ? `Install scope: ${installPlanningScope}` : "",
+      installPlanningNote ? `Notes: ${installPlanningNote}` : "",
+    ].filter(Boolean).join("\n");
     const params = new URLSearchParams({
       action: "TEMPLATE",
-      text: calendarInviteTitle,
+      text: useTemplate ? calendarInviteTitle : fallbackTitle,
       dates: `${fmt(start)}/${fmt(end)}`,
-      details: calendarInviteBody,
+      details: useTemplate ? calendarInviteBody : fallbackBody,
       location: address,
     });
     if (c?.email) params.append("add", c.email);
@@ -2738,54 +2738,53 @@ export default function JobDetailPage() {
 
       {/* Contact template picker */}
       <BottomSheet open={sheet === "contactTemplatePicker"} onClose={closeSheet} title={contactTemplateMode === "sms" ? "Choose Text Template" : "Choose Email Template"}>
-        <div className="space-y-3">
-          <div>
+        <div className="space-y-4">
+          <div className="rounded-xl bg-gray-50 px-3 py-2.5">
             <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Send to</div>
             <div className="mt-0.5 truncate text-sm text-gray-600">{contactTemplateMode === "sms" ? phone : c?.email}</div>
           </div>
 
-          <a
-            href={contactTemplateMode === "sms" ? `sms:${encodeURIComponent((phone || "").replace(/[^\d+]/g, ""))}` : `mailto:${encodeURIComponent(c?.email || "")}`}
-            onClick={closeSheet}
-            className="flex w-full items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 text-left"
-          >
-            <span className="text-sm font-semibold text-gray-900">No template</span>
-            <span className="text-gray-400 text-lg">›</span>
-          </a>
-
           {loadingContactTemplates ? (
             <div className="text-sm text-gray-500 py-8 text-center">Loading templates...</div>
           ) : visibleContactTemplates.length ? (
-            <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-              {visibleContactTemplates.map((template) => {
-                const body = applyTemplateFields(template.body, templateFields);
-                const subject = applyTemplateFields(template.subject || "", templateFields);
-                const launchHref = contactTemplateMode === "sms"
-                  ? buildSmsHref(phone || "", body)
-                  : buildMailtoHref(c?.email || "", subject, body);
+            <div>
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Templates</div>
+              <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+                {visibleContactTemplates.map((template) => {
+                  const body = applyTemplateFields(template.body, templateFields);
+                  const subject = applyTemplateFields(template.subject || "", templateFields);
+                  const launchHref = contactTemplateMode === "sms"
+                    ? buildSmsHref(phone || "", body)
+                    : buildMailtoHref(c?.email || "", subject, body);
 
-                return (
-                  <div key={template.id} className="flex items-center gap-2 border-b border-gray-100 px-3 py-2.5 last:border-b-0">
-                    <a href={launchHref} onClick={closeSheet} className="min-w-0 flex-1 py-1">
-                      <div className="truncate text-sm font-semibold text-gray-900">{template.title}</div>
+                  return (
+                    <a
+                      key={template.id}
+                      href={launchHref}
+                      onClick={closeSheet}
+                      className="flex items-center justify-between gap-3 border-b border-gray-100 px-4 py-3 text-left last:border-b-0 hover:bg-gray-50"
+                    >
+                      <span className="min-w-0 truncate text-sm font-semibold text-gray-900">{template.title}</span>
+                      <span className="shrink-0 text-lg leading-none text-gray-300">›</span>
                     </a>
-                    <div className="flex shrink-0 gap-2">
-                      <a href={launchHref} onClick={closeSheet} className="rounded-lg bg-[#1a3a4a] px-3 py-2 text-xs font-semibold text-white">
-                        Use
-                      </a>
-                      <button type="button" onClick={() => copyContactTemplate(body)} className="rounded-lg bg-gray-100 px-3 py-2 text-xs font-semibold text-gray-700">
-                        Copy
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           ) : (
             <div className="rounded-xl border border-dashed border-gray-200 p-5 text-center text-sm text-gray-600">
               No {contactTemplateMode === "sms" ? "text" : "email"} templates yet.
             </div>
           )}
+
+          <a
+            href={contactTemplateMode === "sms" ? `sms:${encodeURIComponent((phone || "").replace(/[^\d+]/g, ""))}` : `mailto:${encodeURIComponent(c?.email || "")}`}
+            onClick={closeSheet}
+            className="flex w-fit items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm font-semibold text-[#e85d04]"
+          >
+            No template
+            <span className="text-base leading-none">›</span>
+          </a>
         </div>
       </BottomSheet>
 
@@ -3106,35 +3105,66 @@ export default function JobDetailPage() {
           </div>
 
           <div className="rounded-xl border border-gray-200 bg-white p-3">
-            <div className="mb-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Google invite</div>
-              <div className="mt-0.5 text-sm text-gray-600">Select the customer-facing template when creating the invite.</div>
-            </div>
+            <button
+              type="button"
+              onClick={() => setShowCalendarTemplateChoice(true)}
+              disabled={!installDate}
+              className={`w-full rounded-xl py-3 text-center text-sm font-semibold ${installDate ? "bg-blue-50 text-blue-700" : "bg-gray-100 text-gray-400"}`}
+            >
+              Create Google invite
+            </button>
 
-            {loadingContactTemplates ? (
-              <div className="text-sm text-gray-500 py-3">Loading calendar templates...</div>
-            ) : calendarContactTemplates.length ? (
-              <div className="space-y-3">
-                <select
-                  value={selectedCalendarTemplate?.id || ""}
-                  onChange={(e) => setSelectedCalendarTemplateId(e.target.value)}
-                  className="w-full rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
-                >
-                  {calendarContactTemplates.map((template) => (
-                    <option key={template.id} value={template.id}>{template.title}</option>
-                  ))}
-                </select>
-                <a
-                  href={buildInstallGCalUrl()}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`block rounded-xl bg-blue-50 py-3 text-center text-sm font-semibold text-blue-700 ${!installDate || !selectedCalendarTemplate ? "opacity-40 pointer-events-none" : ""}`}
-                >
-                  Create Google invite
-                </a>
+            {showCalendarTemplateChoice && (
+              <div className="mt-3 border-t border-gray-100 pt-3">
+                {loadingContactTemplates ? (
+                  <div className="text-sm text-gray-500 py-3">Loading calendar templates...</div>
+                ) : calendarContactTemplates.length ? (
+                  <div className="space-y-3">
+                    <div>
+                      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Template</div>
+                      <select
+                        value={selectedCalendarTemplate?.id || ""}
+                        onChange={(e) => setSelectedCalendarTemplateId(e.target.value)}
+                        className="w-full rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+                      >
+                        {calendarContactTemplates.map((template) => (
+                          <option key={template.id} value={template.id}>{template.title}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <a
+                        href={buildInstallGCalUrl(false)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm font-semibold text-[#e85d04]"
+                      >
+                        No template
+                      </a>
+                      <a
+                        href={buildInstallGCalUrl()}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`flex-1 rounded-xl bg-[#1a3a4a] py-3 text-center text-sm font-semibold text-white ${!installDate || !selectedCalendarTemplate ? "opacity-40 pointer-events-none" : ""}`}
+                      >
+                        Continue
+                      </a>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm text-gray-600">No calendar templates yet.</div>
+                    <a
+                      href={buildInstallGCalUrl(false)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm font-semibold text-[#e85d04]"
+                    >
+                      No template
+                    </a>
+                  </div>
+                )}
               </div>
-            ) : (
-              <div className="text-sm text-gray-600">No calendar templates yet.</div>
             )}
           </div>
         </div>
