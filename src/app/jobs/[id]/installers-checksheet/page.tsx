@@ -242,6 +242,7 @@ export default function InstallerChecksheetPage() {
   const [uploading, setUploading] = useState(false);
   const [savedState, setSavedState] = useState("");
   const [error, setError] = useState("");
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initialLoadDone = useRef(false);
 
@@ -390,8 +391,72 @@ export default function InstallerChecksheetPage() {
     }
   }
 
+  function isPresent(value: unknown) {
+    return value !== null && value !== undefined && value !== "";
+  }
+
+  function validateForLock(source: Checksheet) {
+    const errors: Record<string, string> = {};
+    const requireValue = (key: FieldKey, label: string) => {
+      if (!isPresent(source[key])) errors[String(key)] = `${label} is required`;
+    };
+    const requireBoolean = (key: FieldKey, label: string) => {
+      if (typeof source[key] !== "boolean") errors[String(key)] = `${label} is required`;
+    };
+
+    requireValue("contractNumber", "Contract Number");
+    requireValue("address", "Address");
+    requireValue("customerName", "Customer Name");
+    requireValue("customerTel", "Customer Tel");
+    requireValue("cladding", "Cladding");
+    requireValue("installerName", "Licensed Installer Name");
+    requireValue("budgetBags", "Budget bags");
+    requireValue("actualBags", "Actual bags");
+
+    requireBoolean("ebaSightedAndPreInstallMaintenanceCompleted", "Existing Building Assessment sighted and pre install maintenance completed");
+    requireBoolean("q0_installedIRChecked", "Installed, I.R checked, cladding finished according to I.N.Z procedures");
+    requireBoolean("q1_underfloorVents", "Underfloor vents are clear");
+    requireBoolean("q2_inWallToilet", "In wall toilet cisterns, water heaters etc. identified and avoided");
+    requireBoolean("q3_loweredCeilings", "Lowered ceilings have interior wall lining and down lights not compromised");
+    requireBoolean("q6_noEvidenceOfLeak", "No evidence of leaking gutters into soffits / gutters clear");
+
+    if (wallExists) {
+      requireValue("wallAreaQuoted", "Quoted Wall Area");
+      requireValue("wallAreaInstalled", "Installed Wall Area");
+      requireValue("forDevelopmentWeightOfSampleWall", "For development weight of sample wall");
+      requireBoolean("sampleWallCompletelyFull", "Sample wall completely full");
+      if (source.sampleWallCompletelyFull !== true && !isPresent(source.actionTakenIfNotCompletelyFull)) {
+        errors.actionTakenIfNotCompletelyFull = "Action taken if not completely full is required";
+      }
+    }
+
+    if (ceilingExists) {
+      requireValue("ceilingInstall_quotedArea", "Quoted area");
+      requireValue("ceilingInstall_quotedRValue", "Quoted R Value");
+      requireValue("ceilingInstall_quotedThickness", "Quoted thickness");
+      requireValue("ceilingInstall_numDownlightsQuoted", "Number of down lights identified in quote form");
+      requireValue("ceilingInstall_numDownlightsInstalled", "Number of down lights identified in install");
+      requireValue("ceilingInstall_bagsRequiredForInstall", "Bags required for install");
+      requireValue("ceilingInstall_bagsInstalled", "Bags installed");
+      requireBoolean("ceilingInstall_haveAllDownLightsBeenLocated", "Have all down lights been located");
+    }
+
+    return errors;
+  }
+
   async function save(source: Checksheet, finalize: boolean, quiet = false) {
     if (!job?._id || !source?._id) return;
+    if (finalize) {
+      const errors = validateForLock(source);
+      setValidationErrors(errors);
+      if (Object.keys(errors).length) {
+        setError("Some required fields are missing before locking.");
+        setSavedState("Save and lock blocked");
+        return;
+      }
+    } else {
+      setValidationErrors({});
+    }
     if (!quiet) setSaving(true);
     setSavedState(quiet ? "Autosaving…" : "Saving…");
     try {
@@ -440,6 +505,14 @@ export default function InstallerChecksheetPage() {
         </div>
 
         {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+        {Object.keys(validationErrors).length > 0 && (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <div className="font-semibold">Required before Save and lock:</div>
+            <ul className="mt-2 list-disc space-y-1 pl-5">
+              {Object.entries(validationErrors).map(([key, message]) => <li key={key}>{message}</li>)}
+            </ul>
+          </div>
+        )}
         {savedState && <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-sm text-blue-700">{savedState}</div>}
 
         <Section title="Customer / job header">
