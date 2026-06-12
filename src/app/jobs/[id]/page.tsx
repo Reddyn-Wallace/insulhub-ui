@@ -1472,6 +1472,11 @@ export default function JobDetailPage() {
       return;
     }
 
+    if (job?.ebaForm?.complete || job?.ebaForm?.signature_assessor?.fileName) {
+      await openEBAClientApprovalPage();
+      return;
+    }
+
     if (!quoteForm.quoteNumber || !quoteForm.date || (!quoteForm.hasWall && !quoteForm.hasCeiling)) {
       setNotice({ type: "error", text: "Add quote data first (quote number, date, and wall/ceiling values)." });
       return;
