@@ -1459,13 +1459,11 @@ export default function JobDetailPage() {
   }
 
   function openInstallerChecksheetPdf() {
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-    if (!token || !id) {
+    if (!id) {
       setError("Missing checksheet data");
       return;
     }
-    const params = new URLSearchParams({ token, jobId: id });
-    window.open(`${API_BASE}/pdf/installer-checksheet?${params.toString()}`, "_blank");
+    router.push(`/jobs/${id}/installers-checksheet`);
   }
 
   async function saveQuoteAndOpenEBA() {
