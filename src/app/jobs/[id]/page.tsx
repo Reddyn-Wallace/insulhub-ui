@@ -868,7 +868,8 @@ export default function JobDetailPage() {
 
   function appendNote(existingNotes: string | undefined, rawText: string) {
     const stamped = buildStampedNote(rawText);
-    return existingNotes ? `${existingNotes}\n\n${stamped}` : stamped;
+    const trimmedExisting = existingNotes?.trimEnd();
+    return trimmedExisting ? `${trimmedExisting}\n${stamped}` : stamped;
   }
 
   function setJobNotes(notes: string) {
@@ -1901,7 +1902,11 @@ export default function JobDetailPage() {
     {
       title: "Add installation date",
       description: `${installDateDisplay} • ${installScopeLabel}`,
-      status: job.installation?.installDate && installMeta.installScope ? "Recorded" : "Missing",
+      status: job.installation?.installDate
+        ? installMeta.installScope
+          ? "Recorded"
+          : "Details missing"
+        : "Missing",
       wired: true,
       actionLabel: job.installation?.installDate ? "Edit date" : "Set date",
       action: () => {
