@@ -1821,16 +1821,20 @@ export default function JobDetailPage() {
     : leadStatus;
   const salesperson = job.lead?.allocatedTo
     ? `${job.lead.allocatedTo.firstname} ${job.lead.allocatedTo.lastname}` : "Unallocated";
+  const salespersonFirstName = job.lead?.allocatedTo?.firstname?.trim() || "";
   let loggedInUserName = "";
+  let loggedInUserFirstName = "";
   try {
     if (typeof window !== "undefined") {
       const me = JSON.parse(localStorage.getItem("me") || "{}");
       loggedInUserName = [me.firstname, me.lastname].filter(Boolean).join(" ");
+      loggedInUserFirstName = me.firstname?.trim() || "";
     }
   } catch {
     loggedInUserName = "";
+    loggedInUserFirstName = "";
   }
-  const templateSalesperson = salesperson !== "Unallocated" ? salesperson : loggedInUserName || "Insulmax";
+  const templateSalesperson = salespersonFirstName || loggedInUserFirstName || loggedInUserName || "Insulmax";
   const templateFields = {
     customername: contactName,
     name: contactName,
@@ -1879,6 +1883,11 @@ export default function JobDetailPage() {
     ? [checksheetBagMetrics, checksheetWallMetrics].filter(Boolean)
     : [];
   const installNoteDisplay = job.installation?.installNote?.trim() || "No install notes yet";
+  const checksheetStatusDisplay = job.installerChecksheet?.complete
+    ? "Completed"
+    : job.installerChecksheet?._id
+      ? "In progress"
+      : "No checksheet found";
   const installMeta = installPlanningMeta || parseInstallMeta(job.notes);
   const installScopeLabel = installMeta.installScope === "internal" ? "Internal" : installMeta.installScope === "external" ? "External" : installMeta.installScope === "both" ? "Internal + External" : "Not set";
   const councilApprovalMarkedNA = installMeta.councilApprovalNA;
@@ -2237,36 +2246,44 @@ export default function JobDetailPage() {
                           </div>
 
                           {item.title === "Install notes & status" ? (
-                            <div className="mt-2 space-y-2">
-                              <div className="text-xs text-gray-600">{installStatusDisplay}</div>
+                            <div className="mt-2 space-y-3">
+                              <div className="rounded-lg border border-gray-200 bg-white px-3 py-2.5">
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1">A) Install result</div>
+                                <div className={`text-sm font-semibold ${installIsVariation ? "text-amber-800" : installIsInstalled ? "text-emerald-700" : "text-gray-800"}`}>{installStatusDisplay}</div>
+                              </div>
 
-                              {installIsInstalled && !installIsVariation && installedMetricsSummary.length > 0 && (
-                                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-2">
-                                  <div className="text-[11px] font-semibold text-emerald-800 mb-1">Install usage</div>
+                              <div className={`rounded-lg border px-3 py-2.5 ${installIsVariation ? "border-amber-300 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}>
+                                <div className={`text-[11px] font-semibold uppercase tracking-wide mb-1 ${installIsVariation ? "text-amber-800" : "text-emerald-800"}`}>B) Usage amounts & install SQMs</div>
+                                {(installIsVariation ? variationMetricsSummary : installedMetricsSummary).length > 0 ? (
                                   <div className="space-y-1">
-                                    {installedMetricsSummary.map((line) => (
-                                      <div key={line} className="text-[11px] text-emerald-800">• {line}</div>
+                                    {(installIsVariation ? variationMetricsSummary : installedMetricsSummary).map((line) => (
+                                      <div key={line} className={`text-[12px] ${installIsVariation ? "font-semibold text-amber-900" : "text-emerald-800"}`}>• {line}</div>
                                     ))}
                                   </div>
-                                </div>
-                              )}
+                                ) : (
+                                  <div className={`text-[12px] ${installIsVariation ? "font-semibold text-amber-900" : "text-emerald-800"}`}>No usage or install SQM values recorded yet.</div>
+                                )}
+                              </div>
 
-                              {installIsVariation && (
-                                <div className="rounded-lg border-2 border-amber-300 bg-amber-100 px-3 py-2.5 shadow-sm">
-                                  <div className="text-xs font-bold text-amber-900 mb-1">⚠ Variation from quote</div>
-                                  {variationMetricsSummary.length > 0 ? (
-                                    <div className="space-y-1">
-                                      {variationMetricsSummary.map((line) => (
-                                        <div key={line} className="text-[12px] font-semibold text-amber-900">• {line}</div>
-                                      ))}
-                                    </div>
-                                  ) : (
-                                    <div className="text-[12px] font-semibold text-amber-900">Installer marked as variation. Check checksheet for details.</div>
+                              <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1">C) Notes</div>
+                                <div className="text-xs text-gray-600 whitespace-pre-wrap">{installNoteDisplay}</div>
+                              </div>
+
+                              <div className="rounded-lg border border-gray-200 bg-white px-3 py-2.5">
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1">D) Checksheet</div>
+                                <div className="flex items-center justify-between gap-3">
+                                  <div className="text-xs text-gray-600">{checksheetStatusDisplay}</div>
+                                  {job.installerChecksheet?._id && (
+                                    <button
+                                      onClick={openInstallerChecksheetPdf}
+                                      className="shrink-0 bg-[#1a3a4a] text-white text-xs font-semibold px-3 py-2 rounded-lg"
+                                    >
+                                      View checksheet
+                                    </button>
                                   )}
                                 </div>
-                              )}
-
-                              <div className="text-xs text-gray-500">{installNoteDisplay}</div>
+                              </div>
                             </div>
                           ) : item.title === "Upload Council Application" ? (
                             <div className="mt-3 border border-gray-200 rounded-xl p-3 space-y-3">

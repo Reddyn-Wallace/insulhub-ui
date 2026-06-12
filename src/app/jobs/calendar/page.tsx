@@ -18,6 +18,10 @@ interface CalendarJob {
     installStatus?: string | null;
     checkSheetSignedAsComplete?: boolean | null;
   };
+  installerChecksheet?: {
+    _id?: string | null;
+    complete?: boolean | null;
+  } | null;
   client?: {
     contactDetails?: {
       name?: string;
@@ -95,6 +99,10 @@ const CALENDAR_JOBS_QUERY = `
           installNote
           installStatus
           checkSheetSignedAsComplete
+        }
+        installerChecksheet {
+          _id
+          complete
         }
         client {
           contactDetails {
@@ -245,10 +253,22 @@ function isCompleteForCalendar(job: CalendarJob) {
 
 function calendarStatusLabel(job: CalendarJob) {
   const installStatus = normalizedInstallStatus(job);
-  if (installStatus === "INSTALLED_WITH_VARIATIONS_FROM_QUOTE") return "Variation install";
+  if (installStatus === "INSTALLED_WITH_VARIATIONS_FROM_QUOTE") return "Variation";
   if (installStatus === "INSTALLED_AS_QUOTED") return "Installed";
   if (job.stage === "COMPLETED") return "Completed";
   return "Planned";
+}
+
+function checksheetBadge(job: CalendarJob) {
+  if (job.installerChecksheet?.complete) {
+    return { label: "CS ✓", title: "Checksheet completed", className: "border-emerald-200 bg-emerald-50 text-emerald-700" };
+  }
+
+  if (job.installerChecksheet?._id || job.installation?.checkSheetSignedAsComplete) {
+    return { label: "CS draft", title: "Checksheet started, not completed", className: "border-blue-200 bg-blue-50 text-blue-700" };
+  }
+
+  return { label: "CS missing", title: "No checksheet found", className: "border-amber-200 bg-amber-50 text-amber-700" };
 }
 
 function address(job: CalendarJob) {
@@ -1102,6 +1122,7 @@ export default function JobsCalendarPage() {
                             const scopeBadge = installScopeBadge(meta.scope);
                             const installTime = timeFromDatetimeLocal(job.installation?.installDate);
                             const statusLabel = isInstalled ? calendarStatusLabel(job) : isPencilled ? "Pencilled" : "Confirmed";
+                            const csBadge = checksheetBadge(job);
                             return (
                               <div key={job._id} className={`group w-full rounded-xl border p-2 shadow-sm transition-colors border-l-4 ${isInstalled ? "border-emerald-200 bg-emerald-50/70 hover:bg-emerald-50" : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/70"} ${isPencilled ? "border-l-amber-500" : "border-l-emerald-500"}`}>
                                 <button onClick={() => openJobSheet(job)} className="w-full text-left">
@@ -1122,7 +1143,9 @@ export default function JobsCalendarPage() {
                                   <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-500">
                                     {installTime && <span>{installTime}</span>}
                                     {installTime && <span className="text-gray-300">/</span>}
-                                    <span className={isInstalled ? "rounded-full bg-emerald-100 px-1.5 py-0.5 font-black text-emerald-700" : ""}>{statusLabel}</span>
+                                    <span className={isInstalled ? "font-black text-emerald-700" : ""}>{statusLabel}</span>
+                                    <span className="text-gray-300">/</span>
+                                    <span title={csBadge.title} className={`rounded-full border px-1.5 py-0.5 font-black ${csBadge.className}`}>{csBadge.label}</span>
                                   </div>
 
                                   <div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] font-semibold text-gray-800">
