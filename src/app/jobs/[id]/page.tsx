@@ -1460,12 +1460,11 @@ export default function JobDetailPage() {
 
   function openInstallerChecksheetPdf() {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-    const installerChecksheetId = job?.installerChecksheet?._id;
-    if (!token || !installerChecksheetId) {
+    if (!token || !id) {
       setError("Missing checksheet data");
       return;
     }
-    const params = new URLSearchParams({ token, installerChecksheetId });
+    const params = new URLSearchParams({ token, jobId: id });
     window.open(`${API_BASE}/pdf/installer-checksheet?${params.toString()}`, "_blank");
   }
 
