@@ -1925,6 +1925,15 @@ export default function JobDetailPage() {
       disabled: job.ebaForm?.clientApproved ? true : saving,
     },
     {
+      title: "Preview rebuilt EBA page",
+      description: "Temporary side-by-side rebuild route for review without disturbing the current EBA page",
+      status: "Preview",
+      wired: true,
+      actionLabel: "Open EBA preview",
+      action: () => router.push(`/jobs/${id}/eba-preview`),
+      disabled: saving,
+    },
+    {
       title: "See signed EBA / download",
       description: job.ebaForm?.clientApproved
         ? `EBA signed ${job.ebaForm?.clientApprovedAt ? fmtDateTime(job.ebaForm.clientApprovedAt) : ""}`.trim()
@@ -2665,6 +2674,13 @@ export default function JobDetailPage() {
                 className="flex-1 bg-white border border-gray-300 text-gray-700 text-sm font-semibold py-2.5 rounded-xl disabled:opacity-50"
               >
                 🧾 {job.ebaForm?.clientApproved ? "EBA Signed" : job.ebaForm?.complete || job.ebaForm?.signature_assessor?.fileName ? "Edit EBA" : "Complete EBA"}
+              </button>
+              <button
+                type="button"
+                onClick={() => router.push(`/jobs/${id}/eba-preview`)}
+                className="flex-1 bg-slate-900 text-white text-sm font-semibold py-2.5 rounded-xl"
+              >
+                EBA preview rebuild
               </button>
             </div>
           </Section>
