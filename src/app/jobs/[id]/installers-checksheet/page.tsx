@@ -464,7 +464,7 @@ export default function InstallerChecksheetPage() {
       setForm(data.updateInstallerChecksheet);
       setJob((prev) => prev ? { ...prev, installerChecksheet: data.updateInstallerChecksheet } : prev);
       setSavedState(quiet ? "Autosaved" : finalize ? "Saved and locked" : "Draft saved");
-      if (!quiet) router.push("/jobs");
+      if (!quiet) router.push(`/jobs/${job._id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save Installer's Check Sheet");
       setSavedState("Save failed");
@@ -623,7 +623,7 @@ export default function InstallerChecksheetPage() {
         <div className="sticky bottom-3 z-10 rounded-2xl border border-gray-200 bg-white/95 p-3 shadow-lg backdrop-blur">
           {complete ? (
             <div className="flex justify-end">
-              <button type="button" onClick={() => router.push("/jobs")} className="rounded-xl bg-[#1a3a4a] px-4 py-3 text-sm font-semibold text-white">Close</button>
+              <button type="button" onClick={() => router.push(`/jobs/${job._id}`)} className="rounded-xl bg-[#1a3a4a] px-4 py-3 text-sm font-semibold text-white">Close</button>
             </div>
           ) : (
             <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
