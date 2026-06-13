@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { gql } from "@/lib/graphql";
 
@@ -293,6 +293,10 @@ function fromYesNoNa(value: unknown): true | false | "NOT_APPLICABLE" | undefine
   return undefined;
 }
 
+function setDefaultIfBlank(form: Record<string, unknown>, key: string, value: true | false | "NOT_APPLICABLE") {
+  if (!hasValue(form[key])) form[key] = value;
+}
+
 function sectionForKey(key: string): SectionId {
   if (["nameOfOwners", "proofOfOwnership", "bcaOrTa", "lotOrDPNumber", "date"].includes(key)) return "admin";
   if (["approximateYearOfConstruction", "numberOfStories", "propertySiteSection", "propertySiteExposure", "propertySiteArea"].includes(key)) return "building";
@@ -512,6 +516,18 @@ export default function EbaPreviewPage() {
         const normalized = fromYesNoNa(nextForm[key]);
         if (normalized !== undefined) nextForm[key] = normalized;
       });
+      setDefaultIfBlank(nextForm, "b131_structure", true);
+      setDefaultIfBlank(nextForm, "c22_preventionOfFireOccuring", false);
+      setDefaultIfBlank(nextForm, "g931_electricity", true);
+      setDefaultIfBlank(nextForm, "h131_energyEfficiency", true);
+      externalMoistureQuestions.forEach(([key, , riskOnYes]) => {
+        setDefaultIfBlank(nextForm, key, riskOnYes ? false : true);
+      });
+      setDefaultIfBlank(nextForm, "masonryCladding_masonryCladUnderfloorVentsArePresentAndClear", "NOT_APPLICABLE");
+      setDefaultIfBlank(nextForm, "masonryCladding_windowOrMasonryVerticalJointsAreSealed", "NOT_APPLICABLE");
+      setDefaultIfBlank(nextForm, "masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls", true);
+      setDefaultIfBlank(nextForm, "masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater", false);
+      setDefaultIfBlank(nextForm, "masonryCladding_underfloorSpaceExcessivelyDamp", "NOT_APPLICABLE");
 
       const nextPhotos = {
         elevation_north: (eba.photos_elevation_north || []).map((p) => p.fileName || "").filter(Boolean),
@@ -621,7 +637,6 @@ export default function EbaPreviewPage() {
       const merged = [...(photos[section] || []), ...names];
       await gql(SAVE_EBA_MUTATION, { input: { _id: job._id, ebaForm: { [field]: toPhotoObjects(merged) } }, isDraft: true });
       setPhotos((prev) => ({ ...prev, [section]: merged }));
-      setNotice("Photo uploaded.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Photo upload failed");
     } finally {
@@ -739,13 +754,25 @@ export default function EbaPreviewPage() {
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  const goBack = () => {
+    if (typeof window === "undefined") {
+      router.replace(`/jobs/${id}`);
+      return;
+    }
+    if (window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    window.location.assign(`/jobs/${id}`);
+  };
+
   const inputClass = (key: string) => `mt-1 w-full rounded-md border px-3 py-2.5 text-sm outline-none transition ${
     (finaliseAttempted || checks.missingItems.length > 0) && checks.missingKeys.includes(key)
       ? "border-[#f36c21] bg-orange-50/40"
       : "border-slate-200 bg-white focus:border-[#00485a]"
   }`;
 
-  const Field = ({ name, label, type = "text" }: { name: string; label: string; type?: string }) => (
+  const renderField = (name: string, label: string, type = "text") => (
     <label className="block">
       <span className="flex items-center justify-between text-xs font-medium text-slate-500">
         {label}
@@ -755,7 +782,7 @@ export default function EbaPreviewPage() {
     </label>
   );
 
-  const Select = ({ name, label, options }: { name: string; label: string; options: string[] }) => (
+  const renderSelect = (name: string, label: string, options: string[]) => (
     <label className="block">
       <span className="flex items-center justify-between text-xs font-medium text-slate-500">
         {label}
@@ -768,7 +795,7 @@ export default function EbaPreviewPage() {
     </label>
   );
 
-  const ChoiceButtons = ({ name, label, options, multi = false }: { name: string; label: string; options: string[]; multi?: boolean }) => {
+  const renderChoiceButtons = (name: string, label: string, options: string[], multi = false) => {
     const selected = multi ? listValue(form[name]) : [String(form[name] || "")];
     return (
       <div className="space-y-2">
@@ -780,12 +807,7 @@ export default function EbaPreviewPage() {
           {options.map((option) => {
             const active = selected.includes(option);
             return (
-              <button
-                key={option}
-                type="button"
-                onClick={() => setField(name, multi ? toggleListValue(form[name], option, options) : option)}
-                className={`rounded-md border px-3 py-2 text-sm font-medium transition ${active ? "border-[#00485a] bg-[#e8f2f4] text-[#00485a]" : "border-slate-200 bg-white text-slate-700"}`}
-              >
+              <button key={option} type="button" onClick={() => setField(name, multi ? toggleListValue(form[name], option, options) : option)} className={`rounded-md border px-3 py-2 text-sm font-medium transition ${active ? "border-[#00485a] bg-[#e8f2f4] text-[#00485a]" : "border-slate-200 bg-white text-slate-700"}`}>
                 {option}
               </button>
             );
@@ -795,7 +817,7 @@ export default function EbaPreviewPage() {
     );
   };
 
-  const YesNoButtons = ({ name, label, riskOnYes = false, na = false }: { name: string; label: string; riskOnYes?: boolean; na?: boolean }) => {
+  const renderYesNoButtons = (name: string, label: string, riskOnYes = false, na = false) => {
     const options = [
       { label: "Yes", value: true },
       { label: "No", value: false },
@@ -812,12 +834,7 @@ export default function EbaPreviewPage() {
             const active = form[name] === option.value;
             const risk = active && ((riskOnYes && option.value === true) || (!riskOnYes && option.value === false));
             return (
-              <button
-                key={option.label}
-                type="button"
-                onClick={() => setField(name, option.value)}
-                className={`rounded-md border px-3 py-2 text-sm font-semibold ${active ? risk ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-700"}`}
-              >
+              <button key={option.label} type="button" onClick={() => setField(name, option.value)} className={`rounded-md border px-3 py-2 text-sm font-semibold ${active ? risk ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-700"}`}>
                 {option.label}
               </button>
             );
@@ -827,32 +844,23 @@ export default function EbaPreviewPage() {
     );
   };
 
-  const SectionFrame = ({ children }: { children: React.ReactNode }) => (
+  const renderSectionFrame = (children: ReactNode) => (
     <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
       <div className="mb-4">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#00485a]">
-              Section {currentIndex + 1} of {sectionOrder.length}
-            </p>
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#00485a]">Section {currentIndex + 1} of {sectionOrder.length}</p>
             <h2 className="text-lg font-semibold text-slate-950">{sectionMeta[activeSection].title}</h2>
             <p className="mt-0.5 text-sm text-slate-500">{sectionMeta[activeSection].short}</p>
           </div>
-          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${activeMissing.length ? "bg-orange-50 text-[#c75516]" : "bg-emerald-50 text-emerald-700"}`}>
-            {activeMissing.length ? `${activeMissing.length} missing` : "Done"}
-          </span>
+          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${activeMissing.length ? "bg-orange-50 text-[#c75516]" : "bg-emerald-50 text-emerald-700"}`}>{activeMissing.length ? `${activeMissing.length} missing` : "Done"}</span>
         </div>
       </div>
-      {activeDone && (
-        <div className="mb-4 rounded-md border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
-          This section is complete.
-        </div>
-      )}
       {children}
     </section>
   );
 
-  const Details = ({ children }: { children: React.ReactNode }) => (
+  const renderDetails = (children: ReactNode) => (
     <details className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
       <summary className="cursor-pointer font-medium text-slate-700">Details</summary>
       <div className="mt-2 leading-relaxed">{children}</div>
@@ -862,104 +870,87 @@ export default function EbaPreviewPage() {
   const renderActiveSection = () => {
     switch (activeSection) {
       case "admin":
-        return (
-          <SectionFrame>
+        return renderSectionFrame(
             <div className="space-y-3">
               <div className="rounded-md bg-slate-50 p-3 text-sm text-slate-700">{address || "No property address"}</div>
-              <Field name="nameOfOwners" label="Name of owners" />
-              <Select name="proofOfOwnership" label="Proof of ownership" options={["Certificate of Title", "Rates", "Other"]} />
-              <Field name="bcaOrTa" label="BCA/TA" />
-              <Field name="lotOrDPNumber" label="Lot / DP number" />
-              <Field name="date" label="Assessment date" type="datetime-local" />
+              {renderField("nameOfOwners", "Name of owners")}
+              {renderSelect("proofOfOwnership", "Proof of ownership", ["Certificate of Title", "Rates", "Other"])}
+              {renderField("bcaOrTa", "BCA/TA")}
+              {renderField("lotOrDPNumber", "Lot / DP number")}
+              {renderField("date", "Assessment date", "datetime-local")}
             </div>
-          </SectionFrame>
-        );
+          );
       case "building":
-        return (
-          <SectionFrame>
+        return renderSectionFrame(
             <div className="space-y-4">
-              <Field name="approximateYearOfConstruction" label="Approx year" />
-              <Field name="numberOfStories" label="Stories" type="number" />
-              <ChoiceButtons name="propertySiteSection" label="Site section" options={["Flat Section", "Sloping Section", "Steep Section"]} />
-              <ChoiceButtons name="propertySiteExposure" label="Site exposure" options={["Sheltered", "Semi-Exposed", "Exposed"]} />
-              <ChoiceButtons name="propertySiteArea" label="Site area" options={["Urban", "Rural"]} />
+              {renderField("approximateYearOfConstruction", "Approx year")}
+              {renderField("numberOfStories", "Stories", "number")}
+              {renderChoiceButtons("propertySiteSection", "Site section", ["Flat Section", "Sloping Section", "Steep Section"])}
+              {renderChoiceButtons("propertySiteExposure", "Site exposure", ["Sheltered", "Semi-Exposed", "Exposed"])}
+              {renderChoiceButtons("propertySiteArea", "Site area", ["Urban", "Rural"])}
             </div>
-          </SectionFrame>
-        );
+          );
       case "roof":
-        return (
-          <SectionFrame>
+        return renderSectionFrame(
             <div className="space-y-4">
-              <ChoiceButtons name="roofAndEavesCol1" label="Roof type" options={["Hip Gable", "Double Gable", "Skillion / Mono pitch"]} multi />
-              <ChoiceButtons name="roofAndEavesCol2" label="Roof cladding" options={["Corrugated Steel", "Tile", "Membrane"]} multi />
-              <ChoiceButtons name="roofAndEavesCol3" label="Eaves" options={["No eaves", "Modest eaves", "Generous Eaves"]} multi />
-              <ChoiceButtons name="foundationAndFloor" label="Foundation and floor" options={["Ring Perimeter", "Piles", "Slab", "Suspended Floor Timber"]} multi />
-              <ChoiceButtons name="exteriorCladding" label="Exterior cladding" options={["Timber", "Cement Board", "Rendered Plaster", "Masonry veneer (nominal 140mm cavity)", "Masonry (double brick)", "EIFS", "Palisade (plastic) weatherboard", "Corrugated steel"]} multi />
+              {renderChoiceButtons("roofAndEavesCol1", "Roof type", ["Hip Gable", "Double Gable", "Skillion / Mono pitch"], true)}
+              {renderChoiceButtons("roofAndEavesCol2", "Roof cladding", ["Corrugated Steel", "Tile", "Membrane"], true)}
+              {renderChoiceButtons("roofAndEavesCol3", "Eaves", ["No eaves", "Modest eaves", "Generous Eaves"], true)}
+              {renderChoiceButtons("foundationAndFloor", "Foundation and floor", ["Ring Perimeter", "Piles", "Slab", "Suspended Floor Timber"], true)}
+              {renderChoiceButtons("exteriorCladding", "Exterior cladding", ["Timber", "Cement Board", "Rendered Plaster", "Masonry veneer (nominal 140mm cavity)", "Masonry (double brick)", "EIFS", "Palisade (plastic) weatherboard", "Corrugated steel"], true)}
             </div>
-          </SectionFrame>
-        );
+          );
       case "envelope":
-        return (
-          <SectionFrame>
+        return renderSectionFrame(
             <div className="space-y-4">
-              <ChoiceButtons name="framing" label="Framing" options={["Likely Rimu", "Treated pinus", "Untreated pinus", "No framing (double brick)"]} multi />
-              <ChoiceButtons name="joinery" label="Joinery" options={["Timber", "Aluminium/steel", "uPVC", "Appears to be installed correctly"]} multi />
-              <ChoiceButtons name="lining" label="Lining" options={["Plasterboard", "Hardboard", "Sarked", "Masonry"]} multi />
-              <ChoiceButtons name="buildingPaper" label="Building paper" options={["Not detected", "Detected (but unable to guarantee extent or condition)"]} />
+              {renderChoiceButtons("framing", "Framing", ["Likely Rimu", "Treated pinus", "Untreated pinus", "No framing (double brick)"], true)}
+              {renderChoiceButtons("joinery", "Joinery", ["Timber", "Aluminium/steel", "uPVC", "Appears to be installed correctly"], true)}
+              {renderChoiceButtons("lining", "Lining", ["Plasterboard", "Hardboard", "Sarked", "Masonry"], true)}
+              {renderChoiceButtons("buildingPaper", "Building paper", ["Not detected", "Detected (but unable to guarantee extent or condition)"])}
             </div>
-          </SectionFrame>
-        );
+          );
       case "install":
-        return (
-          <SectionFrame>
+        return renderSectionFrame(
             <div className="space-y-4">
-              <ChoiceButtons name="claddingType" label="Cladding type" options={["Timber", "Cement Board", "Rendered Plaster", "Masonry Veneer", "Masonry (Double brick)", "EIFS", "Palisade (plastic) weatherboard", "Corrugated Steel"]} multi />
-              <ChoiceButtons name="claddingTypeInstalledVia" label="Installed via" options={["Cladding", "Internal Lining"]} multi />
-              <ChoiceButtons name="finishOfCladding" label="Finish of cladding" options={["Timber / Cement Board", "Painted render / plaster / masonry", "Unsealed masonry"]} multi />
-              <Details>Installation holes are finished according to the selected cladding type and the Insulmax installation manual.</Details>
+              {renderChoiceButtons("claddingType", "Cladding type", ["Timber", "Cement Board", "Rendered Plaster", "Masonry Veneer", "Masonry (Double brick)", "EIFS", "Palisade (plastic) weatherboard", "Corrugated Steel"], true)}
+              {renderChoiceButtons("claddingTypeInstalledVia", "Installed via", ["Cladding", "Internal Lining"], true)}
+              {renderChoiceButtons("finishOfCladding", "Finish of cladding", ["Timber / Cement Board", "Painted render / plaster / masonry", "Unsealed masonry"], true)}
+              {renderDetails("Installation holes are finished according to the selected cladding type and the Insulmax installation manual.")}
             </div>
-          </SectionFrame>
-        );
+          );
       case "compliance":
-        return (
-          <SectionFrame>
+        return renderSectionFrame(
             <div className="space-y-3">
-              <YesNoButtons name="b131_structure" label="Linings and claddings suitable for install pressure?" />
-              {form.b131_structure === false && <Field name="b131_structure_priorToInstallationWorkRequired" label="Structure work required" />}
-              <YesNoButtons name="c22_preventionOfFireOccuring" label="Through-wall flue in area to be insulated?" riskOnYes />
-              {form.c22_preventionOfFireOccuring === true && <Field name="c22_preventionOfFireOccuring_priorToInstallationWorkRequired" label="Fire work required" />}
-              <YesNoButtons name="g931_electricity" label="TPS wiring observed after plug point removed?" />
-              {form.g931_electricity === false && <Field name="g931_electricity_priorToInstallationWorkRequired" label="Electrical work required" />}
-              <YesNoButtons name="h131_energyEfficiency" label="Insulmax can improve thermal resistance and limit airflow?" />
+              {renderYesNoButtons("b131_structure", "Linings and claddings suitable for install pressure?")}
+              {form.b131_structure === false && renderField("b131_structure_priorToInstallationWorkRequired", "Structure work required")}
+              {renderYesNoButtons("c22_preventionOfFireOccuring", "Through-wall flue in area to be insulated?", true)}
+              {form.c22_preventionOfFireOccuring === true && renderField("c22_preventionOfFireOccuring_priorToInstallationWorkRequired", "Fire work required")}
+              {renderYesNoButtons("g931_electricity", "TPS wiring observed after plug point removed?")}
+              {form.g931_electricity === false && renderField("g931_electricity_priorToInstallationWorkRequired", "Electrical work required")}
+              {renderYesNoButtons("h131_energyEfficiency", "Insulmax can improve thermal resistance and limit airflow?")}
               {form.h131_energyEfficiency === false && (
                 <div className="rounded-md border border-orange-100 bg-orange-50/70 px-3 py-2 text-sm font-medium text-[#9a4b13]">
                   Indicate on site plan areas of wall that are not able to be insulated with Insulmax®
                 </div>
               )}
-              <Details>These checks support the S112 assessment that installing Insulmax will not reduce existing building compliance.</Details>
+              {renderDetails("These checks support the S112 assessment that installing Insulmax will not reduce existing building compliance.")}
             </div>
-          </SectionFrame>
-        );
+          );
       case "moisture":
-        return (
-          <SectionFrame>
+        return renderSectionFrame(
             <div className="space-y-3">
-              {externalMoistureQuestions.map(([key, label, riskOnYes]) => (
-                <YesNoButtons key={key} name={key} label={label} riskOnYes={riskOnYes} />
-              ))}
-              <YesNoButtons name="masonryCladding_masonryCladUnderfloorVentsArePresentAndClear" label="Masonry underfloor vents present and clear?" na />
-              <YesNoButtons name="masonryCladding_windowOrMasonryVerticalJointsAreSealed" label="Window/masonry vertical joints sealed?" na />
-              <YesNoButtons name="masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls" label="Soffits sound with no water staining/bubbling?" />
-              <YesNoButtons name="masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater" label="Damp, soft, discoloured, mouldy or rotten areas?" riskOnYes />
-              <YesNoButtons name="masonryCladding_underfloorSpaceExcessivelyDamp" label="Underfloor space excessively damp?" riskOnYes na />
-              {checks.missingKeys.includes("c22_externalMoisture_priorToInstallationWorkRequired") && <Field name="c22_externalMoisture_priorToInstallationWorkRequired" label="Moisture work required" />}
-              <Details>Keep notes focused on work needed before install or before certification.</Details>
+              {externalMoistureQuestions.map(([key, label, riskOnYes]) => renderYesNoButtons(key, label, riskOnYes))}
+              {renderYesNoButtons("masonryCladding_masonryCladUnderfloorVentsArePresentAndClear", "Masonry underfloor vents present and clear?", false, true)}
+              {renderYesNoButtons("masonryCladding_windowOrMasonryVerticalJointsAreSealed", "Window/masonry vertical joints sealed?", false, true)}
+              {renderYesNoButtons("masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls", "Soffits sound with no water staining/bubbling?")}
+              {renderYesNoButtons("masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater", "Damp, soft, discoloured, mouldy or rotten areas?", true)}
+              {renderYesNoButtons("masonryCladding_underfloorSpaceExcessivelyDamp", "Underfloor space excessively damp?", true, true)}
+              {checks.missingKeys.includes("c22_externalMoisture_priorToInstallationWorkRequired") && renderField("c22_externalMoisture_priorToInstallationWorkRequired", "Moisture work required")}
+              {renderDetails("Keep notes focused on work needed before install or before certification.")}
             </div>
-          </SectionFrame>
-        );
+          );
       case "photos":
-        return (
-          <SectionFrame>
+        return renderSectionFrame(
             <div className="space-y-3">
               {directions.map((dir) => {
                 const section = `elevation_${dir}`;
@@ -1051,14 +1042,12 @@ export default function EbaPreviewPage() {
                 </div>
               </details>
             </div>
-          </SectionFrame>
-        );
+          );
       case "sign":
-        return (
-          <SectionFrame>
+        return renderSectionFrame(
             <div className="space-y-4">
-              <Field name="assessorName" label="Licenced building assessor" />
-              <Details>By signing, the assessor confirms the property is suitable for Insulmax retrofit wall insulation subject to recorded work requirements and installation according to the Insulmax installation manual.</Details>
+              {renderField("assessorName", "Licenced building assessor")}
+              {renderDetails("By signing, the assessor confirms the property is suitable for Insulmax retrofit wall insulation subject to recorded work requirements and installation according to the Insulmax installation manual.")}
               <div className={`overflow-hidden rounded-lg border ${checks.missingItems.some((item) => item.key === "signature_assessor") ? "border-[#f36c21]" : "border-slate-200"}`}>
                 <canvas
                   ref={canvasRef}
@@ -1076,8 +1065,7 @@ export default function EbaPreviewPage() {
                 <button type="button" onClick={saveSignature} disabled={signing || locked} className="rounded-md bg-[#00485a] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">{signing ? "Saving..." : "Save signature"}</button>
               </div>
             </div>
-          </SectionFrame>
-        );
+          );
     }
   };
 
@@ -1086,7 +1074,7 @@ export default function EbaPreviewPage() {
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
         <div className="mx-auto max-w-3xl px-4 py-3">
           <div className="flex items-center justify-between gap-3">
-            <button type="button" onClick={() => router.replace(`/jobs/${id}`)} className="rounded-md px-2 py-1 text-sm font-medium text-slate-600">Back</button>
+            <button type="button" onClick={goBack} className="rounded-md px-2 py-1 text-sm font-medium text-slate-600">Back</button>
             <div className="min-w-0 flex-1 text-center">
               <h1 className="truncate text-sm font-semibold text-slate-950">{job ? `EBA #${job.jobNumber}` : "EBA"}</h1>
               <p className="truncate text-xs text-slate-500">{shortAddress}</p>
