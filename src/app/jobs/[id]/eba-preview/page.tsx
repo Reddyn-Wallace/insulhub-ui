@@ -326,6 +326,7 @@ export default function EbaPreviewPage() {
   const [elevationSkip, setElevationSkip] = useState<Record<Direction, boolean>>({ north: false, east: false, south: false, west: false });
   const [finaliseAttempted, setFinaliseAttempted] = useState(false);
   const [signing, setSigning] = useState(false);
+  const [optionalPhotosOpen, setOptionalPhotosOpen] = useState(false);
   const initialSectionSetRef = useRef(false);
   const fileInputRef = useRef<Record<string, HTMLInputElement | null>>({});
   const cameraInputRef = useRef<Record<string, HTMLInputElement | null>>({});
@@ -345,7 +346,7 @@ export default function EbaPreviewPage() {
   }, [job]);
 
   const getToken = () => (typeof window !== "undefined" ? localStorage.getItem("token") || "" : "");
-  const fileUrl = (fileName: string) => `https://api.insulhub.nz/files/documents/${encodeURIComponent(fileName)}?token=${getToken()}`;
+  const fileUrl = useCallback((fileName: string) => `https://api.insulhub.nz/files/documents/${encodeURIComponent(fileName)}?token=${getToken()}`, []);
 
   const setField = (name: string, value: unknown) => {
     setDirty(true);
@@ -477,13 +478,23 @@ export default function EbaPreviewPage() {
     try {
       const data = await gql<{ job: Job }>(EBA_JOB_QUERY, { _id: id }, { cacheKey: `eba-job:${id}`, ttlMs: 5 * 60 * 1000 });
       const eba = data.job.ebaForm || {};
+      let me: { firstname?: string; lastname?: string } = {};
+      if (typeof window !== "undefined") {
+        try {
+          me = JSON.parse(localStorage.getItem("me") || "{}");
+        } catch {
+          me = {};
+        }
+      }
+      const userName = [me.firstname, me.lastname].filter(Boolean).join(" ");
       const salespersonName = [data.job.lead?.allocatedTo?.firstname, data.job.lead?.allocatedTo?.lastname].filter(Boolean).join(" ");
       const nextForm: Record<string, unknown> = {
         ...eba,
         nameOfOwners: (eba.nameOfOwners as string) || data.job.client?.contactDetails?.name || "",
         proofOfOwnership: (eba.proofOfOwnership as string) || "Certificate of Title",
         lotOrDPNumber: (eba.lotOrDPNumber as string) || data.job.client?.contactDetails?.lotDPNumber || "",
-        assessorName: (eba.assessorName as string) || salespersonName || "",
+        assessorName: (eba.assessorName as string) || userName || salespersonName || "",
+        joinery: hasValue(eba.joinery) ? eba.joinery : ["Appears to be installed correctly"],
         date: toDatetimeLocal(eba.date as string | undefined),
       };
       [
@@ -654,6 +665,45 @@ export default function EbaPreviewPage() {
     ctx.stroke();
   }
 
+  const drawSavedSignatureToCanvas = useCallback(async (fileName: string) => {
+    const c = canvasRef.current;
+    const ctx = c?.getContext("2d");
+    if (!c || !ctx || !fileName) return;
+
+    try {
+      const res = await fetch(fileUrl(fileName));
+      if (!res.ok) return;
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const img = new Image();
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("Could not load saved signature"));
+        img.src = objectUrl;
+      });
+
+      ctx.clearRect(0, 0, c.width, c.height);
+      const scale = Math.min(c.width / img.width, c.height / img.height);
+      const w = img.width * scale;
+      const h = img.height * scale;
+      ctx.drawImage(img, (c.width - w) / 2, (c.height - h) / 2, w, h);
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      // Best effort only. A failed preview should not block re-signing.
+    }
+  }, [fileUrl]);
+
+  useEffect(() => {
+    const fileName = signatureFileName(job?.ebaForm?.signature_assessor);
+    const c = canvasRef.current;
+    const ctx = c?.getContext("2d");
+    if (!fileName) {
+      if (c && ctx) ctx.clearRect(0, 0, c.width, c.height);
+      return;
+    }
+    void drawSavedSignatureToCanvas(fileName);
+  }, [job?.ebaForm?.signature_assessor, activeSection, drawSavedSignatureToCanvas]);
+
   async function saveSignature() {
     const c = canvasRef.current;
     if (!c || !job || locked) return;
@@ -793,15 +843,6 @@ export default function EbaPreviewPage() {
           </span>
         </div>
       </div>
-      {activeMissing.length > 0 && (
-        <div className="mb-4 rounded-md border border-orange-100 bg-orange-50/60 px-3 py-2">
-          <p className="text-xs font-semibold text-[#c75516]">Finish in this section</p>
-          <p className="mt-0.5 text-sm text-slate-700">
-            {activeMissing.slice(0, 3).map((item) => item.label).join(", ")}
-            {activeMissing.length > 3 ? ` +${activeMissing.length - 3} more` : ""}
-          </p>
-        </div>
-      )}
       {activeDone && (
         <div className="mb-4 rounded-md border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
           This section is complete.
@@ -890,6 +931,11 @@ export default function EbaPreviewPage() {
               <YesNoButtons name="g931_electricity" label="TPS wiring observed after plug point removed?" />
               {form.g931_electricity === false && <Field name="g931_electricity_priorToInstallationWorkRequired" label="Electrical work required" />}
               <YesNoButtons name="h131_energyEfficiency" label="Insulmax can improve thermal resistance and limit airflow?" />
+              {form.h131_energyEfficiency === false && (
+                <div className="rounded-md border border-orange-100 bg-orange-50/70 px-3 py-2 text-sm font-medium text-[#9a4b13]">
+                  Indicate on site plan areas of wall that are not able to be insulated with Insulmax®
+                </div>
+              )}
               <Details>These checks support the S112 assessment that installing Insulmax will not reduce existing building compliance.</Details>
             </div>
           </SectionFrame>
@@ -939,7 +985,7 @@ export default function EbaPreviewPage() {
                           <button type="button" disabled={uploading[section]} onClick={() => fileInputRef.current[section]?.click()} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">Upload</button>
                         </div>
                         <input ref={(el) => { cameraInputRef.current[section] = el; }} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handlePhotoInput(section, e)} />
-                        <input ref={(el) => { fileInputRef.current[section] = el; }} type="file" accept="image/*" className="hidden" onChange={(e) => handlePhotoInput(section, e)} />
+                        <input ref={(el) => { fileInputRef.current[section] = el; }} type="file" accept="image/*" multiple className="hidden" onChange={(e) => handlePhotoInput(section, e)} />
                         {imageNames.length > 0 && (
                           <div className="mt-3 grid grid-cols-2 gap-2">
                             {imageNames.map((fileName) => (
@@ -955,6 +1001,55 @@ export default function EbaPreviewPage() {
                   </div>
                 );
               })}
+              <details open={optionalPhotosOpen} onToggle={(e) => setOptionalPhotosOpen(e.currentTarget.open)} className="rounded-lg border border-slate-200 bg-white">
+                <summary className="cursor-pointer list-none px-3 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">Optional foundation and maintenance photos</p>
+                      <p className="text-xs text-slate-500">
+                        {(photos.foundation || []).length + (photos.maintenance || []).length
+                          ? `${(photos.foundation || []).length + (photos.maintenance || []).length} optional photo${(photos.foundation || []).length + (photos.maintenance || []).length === 1 ? "" : "s"}`
+                          : "Add only if useful"}
+                      </p>
+                    </div>
+                    <span className="text-xs font-semibold text-[#00485a]">{optionalPhotosOpen ? "Hide" : "Show"}</span>
+                  </div>
+                </summary>
+                <div className="space-y-3 border-t border-slate-100 p-3">
+                  {[
+                    ["foundation", "Foundations"],
+                    ["maintenance", "Maintenance required"],
+                  ].map(([section, title]) => {
+                    const imageNames = photos[section] || [];
+                    return (
+                      <div key={section} className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-900">{title}</p>
+                            <p className="text-xs text-slate-500">{imageNames.length ? `${imageNames.length} photo${imageNames.length === 1 ? "" : "s"}` : "Optional"}</p>
+                          </div>
+                        </div>
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          <button type="button" disabled={uploading[section]} onClick={() => cameraInputRef.current[section]?.click()} className="rounded-md bg-[#00485a] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">Take photo</button>
+                          <button type="button" disabled={uploading[section]} onClick={() => fileInputRef.current[section]?.click()} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">Upload</button>
+                        </div>
+                        <input ref={(el) => { cameraInputRef.current[section] = el; }} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handlePhotoInput(section, e)} />
+                        <input ref={(el) => { fileInputRef.current[section] = el; }} type="file" accept="image/*" multiple className="hidden" onChange={(e) => handlePhotoInput(section, e)} />
+                        {imageNames.length > 0 && (
+                          <div className="mt-3 grid grid-cols-2 gap-2">
+                            {imageNames.map((fileName) => (
+                              <div key={fileName} className="overflow-hidden rounded-md border border-slate-200 bg-white">
+                                <a href={fileUrl(fileName)} target="_blank" rel="noreferrer"><img src={fileUrl(fileName)} alt={fileName} className="h-24 w-full object-cover" /></a>
+                                <button type="button" onClick={() => removeEbaPhoto(section, fileName)} className="w-full px-2 py-1 text-xs font-medium text-red-600">Remove</button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </details>
             </div>
           </SectionFrame>
         );
@@ -962,7 +1057,7 @@ export default function EbaPreviewPage() {
         return (
           <SectionFrame>
             <div className="space-y-4">
-              <Field name="assessorName" label="Licensed building assessor" />
+              <Field name="assessorName" label="Licenced building assessor" />
               <Details>By signing, the assessor confirms the property is suitable for Insulmax retrofit wall insulation subject to recorded work requirements and installation according to the Insulmax installation manual.</Details>
               <div className={`overflow-hidden rounded-lg border ${checks.missingItems.some((item) => item.key === "signature_assessor") ? "border-[#f36c21]" : "border-slate-200"}`}>
                 <canvas
