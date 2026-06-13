@@ -156,6 +156,17 @@ const SAVE_EBA_MUTATION = `
 
 const directions: Direction[] = ["north", "east", "south", "west"];
 
+const bcaOrTaOptions = [
+  "Kapiti Coast District Council",
+  "Masterton District Council",
+  "South Wairarapa District Council",
+  "Carterton District Council",
+  "Wellington City Council",
+  "Lower Hutt Council",
+  "Upper Hutt City Council",
+  "Porirua City Council",
+];
+
 const sectionOrder = ["admin", "building", "roof", "envelope", "install", "compliance", "moisture", "photos", "sign"] as const;
 type SectionId = (typeof sectionOrder)[number];
 
@@ -875,7 +886,7 @@ export default function EbaPreviewPage() {
               <div className="rounded-md bg-slate-50 p-3 text-sm text-slate-700">{address || "No property address"}</div>
               {renderField("nameOfOwners", "Name of owners")}
               {renderSelect("proofOfOwnership", "Proof of ownership", ["Certificate of Title", "Rates", "Other"])}
-              {renderField("bcaOrTa", "BCA/TA")}
+              {renderSelect("bcaOrTa", "BCA/TA", bcaOrTaOptions)}
               {renderField("lotOrDPNumber", "Lot / DP number")}
               {renderField("date", "Assessment date", "datetime-local")}
             </div>
