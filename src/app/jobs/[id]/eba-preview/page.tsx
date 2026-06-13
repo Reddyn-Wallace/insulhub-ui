@@ -538,7 +538,7 @@ export default function EbaPreviewPage() {
       setDefaultIfBlank(nextForm, "masonryCladding_windowOrMasonryVerticalJointsAreSealed", "NOT_APPLICABLE");
       setDefaultIfBlank(nextForm, "masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls", true);
       setDefaultIfBlank(nextForm, "masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater", false);
-      setDefaultIfBlank(nextForm, "masonryCladding_underfloorSpaceExcessivelyDamp", "NOT_APPLICABLE");
+      setDefaultIfBlank(nextForm, "masonryCladding_underfloorSpaceExcessivelyDamp", false);
 
       const nextPhotos = {
         elevation_north: (eba.photos_elevation_north || []).map((p) => p.fileName || "").filter(Boolean),
