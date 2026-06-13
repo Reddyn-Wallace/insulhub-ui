@@ -326,6 +326,7 @@ export default function EbaPreviewPage() {
   const [elevationSkip, setElevationSkip] = useState<Record<Direction, boolean>>({ north: false, east: false, south: false, west: false });
   const [finaliseAttempted, setFinaliseAttempted] = useState(false);
   const [signing, setSigning] = useState(false);
+  const initialSectionSetRef = useRef(false);
   const fileInputRef = useRef<Record<string, HTMLInputElement | null>>({});
   const cameraInputRef = useRef<Record<string, HTMLInputElement | null>>({});
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -533,7 +534,8 @@ export default function EbaPreviewPage() {
   }, [load]);
 
   useEffect(() => {
-    if (loading || checks.missingItems.length === 0) return;
+    if (loading || initialSectionSetRef.current || checks.missingItems.length === 0) return;
+    initialSectionSetRef.current = true;
     setActiveSection(checks.missingItems[0].section);
   }, [loading, checks.missingItems]);
 
