@@ -897,6 +897,43 @@ export default function EbaPage() {
   const completedRequiredItems = Math.max(0, totalRequiredItems - finaliseChecks.missingCount);
   const completionPercent = Math.round((completedRequiredItems / totalRequiredItems) * 100);
   const missingPreviewItems = finaliseChecks.missingItems.slice(0, 8);
+  const photoCount = (["north", "east", "south", "west"] as const).reduce((sum, dir) => (
+    sum + (elevationSkip[dir] ? 1 : (ebaPhotos[`elevation_${dir}`] || []).length > 0 ? 1 : 0)
+  ), 0);
+  const signatureReady = !!signatureFileName(job?.ebaForm?.signature_assessor);
+  const sections = [
+    { id: "admin", label: "Admin", done: ["nameOfOwners", "proofOfOwnership", "bcaOrTa", "lotOrDPNumber"].every((key) => !finaliseChecks.missingFields.includes(key)) },
+    { id: "building", label: "Building", done: ["approximateYearOfConstruction", "numberOfStories", "roofAndEavesCol1", "roofAndEavesCol2", "roofAndEavesCol3", "foundationAndFloor", "framing", "joinery", "lining", "buildingPaper", "exteriorCladding"].every((key) => !finaliseChecks.missingFields.includes(key)) },
+    { id: "install", label: "Install", done: ["claddingType", "claddingTypeInstalledVia", "finishOfCladding"].every((key) => !finaliseChecks.missingFields.includes(key)) },
+    { id: "code", label: "Code checks", done: ["b131_structure", "c22_preventionOfFireOccuring", "g931_electricity", "h131_energyEfficiency"].every((key) => !finaliseChecks.missingFields.includes(key)) },
+    { id: "moisture", label: "Moisture", done: !finaliseChecks.missingItems.some((item) => item.toLowerCase().includes("moisture") || item.toLowerCase().includes("masonry") || item.toLowerCase().includes("soffit") || item.toLowerCase().includes("damp")) },
+    { id: "photos", label: "Photos", done: finaliseChecks.missingPhotoSections.length === 0 },
+    { id: "sign", label: "Sign", done: signatureReady },
+  ];
+
+  const scrollToSection = (sectionId: string) => {
+    document.getElementById(`section-${sectionId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const sectionForMissingItem = (item: string) => {
+    const value = item.toLowerCase();
+    if (value.includes("photo") || value.includes("elevation")) return "photos";
+    if (value.includes("signature") || value.includes("assessor")) return "sign";
+    if (value.includes("cladding type") || value.includes("finish of cladding") || value.includes("installed via")) return "install";
+    if (value.includes("structure") || value.includes("fire") || value.includes("electricity") || value.includes("energy efficiency")) return "code";
+    if (value.includes("moisture") || value.includes("masonry") || value.includes("soffit") || value.includes("damp")) return "moisture";
+    if (value.includes("roof") || value.includes("foundation") || value.includes("framing") || value.includes("joinery") || value.includes("lining") || value.includes("building paper") || value.includes("exterior cladding") || value.includes("year") || value.includes("stories")) return "building";
+    return "admin";
+  };
+
+  useEffect(() => {
+    if (!job || locked || loading || !dirty) return;
+    const handle = window.setTimeout(() => {
+      void saveEBA(true, { stay: true, quiet: true });
+      setDirty(false);
+    }, 1200);
+    return () => window.clearTimeout(handle);
+  }, [form, elevationSkip, job, locked, loading, dirty]);
 
   const YesNoRow = ({ keyName, label, notApplicable = false, noIsGreen = false, yesIsGreenText = false }: { keyName: string; label: string; notApplicable?: boolean; noIsGreen?: boolean; yesIsGreenText?: boolean }) => (
     <div>
@@ -908,22 +945,13 @@ export default function EbaPage() {
       </div>
     </div>
   );
-  useEffect(() => {
-    if (!job || locked || loading || !dirty) return;
-    const handle = window.setTimeout(() => {
-      void saveEBA(true, { stay: true, quiet: true });
-      setDirty(false);
-    }, 1500);
-    return () => window.clearTimeout(handle);
-  }, [form, elevationSkip, job, locked, loading, dirty]);
-
   return (
-    <div className="min-h-screen bg-[#f8f7f4]">
-      <div className="sticky top-0 z-20 bg-[#00485a] text-white shadow-sm">
+    <div className="min-h-screen bg-[#eef2f3] text-slate-900">
+      <div className="sticky top-0 z-30 border-b border-[#003f4d]/20 bg-[#00485a] text-white shadow-sm">
         <div className="h-1.5 bg-[#f36c21]" />
-        <div className="px-4 py-3 flex flex-wrap items-center justify-between gap-2">
-        <button onClick={() => router.replace(`/jobs/${id}`)} className="text-sm text-white/80 whitespace-nowrap">← Back to Job</button>
-        <h1 className="order-3 w-full text-center text-sm font-semibold text-white sm:order-none sm:w-auto sm:flex-1">InsulHUB Existing Building Assessment (EBA)</h1>
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 px-4 py-3">
+        <button onClick={() => router.replace(`/jobs/${id}`)} className="text-sm text-white/85 whitespace-nowrap">← Back to Job</button>
+        <h1 className="order-3 w-full text-center text-sm font-semibold text-white sm:order-none sm:w-auto sm:flex-1">Existing Building Assessment</h1>
         <span
           className={`text-xs px-2 py-1 rounded-full ${
             job?.ebaForm?.clientApproved
@@ -938,55 +966,61 @@ export default function EbaPage() {
         </div>
       </div>
 
-      <div className="p-4 space-y-3 max-w-6xl mx-auto pb-24">
-        {loading && <div className="bg-white border border-gray-200 rounded-xl p-4 text-sm text-gray-500">Loading EBA...</div>}
-        {error && <div className="bg-red-50 border border-red-100 text-red-700 rounded-xl p-3 text-sm">{error}</div>}
-        {notice && <div className="bg-emerald-50 border border-emerald-100 text-emerald-700 rounded-xl p-3 text-sm">{notice}</div>}
+      <div className="mx-auto max-w-7xl p-4 pb-28">
+        {loading && <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-500">Loading EBA...</div>}
+        {error && <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+        {notice && <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{notice}</div>}
 
         {!loading && job && (
           <>
-          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px] gap-4 items-start">
-          <div className="space-y-3">
-          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-            <div className="bg-[#dfe7ea] px-4 py-3 flex items-center gap-3">
-              <span className="w-8 h-8 rounded-full bg-[#00485a] text-white text-sm font-bold flex items-center justify-center">✓</span>
-              <div>
-                <h2 className="text-sm font-bold uppercase tracking-wide text-[#00485a]">Assessment Workspace</h2>
-                <p className="text-xs text-gray-600 mt-0.5">Preview-only rebuild. Old EBA page stays untouched.</p>
-              </div>
-            </div>
-            <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div className="border border-gray-100 rounded-lg p-3">
-                <div className="text-xs text-gray-500">Job</div>
-                <div className="text-sm font-semibold text-gray-800 mt-1">#{job.jobNumber}</div>
-                <div className="text-xs text-gray-500 mt-1 truncate">{address || "No address"}</div>
-              </div>
-              <div className="border border-gray-100 rounded-lg p-3">
-                <div className="text-xs text-gray-500">Autosave</div>
-                <div className={`text-sm font-semibold mt-1 ${dirty ? "text-amber-700" : "text-emerald-700"}`}>{dirty ? "Unsaved edits" : "Saved"}</div>
-                <div className="text-xs text-gray-500 mt-1">{locked ? "Locked after client signing" : "Edits autosave after field changes"}</div>
-              </div>
-              <div className="border border-gray-100 rounded-lg p-3">
-                <div className="text-xs text-gray-500">Finalise Readiness</div>
-                <div className={`text-sm font-semibold mt-1 ${finaliseChecks.canFinalise ? "text-emerald-700" : "text-amber-700"}`}>
-                  {finaliseChecks.canFinalise ? "Ready to finalise" : `${finaliseChecks.missingCount} item${finaliseChecks.missingCount === 1 ? "" : "s"} missing`}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+            <main className="space-y-4">
+              <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+                <div className="bg-[#dfe7ea] px-4 py-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-[#00485a]">EBA preview rebuild</p>
+                      <h2 className="mt-1 text-lg font-semibold text-slate-900">#{job.jobNumber} · {address || "No address"}</h2>
+                      <p className="mt-1 text-sm text-slate-600">Designed for fast field completion, clear finalise confidence, and photo/signature readiness.</p>
+                    </div>
+                    <div className="min-w-40 rounded-lg border border-white/60 bg-white p-3">
+                      <p className="text-xs text-slate-500">Draft state</p>
+                      <p className={`mt-1 text-sm font-semibold ${dirty ? "text-amber-700" : "text-emerald-700"}`}>{dirty ? "Autosaving..." : "Saved"}</p>
+                    </div>
+                  </div>
                 </div>
-                <div className="h-2 bg-gray-100 rounded-full overflow-hidden mt-2">
-                  <div className="h-full bg-[#f36c21]" style={{ width: `${completionPercent}%` }} />
+                <div className="grid grid-cols-1 gap-3 p-4 md:grid-cols-3">
+                  <div className="rounded-lg border border-slate-100 p-3">
+                    <p className="text-xs text-slate-500">Finalise readiness</p>
+                    <p className={`mt-1 text-sm font-semibold ${finaliseChecks.canFinalise ? "text-emerald-700" : "text-amber-700"}`}>{finaliseChecks.canFinalise ? "Ready" : `${finaliseChecks.missingCount} items missing`}</p>
+                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full bg-[#f36c21]" style={{ width: `${completionPercent}%` }} /></div>
+                  </div>
+                  <div className="rounded-lg border border-slate-100 p-3">
+                    <p className="text-xs text-slate-500">Elevation photos</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900">{photoCount}/4 complete</p>
+                    <p className="mt-1 text-xs text-slate-500">Uploaded or intentionally skipped</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-100 p-3">
+                    <p className="text-xs text-slate-500">Signature</p>
+                    <p className={`mt-1 text-sm font-semibold ${signatureReady ? "text-emerald-700" : "text-amber-700"}`}>{signatureReady ? "Assessor signed" : "Needed before finalise"}</p>
+                    <p className="mt-1 text-xs text-slate-500">{locked ? "Locked after client signing" : "Editable until client approval"}</p>
+                  </div>
                 </div>
-              </div>
-            </div>
-          </div>
+              </section>
 
-          <fieldset disabled={locked} className={locked ? "opacity-75" : ""}>
-          <div className={`border rounded-xl p-3 text-sm ${job.ebaForm?.clientApproved ? "bg-emerald-50 border-emerald-200 text-emerald-700" : job.ebaForm?.complete ? "bg-blue-50 border-blue-200 text-blue-700" : "bg-amber-50 border-amber-200 text-amber-700"}`}>
-            {job.ebaForm?.clientApproved
-              ? "EBA is client signed and complete."
-              : job.ebaForm?.complete
-                ? "EBA is finalised."
-                : "EBA draft in progress. Keep saving draft until assessor is ready to finalise."}
+              <nav className="sticky top-[86px] z-20 -mx-1 flex gap-2 overflow-x-auto rounded-lg border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {sections.map((section) => (
+                  <button key={section.id} type="button" onClick={() => scrollToSection(section.id)} className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold ${section.done ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
+                    {section.done ? "✓ " : ""}{section.label}
+                  </button>
+                ))}
+              </nav>
+
+              <fieldset disabled={locked} className={locked ? "space-y-4 opacity-75" : "space-y-4"}>
+          <div className={`border rounded-lg p-3 text-sm ${job.ebaForm?.clientApproved ? "bg-emerald-50 border-emerald-200 text-emerald-700" : job.ebaForm?.complete ? "bg-blue-50 border-blue-200 text-blue-700" : "bg-amber-50 border-amber-200 text-amber-700"}`}>
+            {job.ebaForm?.clientApproved ? "EBA is client signed and complete." : job.ebaForm?.complete ? "EBA is finalised." : "EBA draft in progress. Changes autosave after edits; use finalise when all checks are complete."}
           </div>
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
+            <div id="section-admin" className="bg-white border border-gray-200 rounded-lg p-4 scroll-mt-36">
               <h2 className="text-sm font-semibold text-gray-700 mb-3">1) Administrative Information</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div><label className="text-xs text-gray-500">Property Address</label><div className="text-sm text-gray-800 mt-1">{address || "-"}</div></div>
@@ -998,7 +1032,7 @@ export default function EbaPage() {
               </div>
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
+            <div id="section-building" className="bg-white border border-gray-200 rounded-lg p-4 scroll-mt-36">
               <h2 className="text-sm font-semibold text-gray-700 mb-3">2) Existing Building Information</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div><label className="text-xs text-gray-500">Approx Year of Construction</label><input value={(form.approximateYearOfConstruction as string) || ""} onChange={(e) => setField("approximateYearOfConstruction", e.target.value)} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("approximateYearOfConstruction") ? "border-red-400 bg-red-50" : "border-gray-200"}`} /></div>
@@ -1036,7 +1070,7 @@ export default function EbaPage() {
               </div>
             </div>
 
-            <div className={`border rounded-xl p-4 ${finaliseAttempted && (finaliseChecks.missingFields.includes("roofAndEavesCol1") || finaliseChecks.missingFields.includes("roofAndEavesCol2") || finaliseChecks.missingFields.includes("roofAndEavesCol3")) ? "border-red-400 bg-red-50" : "bg-white border-gray-200"}`}>
+            <div className={`border rounded-lg p-4 ${finaliseAttempted && (finaliseChecks.missingFields.includes("roofAndEavesCol1") || finaliseChecks.missingFields.includes("roofAndEavesCol2") || finaliseChecks.missingFields.includes("roofAndEavesCol3")) ? "border-red-400 bg-red-50" : "bg-white border-gray-200"}`}>
               <h2 className="text-sm font-semibold text-gray-700 mb-3">Roof & Eaves</h2>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
@@ -1082,7 +1116,7 @@ export default function EbaPage() {
               </div>
             </div>
 
-            <div className={`border rounded-xl p-4 ${finaliseAttempted && finaliseChecks.missingFields.includes("foundationAndFloor") ? "border-red-400 bg-red-50" : "bg-white border-gray-200"}`}>
+            <div className={`border rounded-lg p-4 ${finaliseAttempted && finaliseChecks.missingFields.includes("foundationAndFloor") ? "border-red-400 bg-red-50" : "bg-white border-gray-200"}`}>
               <h2 className="text-sm font-semibold text-gray-700 mb-3">Foundation & Floor</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 {["Ring Perimeter","Piles","Slab","Suspended Floor Timber"].map((opt)=>(
@@ -1091,7 +1125,7 @@ export default function EbaPage() {
               </div>
             </div>
 
-            <div className={`border rounded-xl p-4 ${finaliseAttempted && (finaliseChecks.missingFields.includes("framing") || finaliseChecks.missingFields.includes("joinery") || finaliseChecks.missingFields.includes("lining")) ? "border-red-400 bg-red-50" : "bg-white border-gray-200"}`}>
+            <div className={`border rounded-lg p-4 ${finaliseAttempted && (finaliseChecks.missingFields.includes("framing") || finaliseChecks.missingFields.includes("joinery") || finaliseChecks.missingFields.includes("lining")) ? "border-red-400 bg-red-50" : "bg-white border-gray-200"}`}>
               <h2 className="text-sm font-semibold text-gray-700 mb-3">Framing, Joinery & Lining</h2>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
@@ -1109,7 +1143,7 @@ export default function EbaPage() {
               </div>
             </div>
 
-            <div className={`border rounded-xl p-4 ${finaliseAttempted && finaliseChecks.missingFields.includes("buildingPaper") ? "border-red-400 bg-red-50" : "bg-white border-gray-200"}`}>
+            <div className={`border rounded-lg p-4 ${finaliseAttempted && finaliseChecks.missingFields.includes("buildingPaper") ? "border-red-400 bg-red-50" : "bg-white border-gray-200"}`}>
               <h2 className="text-sm font-semibold text-gray-700 mb-3">Building Paper</h2>
               <div className="flex gap-2 flex-wrap">
                 {["Not detected","Detected (but unable to guarantee extent or condition)"].map((opt)=>(
@@ -1121,7 +1155,7 @@ export default function EbaPage() {
               </div>
             </div>
 
-            <div className={`border rounded-xl p-4 ${finaliseAttempted && finaliseChecks.missingFields.includes("exteriorCladding") ? "border-red-400 bg-red-50" : "bg-white border-gray-200"}`}>
+            <div className={`border rounded-lg p-4 ${finaliseAttempted && finaliseChecks.missingFields.includes("exteriorCladding") ? "border-red-400 bg-red-50" : "bg-white border-gray-200"}`}>
               <h2 className="text-sm font-semibold text-gray-700 mb-3">Exterior Cladding</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 {["Timber","Cement Board","Rendered Plaster","Masonry veneer (nominal 140mm cavity)","Masonry (double brick)","EIFS","Palisade (plastic) weatherboard","Corrugated steel"].map((opt)=>(
@@ -1130,7 +1164,7 @@ export default function EbaPage() {
               </div>
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
+            <div id="section-install" className="bg-white border border-gray-200 rounded-lg p-4 scroll-mt-36">
               <h2 className="text-sm font-semibold text-gray-700 mb-3">3) Install Information</h2>
 
               <h3 className="text-sm font-semibold text-gray-700 mb-2">Cladding Type</h3>
@@ -1175,7 +1209,7 @@ export default function EbaPage() {
               </div>
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
+            <div id="section-code" className="bg-white border border-gray-200 rounded-lg p-4 scroll-mt-36">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-sm font-semibold text-gray-700">4</span>
                 <h2 className="text-sm font-semibold text-gray-700">Assessment of the Existing Building</h2>
@@ -1255,7 +1289,7 @@ export default function EbaPage() {
                   );
                 })}
 
-                <div className="border border-gray-100 rounded-lg p-3">
+                <div id="section-moisture" className="border border-gray-100 rounded-lg p-3 scroll-mt-36">
                   <h3 className="text-sm font-semibold text-gray-700">External Moisture E2.3.3 E2.3.5</h3>
                   <div className="space-y-3 mt-2">
                     {externalMoistureQuestions.map(([k, q]) => {
@@ -1370,7 +1404,7 @@ export default function EbaPage() {
               </div>
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
+            <div id="section-photos" className="bg-white border border-gray-200 rounded-lg p-4 scroll-mt-36">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-sm font-semibold text-gray-700">5</span>
                 <h2 className="text-sm font-semibold text-gray-700">Site Photos</h2>
@@ -1449,7 +1483,7 @@ export default function EbaPage() {
               </div>
             </div>
 
-            <div className="border border-gray-200 rounded-xl overflow-hidden">
+            <div id="section-sign" className="border border-gray-200 rounded-lg overflow-hidden scroll-mt-36">
               <div className="bg-gray-100 px-4 py-3 flex items-center gap-2">
                 <span className="w-6 h-6 rounded-full bg-[#1a3a4a] text-white text-xs font-bold flex items-center justify-center">6</span>
                 <h2 className="text-sm font-semibold text-gray-700 tracking-wide">DECLARATIONS</h2>
@@ -1496,7 +1530,7 @@ export default function EbaPage() {
                   </div>
                   <div className="flex gap-2 mt-2 items-center flex-wrap">
                     <button type="button" onClick={clearSignaturePad} className="px-3 py-2 text-sm bg-gray-100 rounded-lg">Clear</button>
-                    <button type="button" onClick={saveAssessorSignature} disabled={signing || locked} className="px-3 py-2 text-sm bg-[#1a3a4a] text-white rounded-lg disabled:opacity-50">{signing ? 'Saving...' : 'Save Signature'}</button>
+                    <button type="button" onClick={saveAssessorSignature} disabled={signing} className="px-3 py-2 text-sm bg-[#1a3a4a] text-white rounded-lg disabled:opacity-50">{signing ? 'Saving...' : 'Save Signature'}</button>
                   </div>
                 </div>
               </div>
@@ -1526,66 +1560,49 @@ export default function EbaPage() {
                       </div>
                     </div>
                   </div>
-                  <div className="mt-3 text-xs text-gray-500">This mirrors the old EBA declaration block. The conformity signature is displayed when returned by the job EBA data and is not edited from this preview route.</div>
                 </div>
               </div>
             </div>
+              </fieldset>
+            </main>
 
-            </fieldset>
+            <aside className="lg:sticky lg:top-28 h-fit space-y-3">
+              <div className="rounded-lg border border-slate-200 bg-white p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Missing before finalise</p>
+                {finaliseChecks.canFinalise ? (
+                  <p className="mt-2 text-sm font-semibold text-emerald-700">All required items are present.</p>
+                ) : (
+                  <div className="mt-3 space-y-2">
+                    {missingPreviewItems.map((item) => (
+                      <button key={item} type="button" onClick={() => scrollToSection(sectionForMissingItem(item))} className="block w-full rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-left text-xs text-amber-900">
+                        {item}
+                      </button>
+                    ))}
+                    {finaliseChecks.missingItems.length > missingPreviewItems.length && <p className="text-xs text-slate-500">{finaliseChecks.missingItems.length - missingPreviewItems.length} more missing items</p>}
+                  </div>
+                )}
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Functional contract</p>
+                <ul className="mt-2 space-y-1 text-xs text-slate-600">
+                  <li>Autosaves draft field edits</li>
+                  <li>Locks once client approved</li>
+                  <li>Uploads photos/signature immediately</li>
+                  <li>Requires elevation photos or skip</li>
+                  <li>Preserves CodeMark declaration</li>
+                </ul>
+              </div>
+            </aside>
           </div>
 
-          <aside className="hidden lg:block sticky top-20 space-y-3">
-            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-              <div className="bg-[#00485a] text-white px-4 py-3">
-                <div className="text-xs uppercase tracking-wide text-white/70">Ralph Loop</div>
-                <div className="text-sm font-semibold">Preview QA Panel</div>
-              </div>
-              <div className="p-4 space-y-3 text-sm">
-                <div>
-                  <div className="flex justify-between text-xs text-gray-500 mb-1">
-                    <span>Required completion</span>
-                    <span>{completionPercent}%</span>
-                  </div>
-                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <div className="h-full bg-[#f36c21]" style={{ width: `${completionPercent}%` }} />
-                  </div>
-                </div>
-                <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Source parity</div>
-                  <ul className="mt-2 space-y-1 text-xs text-gray-700">
-                    <li>Old field list captured</li>
-                    <li>Draft autosave after edits</li>
-                    <li>Client-signed lockout</li>
-                    <li>CodeMark declaration present</li>
-                    <li>Elevation photo skip flags</li>
-                  </ul>
-                </div>
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Missing Before Finalise</div>
-                  {finaliseChecks.canFinalise ? (
-                    <p className="mt-2 text-xs text-emerald-700">All required items are present.</p>
-                  ) : (
-                    <ol className="mt-2 space-y-1 text-xs text-gray-700 list-decimal list-inside">
-                      {missingPreviewItems.map((item) => <li key={item}>{item}</li>)}
-                      {finaliseChecks.missingItems.length > missingPreviewItems.length && (
-                        <li>{finaliseChecks.missingItems.length - missingPreviewItems.length} more...</li>
-                      )}
-                    </ol>
-                  )}
-                </div>
-              </div>
-            </div>
-          </aside>
-          </div>
-
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
+            <div className="bg-white border border-gray-200 rounded-lg p-4 mt-4">
               <div className="flex gap-2 flex-wrap">
                 {locked ? (
-                  <button type="button" onClick={() => router.replace(`/jobs/${id}`)} className="bg-[#1a3a4a] text-white px-4 py-2.5 rounded-xl text-sm font-semibold">Close</button>
+                  <button type="button" onClick={() => router.replace(`/jobs/${id}`)} className="bg-[#1a3a4a] text-white px-4 py-2.5 rounded-lg text-sm font-semibold">Close</button>
                 ) : (
                   <>
-                    <button onClick={() => saveEBA(true)} disabled={saving} className="bg-white border border-gray-300 text-gray-700 px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50">{saving ? "Saving..." : "Save as draft and close"}</button>
-                    <button onClick={() => saveEBA(false)} disabled={saving} className="bg-[#1a3a4a] text-white px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50">{saving ? "Saving..." : "Finalise EBA"}</button>
+                    <button onClick={() => saveEBA(true)} disabled={saving} className="bg-white border border-gray-300 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50">{saving ? "Saving..." : "Save as draft and close"}</button>
+                    <button onClick={() => saveEBA(false)} disabled={saving} className="bg-[#1a3a4a] text-white px-4 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50">{saving ? "Finalising..." : "Finalise EBA"}</button>
                   </>
                 )}
               </div>
