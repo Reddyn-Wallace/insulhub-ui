@@ -207,10 +207,13 @@ const requiredLabels: Record<string, string> = {
   finishOfCladding: "Finish of cladding",
   b131_structure: "Structure",
   b131_structure_priorToInstallationWorkRequired: "Structure work required",
+  b131_structure_priorToCertificationWorkRequired: "Structure certification work",
   c22_preventionOfFireOccuring: "Fire check",
   c22_preventionOfFireOccuring_priorToInstallationWorkRequired: "Fire work required",
+  c22_preventionOfFireOccuring_priorToCertificationWorkRequired: "Fire certification work",
   g931_electricity: "TPS wiring",
   g931_electricity_priorToInstallationWorkRequired: "Electrical work required",
+  g931_electricity_priorToCertificationWorkRequired: "Electrical certification work",
   h131_energyEfficiency: "Energy efficiency",
   c22_externalMoisture_paintFinishOfExteriorCladdingAppearsToBeInAnWellMaintainedCondition: "Paint finish",
   c22_externalMoisture_exteriorCladdingAppearsToHaveDeteriorationToALevelThatMayAllowWaterIngress: "Cladding deterioration",
@@ -227,11 +230,12 @@ const requiredLabels: Record<string, string> = {
   masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater: "Damp areas",
   masonryCladding_underfloorSpaceExcessivelyDamp: "Underfloor dampness",
   c22_externalMoisture_priorToInstallationWorkRequired: "Moisture work required",
+  c22_externalMoisture_priorToCertificationWorkRequired: "Moisture certification work",
   assessorName: "Assessor name",
 };
 
 const finaliseRequiredKeys = Object.keys(requiredLabels).filter(
-  (key) => !key.endsWith("_priorToInstallationWorkRequired") && key !== "finishOfCladding",
+  (key) => !key.endsWith("_priorToInstallationWorkRequired") && !key.endsWith("_priorToCertificationWorkRequired") && key !== "finishOfCladding",
 );
 
 const externalMoistureQuestions = [
@@ -437,14 +441,17 @@ export default function EbaPreviewPage() {
     const missingKeys = finaliseRequiredKeys.filter((key) => !hasValue(form[key]));
     if (!listValue(form.finishOfCladding).length) missingKeys.push("finishOfCladding");
 
-    if (form.b131_structure === false && !hasValue(form.b131_structure_priorToInstallationWorkRequired) && !hasValue(form.b131_structure_priorToCertificationWorkRequired)) {
-      missingKeys.push("b131_structure_priorToInstallationWorkRequired");
+    if (form.b131_structure === false) {
+      if (!hasValue(form.b131_structure_priorToInstallationWorkRequired)) missingKeys.push("b131_structure_priorToInstallationWorkRequired");
+      if (!hasValue(form.b131_structure_priorToCertificationWorkRequired)) missingKeys.push("b131_structure_priorToCertificationWorkRequired");
     }
-    if (form.c22_preventionOfFireOccuring === true && !hasValue(form.c22_preventionOfFireOccuring_priorToInstallationWorkRequired) && !hasValue(form.c22_preventionOfFireOccuring_priorToCertificationWorkRequired)) {
-      missingKeys.push("c22_preventionOfFireOccuring_priorToInstallationWorkRequired");
+    if (form.c22_preventionOfFireOccuring === true) {
+      if (!hasValue(form.c22_preventionOfFireOccuring_priorToInstallationWorkRequired)) missingKeys.push("c22_preventionOfFireOccuring_priorToInstallationWorkRequired");
+      if (!hasValue(form.c22_preventionOfFireOccuring_priorToCertificationWorkRequired)) missingKeys.push("c22_preventionOfFireOccuring_priorToCertificationWorkRequired");
     }
-    if (form.g931_electricity === false && !hasValue(form.g931_electricity_priorToInstallationWorkRequired) && !hasValue(form.g931_electricity_priorToCertificationWorkRequired)) {
-      missingKeys.push("g931_electricity_priorToInstallationWorkRequired");
+    if (form.g931_electricity === false) {
+      if (!hasValue(form.g931_electricity_priorToInstallationWorkRequired)) missingKeys.push("g931_electricity_priorToInstallationWorkRequired");
+      if (!hasValue(form.g931_electricity_priorToCertificationWorkRequired)) missingKeys.push("g931_electricity_priorToCertificationWorkRequired");
     }
 
     const redWhenYes = new Set([
@@ -461,8 +468,9 @@ export default function EbaPreviewPage() {
       "masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater",
       "masonryCladding_underfloorSpaceExcessivelyDamp",
     ].some((key) => redWhenYes.has(key) ? form[key] === true : form[key] === false);
-    if (moistureWorkNeeded && !hasValue(form.c22_externalMoisture_priorToInstallationWorkRequired) && !hasValue(form.c22_externalMoisture_priorToCertificationWorkRequired)) {
-      missingKeys.push("c22_externalMoisture_priorToInstallationWorkRequired");
+    if (moistureWorkNeeded) {
+      if (!hasValue(form.c22_externalMoisture_priorToInstallationWorkRequired)) missingKeys.push("c22_externalMoisture_priorToInstallationWorkRequired");
+      if (!hasValue(form.c22_externalMoisture_priorToCertificationWorkRequired)) missingKeys.push("c22_externalMoisture_priorToCertificationWorkRequired");
     }
 
     const missingPhotos = directions
@@ -481,7 +489,7 @@ export default function EbaPreviewPage() {
       return acc;
     }, {} as Record<SectionId, typeof missingItems>);
 
-    return { missingKeys, missingItems, missingBySection, missingPhotos, canFinalise: missingItems.length === 0 };
+    return { missingKeys, missingItems, missingBySection, missingPhotos, moistureWorkNeeded, canFinalise: missingItems.length === 0 };
   }, [form, photos, elevationSkip, job?.ebaForm?.signature_assessor]);
 
   const progress = Math.max(0, Math.round(((Object.keys(requiredLabels).length + 5 - checks.missingItems.length) / (Object.keys(requiredLabels).length + 5)) * 100));
@@ -509,7 +517,7 @@ export default function EbaPreviewPage() {
         proofOfOwnership: (eba.proofOfOwnership as string) || "Certificate of Title",
         lotOrDPNumber: (eba.lotOrDPNumber as string) || data.job.client?.contactDetails?.lotDPNumber || "",
         assessorName: (eba.assessorName as string) || userName || salespersonName || "",
-        joinery: hasValue(eba.joinery) ? eba.joinery : ["Appears to be installed correctly"],
+        joinery: hasValue(eba.joinery) ? eba.joinery : [],
         date: toDatetimeLocal(eba.date as string | undefined),
       };
       [
@@ -793,6 +801,23 @@ export default function EbaPreviewPage() {
     </label>
   );
 
+  const renderTextarea = (name: string, label: string) => (
+    <label className="block">
+      <span className="flex items-center justify-between text-xs font-medium text-slate-500">
+        {label}
+        {checks.missingKeys.includes(name) && <span className="text-[10px] font-semibold text-[#c75516]">Missing</span>}
+      </span>
+      <textarea value={String(form[name] ?? "")} onChange={(e) => setField(name, e.target.value)} rows={3} className={inputClass(name)} />
+    </label>
+  );
+
+  const renderWorkFields = (prefix: string) => (
+    <div className="space-y-3">
+      {renderTextarea(`${prefix}_priorToInstallationWorkRequired`, "Prior to Installation Work Required")}
+      {renderTextarea(`${prefix}_priorToCertificationWorkRequired`, "Prior to Certification Work Required")}
+    </div>
+  );
+
   const renderSelect = (name: string, label: string, options: string[]) => (
     <label className="block">
       <span className="flex items-center justify-between text-xs font-medium text-slate-500">
@@ -915,7 +940,7 @@ export default function EbaPreviewPage() {
         return renderSectionFrame(
             <div className="space-y-4">
               {renderChoiceButtons("framing", "Framing", ["Likely Rimu", "Treated pinus", "Untreated pinus", "No framing (double brick)"], true)}
-              {renderChoiceButtons("joinery", "Joinery", ["Timber", "Aluminium/steel", "uPVC", "Appears to be installed correctly"], true)}
+              {renderChoiceButtons("joinery", "Joinery", ["Timber", "Aluminium/steel", "uPVC", "Appears to be installed correctly"])}
               {renderChoiceButtons("lining", "Lining", ["Plasterboard", "Hardboard", "Sarked", "Masonry"], true)}
               {renderChoiceButtons("buildingPaper", "Building paper", ["Not detected", "Detected (but unable to guarantee extent or condition)"])}
             </div>
@@ -933,11 +958,11 @@ export default function EbaPreviewPage() {
         return renderSectionFrame(
             <div className="space-y-3">
               {renderYesNoButtons("b131_structure", "Linings and claddings suitable for install pressure?")}
-              {form.b131_structure === false && renderField("b131_structure_priorToInstallationWorkRequired", "Structure work required")}
+              {form.b131_structure === false && renderWorkFields("b131_structure")}
               {renderYesNoButtons("c22_preventionOfFireOccuring", "Through-wall flue in area to be insulated?", true)}
-              {form.c22_preventionOfFireOccuring === true && renderField("c22_preventionOfFireOccuring_priorToInstallationWorkRequired", "Fire work required")}
+              {form.c22_preventionOfFireOccuring === true && renderWorkFields("c22_preventionOfFireOccuring")}
               {renderYesNoButtons("g931_electricity", "TPS wiring observed after plug point removed?")}
-              {form.g931_electricity === false && renderField("g931_electricity_priorToInstallationWorkRequired", "Electrical work required")}
+              {form.g931_electricity === false && renderWorkFields("g931_electricity")}
               {renderYesNoButtons("h131_energyEfficiency", "Insulmax can improve thermal resistance and limit airflow?")}
               {form.h131_energyEfficiency === false && (
                 <div className="rounded-md border border-orange-100 bg-orange-50/70 px-3 py-2 text-sm font-medium text-[#9a4b13]">
@@ -956,7 +981,7 @@ export default function EbaPreviewPage() {
               {renderYesNoButtons("masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls", "Soffits sound with no water staining/bubbling?")}
               {renderYesNoButtons("masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater", "Damp, soft, discoloured, mouldy or rotten areas?", true)}
               {renderYesNoButtons("masonryCladding_underfloorSpaceExcessivelyDamp", "Underfloor space excessively damp?", true, true)}
-              {checks.missingKeys.includes("c22_externalMoisture_priorToInstallationWorkRequired") && renderField("c22_externalMoisture_priorToInstallationWorkRequired", "Moisture work required")}
+              {checks.moistureWorkNeeded && renderWorkFields("c22_externalMoisture")}
               {renderDetails("Keep notes focused on work needed before install or before certification.")}
             </div>
           );
