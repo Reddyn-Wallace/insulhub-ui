@@ -677,6 +677,8 @@ export default function EbaPreviewPage() {
   const nextSection = sectionOrder[Math.min(sectionOrder.length - 1, currentIndex + 1)];
   const isLastSection = activeSection === sectionOrder[sectionOrder.length - 1];
   const saveText = saveState === "saving" ? "Saving..." : saveState === "error" ? "Save error" : "Saved";
+  const activeMissing = checks.missingBySection[activeSection] || [];
+  const activeDone = activeMissing.length === 0;
 
   const goToSection = (section: SectionId) => {
     setActiveSection(section);
@@ -778,14 +780,31 @@ export default function EbaPreviewPage() {
       <div className="mb-4">
         <div className="flex items-start justify-between gap-3">
           <div>
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#00485a]">
+              Section {currentIndex + 1} of {sectionOrder.length}
+            </p>
             <h2 className="text-lg font-semibold text-slate-950">{sectionMeta[activeSection].title}</h2>
             <p className="mt-0.5 text-sm text-slate-500">{sectionMeta[activeSection].short}</p>
           </div>
-          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${checks.missingBySection[activeSection]?.length ? "bg-orange-50 text-[#c75516]" : "bg-emerald-50 text-emerald-700"}`}>
-            {checks.missingBySection[activeSection]?.length ? `${checks.missingBySection[activeSection].length} missing` : "Done"}
+          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${activeMissing.length ? "bg-orange-50 text-[#c75516]" : "bg-emerald-50 text-emerald-700"}`}>
+            {activeMissing.length ? `${activeMissing.length} missing` : "Done"}
           </span>
         </div>
       </div>
+      {activeMissing.length > 0 && (
+        <div className="mb-4 rounded-md border border-orange-100 bg-orange-50/60 px-3 py-2">
+          <p className="text-xs font-semibold text-[#c75516]">Finish in this section</p>
+          <p className="mt-0.5 text-sm text-slate-700">
+            {activeMissing.slice(0, 3).map((item) => item.label).join(", ")}
+            {activeMissing.length > 3 ? ` +${activeMissing.length - 3} more` : ""}
+          </p>
+        </div>
+      )}
+      {activeDone && (
+        <div className="mb-4 rounded-md border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
+          This section is complete.
+        </div>
+      )}
       {children}
     </section>
   );
@@ -999,9 +1018,18 @@ export default function EbaPreviewPage() {
 
       {!loading && job && (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white px-4 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.08)]">
-          <div className="mx-auto grid max-w-3xl grid-cols-[1fr_1fr_1.2fr] gap-2">
+          <div className="mx-auto mb-2 flex max-w-3xl items-center justify-between gap-3">
+            <p className="truncate text-xs font-medium text-slate-500">
+              {activeDone ? "Ready for the next section" : `${activeMissing.length} to finish here`}
+            </p>
+            <p className="shrink-0 text-xs font-semibold text-slate-600">{progress}% complete</p>
+          </div>
+          <div className="mx-auto grid max-w-3xl grid-cols-[1fr_1.25fr_1.2fr] gap-2">
             <button type="button" onClick={() => setSectionsOpen(true)} className="rounded-md border border-slate-200 bg-white px-2 py-2.5 text-sm font-semibold text-slate-700">Sections</button>
-            <button type="button" onClick={() => isLastSection ? setSectionsOpen(true) : goToSection(nextSection)} className="rounded-md border border-slate-200 bg-white px-2 py-2.5 text-sm font-semibold text-slate-700">{isLastSection ? "Review" : "Next"}</button>
+            <button type="button" onClick={() => isLastSection ? setSectionsOpen(true) : goToSection(nextSection)} className="rounded-md border border-slate-200 bg-white px-2 py-2 text-sm font-semibold leading-tight text-slate-700">
+              <span className="block">{isLastSection ? "Review" : "Next"}</span>
+              {!isLastSection && <span className="block truncate text-[10px] font-medium text-slate-500">{sectionMeta[nextSection].title}</span>}
+            </button>
             <button type="button" onClick={finalise} disabled={saving || locked} className="rounded-md bg-[#00485a] px-2 py-2 text-sm font-semibold leading-tight text-white disabled:opacity-50">
               <span className="block">Finalise</span>
               {!checks.canFinalise && <span className="block text-[10px] font-medium text-white/80">{checks.missingItems.length} left</span>}
