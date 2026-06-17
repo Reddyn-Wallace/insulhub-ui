@@ -7,6 +7,7 @@ import { gql } from "@/lib/graphql";
 type Photo = { fileName?: string; thumbnail?: string };
 type Direction = "north" | "east" | "south" | "west";
 type SaveState = "saved" | "saving" | "error";
+type OtherChoiceConfig = { name: string; label: string; options: string[]; placeholder: string };
 
 type Job = {
   _id: string;
@@ -167,7 +168,7 @@ const bcaOrTaOptions = [
   "Porirua City Council",
 ];
 
-const sectionOrder = ["admin", "building", "roof", "envelope", "install", "compliance", "moisture", "photos", "sign"] as const;
+const sectionOrder = ["admin", "building", "roof", "envelope", "install", "compliance", "water", "moisture", "photos", "sign"] as const;
 type SectionId = (typeof sectionOrder)[number];
 
 const sectionMeta: Record<SectionId, { title: string; short: string }> = {
@@ -177,10 +178,19 @@ const sectionMeta: Record<SectionId, { title: string; short: string }> = {
   envelope: { title: "Interior envelope", short: "Framing, joinery and lining" },
   install: { title: "Install method", short: "Cladding and finish" },
   compliance: { title: "Code checks", short: "Structure, fire, wiring, energy" },
+  water: { title: "Signs of water ingress", short: "Soffits, damp lining and underfloor" },
   moisture: { title: "Moisture checks", short: "External water and dampness" },
   photos: { title: "Photos", short: "Elevation photo cards" },
   sign: { title: "Sign", short: "Assessor declaration" },
 };
+
+const roofTypeOptions = ["Hip Gable", "Double Gable", "Skillion / Mono pitch"];
+const roofCladdingOptions = ["Corrugated Steel", "Tile", "Membrane"];
+const joineryOptions = ["Timber", "Aluminium/steel", "uPVC", "Appears to be installed correctly"];
+const roofOtherConfigs: OtherChoiceConfig[] = [
+  { name: "roofAndEavesCol1", label: "Roof type", options: roofTypeOptions, placeholder: "Other roof type" },
+  { name: "roofAndEavesCol2", label: "Roof cladding", options: roofCladdingOptions, placeholder: "Other roof cladding" },
+];
 
 const requiredLabels: Record<string, string> = {
   nameOfOwners: "Owner name",
@@ -250,6 +260,12 @@ const externalMoistureQuestions = [
   ["c22_externalMoisture_wallsAreFreeToAir", "Walls free to air?", false],
 ] as const;
 
+const waterIngressQuestions = [
+  ["masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls", "Soffits sound with no water staining/bubbling?", false],
+  ["masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater", "Damp, soft, discoloured, mouldy or rotten areas?", true],
+  ["masonryCladding_underfloorSpaceExcessivelyDamp", "Underfloor space excessively damp?", true],
+] as const;
+
 function hasValue(value: unknown): boolean {
   if (value === null || value === undefined) return false;
   if (typeof value === "string") return value.trim().length > 0;
@@ -272,6 +288,60 @@ function toggleListValue(value: unknown, item: string, options: string[]) {
   const current = listValue(value).filter((entry) => options.includes(entry));
   const next = current.includes(item) ? current.filter((entry) => entry !== item) : [...current, item];
   return next;
+}
+
+function parseLegacyCheckboxList(value: unknown, knownOptions: string[]): string[] {
+  const values = listValue(value);
+  const direct = values.filter((entry) => knownOptions.includes(entry));
+  if (direct.length) return direct;
+
+  const otherSummary = values.find((entry) => entry.toLowerCase().startsWith("other:"));
+  if (!otherSummary) return [];
+
+  return otherSummary
+    .slice(otherSummary.indexOf(":") + 1)
+    .split("|")
+    .map((entry) => entry.trim())
+    .filter((entry) => knownOptions.includes(entry));
+}
+
+function getLegacyCustomOther(value: unknown, knownOptions: string[]): string {
+  const values = listValue(value);
+  const explicitTail = values[values.length - 1];
+  if (typeof explicitTail === "string" && explicitTail.length > 0 && !knownOptions.includes(explicitTail.trim()) && !explicitTail.toLowerCase().startsWith("other:")) {
+    return explicitTail;
+  }
+
+  const otherSummary = values.find((entry) => entry.toLowerCase().startsWith("other:"));
+  if (!otherSummary) return "";
+
+  return otherSummary
+    .slice(otherSummary.indexOf(":") + 1)
+    .split("|")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry && !knownOptions.includes(entry))
+    .join(" ");
+}
+
+function buildLegacyCheckboxArray(selectedKnown: string[], customOther: string, knownOptions: string[]): string[] {
+  const filteredSelected = selectedKnown.filter((entry) => knownOptions.includes(entry));
+  const rawCustom = customOther ?? "";
+  const summaryCustom = rawCustom.trim();
+  const output: string[] = [];
+  if (summaryCustom) output.push(`Other: ${[summaryCustom, ...filteredSelected].join(" | ")}`);
+  output.push(...knownOptions.filter((option) => filteredSelected.includes(option)));
+  output.push(rawCustom);
+  return output;
+}
+
+function toggleLegacyCheckboxList(value: unknown, item: string, knownOptions: string[]): string[] {
+  const selected = parseLegacyCheckboxList(value, knownOptions);
+  const next = selected.includes(item) ? selected.filter((entry) => entry !== item) : [...selected, item];
+  return buildLegacyCheckboxArray(next, getLegacyCustomOther(value, knownOptions), knownOptions);
+}
+
+function setLegacyCheckboxListOther(value: unknown, customOther: string, knownOptions: string[]): string[] {
+  return buildLegacyCheckboxArray(parseLegacyCheckboxList(value, knownOptions), customOther, knownOptions);
 }
 
 function toDatetimeLocal(iso?: string) {
@@ -315,10 +385,11 @@ function setDefaultIfBlank(form: Record<string, unknown>, key: string, value: tr
 function sectionForKey(key: string): SectionId {
   if (["nameOfOwners", "proofOfOwnership", "bcaOrTa", "lotOrDPNumber", "date"].includes(key)) return "admin";
   if (["approximateYearOfConstruction", "numberOfStories", "propertySiteSection", "propertySiteExposure", "propertySiteArea"].includes(key)) return "building";
-  if (["roofAndEavesCol1", "roofAndEavesCol2", "roofAndEavesCol3", "foundationAndFloor", "exteriorCladding"].includes(key)) return "roof";
+  if (["roofAndEavesCol1", "roofAndEavesCol1Other", "roofAndEavesCol2", "roofAndEavesCol2Other", "roofAndEavesCol3", "foundationAndFloor", "exteriorCladding"].includes(key)) return "roof";
   if (["framing", "joinery", "lining", "buildingPaper"].includes(key)) return "envelope";
   if (["claddingType", "claddingTypeInstalledVia", "finishOfCladding"].includes(key)) return "install";
-  if (key.startsWith("c22_externalMoisture") || key.startsWith("masonryCladding")) return "moisture";
+  if (key.startsWith("masonryCladding") || key === "c22_externalMoisture_priorToInstallationWorkRequired" || key === "c22_externalMoisture_priorToCertificationWorkRequired") return "water";
+  if (key.startsWith("c22_externalMoisture")) return "moisture";
   if (key.includes("photo")) return "photos";
   if (key.includes("signature") || key === "assessorName") return "sign";
   return "compliance";
@@ -333,7 +404,7 @@ export default function EbaPreviewPage() {
   const [sectionsOpen, setSectionsOpen] = useState(false);
   const [missingOpen, setMissingOpen] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [, setSaving] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState("");
@@ -351,6 +422,7 @@ export default function EbaPreviewPage() {
   const cameraInputRef = useRef<Record<string, HTMLInputElement | null>>({});
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
+  const autosaveTimerRef = useRef<number | null>(null);
 
   const locked = !!job?.ebaForm?.clientApproved;
 
@@ -440,6 +512,10 @@ export default function EbaPreviewPage() {
   const checks = useMemo(() => {
     const missingKeys = finaliseRequiredKeys.filter((key) => !hasValue(form[key]));
     if (!listValue(form.finishOfCladding).length) missingKeys.push("finishOfCladding");
+    roofOtherConfigs.forEach((config) => {
+      const hasOtherSelected = listValue(form[config.name]).includes("Other") || !!getLegacyCustomOther(form[config.name], config.options).trim();
+      if (hasOtherSelected && !getLegacyCustomOther(form[config.name], config.options).trim()) missingKeys.push(`${config.name}Other`);
+    });
 
     if (form.b131_structure === false) {
       if (!hasValue(form.b131_structure_priorToInstallationWorkRequired)) missingKeys.push("b131_structure_priorToInstallationWorkRequired");
@@ -464,9 +540,7 @@ export default function EbaPreviewPage() {
       ...externalMoistureQuestions.map(([key]) => key),
       "masonryCladding_masonryCladUnderfloorVentsArePresentAndClear",
       "masonryCladding_windowOrMasonryVerticalJointsAreSealed",
-      "masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls",
-      "masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater",
-      "masonryCladding_underfloorSpaceExcessivelyDamp",
+      ...waterIngressQuestions.map(([key]) => key),
     ].some((key) => redWhenYes.has(key) ? form[key] === true : form[key] === false);
     if (moistureWorkNeeded) {
       if (!hasValue(form.c22_externalMoisture_priorToInstallationWorkRequired)) missingKeys.push("c22_externalMoisture_priorToInstallationWorkRequired");
@@ -479,7 +553,7 @@ export default function EbaPreviewPage() {
       .filter((section) => (photos[section] || []).length === 0);
     const missingSignature = !signatureFileName(job?.ebaForm?.signature_assessor);
     const missingItems = [
-      ...missingKeys.map((key) => ({ label: requiredLabels[key] || key, section: sectionForKey(key), key })),
+      ...missingKeys.map((key) => ({ label: requiredLabels[key] || (key === "roofAndEavesCol1Other" ? "Other roof type" : key === "roofAndEavesCol2Other" ? "Other roof cladding" : key), section: sectionForKey(key), key })),
       ...missingPhotos.map((section) => ({ label: `${section.replace("elevation_", "")} elevation photo`, section: "photos" as SectionId, key: section })),
       ...(missingSignature ? [{ label: "Assessor signature", section: "sign" as SectionId, key: "signature_assessor" }] : []),
     ];
@@ -499,7 +573,7 @@ export default function EbaPreviewPage() {
     setLoading(true);
     setError("");
     try {
-      const data = await gql<{ job: Job }>(EBA_JOB_QUERY, { _id: id }, { cacheKey: `eba-job:${id}`, ttlMs: 5 * 60 * 1000 });
+      const data = await gql<{ job: Job }>(EBA_JOB_QUERY, { _id: id });
       const eba = data.job.ebaForm || {};
       let me: { firstname?: string; lastname?: string } = {};
       if (typeof window !== "undefined") {
@@ -586,7 +660,7 @@ export default function EbaPreviewPage() {
   }, [loading, checks.missingItems]);
 
   async function saveDraft(quiet = false) {
-    if (!job || locked) return;
+    if (!job || locked) return false;
     setSaving(true);
     setSaveState("saving");
     if (!quiet) setNotice("");
@@ -597,9 +671,11 @@ export default function EbaPreviewPage() {
       setDirty(false);
       setSaveState("saved");
       if (!quiet) setNotice("Draft saved.");
+      return true;
     } catch (err) {
       setSaveState("error");
       setError(err instanceof Error ? err.message : "Failed to autosave EBA");
+      return false;
     } finally {
       setSaving(false);
     }
@@ -608,10 +684,13 @@ export default function EbaPreviewPage() {
   useEffect(() => {
     if (!dirty || loading || locked || !job) return;
     setSaveState("saving");
-    const timer = window.setTimeout(() => {
+    if (autosaveTimerRef.current) window.clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = window.setTimeout(() => {
       void saveDraft(true);
     }, 1000);
-    return () => window.clearTimeout(timer);
+    return () => {
+      if (autosaveTimerRef.current) window.clearTimeout(autosaveTimerRef.current);
+    };
   }, [dirty, form, elevationSkip, loading, locked, job]);
 
   async function finalise() {
@@ -622,11 +701,19 @@ export default function EbaPreviewPage() {
     }
     if (!job || locked) return;
     setSaving(true);
+    setSaveState("saving");
     setError("");
     try {
+      if (autosaveTimerRef.current) window.clearTimeout(autosaveTimerRef.current);
+      if (dirty) {
+        const draftSaved = await saveDraft(true);
+        if (!draftSaved) return;
+      }
       await gql<{ saveEBA: Job }>(SAVE_EBA_MUTATION, { input: { _id: job._id, ebaForm: ebaPayload }, isDraft: false });
+      setSaveState("saved");
       router.replace(`/jobs/${id}`);
     } catch (err) {
+      setSaveState("error");
       setError(err instanceof Error ? err.message : "Failed to finalise EBA");
     } finally {
       setSaving(false);
@@ -853,6 +940,46 @@ export default function EbaPreviewPage() {
     );
   };
 
+  const renderOtherChoiceButtons = ({ name, label, options, placeholder }: OtherChoiceConfig) => {
+    const selectedKnown = parseLegacyCheckboxList(form[name], options);
+    const customOther = getLegacyCustomOther(form[name], options);
+    const otherSelected = listValue(form[name]).includes("Other") || customOther.length > 0;
+    const missingOther = checks.missingKeys.includes(`${name}Other`);
+
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-medium text-slate-500">{label}</p>
+          {(checks.missingKeys.includes(name) || missingOther) && <span className="text-[10px] font-semibold text-[#c75516]">Missing</span>}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {options.map((option) => {
+            const active = selectedKnown.includes(option);
+            return (
+              <button key={option} type="button" onClick={() => setField(name, toggleLegacyCheckboxList(form[name], option, options))} className={`rounded-md border px-3 py-2 text-sm font-medium transition ${active ? "border-[#00485a] bg-[#e8f2f4] text-[#00485a]" : "border-slate-200 bg-white text-slate-700"}`}>
+                {option}
+              </button>
+            );
+          })}
+          <button type="button" onClick={() => setField(name, otherSelected ? buildLegacyCheckboxArray(selectedKnown, "", options) : ["Other", ...selectedKnown, ""])} className={`rounded-md border px-3 py-2 text-sm font-medium transition ${otherSelected ? "border-[#00485a] bg-[#e8f2f4] text-[#00485a]" : "border-slate-200 bg-white text-slate-700"}`}>
+            Other
+          </button>
+        </div>
+        {otherSelected && (
+          <label className="block">
+            <input
+              type="text"
+              value={customOther}
+              onChange={(e) => setField(name, setLegacyCheckboxListOther(form[name], e.target.value, options))}
+              placeholder={placeholder}
+              className={`mt-1 w-full rounded-md border px-3 py-2.5 text-sm outline-none transition ${missingOther ? "border-[#f36c21] bg-orange-50/40" : "border-slate-200 bg-white focus:border-[#00485a]"}`}
+            />
+          </label>
+        )}
+      </div>
+    );
+  };
+
   const renderYesNoButtons = (name: string, label: string, riskOnYes = false, na = false) => {
     const options = [
       { label: "Yes", value: true },
@@ -929,8 +1056,7 @@ export default function EbaPreviewPage() {
       case "roof":
         return renderSectionFrame(
             <div className="space-y-4">
-              {renderChoiceButtons("roofAndEavesCol1", "Roof type", ["Hip Gable", "Double Gable", "Skillion / Mono pitch"], true)}
-              {renderChoiceButtons("roofAndEavesCol2", "Roof cladding", ["Corrugated Steel", "Tile", "Membrane"], true)}
+              {roofOtherConfigs.map((config) => <div key={config.name}>{renderOtherChoiceButtons(config)}</div>)}
               {renderChoiceButtons("roofAndEavesCol3", "Eaves", ["No eaves", "Modest eaves", "Generous Eaves"], true)}
               {renderChoiceButtons("foundationAndFloor", "Foundation and floor", ["Ring Perimeter", "Piles", "Slab", "Suspended Floor Timber"], true)}
               {renderChoiceButtons("exteriorCladding", "Exterior cladding", ["Timber", "Cement Board", "Rendered Plaster", "Masonry veneer (nominal 140mm cavity)", "Masonry (double brick)", "EIFS", "Palisade (plastic) weatherboard", "Corrugated steel"], true)}
@@ -940,7 +1066,7 @@ export default function EbaPreviewPage() {
         return renderSectionFrame(
             <div className="space-y-4">
               {renderChoiceButtons("framing", "Framing", ["Likely Rimu", "Treated pinus", "Untreated pinus", "No framing (double brick)"], true)}
-              {renderChoiceButtons("joinery", "Joinery", ["Timber", "Aluminium/steel", "uPVC", "Appears to be installed correctly"])}
+              {renderChoiceButtons("joinery", "Joinery", joineryOptions, true)}
               {renderChoiceButtons("lining", "Lining", ["Plasterboard", "Hardboard", "Sarked", "Masonry"], true)}
               {renderChoiceButtons("buildingPaper", "Building paper", ["Not detected", "Detected (but unable to guarantee extent or condition)"])}
             </div>
@@ -978,11 +1104,22 @@ export default function EbaPreviewPage() {
               {externalMoistureQuestions.map(([key, label, riskOnYes]) => renderYesNoButtons(key, label, riskOnYes))}
               {renderYesNoButtons("masonryCladding_masonryCladUnderfloorVentsArePresentAndClear", "Masonry underfloor vents present and clear?", false, true)}
               {renderYesNoButtons("masonryCladding_windowOrMasonryVerticalJointsAreSealed", "Window/masonry vertical joints sealed?", false, true)}
-              {renderYesNoButtons("masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls", "Soffits sound with no water staining/bubbling?")}
-              {renderYesNoButtons("masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater", "Damp, soft, discoloured, mouldy or rotten areas?", true)}
-              {renderYesNoButtons("masonryCladding_underfloorSpaceExcessivelyDamp", "Underfloor space excessively damp?", true, true)}
-              {checks.moistureWorkNeeded && renderWorkFields("c22_externalMoisture")}
-              {renderDetails("Keep notes focused on work needed before install or before certification.")}
+              {renderDetails("These checks cover exterior moisture paths and masonry ventilation.")}
+            </div>
+          );
+      case "water":
+        return renderSectionFrame(
+            <div className="space-y-3">
+              {waterIngressQuestions.map(([key, label, riskOnYes]) => renderYesNoButtons(key, label, riskOnYes, key === "masonryCladding_underfloorSpaceExcessivelyDamp"))}
+              {checks.moistureWorkNeeded && (
+                <>
+                  <div className="rounded-md border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    Do not install Insulmax until the source of water ingress is identified and remedied. Note the required work before installation and certification.
+                  </div>
+                  {renderWorkFields("c22_externalMoisture")}
+                </>
+              )}
+              {renderDetails("Use this section for visible water ingress signals such as stained soffits, damp lining or excessive underfloor moisture.")}
             </div>
           );
       case "photos":
@@ -1151,7 +1288,7 @@ export default function EbaPreviewPage() {
               <span className="block">{isLastSection ? "Review" : "Next"}</span>
               {!isLastSection && <span className="block truncate text-[10px] font-medium text-slate-500">{sectionMeta[nextSection].title}</span>}
             </button>
-            <button type="button" onClick={finalise} disabled={saving || locked} className="rounded-md bg-[#00485a] px-2 py-2 text-sm font-semibold leading-tight text-white disabled:opacity-50">
+            <button type="button" onClick={finalise} disabled={locked} className="rounded-md bg-[#00485a] px-2 py-2 text-sm font-semibold leading-tight text-white disabled:opacity-50">
               <span className="block">Finalise</span>
               {!checks.canFinalise && <span className="block text-[10px] font-medium text-white/80">{checks.missingItems.length} left</span>}
             </button>
