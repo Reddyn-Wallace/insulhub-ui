@@ -29,7 +29,9 @@ type Job = {
     skip_photos_elevation_west?: boolean;
   };
   client?: {
+    _id?: string;
     contactDetails?: {
+      _id?: string;
       name?: string;
       streetAddress?: string;
       suburb?: string;
@@ -47,7 +49,9 @@ const EBA_JOB_QUERY = `
       _id
       jobNumber
       client {
+        _id
         contactDetails {
+          _id
           name
           streetAddress
           suburb
@@ -151,6 +155,15 @@ const SAVE_EBA_MUTATION = `
         photos_foundation { fileName thumbnail }
         photos_maintenance { fileName thumbnail }
       }
+    }
+  }
+`;
+
+const UPDATE_CLIENT_LOT_DP_MUTATION = `
+  mutation UpdateClientLotDP($_id: ObjectId!, $input: UpdateClientInput!) {
+    updateClient(_id: $_id, input: $input) {
+      _id
+      contactDetails { _id lotDPNumber }
     }
   }
 `;
@@ -507,7 +520,8 @@ export default function EbaPreviewPage() {
     skip_photos_elevation_south: elevationSkip.south,
     skip_photos_elevation_west: elevationSkip.west,
     assessorName: form.assessorName,
-  }), [form, elevationSkip]);
+    signature_assessor: job?.ebaForm?.signature_assessor,
+  }), [form, elevationSkip, job?.ebaForm?.signature_assessor]);
 
   const checks = useMemo(() => {
     const missingKeys = finaliseRequiredKeys.filter((key) => !hasValue(form[key]));
@@ -666,8 +680,33 @@ export default function EbaPreviewPage() {
     if (!quiet) setNotice("");
     setError("");
     try {
+      const lotOrDPNumber = ((form.lotOrDPNumber as string) || "").trim();
+      const clientId = job.client?._id;
+      const contactDetails = job.client?.contactDetails;
+      if (clientId && lotOrDPNumber !== ((contactDetails?.lotDPNumber || "") as string).trim()) {
+        await gql(UPDATE_CLIENT_LOT_DP_MUTATION, {
+          _id: clientId,
+          input: {
+            _id: clientId,
+            contactDetails: {
+              ...(contactDetails || {}),
+              lotDPNumber: lotOrDPNumber,
+            },
+          },
+        });
+      }
       const res = await gql<{ saveEBA: Job }>(SAVE_EBA_MUTATION, { input: { _id: job._id, ebaForm: ebaPayload }, isDraft: true });
-      setJob((prev) => prev ? { ...prev, ebaForm: { ...(prev.ebaForm || {}), ...(res.saveEBA.ebaForm || {}), ...ebaPayload } } : prev);
+      setJob((prev) => prev ? {
+        ...prev,
+        client: prev.client ? {
+          ...prev.client,
+          contactDetails: prev.client.contactDetails ? {
+            ...prev.client.contactDetails,
+            lotDPNumber: lotOrDPNumber || prev.client.contactDetails.lotDPNumber,
+          } : prev.client.contactDetails,
+        } : prev.client,
+        ebaForm: { ...(prev.ebaForm || {}), ...(res.saveEBA.ebaForm || {}), ...ebaPayload },
+      } : prev);
       setDirty(false);
       setSaveState("saved");
       if (!quiet) setNotice("Draft saved.");
@@ -828,6 +867,7 @@ export default function EbaPreviewPage() {
   async function saveSignature() {
     const c = canvasRef.current;
     if (!c || !job || locked) return;
+    if (autosaveTimerRef.current) window.clearTimeout(autosaveTimerRef.current);
     setSigning(true);
     try {
       const blob = await new Promise<Blob | null>((resolve) => c.toBlob(resolve, "image/png"));
@@ -836,9 +876,11 @@ export default function EbaPreviewPage() {
       const names = await uploadFiles({ 0: file, length: 1, item: (i: number) => (i === 0 ? file : null) } as unknown as FileList);
       const fileName = names[0];
       if (!fileName) throw new Error("Signature upload failed");
-      await gql(SAVE_EBA_MUTATION, { input: { _id: job._id, ebaForm: { signature_assessor: { fileName, thumbnail: fileName } } }, isDraft: true });
-      setJob((prev) => prev ? { ...prev, ebaForm: { ...(prev.ebaForm || {}), signature_assessor: { fileName, thumbnail: fileName } } } : prev);
-      setNotice("Signature saved.");
+      const signature = { fileName, thumbnail: fileName };
+      await gql(SAVE_EBA_MUTATION, { input: { _id: job._id, ebaForm: { ...ebaPayload, signature_assessor: signature } }, isDraft: true });
+      setJob((prev) => prev ? { ...prev, ebaForm: { ...(prev.ebaForm || {}), ...ebaPayload, signature_assessor: signature } } : prev);
+      setDirty(false);
+      setSaveState("saved");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save signature");
     } finally {
@@ -1104,6 +1146,7 @@ export default function EbaPreviewPage() {
               {externalMoistureQuestions.map(([key, label, riskOnYes]) => renderYesNoButtons(key, label, riskOnYes))}
               {renderYesNoButtons("masonryCladding_masonryCladUnderfloorVentsArePresentAndClear", "Masonry underfloor vents present and clear?", false, true)}
               {renderYesNoButtons("masonryCladding_windowOrMasonryVerticalJointsAreSealed", "Window/masonry vertical joints sealed?", false, true)}
+              {checks.moistureWorkNeeded && renderWorkFields("c22_externalMoisture")}
               {renderDetails("These checks cover exterior moisture paths and masonry ventilation.")}
             </div>
           );
