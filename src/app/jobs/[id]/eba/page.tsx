@@ -728,6 +728,7 @@ export default function EbaPage() {
         c22_externalMoisture_priorToInstallationWorkRequired: form.c22_externalMoisture_priorToInstallationWorkRequired,
         c22_externalMoisture_priorToCertificationWorkRequired: form.c22_externalMoisture_priorToCertificationWorkRequired,
         assessorName: form.assessorName,
+        signature_assessor: job.ebaForm?.signature_assessor,
       };
 
       if (!isDraft && !finaliseChecks.canFinalise) {

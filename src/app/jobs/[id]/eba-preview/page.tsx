@@ -30,6 +30,7 @@ type Job = {
   };
   client?: {
     _id?: string;
+    billingSameAsPhysical?: boolean;
     contactDetails?: {
       _id?: string;
       name?: string;
@@ -50,6 +51,7 @@ const EBA_JOB_QUERY = `
       jobNumber
       client {
         _id
+        billingSameAsPhysical
         contactDetails {
           _id
           name
@@ -688,6 +690,7 @@ export default function EbaPreviewPage() {
           _id: clientId,
           input: {
             _id: clientId,
+            billingSameAsPhysical: job.client?.billingSameAsPhysical ?? true,
             contactDetails: {
               ...(contactDetails || {}),
               lotDPNumber: lotOrDPNumber,
