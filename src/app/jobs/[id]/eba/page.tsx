@@ -142,6 +142,17 @@ const SAVE_EBA_MUTATION = `
   }
 `;
 
+const UPDATE_EBA_SIGNATURE_MUTATION = `
+  mutation UpdateEbaSignature($input: UpdateJobInput!) {
+    updateJob(input: $input) {
+      _id
+      ebaForm {
+        signature_assessor { fileName thumbnail }
+      }
+    }
+  }
+`;
+
 function toDatetimeLocal(iso?: string) {
   if (!iso) return "";
   const d = new Date(iso);
@@ -536,8 +547,8 @@ export default function EbaPage() {
       const fileNames = await uploadFiles({ 0: files, length: 1, item: (i: number) => (i === 0 ? files : null) } as unknown as FileList);
       if (!fileNames.length) throw new Error("Signature upload failed");
       const fileName = fileNames[0];
-      const thumbnail = fileName;
-      await gql(SAVE_EBA_MUTATION, { input: { _id: job._id, ebaForm: { signature_assessor: { fileName, thumbnail } } }, isDraft: true });
+      const thumbnail = `thumb${fileName}`;
+      await gql(UPDATE_EBA_SIGNATURE_MUTATION, { input: { _id: job._id, ebaForm: { signature_assessor: { fileName, thumbnail } } } });
       setJob((prev) => prev ? ({ ...prev, ebaForm: { ...(prev.ebaForm || {}), signature_assessor: { fileName, thumbnail } } }) : prev);
       setNotice("Assessor signature saved.");
     } catch (err) {
