@@ -27,7 +27,8 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
   const isCalendarView = pathname === "/jobs/calendar";
   const isReportsView = pathname.startsWith("/jobs/reports");
   const isSettingsView = pathname === "/jobs/settings";
-  const isStageView = !isCalendarView && !isReportsView && !isSettingsView;
+  const isCampaignsView = pathname.startsWith("/jobs/campaigns");
+  const isStageView = !isCalendarView && !isReportsView && !isSettingsView && !isCampaignsView;
   const isPrimaryStage = isStageView && (stage === "LEAD" || stage === "QUOTE");
   const activeOtherStage = !isPrimaryStage && !isCalendarView && !isReportsView
     ? OTHER_STAGES.find((s) => s.value === stage)
@@ -64,6 +65,7 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
     router.prefetch("/jobs?stage=QUOTE&subTab=OPEN");
     router.prefetch("/jobs?stage=JOBS");
     router.prefetch("/jobs/calendar");
+    router.prefetch("/jobs/campaigns");
     router.prefetch("/jobs/reports");
     router.prefetch("/jobs/reports/sales-installs");
   }, [router]);
@@ -172,13 +174,13 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
           <button
             onClick={() => setIsMenuOpen((v) => !v)}
             className={`flex w-full min-w-0 items-center justify-center gap-0.5 px-1.5 py-1.5 rounded-lg text-xs font-semibold transition-all sm:w-auto sm:gap-1 sm:px-3 sm:text-sm ${
-              (activeOtherStage || isReportsView || isSettingsView)
+              (activeOtherStage || isReportsView || isSettingsView || isCampaignsView)
                 ? "bg-[#e85d04] text-white shadow-md shadow-orange-500/30 ring-1 ring-orange-300/40"
                 : "bg-[#27424d] text-gray-300"
             }`}
           >
             <span className="min-w-0 truncate">
-              {isSettingsView ? "Settings" : isReportsView ? "Reports" : activeOtherStage ? activeOtherStage.label : "More"}
+              {isCampaignsView ? "Campaigns" : isSettingsView ? "Settings" : isReportsView ? "Reports" : activeOtherStage ? activeOtherStage.label : "More"}
             </span>
             <svg
               width="12" height="12" viewBox="0 0 24 24" fill="none"
@@ -192,6 +194,20 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
 
           {isMenuOpen && (
             <div className="absolute right-0 top-full mt-1.5 w-44 max-w-[calc(100vw-1rem)] bg-white rounded-xl shadow-xl border border-gray-100 py-1.5 z-50">
+              <button
+                onClick={() => {
+                  setIsMenuOpen(false);
+                  router.push("/jobs/campaigns");
+                }}
+                className={`w-full text-left px-4 py-2.5 text-sm font-medium transition-colors ${
+                  isCampaignsView
+                    ? "bg-orange-50 text-[#e85d04]"
+                    : "text-gray-700 hover:bg-gray-50"
+                }`}
+              >
+                Campaigns
+                {isCampaignsView && <span className="float-right text-[#e85d04]">✓</span>}
+              </button>
               <button
                 onClick={() => {
                   setIsMenuOpen(false);

@@ -2,8 +2,9 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 
 const INSULHUB_GRAPHQL_URL = "https://api.insulhub.nz/graphql";
-const AUTH_CACHE_TTL_MS = 60 * 1000;
+const AUTH_CACHE_TTL_MS = 5 * 60 * 1000;
 const authOkCache = new Map<string, number>();
+const authInFlight = new Map<string, Promise<NextResponse | null>>();
 
 function tokenFromRequest(request: NextRequest) {
   const auth = request.headers.get("authorization");
@@ -22,32 +23,42 @@ export async function requireInsulhubAuth(request: NextRequest) {
     return null;
   }
 
-  try {
-    const response = await fetch(INSULHUB_GRAPHQL_URL, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-access-token": token,
-      },
-      body: JSON.stringify({
-        query: "query OverlayAuthCheck { users { results { _id } } }",
-      }),
-      cache: "no-store",
-    });
+  const inFlight = authInFlight.get(token);
+  if (inFlight) return inFlight;
 
-    if (!response.ok) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const check = (async () => {
+    try {
+      const response = await fetch(INSULHUB_GRAPHQL_URL, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-access-token": token,
+        },
+        body: JSON.stringify({
+          query: "query OverlayAuthCheck { users { results { _id } } }",
+        }),
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      const json = await response.json();
+      if (json.errors?.length) {
+        authOkCache.delete(token);
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      authOkCache.set(token, Date.now());
+      return null;
+    } catch {
+      return NextResponse.json({ error: "Could not verify auth" }, { status: 503 });
+    } finally {
+      authInFlight.delete(token);
     }
+  })();
 
-    const json = await response.json();
-    if (json.errors?.length) {
-      authOkCache.delete(token);
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    authOkCache.set(token, Date.now());
-    return null;
-  } catch {
-    return NextResponse.json({ error: "Could not verify auth" }, { status: 503 });
-  }
+  authInFlight.set(token, check);
+  return check;
 }

@@ -27,12 +27,23 @@ type TemplateForm = {
 };
 
 const CHANNELS: TemplateChannel[] = ["sms", "email", "calendar"];
-const FIELD_OPTIONS = ["customer name", "first name", "salesperson", "address", "quote booking date", "install date", "install time", "job number", "phone", "email"];
+const FIELD_OPTIONS = ["customer name", "first name", "salesperson", "salesperson first name", "address", "quote booking date", "install date", "install time", "job number", "phone", "email"];
 const PREVIEW_FIELDS: Record<string, string> = {
   customername: "Jane Smith",
   name: "Jane Smith",
   firstname: "Jane",
-  salesperson: "Reddyn",
+  salesperson: "Reddyn Wallace",
+  salespersonname: "Reddyn Wallace",
+  salesrep: "Reddyn Wallace",
+  salesrepname: "Reddyn Wallace",
+  salesconsultant: "Reddyn Wallace",
+  salesconsultantname: "Reddyn Wallace",
+  salespersonfirstname: "Reddyn",
+  salespersonfirst: "Reddyn",
+  salesrepfirstname: "Reddyn",
+  salesrepfirst: "Reddyn",
+  salesconsultantfirstname: "Reddyn",
+  salesconsultantfirst: "Reddyn",
   address: "34 Rua Street",
   quotebookingdate: "Tue, 26 May 2026, 10:00 AM",
   installdate: "Tue, 26 May 2026",

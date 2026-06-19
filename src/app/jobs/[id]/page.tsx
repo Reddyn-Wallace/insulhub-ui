@@ -82,6 +82,25 @@ type ContactTemplate = {
   updatedAt?: string;
 };
 
+type CampaignCommunication = {
+  id: string;
+  source: "campaign" | "job";
+  campaignId: string;
+  campaignName: string;
+  templateId: string;
+  templateTitle: string;
+  channel: "email" | "sms";
+  senderLabel: string;
+  destination: string;
+  contactName: string;
+  jobNumber: number;
+  status: "sent" | "failed" | "skipped" | "launched";
+  renderedSubject: string;
+  renderedBody: string;
+  sentAt?: string | null;
+  failureReason: string;
+};
+
 // ── Helpers ────────────────────────────────────────────────────────
 function fmt(iso?: string | null) {
   if (!iso) return "";
@@ -498,6 +517,9 @@ export default function JobDetailPage() {
   const [contactTemplates, setContactTemplates] = useState<ContactTemplate[]>([]);
   const [loadingContactTemplates, setLoadingContactTemplates] = useState(false);
   const [contactTemplateMode, setContactTemplateMode] = useState<"sms" | "email">("sms");
+  const [campaignCommunications, setCampaignCommunications] = useState<CampaignCommunication[]>([]);
+  const [loadingCampaignCommunications, setLoadingCampaignCommunications] = useState(false);
+  const [selectedCampaignCommunication, setSelectedCampaignCommunication] = useState<CampaignCommunication | null>(null);
   const setInstallScopeAndTemplate = useCallback((scope: "internal" | "external" | "both") => {
     setInstallPlanningScope(scope);
   }, []);
@@ -557,6 +579,25 @@ export default function JobDetailPage() {
       setLoadingContactTemplates(false);
     }
   }, []);
+
+  const loadCampaignCommunications = useCallback(async () => {
+    const token = getToken();
+    if (!token) return;
+
+    setLoadingCampaignCommunications(true);
+    try {
+      const res = await fetch(`/api/jobs/${id}/campaign-communications`, {
+        headers: { "x-access-token": token },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "Failed to load sent communications");
+      setCampaignCommunications(json.communications || []);
+    } catch {
+      setCampaignCommunications([]);
+    } finally {
+      setLoadingCampaignCommunications(false);
+    }
+  }, [id]);
 
   // Load job + users
   const load = useCallback(async () => {
@@ -662,7 +703,8 @@ export default function JobDetailPage() {
     if (!localStorage.getItem("token")) { router.push("/login"); return; }
     load();
     loadContactTemplates();
-  }, [load, loadContactTemplates, router]);
+    loadCampaignCommunications();
+  }, [load, loadCampaignCommunications, loadContactTemplates, router]);
 
   useEffect(() => {
     const email = job?.client?.contactDetails?.email?.trim().toLowerCase();
@@ -738,6 +780,77 @@ export default function JobDetailPage() {
     setContactTemplateMode(channel);
     openSheet("contactTemplatePicker");
     if (!contactTemplates.length) loadContactTemplates();
+  }
+
+  async function recordAndLaunchJobCommunication(input: {
+    href: string;
+    channel: "sms" | "email";
+    destination: string;
+    templateId?: string;
+    templateTitle?: string;
+    renderedSubject?: string;
+    renderedBody?: string;
+  }) {
+    if (!job) {
+      window.location.href = input.href;
+      return;
+    }
+
+    const token = getToken();
+    const optimisticCommunication: CampaignCommunication = {
+      id: `local-${Date.now()}`,
+      source: "job",
+      campaignId: "",
+      campaignName: "",
+      templateId: input.templateId || "",
+      templateTitle: input.templateTitle || "",
+      channel: input.channel,
+      senderLabel: "",
+      destination: input.destination,
+      contactName: contactName,
+      jobNumber: job.jobNumber,
+      status: "launched",
+      renderedSubject: input.renderedSubject || "",
+      renderedBody: input.renderedBody || "",
+      sentAt: new Date().toISOString(),
+      failureReason: "",
+    };
+
+    closeSheet();
+    setCampaignCommunications((current) => [optimisticCommunication, ...current]);
+
+    try {
+      if (token) {
+        const res = await fetch(`/api/jobs/${id}/campaign-communications`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-access-token": token,
+          },
+          body: JSON.stringify({
+            channel: input.channel,
+            destination: input.destination,
+            contactName,
+            jobNumber: job.jobNumber,
+            templateId: input.templateId || null,
+            templateTitle: input.templateTitle || "",
+            renderedSubject: input.renderedSubject || "",
+            renderedBody: input.renderedBody || "",
+          }),
+        });
+        const json = await res.json();
+        if (res.ok && json.communication) {
+          setCampaignCommunications((current) => [
+            json.communication,
+            ...current.filter((communication) => communication.id !== optimisticCommunication.id),
+          ]);
+        }
+      }
+    } catch {
+      // The SMS/mail app should still open even if the audit log write fails.
+    } finally {
+      window.location.href = input.href;
+    }
   }
 
   useEffect(() => {
@@ -2205,6 +2318,51 @@ export default function JobDetailPage() {
           {c?.email && <button type="button" onClick={() => openContactTemplates("email")} className="flex-1 bg-[#1a3a4a] text-white font-semibold py-3 rounded-xl text-center text-sm">✉️ Email</button>}
         </div>
 
+        <Section title="Sent Communications">
+          {loadingCampaignCommunications ? (
+            <p className="text-sm text-gray-400">Loading sent communications...</p>
+          ) : campaignCommunications.length ? (
+            <div className="space-y-2">
+              {campaignCommunications.slice(0, 5).map((communication) => (
+                <button
+                  key={communication.id}
+                  type="button"
+                  onClick={() => setSelectedCampaignCommunication(communication)}
+                  className="w-full rounded-xl border border-gray-100 bg-white px-3 py-3 text-left hover:bg-gray-50"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-gray-900">
+                        {communication.source === "campaign" ? communication.campaignName : communication.templateTitle || "No template"}
+                      </div>
+                      <div className="mt-1 text-xs text-gray-500">
+                        {communication.source === "campaign" ? "Campaign" : "From job"} • {communication.channel === "sms" ? "SMS" : "Email"} to {communication.destination}
+                      </div>
+                      <div className="mt-1 text-xs text-gray-400">{fmtDateTime(communication.sentAt)}</div>
+                    </div>
+                    <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold ${
+                      communication.status === "sent"
+                        ? "bg-emerald-50 text-emerald-700"
+                        : communication.status === "failed"
+                          ? "bg-red-50 text-red-700"
+                          : communication.status === "launched"
+                            ? "bg-blue-50 text-blue-700"
+                            : "bg-gray-100 text-gray-700"
+                    }`}>
+                      {communication.status}
+                    </span>
+                  </div>
+                </button>
+              ))}
+              {campaignCommunications.length > 5 && (
+                <p className="text-xs text-gray-400">{campaignCommunications.length - 5} older communication{campaignCommunications.length - 5 === 1 ? "" : "s"} hidden.</p>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400">No communications recorded for this job yet.</p>
+          )}
+        </Section>
+
         {activeDetailTab === "job" ? (
           <>
             <Section title="Job checklist">
@@ -2760,7 +2918,18 @@ export default function JobDetailPage() {
                     <a
                       key={template.id}
                       href={launchHref}
-                      onClick={closeSheet}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        recordAndLaunchJobCommunication({
+                          href: launchHref,
+                          channel: contactTemplateMode,
+                          destination: contactTemplateMode === "sms" ? phone || "" : c?.email || "",
+                          templateId: template.id,
+                          templateTitle: template.title,
+                          renderedSubject: subject,
+                          renderedBody: body,
+                        });
+                      }}
                       className="flex items-center justify-between gap-3 border-b border-gray-100 px-4 py-3 text-left last:border-b-0 hover:bg-gray-50"
                     >
                       <span className="min-w-0 truncate text-sm font-semibold text-gray-900">{template.title}</span>
@@ -2778,13 +2947,78 @@ export default function JobDetailPage() {
 
           <a
             href={contactTemplateMode === "sms" ? `sms:${encodeURIComponent((phone || "").replace(/[^\d+]/g, ""))}` : `mailto:${encodeURIComponent(c?.email || "")}`}
-            onClick={closeSheet}
+            onClick={(event) => {
+              event.preventDefault();
+              recordAndLaunchJobCommunication({
+                href: contactTemplateMode === "sms" ? `sms:${encodeURIComponent((phone || "").replace(/[^\d+]/g, ""))}` : `mailto:${encodeURIComponent(c?.email || "")}`,
+                channel: contactTemplateMode,
+                destination: contactTemplateMode === "sms" ? phone || "" : c?.email || "",
+              });
+            }}
             className="flex w-fit items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm font-semibold text-[#e85d04]"
           >
             No template
             <span className="text-base leading-none">›</span>
           </a>
         </div>
+      </BottomSheet>
+
+      <BottomSheet
+        open={!!selectedCampaignCommunication}
+        onClose={() => setSelectedCampaignCommunication(null)}
+        title="Sent Communication"
+      >
+        {selectedCampaignCommunication && (
+          <div className="space-y-4">
+            <div className="rounded-xl bg-gray-50 px-3 py-2.5">
+              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                {selectedCampaignCommunication.source === "campaign" ? "Campaign" : "Job communication"}
+              </div>
+              <div className="mt-0.5 text-sm font-semibold text-gray-900">
+                {selectedCampaignCommunication.source === "campaign"
+                  ? selectedCampaignCommunication.campaignName
+                  : selectedCampaignCommunication.templateTitle || "No template"}
+              </div>
+              <div className="mt-1 text-xs text-gray-500">
+                {selectedCampaignCommunication.channel === "sms" ? "SMS" : "Email"} {selectedCampaignCommunication.source === "campaign" ? "sent" : "launched"} {fmtDateTime(selectedCampaignCommunication.sentAt)}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2 text-sm">
+              <InfoRow label="Sender" value={selectedCampaignCommunication.senderLabel} />
+              <InfoRow label="Recipient" value={selectedCampaignCommunication.destination} />
+              <InfoRow label="Status" value={selectedCampaignCommunication.status} />
+            </div>
+
+            {selectedCampaignCommunication.channel === "email" && (
+              <div className="rounded-xl border border-gray-200 bg-white px-3 py-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Subject</div>
+                <div className="mt-1 text-sm font-semibold text-gray-900">{selectedCampaignCommunication.renderedSubject || "(No subject)"}</div>
+              </div>
+            )}
+
+            <div className="rounded-xl border border-gray-200 bg-white px-3 py-3">
+              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Body</div>
+              <div className="mt-2 whitespace-pre-wrap text-sm text-gray-800">{selectedCampaignCommunication.renderedBody || "(No body captured)"}</div>
+            </div>
+
+            {selectedCampaignCommunication.failureReason && (
+              <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {selectedCampaignCommunication.failureReason}
+              </div>
+            )}
+
+            {selectedCampaignCommunication.source === "campaign" && (
+              <button
+                type="button"
+                onClick={() => router.push(`/jobs/campaigns/${selectedCampaignCommunication.campaignId}`)}
+                className="w-full rounded-xl bg-[#1a3a4a] py-3 text-sm font-semibold text-white"
+              >
+                Open Campaign
+              </button>
+            )}
+          </div>
+        )}
       </BottomSheet>
 
       {/* Add note */}
