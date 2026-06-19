@@ -2043,15 +2043,6 @@ export default function JobDetailPage() {
       disabled: job.ebaForm?.clientApproved ? true : saving,
     },
     {
-      title: "Preview rebuilt EBA page",
-      description: "Temporary side-by-side rebuild route for review without disturbing the current EBA page",
-      status: "Preview",
-      wired: true,
-      actionLabel: "Open EBA preview",
-      action: () => router.push(`/jobs/${id}/eba-preview`),
-      disabled: saving,
-    },
-    {
       title: "See signed EBA / download",
       description: job.ebaForm?.clientApproved
         ? `EBA signed ${job.ebaForm?.clientApprovedAt ? fmtDateTime(job.ebaForm.clientApprovedAt) : ""}`.trim()

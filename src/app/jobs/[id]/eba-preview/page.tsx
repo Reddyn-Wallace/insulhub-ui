@@ -105,6 +105,7 @@ const EBA_JOB_QUERY = `
         g931_electricity_priorToInstallationWorkRequired
         g931_electricity_priorToCertificationWorkRequired
         h131_energyEfficiency
+        c22_externalMoisture
         c22_externalMoisture_paintFinishOfExteriorCladdingAppearsToBeInAnWellMaintainedCondition
         c22_externalMoisture_exteriorCladdingAppearsToHaveDeteriorationToALevelThatMayAllowWaterIngress
         c22_externalMoisture_joineryAppearsToBeInGoodConditionAndNotAllowingWaterIngress
@@ -150,6 +151,11 @@ const SAVE_EBA_MUTATION = `
         complete
         clientApproved
         assessorName
+        c22_externalMoisture
+        c22_externalMoisture_priorToInstallationWorkRequired
+        c22_externalMoisture_priorToCertificationWorkRequired
+        masonryCladding_underfloorSpaceExcessivelyDamp_priorToInstallationWorkRequired
+        masonryCladding_underfloorSpaceExcessivelyDamp_priorToCertificationWorkRequired
         signature_assessor { fileName thumbnail }
         signature_conformityToCodeMarkCert { fileName thumbnail }
         photos_elevation_north { fileName thumbnail }
@@ -516,6 +522,7 @@ export default function EbaPreviewPage() {
     g931_electricity_priorToInstallationWorkRequired: form.g931_electricity_priorToInstallationWorkRequired,
     g931_electricity_priorToCertificationWorkRequired: form.g931_electricity_priorToCertificationWorkRequired,
     h131_energyEfficiency: form.h131_energyEfficiency,
+    c22_externalMoisture: null,
     c22_externalMoisture_paintFinishOfExteriorCladdingAppearsToBeInAnWellMaintainedCondition: form.c22_externalMoisture_paintFinishOfExteriorCladdingAppearsToBeInAnWellMaintainedCondition,
     c22_externalMoisture_exteriorCladdingAppearsToHaveDeteriorationToALevelThatMayAllowWaterIngress: form.c22_externalMoisture_exteriorCladdingAppearsToHaveDeteriorationToALevelThatMayAllowWaterIngress,
     c22_externalMoisture_joineryAppearsToBeInGoodConditionAndNotAllowingWaterIngress: form.c22_externalMoisture_joineryAppearsToBeInGoodConditionAndNotAllowingWaterIngress,
