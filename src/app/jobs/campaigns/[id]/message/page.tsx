@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { firstNameForMerge, formatNameForMerge } from "@/lib/communication-merge-fields";
 
 type Campaign = {
   id: string;
@@ -49,10 +50,6 @@ function formatDate(value?: string | null) {
   });
 }
 
-function firstName(name?: string) {
-  return (name || "").trim().split(/\s+/)[0] || "";
-}
-
 function normalizeNzSmsDestination(destination: string) {
   const compact = destination.replace(/[^\d+]/g, "");
   if (compact.startsWith("+64")) return compact;
@@ -64,10 +61,11 @@ function normalizeNzSmsDestination(destination: string) {
 
 function renderMergeFields(text: string, recipient?: SavedRecipient | null) {
   if (!recipient) return text;
+  const contactName = formatNameForMerge(recipient.contactName || "");
   const salespersonName = recipient.salespersonName || "";
   const values: Record<string, string> = {
-    "customer name": recipient.contactName || "",
-    "first name": firstName(recipient.contactName),
+    "customer name": contactName,
+    "first name": firstNameForMerge(contactName),
     "job number": String(recipient.jobNumber || ""),
     address: recipient.address || "",
     salesperson: salespersonName,
@@ -76,10 +74,10 @@ function renderMergeFields(text: string, recipient?: SavedRecipient | null) {
     "sales rep name": salespersonName,
     "sales consultant": salespersonName,
     "sales consultant name": salespersonName,
-    "salesperson first name": firstName(salespersonName),
-    "salesperson first": firstName(salespersonName),
-    "sales rep first name": firstName(salespersonName),
-    "sales consultant first name": firstName(salespersonName),
+    "salesperson first name": firstNameForMerge(salespersonName),
+    "salesperson first": firstNameForMerge(salespersonName),
+    "sales rep first name": firstNameForMerge(salespersonName),
+    "sales consultant first name": firstNameForMerge(salespersonName),
     "quote date": formatDate(recipient.quoteDate),
   };
   return text.replace(/\{([^}]+)\}/g, (match, key: string) => {

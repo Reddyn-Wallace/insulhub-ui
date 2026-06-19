@@ -50,6 +50,12 @@ function minutesFromTime(value: string) {
   return hours * 60 + minutes;
 }
 
+function sendWindowDurationMs(settings: CommunicationSettings) {
+  const startMinute = minutesFromTime(settings.campaignSendWindowStartTime);
+  const endMinute = minutesFromTime(settings.campaignSendWindowEndTime);
+  return Math.max(60_000, (endMinute - startMinute) * 60_000);
+}
+
 export function normalizeCommunicationSettings(input: unknown): CommunicationSettings {
   const values = input && typeof input === "object" ? input as Record<string, unknown> : {};
   const legacyStart = values.campaignSendWindowStartHour;
@@ -112,25 +118,25 @@ export async function saveCommunicationSettings(input: unknown) {
   return settings;
 }
 
-export function nzHour() {
+export function nzHour(now = new Date()) {
   const parts = new Intl.DateTimeFormat("en-NZ", {
     timeZone: "Pacific/Auckland",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-  }).formatToParts(new Date());
+  }).formatToParts(now);
   const hour = Number(parts.find((part) => part.type === "hour")?.value || 0);
   const minute = Number(parts.find((part) => part.type === "minute")?.value || 0);
   return hour * 60 + minute;
 }
 
-export function nzMinuteOfDay() {
-  return nzHour();
+export function nzMinuteOfDay(now = new Date()) {
+  return nzHour(now);
 }
 
-export function communicationSendWindowError(settings: CommunicationSettings) {
+export function communicationSendWindowError(settings: CommunicationSettings, now = new Date()) {
   if (!settings.campaignSendWindowEnabled) return "";
-  const currentMinute = nzMinuteOfDay();
+  const currentMinute = nzMinuteOfDay(now);
   const startMinute = minutesFromTime(settings.campaignSendWindowStartTime);
   const endMinute = minutesFromTime(settings.campaignSendWindowEndTime);
   if (
@@ -147,10 +153,10 @@ export function communicationSendDelayMs(settings: CommunicationSettings, channe
   return 0;
 }
 
-export function nextAllowedSendAt(settings: CommunicationSettings, offsetMs = 0) {
-  if (!settings.campaignSendWindowEnabled) return new Date(Date.now() + offsetMs);
+export function nextAllowedSendAt(settings: CommunicationSettings, offsetMs = 0, now = new Date()) {
+  if (!settings.campaignSendWindowEnabled) return new Date(now.getTime() + offsetMs);
 
-  const currentMinute = nzMinuteOfDay();
+  const currentMinute = nzMinuteOfDay(now);
   const startMinute = minutesFromTime(settings.campaignSendWindowStartTime);
   const endMinute = minutesFromTime(settings.campaignSendWindowEndTime);
   let waitMinutes = 0;
@@ -160,33 +166,56 @@ export function nextAllowedSendAt(settings: CommunicationSettings, offsetMs = 0)
     waitMinutes = (24 * 60 - currentMinute) + startMinute;
   }
 
-  return new Date(Date.now() + waitMinutes * 60_000 + offsetMs);
+  return new Date(now.getTime() + waitMinutes * 60_000 + offsetMs);
+}
+
+export function addSendWindowOffset(settings: CommunicationSettings, offsetMs = 0, now = new Date()) {
+  if (!settings.campaignSendWindowEnabled) return new Date(now.getTime() + offsetMs);
+
+  const startMinute = minutesFromTime(settings.campaignSendWindowStartTime);
+  const endMinute = minutesFromTime(settings.campaignSendWindowEndTime);
+  let cursor = nextAllowedSendAt(settings, 0, now);
+  let remainingMs = Math.max(0, offsetMs);
+
+  while (remainingMs > 0) {
+    const currentMinute = nzMinuteOfDay(cursor);
+    if (currentMinute < startMinute || currentMinute >= endMinute) {
+      cursor = nextAllowedSendAt(settings, 0, cursor);
+      continue;
+    }
+
+    const remainingWindowMs = Math.max(0, (endMinute - currentMinute) * 60_000);
+    if (remainingMs < remainingWindowMs) {
+      return new Date(cursor.getTime() + remainingMs);
+    }
+
+    remainingMs -= remainingWindowMs;
+    cursor = nextAllowedSendAt(settings, 0, new Date(cursor.getTime() + remainingWindowMs));
+  }
+
+  return cursor;
 }
 
 export function campaignRecipientScheduleAt(
   settings: CommunicationSettings,
   channel: "email" | "sms",
-  index: number
+  index: number,
+  now = new Date()
 ) {
   if (channel === "sms") {
-    return nextAllowedSendAt(settings, index * communicationSendDelayMs(settings, channel));
+    return addSendWindowOffset(settings, index * communicationSendDelayMs(settings, channel), now);
   }
 
-  const startMinute = minutesFromTime(settings.campaignSendWindowStartTime);
-  const endMinute = minutesFromTime(settings.campaignSendWindowEndTime);
-  const windowMs = Math.max(60_000, (endMinute - startMinute) * 60_000);
-  const dayIndex = Math.floor(index / settings.campaignEmailDailyLimit);
+  const windowMs = sendWindowDurationMs(settings);
   const indexWithinDay = index % settings.campaignEmailDailyLimit;
   const baseSpacingMs = Math.ceil(windowMs / settings.campaignEmailDailyLimit);
   const jitterMs = indexWithinDay === 0 ? 0 : Math.round(baseSpacingMs * (Math.random() * 0.2 - 0.1));
-  const offsetMs = dayIndex * 24 * 60 * 60_000 + indexWithinDay * baseSpacingMs + jitterMs;
-  return nextAllowedSendAt(settings, Math.max(0, offsetMs));
+  const offsetMs = index * baseSpacingMs + jitterMs;
+  return addSendWindowOffset(settings, Math.max(0, offsetMs), now);
 }
 
 export function communicationEmailSpacingEstimateMs(settings: CommunicationSettings) {
-  const startMinute = minutesFromTime(settings.campaignSendWindowStartTime);
-  const endMinute = minutesFromTime(settings.campaignSendWindowEndTime);
-  const windowMs = Math.max(60_000, (endMinute - startMinute) * 60_000);
+  const windowMs = sendWindowDurationMs(settings);
   const baseDelay = Math.ceil(windowMs / settings.campaignEmailDailyLimit);
   const jitter = Math.round(baseDelay * (Math.random() * 0.2 - 0.1));
   return Math.max(0, baseDelay + jitter);

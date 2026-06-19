@@ -117,7 +117,6 @@ export default function CalendarInviteTemplatePage() {
     }
 
     let cancelled = false;
-    setLoading(true);
     fetch("/api/contact-templates?channel=calendar", {
       headers: { "x-access-token": token },
     })

@@ -6,6 +6,7 @@ import {
 } from "@/lib/communication-settings";
 import { loadQueuedRecipients, processCampaignQueue } from "@/lib/campaign-queue";
 import { deliverCommunication } from "@/lib/communication-delivery";
+import { firstNameForMerge, formatNameForMerge } from "@/lib/communication-merge-fields";
 import { ensureOverlaySchema, overlaySql } from "@/lib/overlay-db";
 
 type RecipientInput = {
@@ -130,10 +131,6 @@ async function loadSender(id: string) {
   return rows[0] || null;
 }
 
-function firstName(name: string) {
-  return name.trim().split(/\s+/)[0] || "";
-}
-
 function formatNzDate(value: unknown) {
   if (typeof value !== "string" && !(value instanceof Date)) return "No quote date";
   const date = new Date(value);
@@ -147,11 +144,11 @@ function formatNzDate(value: unknown) {
 }
 
 function renderMergeFields(text: string, row: Record<string, unknown>) {
-  const contactName = stringValue(row.contact_name);
+  const contactName = formatNameForMerge(stringValue(row.contact_name));
   const salespersonName = stringValue(row.salesperson_name);
   const values: Record<string, string> = {
     "customer name": contactName,
-    "first name": firstName(contactName),
+    "first name": firstNameForMerge(contactName),
     "job number": String(row.job_number || ""),
     address: stringValue(row.address),
     salesperson: salespersonName,
@@ -160,10 +157,10 @@ function renderMergeFields(text: string, row: Record<string, unknown>) {
     "sales rep name": salespersonName,
     "sales consultant": salespersonName,
     "sales consultant name": salespersonName,
-    "salesperson first name": firstName(salespersonName),
-    "salesperson first": firstName(salespersonName),
-    "sales rep first name": firstName(salespersonName),
-    "sales consultant first name": firstName(salespersonName),
+    "salesperson first name": firstNameForMerge(salespersonName),
+    "salesperson first": firstNameForMerge(salespersonName),
+    "sales rep first name": firstNameForMerge(salespersonName),
+    "sales consultant first name": firstNameForMerge(salespersonName),
     "quote date": formatNzDate(row.quote_date),
   };
   return text.replace(/\{([^}]+)\}/g, (match, key: string) => {

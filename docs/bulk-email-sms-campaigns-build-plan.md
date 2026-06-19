@@ -544,7 +544,7 @@ What was completed:
 - Changed new draft campaign creation to open the campaign builder for the created draft instead of returning to the campaign list.
 - Added Deselect All to the audience builder results toolbar.
 - Changed Gmail test and campaign sends to use the sender label from Configure Senders as the email display name in the `From` header.
-- Added inline Gmail sender editing so the sender display name/address can be changed from Configure Senders.
+- Added inline Gmail sender editing so the sender display name can be changed from Configure Senders.
 - Gmail test and campaign emails append the synced Gmail signature stored on the sender.
 - Replaced manual Gmail signature editing with Gmail signature sync. Reconnecting Gmail now requests signature-settings access, syncs the account's Gmail signature HTML, and stores it against the sender.
 - Simplified live sender row actions to Connect/Disconnect, Edit, and Remove. Gmail Connect automatically tests the connection and syncs the Gmail signature.
@@ -566,6 +566,12 @@ What was completed:
 - Changed test email/SMS sends to render merge fields using the currently selected preview recipient.
 - Normalized preview/test SMS destinations and SMSGate delivery destinations from local NZ mobile formats such as `027...` / `021...` to `+6427...` / `+6421...`.
 - Made SMSGate sender phone/display number optional; SMSGate sends use the configured gateway/device credentials, not the display number.
+- Added automated communication tests covering send-window scheduling, SMS spacing rollover, email daily rollover, Gmail signature/scope handling, Gmail MIME rendering, and SMSGate request normalization.
+- Fixed delivery scheduling so long email/SMS queues consume time only inside allowed send windows. Recipients that would land exactly on or after the send-window end now roll to the next allowed window instead of becoming overdue and bunching up later.
+- Removed Stub from the Configure Senders add flow. Email senders now add Gmail and SMS senders now add SMSGate.
+- Moved Sent Communications into the Quote Info tab and collapsed it to the most recent communication by default, with a View more toggle for older records.
+- Added merge-field name formatting so all-caps customer names render as readable name case in job and campaign communications.
+- Cleared 4 archived campaign records from the overlay database; no archived campaign records remained after cleanup.
 
 Implementation notes worth remembering:
 - Gmail sender setup uses app-level Google OAuth client config; Connect Gmail stores access/refresh tokens on the sender.
@@ -574,13 +580,12 @@ Implementation notes worth remembering:
 - SMSGate hosted server addresses such as `api.sms-gate.app:443` are normalized to `https://api.sms-gate.app/3rdparty/v1`.
 - SMSGate test connection validates the configured Device ID against `/devices` when provided.
 - SMSGate sends retry without Device ID if SMSGate rejects the configured device as not found.
-- Gmail connection tests validate the OAuth token and `gmail.send` scope without requiring extra Gmail profile scopes.
 - Gmail connection tests now also require Gmail settings access because synced Gmail signatures depend on the Gmail send-as settings endpoint.
 - Secrets are not returned by the sender APIs; public sender responses only include non-secret fields and boolean flags.
 - Disconnecting a provider clears stored tokens/connection status but keeps the sender record for later reconnect.
 - Draft campaign deletion uses the existing campaign-recipient cascade, so saved audience rows are removed with the draft.
 - Campaign sender readiness now depends on the saved campaign sender id matching the currently selected sender id.
-- Email spacing applies after the first recipient. The first email is immediate when the campaign is queued inside the allowed send window; if outside the window, it waits for the next allowed window.
+- Email/SMS schedule offsets are applied only inside allowed send windows. The first recipient is immediate when queued inside the window; if outside the window, it waits for the next allowed window.
 - Gmail sender display name comes from the Configure Senders label, while the email address still comes from the sender value/address.
 - Gmail's web UI signature is not automatically applied by Gmail API sends. InsulHub now imports the Gmail send-as signature through OAuth and appends the synced HTML signature at send time.
 - For Gmail senders, the editable name is the InsulHub sender/display label. The email address is read-only after connection and comes from the actual Gmail account.
@@ -590,6 +595,7 @@ Implementation notes worth remembering:
 - Test sends use the selected preview recipient for merge field rendering but still save the raw template body/subject on the campaign.
 - SMSGate enqueue success is treated as a sent attempt in the current MVP status model; deeper delivery polling/webhooks are still pending.
 - Stub senders still work for local testing and create stub provider ids.
+- Stub senders remain supported internally for automated/local testing, but users can no longer add new stub senders from Configure Senders.
 
 Decisions made:
 - Gmail account tokens and SMSGate credentials are managed from Settings for the MVP connection experience; Google app OAuth client setup remains app-level.
@@ -597,7 +603,7 @@ Decisions made:
 - Live campaign sends default to the proposal-style NZ delivery window of 08:30-17:30 and can now be changed from Settings > Communication Settings.
 - Test sends intentionally ignore campaign delivery limits so sender setup can be verified quickly.
 - Existing Gmail senders connected before Gmail signature sync need to reconnect once so Google grants the additional signature-settings permission.
-- Email spacing with random jitter is represented in settings for the confirmation/queue work, but full multi-day rollover still needs the queued delivery worker.
+- Email spacing includes small random jitter except for the first recipient in each daily limit block. Multi-day rollover is handled by queued scheduling plus Cloudflare Worker cron processing.
 - The queue is processed by both the campaign page/manual Process Due button and Cloudflare Workers Cron. Cron calls are protected with `CRON_SECRET`.
 - Vercel rejected once-per-minute cron on the current Hobby account, so unattended minute-level scheduling moved to Cloudflare Workers.
 - Confirmation estimates use the saved Communication Settings and communicate that email sends are spaced with random jitter.
@@ -606,7 +612,7 @@ Decisions made:
 
 Issues or follow-up items:
 - Monitor Cloudflare Worker invocation logs after the first live queued campaign to confirm expected cadence and error handling.
-- Decide later whether draft deletion should also be exposed directly on the campaign list.
+- Existing project lint warnings remain in unrelated EBA/site-plan/job-list code; full lint now passes with warnings only.
 
 ## Current Next Chunk
 

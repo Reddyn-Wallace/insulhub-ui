@@ -13,6 +13,7 @@ import {
 import BottomSheet from "@/components/BottomSheet";
 import AddressAutocomplete from "@/components/AddressAutocomplete";
 import { useAppDialog } from "@/components/AppDialog";
+import { firstNameForMerge, formatNameForMerge } from "@/lib/communication-merge-fields";
 
 // ── Types ──────────────────────────────────────────────────────────
 interface User { _id: string; firstname: string; lastname: string; email: string; role?: string; }
@@ -22,6 +23,7 @@ interface ContactDetails {
 }
 interface Job {
   _id: string; jobNumber: number; stage: string; notes?: string; updatedAt: string; archivedAt?: string; certificateSentAt?: string;
+  sitePlanNotes?: string;
   installation?: { installDate?: string; installNote?: string; installStatus?: string; checkSheetSignedAsComplete?: boolean };
   installerChecksheet?: {
     _id?: string;
@@ -46,10 +48,12 @@ interface Job {
     quoteNumber?: string; date?: string; c_total?: number; c_deposit?: number;
     c_contractPrice?: number; c_gst?: number;
     depositPercentage?: number; consentFee?: number; quoteNote?: string; quoteResultNote?: string;
+    totalOverridden?: boolean; depositOverridden?: boolean;
+    sendFollowupEmail?: boolean; sendFollowupText?: boolean;
     status?: string;
     deferralDate?: string;
-    wall?: { SQMPrice?: number; SQM?: number; c_RValue?: number; c_bagCount?: number; cavityDepthMeters?: number };
-    ceiling?: { SQMPrice?: number; SQM?: number; RValue?: number; downlights?: number; c_bagCount?: number };
+    wall?: { SQMPrice?: number; SQM?: number; c_RValue?: number; c_bagCount?: number; cavityDepthMeters?: number; internal?: boolean };
+    ceiling?: { SQMPrice?: number; SQM?: number; RValue?: number; downlights?: number; c_thickness?: number; c_bagCount?: number };
     extras?: { name?: string; price?: number }[];
     files_QuoteSitePlan?: string[];
   };
@@ -520,6 +524,7 @@ export default function JobDetailPage() {
   const [campaignCommunications, setCampaignCommunications] = useState<CampaignCommunication[]>([]);
   const [loadingCampaignCommunications, setLoadingCampaignCommunications] = useState(false);
   const [selectedCampaignCommunication, setSelectedCampaignCommunication] = useState<CampaignCommunication | null>(null);
+  const [showAllCampaignCommunications, setShowAllCampaignCommunications] = useState(false);
   const setInstallScopeAndTemplate = useCallback((scope: "internal" | "external" | "both") => {
     setInstallPlanningScope(scope);
   }, []);
@@ -890,7 +895,7 @@ export default function JobDetailPage() {
 
   // ── Helper: build QuoteInput from current job state ─────────────
   function buildQuoteInput(overrides: Record<string, unknown> = {}) {
-    const q = (job?.quote || {}) as Record<string, any>;
+    const q = job?.quote || {};
     return {
       quoteNumber: q?.quoteNumber,
       date: q?.date,
@@ -1169,12 +1174,12 @@ export default function JobDetailPage() {
       });
 
       if (status === "NEW" && job?.stage === "QUOTE" && job?.quote) {
-        const q = job.quote as Record<string, any>;
+        const q = job.quote;
         await gql(UPDATE_JOB_QUOTE, {
           input: {
             _id: id,
             stage: job.stage,
-            sitePlanNotes: (job as any).sitePlanNotes || "",
+            sitePlanNotes: job.sitePlanNotes || "",
             quote: {
               ...buildQuoteInput({ status: "UNSET", deferralDate: null }),
               wall: {
@@ -1220,12 +1225,12 @@ export default function JobDetailPage() {
       // Also set quote.status to DECLINED so old UI shows Dead too
       // Must use full quote payload with stage+sitePlanNotes for backend to respect status
       if (job?.stage === "QUOTE" && job?.quote) {
-        const q = job.quote as Record<string, any>;
+        const q = job.quote;
         await gql(UPDATE_JOB_QUOTE, {
           input: {
             _id: id,
             stage: job.stage,
-            sitePlanNotes: (job as any).sitePlanNotes || "",
+            sitePlanNotes: job.sitePlanNotes || "",
             quote: {
               ...buildQuoteInput({ status: "DECLINED" }),
               wall: {
@@ -1359,7 +1364,7 @@ export default function JobDetailPage() {
       _id: id,
       stage: "QUOTE",
       quote: quotePayload,
-      sitePlanNotes: ((job as any)?.sitePlanNotes) || "",
+      sitePlanNotes: job?.sitePlanNotes || "",
     };
   }
 
@@ -1923,8 +1928,8 @@ export default function JobDetailPage() {
   const c = job.client?.contactDetails;
   const phone = c?.phoneMobile || c?.phoneSecondary;
   const address = [c?.streetAddress, c?.suburb, c?.city, c?.postCode].filter(Boolean).join(", ");
-  const contactName = c?.name?.trim() || "there";
-  const firstName = contactName.split(/\s+/)[0] || "there";
+  const contactName = formatNameForMerge(c?.name?.trim() || "") || "there";
+  const firstName = firstNameForMerge(contactName) || "there";
   const statusRaw = (job.lead?.leadStatus || "NEW").toUpperCase();
   const leadStatus = statusRaw === "ON_HOLD" ? "CALLBACK" : statusRaw;
   const quoteStatus = (job.quote?.status || "").toUpperCase();
@@ -1973,6 +1978,9 @@ export default function JobDetailPage() {
   const isPostQuoteStage = ["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"].includes(job.stage);
   const isQuoteInfoStage = ["QUOTE", "SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"].includes(job.stage);
   const activeDetailTab = isPostQuoteStage ? detailTab : "quote";
+  const visibleCampaignCommunications = showAllCampaignCommunications
+    ? campaignCommunications
+    : campaignCommunications.slice(0, 1);
   const installDateDisplay = fmtDateTime(job.installation?.installDate) || "Not set";
   const managerAdjustmentNumber = Number(managerAdjustment);
   const managerAdjustmentValid = managerAdjustment.trim() === "" || Number.isFinite(managerAdjustmentNumber);
@@ -2309,51 +2317,6 @@ export default function JobDetailPage() {
           {c?.email && <button type="button" onClick={() => openContactTemplates("email")} className="flex-1 bg-[#1a3a4a] text-white font-semibold py-3 rounded-xl text-center text-sm">✉️ Email</button>}
         </div>
 
-        <Section title="Sent Communications">
-          {loadingCampaignCommunications ? (
-            <p className="text-sm text-gray-400">Loading sent communications...</p>
-          ) : campaignCommunications.length ? (
-            <div className="space-y-2">
-              {campaignCommunications.slice(0, 5).map((communication) => (
-                <button
-                  key={communication.id}
-                  type="button"
-                  onClick={() => setSelectedCampaignCommunication(communication)}
-                  className="w-full rounded-xl border border-gray-100 bg-white px-3 py-3 text-left hover:bg-gray-50"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-gray-900">
-                        {communication.source === "campaign" ? communication.campaignName : communication.templateTitle || "No template"}
-                      </div>
-                      <div className="mt-1 text-xs text-gray-500">
-                        {communication.source === "campaign" ? "Campaign" : "From job"} • {communication.channel === "sms" ? "SMS" : "Email"} to {communication.destination}
-                      </div>
-                      <div className="mt-1 text-xs text-gray-400">{fmtDateTime(communication.sentAt)}</div>
-                    </div>
-                    <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold ${
-                      communication.status === "sent"
-                        ? "bg-emerald-50 text-emerald-700"
-                        : communication.status === "failed"
-                          ? "bg-red-50 text-red-700"
-                          : communication.status === "launched"
-                            ? "bg-blue-50 text-blue-700"
-                            : "bg-gray-100 text-gray-700"
-                    }`}>
-                      {communication.status}
-                    </span>
-                  </div>
-                </button>
-              ))}
-              {campaignCommunications.length > 5 && (
-                <p className="text-xs text-gray-400">{campaignCommunications.length - 5} older communication{campaignCommunications.length - 5 === 1 ? "" : "s"} hidden.</p>
-              )}
-            </div>
-          ) : (
-            <p className="text-sm text-gray-400">No communications recorded for this job yet.</p>
-          )}
-        </Section>
-
         {activeDetailTab === "job" ? (
           <>
             <Section title="Job checklist">
@@ -2623,6 +2586,59 @@ export default function JobDetailPage() {
           </>
         ) : (
           <>
+        <Section title="Sent Communications">
+          {loadingCampaignCommunications ? (
+            <p className="text-sm text-gray-400">Loading sent communications...</p>
+          ) : campaignCommunications.length ? (
+            <div className="space-y-2">
+              {visibleCampaignCommunications.map((communication) => (
+                <button
+                  key={communication.id}
+                  type="button"
+                  onClick={() => setSelectedCampaignCommunication(communication)}
+                  className="w-full rounded-xl border border-gray-100 bg-white px-3 py-3 text-left hover:bg-gray-50"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-gray-900">
+                        {communication.source === "campaign" ? communication.campaignName : communication.templateTitle || "No template"}
+                      </div>
+                      <div className="mt-1 text-xs text-gray-500">
+                        {communication.source === "campaign" ? "Campaign" : "From job"} • {communication.channel === "sms" ? "SMS" : "Email"} to {communication.destination}
+                      </div>
+                      <div className="mt-1 text-xs text-gray-400">{fmtDateTime(communication.sentAt)}</div>
+                    </div>
+                    <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold ${
+                      communication.status === "sent"
+                        ? "bg-emerald-50 text-emerald-700"
+                        : communication.status === "failed"
+                          ? "bg-red-50 text-red-700"
+                          : communication.status === "launched"
+                            ? "bg-blue-50 text-blue-700"
+                            : "bg-gray-100 text-gray-700"
+                    }`}>
+                      {communication.status}
+                    </span>
+                  </div>
+                </button>
+              ))}
+              {campaignCommunications.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllCampaignCommunications((value) => !value)}
+                  className="text-xs font-semibold text-[#e85d04]"
+                >
+                  {showAllCampaignCommunications
+                    ? "Show most recent only"
+                    : `View ${campaignCommunications.length - 1} more communication${campaignCommunications.length - 1 === 1 ? "" : "s"}`}
+                </button>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400">No communications recorded for this job yet.</p>
+          )}
+        </Section>
+
         {/* Status buttons */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-3">
           <div className="flex items-center justify-between mb-3">

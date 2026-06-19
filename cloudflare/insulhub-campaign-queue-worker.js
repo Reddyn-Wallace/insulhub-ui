@@ -14,7 +14,7 @@ async function processCampaignQueue(env) {
   return body;
 }
 
-export default {
+const worker = {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/health") {
@@ -38,3 +38,5 @@ export default {
     ctx.waitUntil(processCampaignQueue(env));
   },
 };
+
+export default worker;

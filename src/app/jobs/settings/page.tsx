@@ -78,8 +78,7 @@ export default function SettingsPage() {
   const [activeChannel, setActiveChannel] = useState<ContactTemplate["channel"]>("sms");
   const [senderChannel, setSenderChannel] = useState<CommunicationSender["channel"]>("email");
   const [senderLabel, setSenderLabel] = useState("");
-  const [senderValue, setSenderValue] = useState("");
-  const [senderProvider, setSenderProvider] = useState<CommunicationSender["provider"]>("stub");
+  const [senderProvider, setSenderProvider] = useState<CommunicationSender["provider"]>("gmail");
   const [smsgateBaseUrl, setSmsgateBaseUrl] = useState("");
   const [smsgateUsername, setSmsgateUsername] = useState("");
   const [smsgatePassword, setSmsgatePassword] = useState("");
@@ -142,7 +141,6 @@ export default function SettingsPage() {
     [senderChannel, senders]
   );
 
-  const senderValueRequired = senderProvider !== "smsgate" && senderProvider !== "gmail";
   const smsgateReady = senderProvider !== "smsgate" || (
     Boolean(smsgateBaseUrl.trim()) &&
     Boolean(smsgateUsername.trim()) &&
@@ -150,7 +148,6 @@ export default function SettingsPage() {
   );
   const canCreateSender = Boolean(
     senderLabel.trim() &&
-    (!senderValueRequired || senderValue.trim()) &&
     smsgateReady &&
     !(senderProvider === "gmail" && !gmailConfigured)
   );
@@ -238,9 +235,8 @@ export default function SettingsPage() {
   }, [loadCommunicationSettings, loadSenderStatus, loadSenders, loadTemplates]);
 
   useEffect(() => {
-    if (senderChannel === "email" && senderProvider === "smsgate") setSenderProvider("stub");
-    if (senderChannel === "sms" && senderProvider === "gmail") setSenderProvider("stub");
-  }, [senderChannel, senderProvider]);
+    setSenderProvider(senderChannel === "email" ? "gmail" : "smsgate");
+  }, [senderChannel]);
 
   async function createSender() {
     const token = getToken();
@@ -265,7 +261,7 @@ export default function SettingsPage() {
         body: JSON.stringify({
           channel: senderChannel,
           label: senderLabel,
-          senderValue: senderProvider === "gmail" ? "" : senderValue,
+          senderValue: "",
           provider: senderProvider,
           providerConfig,
           isDefault: false,
@@ -275,8 +271,7 @@ export default function SettingsPage() {
       if (!res.ok) throw new Error(json?.error || "Failed to create sender");
       const createdSender = json.sender as CommunicationSender;
       setSenderLabel("");
-      setSenderValue("");
-      setSenderProvider("stub");
+      setSenderProvider(senderChannel === "email" ? "gmail" : "smsgate");
       setSmsgateBaseUrl("");
       setSmsgateUsername("");
       setSmsgatePassword("");
@@ -287,7 +282,7 @@ export default function SettingsPage() {
         await connectGmail(createdSender);
         return;
       }
-      setToast({ type: "success", text: createdSender.provider === "smsgate" ? "Sender created and connection tested." : "Sender created." });
+      setToast({ type: "success", text: "Sender created and connection tested." });
       setSenders((current) => [createdSender, ...current.filter((sender) => sender.id !== createdSender.id)]);
     } catch (err) {
       setToast({ type: "error", text: err instanceof Error ? err.message : "Failed to create sender" });
@@ -584,30 +579,13 @@ export default function SettingsPage() {
             <div className="space-y-4 p-3">
               <div className="rounded-lg border border-gray-200 p-4">
                 <h2 className="text-sm font-semibold text-gray-900">Add {senderChannelLabel(senderChannel)} sender</h2>
-                <div className={`mt-3 grid gap-3 ${senderProvider === "stub" ? "md:grid-cols-[1fr_1fr_180px_auto]" : "md:grid-cols-[1fr_180px_auto]"}`}>
+                <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
                   <input
                     value={senderLabel}
                     onChange={(event) => setSenderLabel(event.target.value)}
                     placeholder={senderChannel === "email" ? "Office Gmail" : "Main SMS phone"}
                     className="rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-900"
                   />
-                  {senderProvider === "stub" && (
-                    <input
-                      value={senderValue}
-                      onChange={(event) => setSenderValue(event.target.value)}
-                      placeholder={senderChannel === "email" ? "name@example.com" : "+64..."}
-                      className="rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-900"
-                    />
-                  )}
-                  <select
-                    value={senderProvider}
-                    onChange={(event) => setSenderProvider(event.target.value as CommunicationSender["provider"])}
-                    className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900"
-                  >
-                    <option value="stub">Stub</option>
-                    {senderChannel === "email" && <option value="gmail">Gmail</option>}
-                    {senderChannel === "sms" && <option value="smsgate">SMSGate</option>}
-                  </select>
                   <button
                     type="button"
                     onClick={createSender}
