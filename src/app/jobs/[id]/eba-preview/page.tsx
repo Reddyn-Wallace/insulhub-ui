@@ -119,6 +119,8 @@ const EBA_JOB_QUERY = `
         masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls
         masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater
         masonryCladding_underfloorSpaceExcessivelyDamp
+        masonryCladding_underfloorSpaceExcessivelyDamp_priorToInstallationWorkRequired
+        masonryCladding_underfloorSpaceExcessivelyDamp_priorToCertificationWorkRequired
         c22_externalMoisture_priorToInstallationWorkRequired
         c22_externalMoisture_priorToCertificationWorkRequired
         skip_photos_elevation_north
@@ -265,6 +267,8 @@ const requiredLabels: Record<string, string> = {
   masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls: "Soffits condition",
   masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater: "Damp areas",
   masonryCladding_underfloorSpaceExcessivelyDamp: "Underfloor dampness",
+  masonryCladding_underfloorSpaceExcessivelyDamp_priorToInstallationWorkRequired: "Water ingress work required",
+  masonryCladding_underfloorSpaceExcessivelyDamp_priorToCertificationWorkRequired: "Water ingress certification work",
   c22_externalMoisture_priorToInstallationWorkRequired: "Moisture work required",
   c22_externalMoisture_priorToCertificationWorkRequired: "Moisture certification work",
   assessorName: "Assessor name",
@@ -526,6 +530,8 @@ export default function EbaPreviewPage() {
     masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls: form.masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls,
     masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater: form.masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater,
     masonryCladding_underfloorSpaceExcessivelyDamp: toYesNoNa(form.masonryCladding_underfloorSpaceExcessivelyDamp),
+    masonryCladding_underfloorSpaceExcessivelyDamp_priorToInstallationWorkRequired: form.masonryCladding_underfloorSpaceExcessivelyDamp_priorToInstallationWorkRequired,
+    masonryCladding_underfloorSpaceExcessivelyDamp_priorToCertificationWorkRequired: form.masonryCladding_underfloorSpaceExcessivelyDamp_priorToCertificationWorkRequired,
     c22_externalMoisture_priorToInstallationWorkRequired: form.c22_externalMoisture_priorToInstallationWorkRequired,
     c22_externalMoisture_priorToCertificationWorkRequired: form.c22_externalMoisture_priorToCertificationWorkRequired,
     skip_photos_elevation_north: elevationSkip.north,
@@ -567,11 +573,16 @@ export default function EbaPreviewPage() {
       ...externalMoistureQuestions.map(([key]) => key),
       "masonryCladding_masonryCladUnderfloorVentsArePresentAndClear",
       "masonryCladding_windowOrMasonryVerticalJointsAreSealed",
-      ...waterIngressQuestions.map(([key]) => key),
     ].some((key) => redWhenYes.has(key) ? form[key] === true : form[key] === false);
+    const waterIngressWorkNeeded = waterIngressQuestions
+      .some(([key]) => redWhenYes.has(key) ? form[key] === true : form[key] === false);
     if (moistureWorkNeeded) {
       if (!hasValue(form.c22_externalMoisture_priorToInstallationWorkRequired)) missingKeys.push("c22_externalMoisture_priorToInstallationWorkRequired");
       if (!hasValue(form.c22_externalMoisture_priorToCertificationWorkRequired)) missingKeys.push("c22_externalMoisture_priorToCertificationWorkRequired");
+    }
+    if (waterIngressWorkNeeded) {
+      if (!hasValue(form.masonryCladding_underfloorSpaceExcessivelyDamp_priorToInstallationWorkRequired)) missingKeys.push("masonryCladding_underfloorSpaceExcessivelyDamp_priorToInstallationWorkRequired");
+      if (!hasValue(form.masonryCladding_underfloorSpaceExcessivelyDamp_priorToCertificationWorkRequired)) missingKeys.push("masonryCladding_underfloorSpaceExcessivelyDamp_priorToCertificationWorkRequired");
     }
 
     const missingPhotos = directions
@@ -590,7 +601,7 @@ export default function EbaPreviewPage() {
       return acc;
     }, {} as Record<SectionId, typeof missingItems>);
 
-    return { missingKeys, missingItems, missingBySection, missingPhotos, moistureWorkNeeded, canFinalise: missingItems.length === 0 };
+    return { missingKeys, missingItems, missingBySection, missingPhotos, moistureWorkNeeded, waterIngressWorkNeeded, canFinalise: missingItems.length === 0 };
   }, [form, photos, elevationSkip, job?.ebaForm?.signature_assessor]);
 
   const progress = Math.max(0, Math.round(((Object.keys(requiredLabels).length + 5 - checks.missingItems.length) / (Object.keys(requiredLabels).length + 5)) * 100));
@@ -1168,12 +1179,12 @@ export default function EbaPreviewPage() {
         return renderSectionFrame(
             <div className="space-y-3">
               {waterIngressQuestions.map(([key, label, riskOnYes]) => renderYesNoButtons(key, label, riskOnYes, key === "masonryCladding_underfloorSpaceExcessivelyDamp"))}
-              {checks.moistureWorkNeeded && (
+              {checks.waterIngressWorkNeeded && (
                 <>
                   <div className="rounded-md border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-700">
                     Do not install Insulmax until the source of water ingress is identified and remedied. Note the required work before installation and certification.
                   </div>
-                  {renderWorkFields("c22_externalMoisture")}
+                  {renderWorkFields("masonryCladding_underfloorSpaceExcessivelyDamp")}
                 </>
               )}
               {renderDetails("Use this section for visible water ingress signals such as stained soffits, damp lining or excessive underfloor moisture.")}

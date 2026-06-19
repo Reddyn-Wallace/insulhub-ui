@@ -107,6 +107,8 @@ const EBA_JOB_QUERY = `
         masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls
         masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater
         masonryCladding_underfloorSpaceExcessivelyDamp
+        masonryCladding_underfloorSpaceExcessivelyDamp_priorToInstallationWorkRequired
+        masonryCladding_underfloorSpaceExcessivelyDamp_priorToCertificationWorkRequired
         c22_externalMoisture_priorToInstallationWorkRequired
         c22_externalMoisture_priorToCertificationWorkRequired
         assessorName
@@ -736,6 +738,8 @@ export default function EbaPage() {
         masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls: form.masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls,
         masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater: form.masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater,
         masonryCladding_underfloorSpaceExcessivelyDamp: toYesNoNA(form.masonryCladding_underfloorSpaceExcessivelyDamp),
+        masonryCladding_underfloorSpaceExcessivelyDamp_priorToInstallationWorkRequired: form.masonryCladding_underfloorSpaceExcessivelyDamp_priorToInstallationWorkRequired,
+        masonryCladding_underfloorSpaceExcessivelyDamp_priorToCertificationWorkRequired: form.masonryCladding_underfloorSpaceExcessivelyDamp_priorToCertificationWorkRequired,
         c22_externalMoisture_priorToInstallationWorkRequired: form.c22_externalMoisture_priorToInstallationWorkRequired,
         c22_externalMoisture_priorToCertificationWorkRequired: form.c22_externalMoisture_priorToCertificationWorkRequired,
         assessorName: form.assessorName,
@@ -808,6 +812,8 @@ export default function EbaPage() {
       masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls: "Soffits condition",
       masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater: "Damp/soft/mouldy areas",
       masonryCladding_underfloorSpaceExcessivelyDamp: "Underfloor dampness",
+      masonryCladding_underfloorSpaceExcessivelyDamp_priorToInstallationWorkRequired: "Water ingress work required",
+      masonryCladding_underfloorSpaceExcessivelyDamp_priorToCertificationWorkRequired: "Water ingress work required",
       c22_externalMoisture_priorToInstallationWorkRequired: "External moisture work required",
       c22_externalMoisture_priorToCertificationWorkRequired: "External moisture work required",
       assessorName: "Assessor name",
@@ -853,9 +859,14 @@ export default function EbaPage() {
       form.masonryCladding_soffitsAppearToBeSoundWithNoWaterStainingOrBubblingPaintWhichMayIndicateGuttersOrRoofLeakingIntoSurfeitsAndPossiblyWalls === false ||
       form.masonryCladding_areasOfLiningOrCladdingAppearToBeDampOrSoftOrDiscolouredOrMouldyOrRottenSuggestingTheAccumulationOfWater === true ||
       form.masonryCladding_underfloorSpaceExcessivelyDamp === true;
-    if (externalMoistureWorkNeeded || waterIngressWorkNeeded) {
+    if (externalMoistureWorkNeeded) {
       if (!hasValue(form.c22_externalMoisture_priorToInstallationWorkRequired) && !hasValue(form.c22_externalMoisture_priorToCertificationWorkRequired)) {
         missingFields.push("c22_externalMoisture_priorToInstallationWorkRequired");
+      }
+    }
+    if (waterIngressWorkNeeded) {
+      if (!hasValue(form.masonryCladding_underfloorSpaceExcessivelyDamp_priorToInstallationWorkRequired) && !hasValue(form.masonryCladding_underfloorSpaceExcessivelyDamp_priorToCertificationWorkRequired)) {
+        missingFields.push("masonryCladding_underfloorSpaceExcessivelyDamp_priorToInstallationWorkRequired");
       }
     }
 
@@ -1297,11 +1308,11 @@ export default function EbaPage() {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           <div>
                             <label className="text-xs text-gray-500">Prior to Installation Work Required</label>
-                            <textarea value={(form.c22_externalMoisture_priorToInstallationWorkRequired as string) || ""} onChange={(e) => setField("c22_externalMoisture_priorToInstallationWorkRequired", e.target.value)} rows={2} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("c22_externalMoisture_priorToInstallationWorkRequired") ? "border-red-400 bg-red-50" : "border-gray-200"}`} />
+                            <textarea value={(form.masonryCladding_underfloorSpaceExcessivelyDamp_priorToInstallationWorkRequired as string) || ""} onChange={(e) => setField("masonryCladding_underfloorSpaceExcessivelyDamp_priorToInstallationWorkRequired", e.target.value)} rows={2} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("masonryCladding_underfloorSpaceExcessivelyDamp_priorToInstallationWorkRequired") ? "border-red-400 bg-red-50" : "border-gray-200"}`} />
                           </div>
                           <div>
                             <label className="text-xs text-gray-500">Prior to Certification Work Required</label>
-                            <textarea value={(form.c22_externalMoisture_priorToCertificationWorkRequired as string) || ""} onChange={(e) => setField("c22_externalMoisture_priorToCertificationWorkRequired", e.target.value)} rows={2} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("c22_externalMoisture_priorToInstallationWorkRequired") ? "border-red-400 bg-red-50" : "border-gray-200"}`} />
+                            <textarea value={(form.masonryCladding_underfloorSpaceExcessivelyDamp_priorToCertificationWorkRequired as string) || ""} onChange={(e) => setField("masonryCladding_underfloorSpaceExcessivelyDamp_priorToCertificationWorkRequired", e.target.value)} rows={2} className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("masonryCladding_underfloorSpaceExcessivelyDamp_priorToInstallationWorkRequired") ? "border-red-400 bg-red-50" : "border-gray-200"}`} />
                           </div>
                         </div>
                       </div>
