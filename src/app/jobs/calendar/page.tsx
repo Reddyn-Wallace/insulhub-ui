@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { gql } from "@/lib/graphql";
 import { readBrowserCache, writeBrowserCache } from "@/lib/client-cache";
 import BottomSheet from "@/components/BottomSheet";
+import InstallPlanningForm, { InstallPlanningActions } from "@/components/InstallPlanningForm";
 import { useAppDialog } from "@/components/AppDialog";
 
 interface CalendarJob {
@@ -25,6 +26,8 @@ interface CalendarJob {
   client?: {
     contactDetails?: {
       name?: string;
+      email?: string;
+      phoneMobile?: string;
       streetAddress?: string;
       suburb?: string;
       city?: string;
@@ -107,6 +110,8 @@ const CALENDAR_JOBS_QUERY = `
         client {
           contactDetails {
             name
+            email
+            phoneMobile
             streetAddress
             suburb
             city
@@ -776,6 +781,27 @@ export default function JobsCalendarPage() {
     router.push(`/jobs/${jobId}?returnTo=${encodeURIComponent("/jobs/calendar")}`);
   };
 
+  const openInstallInviteTemplatesPage = () => {
+    if (!selectedJob) return;
+    const startIso = fromDatetimeLocal(installDate);
+    if (!startIso) return;
+
+    const contact = selectedJob.client?.contactDetails;
+    const params = new URLSearchParams({
+      start: startIso,
+      address: address(selectedJob),
+      name: contact?.name || "",
+      phone: contact?.phoneMobile || "",
+      email: contact?.email || "",
+      scope: installScope || "",
+      note: installMetaNote || "",
+      jobNumber: String(selectedJob.jobNumber),
+      returnTo: "/jobs/calendar",
+    });
+
+    router.push(`/jobs/${selectedJob._id}/calendar-invite?${params.toString()}`);
+  };
+
   const saveInstallMeta = async () => {
     if (!selectedJob) return;
     if (!installScope) {
@@ -1281,82 +1307,28 @@ export default function JobsCalendarPage() {
               </div>
             </div>
 
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Installation date</div>
-              <input
-                type="datetime-local"
-                value={installDate}
-                onChange={(e) => setInstallDate(e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
-              />
-            </div>
+            <InstallPlanningForm
+              installDate={installDate}
+              onInstallDateChange={setInstallDate}
+              saving={saving}
+              canCreateInvite={!!installDate}
+              hasInstallDate={!!selectedJob?.installation?.installDate}
+              onClearDate={clearInstallDate}
+              onCreateInvite={openInstallInviteTemplatesPage}
+              status={installStatus}
+              onStatusChange={setInstallStatus}
+              scope={installScope}
+              onScopeChange={setInstallScope}
+              note={installMetaNote}
+              onNoteChange={setInstallMetaNote}
+            />
 
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Lock-in status</div>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => setInstallStatus("pencilled")}
-                  className={`py-3 rounded-xl text-sm font-semibold border ${installStatus === "pencilled" ? "bg-amber-50 text-amber-700 border-amber-300" : "bg-white text-gray-700 border-gray-200"}`}
-                >
-                  Pencilled
-                </button>
-                <button
-                  onClick={() => setInstallStatus("confirmed")}
-                  className={`py-3 rounded-xl text-sm font-semibold border ${installStatus === "confirmed" ? "bg-emerald-50 text-emerald-700 border-emerald-300" : "bg-white text-gray-700 border-gray-200"}`}
-                >
-                  Confirmed
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Install scope <span className="text-red-600">*</span></div>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  onClick={() => setInstallScope("internal")}
-                  className={`py-3 rounded-xl text-sm font-semibold border ${installScope === "internal" ? "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
-                >
-                  Internal
-                </button>
-                <button
-                  onClick={() => setInstallScope("external")}
-                  className={`py-3 rounded-xl text-sm font-semibold border ${installScope === "external" ? "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
-                >
-                  External
-                </button>
-                <button
-                  onClick={() => setInstallScope("both")}
-                  className={`py-3 rounded-xl text-sm font-semibold border ${installScope === "both" ? "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
-                >
-                  Both
-                </button>
-              </div>
-              {!installScope && <div className="text-[11px] text-red-600 mt-1">Required</div>}
-            </div>
-
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Planning notes</div>
-              <textarea
-                value={installMetaNote}
-                onChange={(e) => setInstallMetaNote(e.target.value)}
-                rows={6}
-                placeholder="Flexible dates, unavailable days, tentative details, anything the team should know..."
-                className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04] resize-none"
-              />
-              <div className="text-[11px] text-gray-400 mt-2">Stored in job notes as structured install metadata.</div>
-            </div>
-
-            <div className="flex gap-2">
-              {selectedJob?.installation?.installDate && (
-                <button onClick={clearInstallDate} disabled={saving} className="bg-red-50 text-red-600 font-semibold py-3 px-4 rounded-xl disabled:opacity-50">
-                  Remove date
-                </button>
-              )}
-              <button onClick={closeSheet} className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">Cancel</button>
-              <button onClick={saveInstallMeta} disabled={saving || !installScope} className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
-                {saving ? "Saving..." : "Save"}
-              </button>
-            </div>
+            <InstallPlanningActions
+              saving={saving}
+              canSave={!!installDate && !!installScope}
+              onCancel={closeSheet}
+              onSave={saveInstallMeta}
+            />
           </div>
         )}
       </BottomSheet>

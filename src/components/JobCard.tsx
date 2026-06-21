@@ -127,7 +127,8 @@ export default function JobCard({ job }: { job: Job }) {
   const addressParts = [c?.streetAddress, c?.suburb, c?.city].filter(Boolean).join(", ");
   const searchParams = useSearchParams();
   const returnTo = `/jobs${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
-  const isJobsTab = searchParams.get("stage") === "JOBS";
+  const stageParam = searchParams.get("stage");
+  const isInstallWorkflowTab = stageParam === "JOBS" || stageParam === "COMPLETED";
 
   const [now] = useState(() => Date.now());
   const sentAt = job.quoteLastSentAt || null;
@@ -143,7 +144,7 @@ export default function JobCard({ job }: { job: Job }) {
       ? "DEAD"
       : "OPEN";
 
-  const cardState = isJobsTab
+  const cardState = isInstallWorkflowTab
     ? "OPEN"
     : job.stage === "QUOTE"
       ? quoteState
@@ -218,7 +219,7 @@ export default function JobCard({ job }: { job: Job }) {
         <div className="flex items-center justify-between text-xs text-gray-400">
           <span>{job.lead?.allocatedTo ? `${job.lead.allocatedTo.firstname} ${job.lead.allocatedTo.lastname}` : "Unallocated"}</span>
           <span className={cardState === "CALLBACK" && isCallbackOverdue ? "text-rose-600 font-semibold" : ""}>
-            {isJobsTab
+            {isInstallWorkflowTab
               ? `Installation: ${formatDate(job.installation?.installDate) || "Undated"}`
               : cardState === "CALLBACK"
                 ? `Callback: ${formatDate(callbackIso || undefined) || "Undated"}${isCallbackOverdue ? " (Overdue)" : ""}`
@@ -230,7 +231,7 @@ export default function JobCard({ job }: { job: Job }) {
           </span>
         </div>
 
-        {isJobsTab && (
+        {isInstallWorkflowTab && (
           <div className="mt-2 grid grid-cols-1 gap-2 text-xs text-gray-600 bg-gray-50 rounded-xl px-3 py-2">
             <div className="flex items-center justify-between gap-3">
               <span className="font-medium text-gray-500">EBA status</span>

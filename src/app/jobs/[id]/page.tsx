@@ -2,8 +2,6 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
-import { DayPicker } from "react-day-picker";
-import "react-day-picker/dist/style.css";
 import { gql } from "@/lib/graphql";
 import { JOB_QUERY, USERS_QUERY } from "@/lib/queries";
 import {
@@ -12,6 +10,7 @@ import {
 } from "@/lib/mutations";
 import BottomSheet from "@/components/BottomSheet";
 import AddressAutocomplete from "@/components/AddressAutocomplete";
+import InstallPlanningForm, { DateTimeCalendarField, InstallPlanningActions } from "@/components/InstallPlanningForm";
 import { useAppDialog } from "@/components/AppDialog";
 import { firstNameForMerge, formatNameForMerge } from "@/lib/communication-merge-fields";
 
@@ -247,82 +246,8 @@ function fromDatetimeLocal(val: string) {
   return new Date(approx.getTime() - offsetMs).toISOString();
 }
 
-function weekdayLabelFromDatetimeLocal(val?: string | null) {
-  if (!val) return "";
-  const iso = fromDatetimeLocal(val);
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString("en-NZ", {
-    timeZone: "Pacific/Auckland",
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function dateFromDatetimeLocal(val?: string | null) {
-  if (!val) return undefined;
-  const [datePart] = val.split("T");
-  if (!datePart) return undefined;
-  const [year, month, day] = datePart.split("-").map(Number);
-  if (!year || !month || !day) return undefined;
-  return new Date(year, month - 1, day);
-}
-
-function timeFromDatetimeLocal(val?: string | null) {
-  if (!val || !val.includes("T")) return "09:00";
-  return val.split("T")[1]?.slice(0, 5) || "09:00";
-}
-
 function persistedFileList(files?: string[] | null) {
   return Array.isArray(files) && files.length > 0 ? files : undefined;
-}
-
-function mergeDateAndTime(date: Date | undefined, time: string) {
-  if (!date) return "";
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const safeTime = /^\d{2}:\d{2}$/.test(time) ? time : "09:00";
-  return `${year}-${month}-${day}T${safeTime}`;
-}
-
-function DateTimeCalendarField({ value, onChange }: { value: string; onChange: (next: string) => void }) {
-  const selectedDate = dateFromDatetimeLocal(value);
-  const timeValue = timeFromDatetimeLocal(value);
-  const today = new Date();
-
-  return (
-    <div className="space-y-3">
-      <div className="rounded-xl border border-gray-200 p-3 bg-white overflow-x-auto">
-        <div className="mb-3 text-xs text-gray-600">
-          Today: <span className="font-medium">{today.toLocaleDateString("en-NZ", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</span>
-        </div>
-        <DayPicker
-          mode="single"
-          selected={selectedDate}
-          onSelect={(date) => onChange(mergeDateAndTime(date, timeValue))}
-          weekStartsOn={1}
-          modifiers={{ today }}
-          modifiersClassNames={{ today: "rdp-today" }}
-        />
-      </div>
-      <div>
-        <label className="text-xs text-gray-500 font-medium mb-1 block">Time</label>
-        <input
-          type="time"
-          value={timeValue}
-          onChange={(e) => onChange(mergeDateAndTime(selectedDate || new Date(), e.target.value))}
-          className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
-        />
-      </div>
-      {value && <p className="text-sm text-gray-600">Selected: <span className="font-medium">{weekdayLabelFromDatetimeLocal(value)}</span></p>}
-    </div>
-  );
 }
 
 const API_BASE = "https://api.insulhub.nz";
@@ -525,10 +450,6 @@ export default function JobDetailPage() {
   const [loadingCampaignCommunications, setLoadingCampaignCommunications] = useState(false);
   const [selectedCampaignCommunication, setSelectedCampaignCommunication] = useState<CampaignCommunication | null>(null);
   const [showAllCampaignCommunications, setShowAllCampaignCommunications] = useState(false);
-  const setInstallScopeAndTemplate = useCallback((scope: "internal" | "external" | "both") => {
-    setInstallPlanningScope(scope);
-  }, []);
-
   const fetchInstallPlanning = useCallback(async (jobId: string) => {
     const token = getToken();
     if (!token) return null;
@@ -1034,31 +955,6 @@ export default function JobDetailPage() {
       setNoteText(submittedText);
       openSheet("addNote");
     });
-  }
-
-  async function saveInstallPlanning() {
-    if (!installPlanningScope) {
-      setError("Select install scope: Internal, External, or both.");
-      return;
-    }
-    setSaving(true);
-    try {
-      await saveInstallPlanningMeta({
-        status: installPlanningStatus,
-        note: installPlanningNote,
-        councilApprovalNA: installMeta.councilApprovalNA,
-        installScope: installPlanningScope || installMeta.installScope,
-      });
-      await load();
-      closeSheet();
-      const msg = { type: "success" as const, text: "Install planning details saved." };
-      setNotice(msg);
-      setToast(msg);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save install planning details");
-    } finally {
-      setSaving(false);
-    }
   }
 
   async function toggleCouncilApprovalNA(nextValue: boolean) {
@@ -2320,8 +2216,8 @@ export default function JobDetailPage() {
         {activeDetailTab === "job" ? (
           <>
             <Section title="Job checklist">
-              <p className="text-xs text-gray-500 mb-3">Complete top to bottom. Each step shows if it is done, ready, in progress, or blocked.</p>
-              <div className="space-y-2">
+              <p className="text-xs text-gray-500 mb-2">Complete top to bottom. Each step shows if it is done, ready, in progress, or blocked.</p>
+              <div className="space-y-1.5">
                 {completionActions.map((item, index) => {
                   const doneStates = ["Recorded", "Signed", "Available", "Created", "Sent", "Completed"];
                   const blockedStates = ["Blocked", "Missing", "Empty", "Blank"];
@@ -2331,6 +2227,7 @@ export default function JobDetailPage() {
                   const isInstallStatusStep = item.title === "Install notes & status";
                   const isInstalledAsQuoted = isInstallStatusStep && (job.installation?.installStatus === "INSTALLED_AS_QUOTED");
                   const isInstalledWithVariation = isInstallStatusStep && (job.installation?.installStatus === "INSTALLED_WITH_VARIATIONS_FROM_QUOTE");
+                  const hasInlineAction = Boolean(item.actionLabel && item.action && !isInstallStatusStep);
 
                   const stateTone = isDone || isInstalledAsQuoted || isInstalledWithVariation
                     ? "bg-emerald-50 text-emerald-700 border-emerald-200"
@@ -2348,42 +2245,53 @@ export default function JobDetailPage() {
                         : "bg-slate-100 text-slate-700";
 
                   return (
-                    <div key={item.title} className="border border-gray-100 rounded-xl p-3">
-                      <div className="flex items-start gap-3">
-                        <div className={`shrink-0 w-7 h-7 rounded-full text-xs font-bold flex items-center justify-center ${stepTone}`}>
+                    <div key={item.title} className="border border-gray-100 rounded-lg px-2.5 py-2">
+                      <div className="flex items-start gap-2">
+                        <div className={`shrink-0 w-5 h-5 rounded-full text-[11px] font-bold flex items-center justify-center ${stepTone}`}>
                           {index + 1}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-start justify-between gap-3 mb-1.5">
+                          <div className="flex items-start justify-between gap-2 mb-1">
                             <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-center gap-2">
+                              <div className="flex flex-wrap items-center gap-1.5">
                                 <div className="text-sm font-semibold text-gray-900">{item.title}</div>
                                 {item.completionDocsLabel && (
                                   <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-700 bg-blue-50 border border-blue-200 rounded-full px-2 py-0.5">
-                                    Sent to customer as completion docs
+                                    Completion docs
                                   </span>
                                 )}
                               </div>
                               {item.title !== "Install notes & status" && (
-                                <div className="text-xs text-gray-500 mt-1">{item.description}</div>
+                                <div className="text-[11px] leading-snug text-gray-500 mt-0.5">{item.description}</div>
                               )}
                             </div>
-                            <span className={`shrink-0 text-[11px] font-semibold px-2 py-1 rounded-full border ${stateTone}`}>
-                              {item.status}
-                            </span>
+                            <div className="shrink-0 flex items-center gap-1.5">
+                              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${stateTone}`}>
+                                {item.status}
+                              </span>
+                              {hasInlineAction && (
+                                <button
+                                  onClick={item.action}
+                                  disabled={item.disabled}
+                                  className="bg-[#1a3a4a] text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg disabled:opacity-40"
+                                >
+                                  {item.actionLabel}
+                                </button>
+                              )}
+                            </div>
                           </div>
 
                           {item.title === "Install notes & status" ? (
-                            <div className="mt-2 space-y-3">
-                              <div className="rounded-lg border border-gray-200 bg-white px-3 py-2.5">
-                                <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1">A) Install result</div>
+                            <div className="mt-1.5 grid gap-2 md:grid-cols-2">
+                              <div className="rounded-lg border border-gray-200 bg-white px-2.5 py-2">
+                                <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-0.5">A) Install result</div>
                                 <div className={`text-sm font-semibold ${installIsVariation ? "text-amber-800" : installIsInstalled ? "text-emerald-700" : "text-gray-800"}`}>{installStatusDisplay}</div>
                               </div>
 
-                              <div className={`rounded-lg border px-3 py-2.5 ${installIsVariation ? "border-amber-300 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}>
-                                <div className={`text-[11px] font-semibold uppercase tracking-wide mb-1 ${installIsVariation ? "text-amber-800" : "text-emerald-800"}`}>B) Usage amounts & install SQMs</div>
+                              <div className={`rounded-lg border px-2.5 py-2 ${installIsVariation ? "border-amber-300 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}>
+                                <div className={`text-[10px] font-semibold uppercase tracking-wide mb-0.5 ${installIsVariation ? "text-amber-800" : "text-emerald-800"}`}>B) Usage amounts & install SQMs</div>
                                 {(installIsVariation ? variationMetricsSummary : installedMetricsSummary).length > 0 ? (
-                                  <div className="space-y-1">
+                                  <div className="space-y-0.5">
                                     {(installIsVariation ? variationMetricsSummary : installedMetricsSummary).map((line) => (
                                       <div key={line} className={`text-[12px] ${installIsVariation ? "font-semibold text-amber-900" : "text-emerald-800"}`}>• {line}</div>
                                     ))}
@@ -2393,19 +2301,19 @@ export default function JobDetailPage() {
                                 )}
                               </div>
 
-                              <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
-                                <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1">C) Notes</div>
-                                <div className="text-xs text-gray-600 whitespace-pre-wrap">{installNoteDisplay}</div>
+                              <div className="rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-2">
+                                <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-0.5">C) Notes</div>
+                                <div className="text-xs leading-snug text-gray-600 whitespace-pre-wrap">{installNoteDisplay}</div>
                               </div>
 
-                              <div className="rounded-lg border border-gray-200 bg-white px-3 py-2.5">
-                                <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1">D) Checksheet</div>
+                              <div className="rounded-lg border border-gray-200 bg-white px-2.5 py-2">
+                                <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-0.5">D) Checksheet</div>
                                 <div className="flex items-center justify-between gap-3">
                                   <div className="text-xs text-gray-600">{checksheetStatusDisplay}</div>
                                   {job.installerChecksheet?._id && (
                                     <button
                                       onClick={openInstallerChecksheetPdf}
-                                      className="shrink-0 bg-[#1a3a4a] text-white text-xs font-semibold px-3 py-2 rounded-lg"
+                                      className="shrink-0 bg-[#1a3a4a] text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg"
                                     >
                                       View checksheet
                                     </button>
@@ -2414,21 +2322,21 @@ export default function JobDetailPage() {
                               </div>
                             </div>
                           ) : item.title === "Upload Council Application" ? (
-                            <div className="mt-3 border border-gray-200 rounded-xl p-3 space-y-3">
+                            <div className="mt-2 border border-gray-200 rounded-lg p-2.5 space-y-2">
                               <div className="flex items-center justify-between gap-3">
                                 <div className="text-xs text-gray-500">Usually one PDF for the council application</div>
-                                <label className="inline-flex items-center px-3 py-2 rounded-lg bg-[#1a3a4a] text-white text-sm font-semibold cursor-pointer hover:opacity-95">
+                                <label className="inline-flex items-center px-2.5 py-1.5 rounded-lg bg-[#1a3a4a] text-white text-xs font-semibold cursor-pointer hover:opacity-95">
                                   <input type="file" onChange={(e) => uploadCompletionFiles(e.target.files)} disabled={uploadingCompletionFiles} className="hidden" />
                                   {uploadingCompletionFiles ? "Uploading..." : "Upload file"}
                                 </label>
                               </div>
 
                               {uploadingCompletionFiles && (
-                                <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3">
-                                  <div className="flex items-center gap-3 mb-2">
+                                <div className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-2">
+                                  <div className="flex items-center gap-2 mb-1.5">
                                     <div className="h-4 w-4 rounded-full border-2 border-[#e85d04] border-t-transparent animate-spin" />
-                                    <div className="text-sm font-semibold text-[#9a3412]">Uploading council application</div>
-                                    <div className="ml-auto text-sm font-bold text-[#9a3412]">{completionUploadProgress}%</div>
+                                    <div className="text-xs font-semibold text-[#9a3412]">Uploading council application</div>
+                                    <div className="ml-auto text-xs font-bold text-[#9a3412]">{completionUploadProgress}%</div>
                                   </div>
                                   <div className="h-2 bg-orange-100 rounded-full overflow-hidden">
                                     <div className="h-full bg-[#e85d04] transition-all duration-200" style={{ width: `${completionUploadProgress}%` }} />
@@ -2436,7 +2344,7 @@ export default function JobDetailPage() {
                                 </div>
                               )}
 
-                              <div className="space-y-2">
+                              <div className="space-y-1">
                                 {(job.council?.files_Other || []).map((f) => (
                                   <div key={f} className="flex items-center justify-between gap-3 text-sm">
                                     <a href={fileUrl(f)} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline truncate max-w-[70%]">{f}</a>
@@ -2449,56 +2357,58 @@ export default function JobDetailPage() {
                               </div>
                             </div>
                           ) : item.title === "Council approval & consent number" ? (
-                            <div className="mt-3 border border-gray-200 rounded-xl p-3 space-y-3">
-                              <div className="space-y-1.5">
-                                <label htmlFor="completion-consent-number" className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Consent #</label>
-                                <div className="flex items-center gap-2">
-                                  <input
-                                    id="completion-consent-number"
-                                    value={consentNumber}
-                                    onChange={(e) => setConsentNumber(e.target.value)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter" && consentNumberChanged && !saving) {
-                                        e.preventDefault();
-                                        saveConsentNumber();
-                                      }
-                                    }}
-                                    className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
-                                    placeholder="Enter consent number"
-                                  />
-                                  <button
-                                    onClick={() => saveConsentNumber()}
-                                    disabled={saving || !consentNumberChanged}
-                                    className="shrink-0 px-3 py-2 rounded-lg bg-[#1a3a4a] text-white text-xs font-semibold disabled:opacity-40"
-                                  >
-                                    {saving && consentNumberChanged ? "Saving..." : "Save"}
-                                  </button>
+                            <div className="mt-2 border border-gray-200 rounded-lg p-2.5 space-y-2">
+                              <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(280px,0.8fr)]">
+                                <div className="space-y-1">
+                                  <label htmlFor="completion-consent-number" className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Consent #</label>
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      id="completion-consent-number"
+                                      value={consentNumber}
+                                      onChange={(e) => setConsentNumber(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter" && consentNumberChanged && !saving) {
+                                          e.preventDefault();
+                                          saveConsentNumber();
+                                        }
+                                      }}
+                                      className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+                                      placeholder="Enter consent number"
+                                    />
+                                    <button
+                                      onClick={() => saveConsentNumber()}
+                                      disabled={saving || !consentNumberChanged}
+                                      className="shrink-0 px-2.5 py-2 rounded-lg bg-[#1a3a4a] text-white text-xs font-semibold disabled:opacity-40"
+                                    >
+                                      {saving && consentNumberChanged ? "Saving..." : "Save"}
+                                    </button>
+                                  </div>
+                                  {consentNumberChanged && (
+                                    <p className="text-[11px] text-amber-700">Unsaved consent number.</p>
+                                  )}
                                 </div>
-                                {consentNumberChanged && (
-                                  <p className="text-[11px] text-amber-700">Unsaved consent number.</p>
-                                )}
-                              </div>
 
-                              <div className={`rounded-lg border px-3 py-3 ${councilApprovalMarkedNA ? "border-amber-200 bg-amber-50" : "border-gray-200 bg-white"}`}>
-                                <label className="flex items-start gap-3">
-                                  <input
-                                    type="checkbox"
-                                    checked={councilApprovalMarkedNA}
-                                    onChange={(e) => toggleCouncilApprovalNA(e.target.checked)}
-                                    disabled={saving || uploadingCouncilApproval}
-                                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-[#e85d04] focus:ring-[#e85d04]"
-                                  />
-                                  <span className="min-w-0">
-                                    <span className={`block text-sm font-semibold ${councilApprovalMarkedNA ? "text-amber-900" : "text-gray-900"}`}>
-                                      Council approval not required
+                                <div className={`rounded-lg border px-2.5 py-2 ${councilApprovalMarkedNA ? "border-amber-200 bg-amber-50" : "border-gray-200 bg-white"}`}>
+                                  <label className="flex items-start gap-2.5">
+                                    <input
+                                      type="checkbox"
+                                      checked={councilApprovalMarkedNA}
+                                      onChange={(e) => toggleCouncilApprovalNA(e.target.checked)}
+                                      disabled={saving || uploadingCouncilApproval}
+                                      className="mt-0.5 h-4 w-4 rounded border-gray-300 text-[#e85d04] focus:ring-[#e85d04]"
+                                    />
+                                    <span className="min-w-0">
+                                      <span className={`block text-sm font-semibold ${councilApprovalMarkedNA ? "text-amber-900" : "text-gray-900"}`}>
+                                        Council approval not required
+                                      </span>
+                                      <span className={`block text-[11px] leading-snug mt-0.5 ${councilApprovalMarkedNA ? "text-amber-800" : "text-gray-500"}`}>
+                                        {councilApprovalMarkedNA
+                                          ? "Approval upload is skipped once the other docs are ready."
+                                          : "Use when no approval PDF is expected."}
+                                      </span>
                                     </span>
-                                    <span className={`block text-xs mt-0.5 ${councilApprovalMarkedNA ? "text-amber-800" : "text-gray-500"}`}>
-                                      {councilApprovalMarkedNA
-                                        ? "Approval upload is skipped. The completion pack can proceed without an approval document once the other required docs are ready."
-                                        : "Leave unchecked when an approval document is expected, then upload the approval PDF below."}
-                                    </span>
-                                  </span>
-                                </label>
+                                  </label>
+                                </div>
                               </div>
 
                               <div className="flex items-center justify-between gap-3">
@@ -2506,7 +2416,7 @@ export default function JobDetailPage() {
                                   {councilApprovalMarkedNA ? "Approval upload skipped for this job" : "Usually one council approval PDF"}
                                 </div>
                                 <div className="flex items-center gap-2">
-                                  <label className={`inline-flex items-center px-3 py-2 rounded-lg bg-[#1a3a4a] text-white text-sm font-semibold hover:opacity-95 ${councilApprovalMarkedNA || uploadingCouncilApproval ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}>
+                                  <label className={`inline-flex items-center px-2.5 py-1.5 rounded-lg bg-[#1a3a4a] text-white text-xs font-semibold hover:opacity-95 ${councilApprovalMarkedNA || uploadingCouncilApproval ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}>
                                     <input type="file" onChange={(e) => uploadCouncilApprovalFiles(e.target.files)} disabled={uploadingCouncilApproval || councilApprovalMarkedNA} className="hidden" />
                                     {uploadingCouncilApproval ? "Uploading..." : "Upload file"}
                                   </label>
@@ -2514,11 +2424,11 @@ export default function JobDetailPage() {
                               </div>
 
                               {uploadingCouncilApproval && (
-                                <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3">
-                                  <div className="flex items-center gap-3 mb-2">
+                                <div className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-2">
+                                  <div className="flex items-center gap-2 mb-1.5">
                                     <div className="h-4 w-4 rounded-full border-2 border-[#e85d04] border-t-transparent animate-spin" />
-                                    <div className="text-sm font-semibold text-[#9a3412]">Uploading council approval</div>
-                                    <div className="ml-auto text-sm font-bold text-[#9a3412]">{councilApprovalProgress}%</div>
+                                    <div className="text-xs font-semibold text-[#9a3412]">Uploading council approval</div>
+                                    <div className="ml-auto text-xs font-bold text-[#9a3412]">{councilApprovalProgress}%</div>
                                   </div>
                                   <div className="h-2 bg-orange-100 rounded-full overflow-hidden">
                                     <div className="h-full bg-[#e85d04] transition-all duration-200" style={{ width: `${councilApprovalProgress}%` }} />
@@ -2526,7 +2436,7 @@ export default function JobDetailPage() {
                                 </div>
                               )}
 
-                              <div className="space-y-2">
+                              <div className="space-y-1">
                                 {(job.council?.files_CouncilApprovalLetters || []).map((f) => (
                                   <div key={f} className="flex items-center justify-between gap-3 text-sm">
                                     <a href={fileUrl(f)} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline truncate max-w-[70%]">{f}</a>
@@ -2541,11 +2451,11 @@ export default function JobDetailPage() {
                                 )}
                               </div>
                             </div>
-                          ) : item.actionLabel && item.action ? (
+                          ) : item.actionLabel && item.action && !hasInlineAction ? (
                             <button
                               onClick={item.action}
                               disabled={item.disabled}
-                              className="mt-2 bg-[#1a3a4a] text-white text-sm font-semibold px-3 py-2 rounded-lg disabled:opacity-40"
+                              className="mt-1.5 bg-[#1a3a4a] text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg disabled:opacity-40"
                             >
                               {item.actionLabel}
                             </button>
@@ -3080,69 +2990,6 @@ export default function JobDetailPage() {
         </button>
       </BottomSheet>
 
-      <BottomSheet open={sheet === "installPlanning"} onClose={closeSheet} title="Lock in status & planning notes">
-        <div className="space-y-4">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Lock in status</div>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => setInstallPlanningStatus("pencilled")}
-                className={`py-3 rounded-xl text-sm font-semibold border ${installPlanningStatus === "pencilled" ? "bg-amber-50 text-amber-700 border-amber-300" : "bg-white text-gray-700 border-gray-200"}`}
-              >
-                Pencilled
-              </button>
-              <button
-                onClick={() => setInstallPlanningStatus("confirmed")}
-                className={`py-3 rounded-xl text-sm font-semibold border ${installPlanningStatus === "confirmed" ? "bg-emerald-50 text-emerald-700 border-emerald-300" : "bg-white text-gray-700 border-gray-200"}`}
-              >
-                Confirmed
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Install scope <span className="text-red-600">*</span></div>
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                onClick={() => setInstallScopeAndTemplate("internal")}
-                className={`py-3 rounded-xl text-sm font-semibold border ${installPlanningScope === "internal" ? "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
-              >
-                Internal
-              </button>
-              <button
-                onClick={() => setInstallScopeAndTemplate("external")}
-                className={`py-3 rounded-xl text-sm font-semibold border ${installPlanningScope === "external" ? "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
-              >
-                External
-              </button>
-              <button
-                onClick={() => setInstallScopeAndTemplate("both")}
-                className={`py-3 rounded-xl text-sm font-semibold border ${installPlanningScope === "both" ? "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
-              >
-                Both
-              </button>
-            </div>
-            {!installPlanningScope && <div className="text-[11px] text-red-600 mt-1">Required</div>}
-          </div>
-
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Planning notes</div>
-            <textarea
-              value={installPlanningNote}
-              onChange={(e) => setInstallPlanningNote(e.target.value)}
-              rows={6}
-              placeholder="Flexible dates, unavailable days, tentative details, anything the team should know..."
-              className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04] resize-none"
-            />
-          </div>
-
-          <button onClick={saveInstallPlanning} disabled={saving}
-            className="w-full bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
-            {saving ? "Saving..." : "Save"}
-          </button>
-        </div>
-      </BottomSheet>
-
       {/* Edit contact */}
       <BottomSheet open={sheet === "contact"} onClose={closeSheet} title="Edit Contact">
         {(["name", "phoneMobile", "phoneSecondary", "email", "streetAddress", "suburb", "city", "postCode"] as const).map((f) => (
@@ -3271,89 +3118,28 @@ export default function JobDetailPage() {
 
       <BottomSheet open={sheet === "installDate"} onClose={closeSheet} title="Installation Date">
         <div className="space-y-4">
-          <div>
-            <p className="text-sm text-gray-500 mb-3">Set or edit the planned installation date/time.</p>
-            <DateTimeCalendarField value={installDate} onChange={setInstallDate} />
-          </div>
+          <InstallPlanningForm
+            installDate={installDate}
+            onInstallDateChange={setInstallDate}
+            saving={saving}
+            canCreateInvite={!!installDate}
+            hasInstallDate={!!job.installation?.installDate}
+            onClearDate={clearInstallDate}
+            onCreateInvite={openInstallInviteTemplatesPage}
+            status={installPlanningStatus}
+            onStatusChange={setInstallPlanningStatus}
+            scope={installPlanningScope}
+            onScopeChange={setInstallPlanningScope}
+            note={installPlanningNote}
+            onNoteChange={setInstallPlanningNote}
+          />
 
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Lock in status</div>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => setInstallPlanningStatus("pencilled")}
-                className={`py-3 rounded-xl text-sm font-semibold border ${installPlanningStatus === "pencilled" ? "bg-amber-50 text-amber-700 border-amber-300" : "bg-white text-gray-700 border-gray-200"}`}
-              >
-                Pencilled
-              </button>
-              <button
-                onClick={() => setInstallPlanningStatus("confirmed")}
-                className={`py-3 rounded-xl text-sm font-semibold border ${installPlanningStatus === "confirmed" ? "bg-emerald-50 text-emerald-700 border-emerald-300" : "bg-white text-gray-700 border-gray-200"}`}
-              >
-                Confirmed
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Install scope <span className="text-red-600">*</span></div>
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                onClick={() => setInstallPlanningScope("internal")}
-                className={`py-3 rounded-xl text-sm font-semibold border ${installPlanningScope === "internal" ? "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
-              >
-                Internal
-              </button>
-              <button
-                onClick={() => setInstallPlanningScope("external")}
-                className={`py-3 rounded-xl text-sm font-semibold border ${installPlanningScope === "external" ? "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
-              >
-                External
-              </button>
-              <button
-                onClick={() => setInstallPlanningScope("both")}
-                className={`py-3 rounded-xl text-sm font-semibold border ${installPlanningScope === "both" ? "bg-blue-50 text-blue-700 border-blue-300" : "bg-white text-gray-700 border-gray-200"}`}
-              >
-                Both
-              </button>
-            </div>
-            {!installPlanningScope && <div className="text-[11px] text-red-600 mt-1">Required</div>}
-          </div>
-
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Planning notes</div>
-            <textarea
-              value={installPlanningNote}
-              onChange={(e) => setInstallPlanningNote(e.target.value)}
-              rows={5}
-              placeholder="Flexible dates, unavailable days, tentative details, anything the team should know..."
-              className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04] resize-none"
-            />
-          </div>
-
-          <div className="flex gap-2">
-            {job.installation?.installDate && (
-              <button onClick={clearInstallDate} disabled={saving}
-                className="bg-red-50 text-red-600 font-semibold py-3 px-4 rounded-xl disabled:opacity-50">
-                Remove
-              </button>
-            )}
-            <button onClick={closeSheet} className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">Cancel</button>
-            <button onClick={saveInstallDate} disabled={saving || !installDate || !installPlanningScope}
-              className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
-              {saving ? "Saving..." : "Save"}
-            </button>
-          </div>
-
-          <div>
-            <button
-              type="button"
-              onClick={openInstallInviteTemplatesPage}
-              disabled={!installDate}
-              className={`w-full rounded-xl py-3 text-center text-sm font-semibold ${installDate ? "bg-blue-50 text-blue-700" : "bg-gray-100 text-gray-400"}`}
-            >
-              Create Google invite
-            </button>
-          </div>
+          <InstallPlanningActions
+            saving={saving}
+            canSave={!!installDate && !!installPlanningScope}
+            onCancel={closeSheet}
+            onSave={saveInstallDate}
+          />
         </div>
       </BottomSheet>
 

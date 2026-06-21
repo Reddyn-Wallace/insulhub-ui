@@ -531,7 +531,7 @@ function JobsPageContent() {
         return sortOrder === "newest" ? bTime - aTime : aTime - bTime;
       }
 
-      if (activeStage === "JOBS") {
+      if (activeStage === "JOBS" || activeStage === "COMPLETED") {
         const aInstall = a.installation?.installDate ? new Date(a.installation.installDate).getTime() : null;
         const bInstall = b.installation?.installDate ? new Date(b.installation.installDate).getTime() : null;
         if (aInstall == null && bInstall != null) return -1;
@@ -635,7 +635,7 @@ function JobsPageContent() {
             onClick={() => setSortOrder((prev) => (prev === "newest" ? "oldest" : "newest"))}
             className="text-xs bg-white border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg font-medium hover:bg-gray-50"
           >
-            Sort: {activeStage === "QUOTE" ? "Quote date" : activeStage === "JOBS" ? "Install date" : "Created"} {sortOrder === "newest" ? "Latest first" : "Earliest first"}
+            Sort: {activeStage === "QUOTE" ? "Quote date" : activeStage === "JOBS" || activeStage === "COMPLETED" ? "Install date" : "Created"} {sortOrder === "newest" ? "Latest first" : "Earliest first"}
           </button>
         </div>
       </div>
