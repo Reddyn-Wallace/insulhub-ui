@@ -3,6 +3,9 @@
 export type InstallPlanningStatus = "confirmed" | "pencilled";
 export type InstallPlanningScope = "internal" | "external" | "both" | "";
 
+const DEFAULT_TIME = "09:00";
+const DEFAULT_INSTALL_TIME = "08:00";
+
 function fromDatetimeLocal(val: string) {
   if (!val) return null;
   const approx = new Date(val + ":00Z");
@@ -37,23 +40,31 @@ function dateFromDatetimeLocal(val?: string | null) {
   return new Date(year, month - 1, day);
 }
 
-function timeFromDatetimeLocal(val?: string | null) {
-  if (!val || !val.includes("T")) return "09:00";
-  return val.split("T")[1]?.slice(0, 5) || "09:00";
+function timeFromDatetimeLocal(val?: string | null, defaultTime = DEFAULT_TIME) {
+  if (!val || !val.includes("T")) return defaultTime;
+  return val.split("T")[1]?.slice(0, 5) || defaultTime;
 }
 
-function mergeDateAndTime(date: Date | undefined, time: string) {
+function mergeDateAndTime(date: Date | undefined, time: string, defaultTime = DEFAULT_TIME) {
   if (!date) return "";
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
-  const safeTime = /^\d{2}:\d{2}$/.test(time) ? time : "09:00";
+  const safeTime = /^\d{2}:\d{2}$/.test(time) ? time : defaultTime;
   return `${year}-${month}-${day}T${safeTime}`;
 }
 
-export function DateTimeCalendarField({ value, onChange }: { value: string; onChange: (next: string) => void }) {
+export function DateTimeCalendarField({
+  value,
+  onChange,
+  defaultTime = DEFAULT_TIME,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  defaultTime?: string;
+}) {
   const selectedDate = dateFromDatetimeLocal(value);
-  const timeValue = timeFromDatetimeLocal(value);
+  const timeValue = timeFromDatetimeLocal(value, defaultTime);
   const dateValue = value.split("T")[0] || "";
 
   return (
@@ -76,7 +87,7 @@ export function DateTimeCalendarField({ value, onChange }: { value: string; onCh
           <input
             type="time"
             value={timeValue}
-            onChange={(e) => onChange(mergeDateAndTime(selectedDate || new Date(), e.target.value))}
+            onChange={(e) => onChange(mergeDateAndTime(selectedDate || new Date(), e.target.value, defaultTime))}
             className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
           />
         </div>
@@ -145,7 +156,7 @@ export default function InstallPlanningForm({
             </button>
           </div>
         </div>
-        <DateTimeCalendarField value={installDate} onChange={onInstallDateChange} />
+        <DateTimeCalendarField value={installDate} onChange={onInstallDateChange} defaultTime={DEFAULT_INSTALL_TIME} />
       </section>
 
       <section>

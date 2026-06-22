@@ -242,8 +242,10 @@ function JobsPageContent() {
       if (currentFetchId !== fetchIdRef.current) return;
 
       const allFetched = data.jobs.results;
-      // Filter out archived jobs and completed installs from the active Jobs tab.
-      const activeJobs = allFetched.filter((j) => isActiveForStage(j, activeStage));
+      // Search is global across leads, quotes, and jobs; only archived records are hidden.
+      const activeJobs = isSearching
+        ? allFetched.filter((j) => !j.archivedAt)
+        : allFetched.filter((j) => isActiveForStage(j, activeStage));
 
       setJobs(activeJobs);
       setTotal(activeStage === "JOBS" || activeStage === "COMPLETED" ? activeJobs.length : data.jobs.total);

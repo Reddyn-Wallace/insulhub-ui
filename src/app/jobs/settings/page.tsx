@@ -84,6 +84,7 @@ export default function SettingsPage() {
   const [smsgatePassword, setSmsgatePassword] = useState("");
   const [smsgateDeviceId, setSmsgateDeviceId] = useState("");
   const [loading, setLoading] = useState(true);
+  const [deletingTemplateId, setDeletingTemplateId] = useState("");
   const [sendersLoading, setSendersLoading] = useState(true);
   const [savingSender, setSavingSender] = useState(false);
   const [savingCommunicationSettings, setSavingCommunicationSettings] = useState(false);
@@ -319,6 +320,38 @@ export default function SettingsPage() {
     }
   }
 
+  async function deleteTemplate(template: ContactTemplate) {
+    const confirmed = await confirm({
+      title: "Delete template?",
+      description: `Delete "${template.title}"? Campaigns that already copied this template keep their saved message content.`,
+      confirmLabel: "Delete",
+      tone: "danger",
+    });
+    if (!confirmed) return;
+
+    const token = getToken();
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+
+    setDeletingTemplateId(template.id);
+    try {
+      const res = await fetch(`/api/contact-templates/${template.id}`, {
+        method: "DELETE",
+        headers: { "x-access-token": token },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "Failed to delete template");
+      setToast({ type: "success", text: "Template deleted." });
+      setTemplates((current) => current.filter((item) => item.id !== template.id));
+    } catch (err) {
+      setToast({ type: "error", text: err instanceof Error ? err.message : "Failed to delete template" });
+    } finally {
+      setDeletingTemplateId("");
+    }
+  }
+
   async function updateSender(sender: CommunicationSender, input: Partial<CommunicationSender> & { test?: boolean; disconnect?: boolean }) {
     const token = getToken();
     if (!token) {
@@ -530,20 +563,32 @@ export default function SettingsPage() {
               ) : visibleTemplates.length ? (
                 <div className="divide-y divide-gray-100">
                   {visibleTemplates.map((template) => (
-                    <Link
+                    <div
                       key={template.id}
-                      href={`/jobs/settings/templates/${template.id}`}
                       className="flex items-center justify-between gap-3 px-1 py-3 hover:bg-gray-50 sm:px-3"
                     >
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold text-gray-900">{template.title}</div>
                         {template.description && <div className="mt-0.5 truncate text-xs text-gray-500">{template.description}</div>}
                       </div>
-                      <div className="flex shrink-0 items-center gap-3 text-xs text-gray-500">
+                      <div className="flex shrink-0 items-center gap-2 text-xs text-gray-500">
                         <span className="hidden sm:inline">{channelLabel(template.channel)}</span>
-                        <span className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-semibold text-gray-700">Edit</span>
+                        <Link
+                          href={`/jobs/settings/templates/${template.id}`}
+                          className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-semibold text-gray-700"
+                        >
+                          Edit
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() => deleteTemplate(template)}
+                          disabled={deletingTemplateId === template.id}
+                          className="rounded-lg bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 ring-1 ring-rose-200 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {deletingTemplateId === template.id ? "Deleting..." : "Delete"}
+                        </button>
                       </div>
-                    </Link>
+                    </div>
                   ))}
                 </div>
               ) : (

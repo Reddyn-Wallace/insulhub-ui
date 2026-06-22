@@ -328,6 +328,12 @@ function buildMailtoHref(email: string, subject: string, body: string) {
   return `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
+function isEBAEmailLog(row: { subject?: string | null; type?: string | null }) {
+  const subject = (row.subject || "").toLowerCase();
+  const type = (row.type || "").toLowerCase();
+  return type.includes("eba") || subject.includes("eba") || subject.includes("existing building assessment");
+}
+
 // ── Sub-components ─────────────────────────────────────────────────
 function InfoRow({ label, value }: { label: string; value?: string | null }) {
   if (!value) return null;
@@ -443,6 +449,7 @@ export default function JobDetailPage() {
   const quoteNoteTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const quoteEmailEditorRef = useRef<HTMLDivElement | null>(null);
   const [quoteSentAt, setQuoteSentAt] = useState<string | null>(null);
+  const [ebaSentAt, setEbaSentAt] = useState<string | null>(null);
   const [contactTemplates, setContactTemplates] = useState<ContactTemplate[]>([]);
   const [loadingContactTemplates, setLoadingContactTemplates] = useState(false);
   const [contactTemplateMode, setContactTemplateMode] = useState<"sms" | "email">("sms");
@@ -695,6 +702,67 @@ export default function JobDetailPage() {
       }
     })();
   }, [job?.client?.contactDetails?.email, job?.stage]);
+
+  useEffect(() => {
+    const email = job?.client?.contactDetails?.email?.trim().toLowerCase();
+    if (!email || !job?.ebaForm?.complete) {
+      setEbaSentAt(null);
+      return;
+    }
+
+    const cacheKey = "eba-sent-email-map-v1";
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
+    if (!token) return;
+
+    (async () => {
+      try {
+        const cachedRaw = sessionStorage.getItem(cacheKey);
+        if (cachedRaw) {
+          const parsed = JSON.parse(cachedRaw) as { ts: number; map: Record<string, string> };
+          if (Date.now() - parsed.ts < 10 * 60 * 1000 && parsed.map?.[email]) {
+            setEbaSentAt(parsed.map[email]);
+            return;
+          }
+        }
+
+        let skip = 0;
+        const limit = 500;
+        let total = Number.MAX_SAFE_INTEGER;
+        const map: Record<string, string> = {};
+
+        while (skip < total) {
+          const res = await fetch("https://api.insulhub.nz/graphql", {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-access-token": token },
+            body: JSON.stringify({
+              query: `query($skip:Int,$limit:Int){listEmailLogs(skip:$skip,limit:$limit){total results{createdAt type subject to_email}}}`,
+              variables: { skip, limit },
+            }),
+          });
+          const json = await res.json();
+          const data = json?.data?.listEmailLogs;
+          if (!data) break;
+
+          total = data.total;
+          const batch = data.results || [];
+          for (const row of batch) {
+            const to = (row.to_email || "").trim().toLowerCase();
+            if (!to || !isEBAEmailLog(row)) continue;
+            const curr = map[to];
+            if (!curr || new Date(row.createdAt).getTime() > new Date(curr).getTime()) map[to] = row.createdAt;
+          }
+
+          skip += batch.length;
+          if (batch.length === 0) break;
+        }
+
+        sessionStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), map }));
+        setEbaSentAt(map[email] || null);
+      } catch {
+        // best effort only
+      }
+    })();
+  }, [job?.client?.contactDetails?.email, job?.ebaForm?.complete]);
 
   useEffect(() => {
     if (!toast) return;
@@ -1528,6 +1596,18 @@ export default function JobDetailPage() {
       return;
     }
     await run(() => gql(SEND_EBA, { jobId: id }));
+    const sentAt = new Date().toISOString();
+    setEbaSentAt(sentAt);
+    const email = job.client?.contactDetails?.email?.trim().toLowerCase();
+    if (email && typeof window !== "undefined") {
+      const cacheKey = "eba-sent-email-map-v1";
+      let map: Record<string, string> = {};
+      try {
+        const cachedRaw = sessionStorage.getItem(cacheKey);
+        if (cachedRaw) map = JSON.parse(cachedRaw)?.map || {};
+      } catch {}
+      sessionStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), map: { ...map, [email]: sentAt } }));
+    }
     const msg = { type: "success" as const, text: "EBA email sent." };
     setNotice(msg);
     setToast(msg);
@@ -1939,10 +2019,16 @@ export default function JobDetailPage() {
     },
     {
       title: "Send EBA for signing",
-      description: job.ebaForm?.complete ? (job.ebaForm?.clientApproved ? "Already client signed" : "Ready to send") : "Complete the EBA first",
-      status: job.ebaForm?.clientApproved ? "Signed" : job.ebaForm?.complete ? "Ready" : "Blocked",
+      description: job.ebaForm?.complete
+        ? job.ebaForm?.clientApproved
+          ? "Already client signed"
+          : ebaSentAt
+            ? `Sent ${fmtDateTime(ebaSentAt)}`
+            : "Ready to send"
+        : "Complete the EBA first",
+      status: job.ebaForm?.clientApproved ? "Signed" : ebaSentAt ? "Sent" : job.ebaForm?.complete ? "Ready" : "Blocked",
       wired: true,
-      actionLabel: job.ebaForm?.clientApproved ? undefined : job.ebaForm?.complete ? "Send EBA" : "Edit EBA",
+      actionLabel: job.ebaForm?.clientApproved ? undefined : job.ebaForm?.complete ? (ebaSentAt ? "Resend EBA" : "Send EBA") : "Edit EBA",
       action: job.ebaForm?.clientApproved ? undefined : job.ebaForm?.complete ? sendEBA : openEBAClientApprovalPage,
       disabled: job.ebaForm?.clientApproved ? true : saving,
     },
@@ -1950,6 +2036,8 @@ export default function JobDetailPage() {
       title: "See signed EBA / download",
       description: job.ebaForm?.clientApproved
         ? `EBA signed ${job.ebaForm?.clientApprovedAt ? fmtDateTime(job.ebaForm.clientApprovedAt) : ""}`.trim()
+        : ebaSentAt
+          ? "Waiting for client signature"
         : job.ebaForm?.complete
           ? "Send the EBA before expecting a client signature"
           : "Complete and send the EBA first",
