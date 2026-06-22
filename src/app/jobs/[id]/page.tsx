@@ -2255,6 +2255,15 @@ export default function JobDetailPage() {
                             <div className="min-w-0 flex-1">
                               <div className="flex flex-wrap items-center gap-1.5">
                                 <div className="text-sm font-semibold text-gray-900">{item.title}</div>
+                                {hasInlineAction && (
+                                  <button
+                                    onClick={item.action}
+                                    disabled={item.disabled}
+                                    className="bg-[#1a3a4a] text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg disabled:opacity-40"
+                                  >
+                                    {item.actionLabel}
+                                  </button>
+                                )}
                                 {item.completionDocsLabel && (
                                   <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-700 bg-blue-50 border border-blue-200 rounded-full px-2 py-0.5">
                                     Completion docs
@@ -2269,15 +2278,6 @@ export default function JobDetailPage() {
                               <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${stateTone}`}>
                                 {item.status}
                               </span>
-                              {hasInlineAction && (
-                                <button
-                                  onClick={item.action}
-                                  disabled={item.disabled}
-                                  className="bg-[#1a3a4a] text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg disabled:opacity-40"
-                                >
-                                  {item.actionLabel}
-                                </button>
-                              )}
                             </div>
                           </div>
 
@@ -2324,7 +2324,9 @@ export default function JobDetailPage() {
                           ) : item.title === "Upload Council Application" ? (
                             <div className="mt-2 border border-gray-200 rounded-lg p-2.5 space-y-2">
                               <div className="flex items-center justify-between gap-3">
-                                <div className="text-xs text-gray-500">Usually one PDF for the council application</div>
+                                <div className="text-xs font-medium text-gray-600">
+                                  {councilApplicationFileCount ? `${councilApplicationFileCount} file${councilApplicationFileCount === 1 ? "" : "s"} uploaded` : "No council application files"}
+                                </div>
                                 <label className="inline-flex items-center px-2.5 py-1.5 rounded-lg bg-[#1a3a4a] text-white text-xs font-semibold cursor-pointer hover:opacity-95">
                                   <input type="file" onChange={(e) => uploadCompletionFiles(e.target.files)} disabled={uploadingCompletionFiles} className="hidden" />
                                   {uploadingCompletionFiles ? "Uploading..." : "Upload file"}
@@ -2351,9 +2353,6 @@ export default function JobDetailPage() {
                                     <button onClick={() => removeCompletionFile(f)} className="text-xs text-red-600 font-medium">Remove</button>
                                   </div>
                                 ))}
-                                {(!job.council?.files_Other || job.council.files_Other.length === 0) && (
-                                  <p className="text-xs text-gray-400">No council application files uploaded yet.</p>
-                                )}
                               </div>
                             </div>
                           ) : item.title === "Council approval & consent number" ? (
@@ -2412,8 +2411,12 @@ export default function JobDetailPage() {
                               </div>
 
                               <div className="flex items-center justify-between gap-3">
-                                <div className="text-xs text-gray-500">
-                                  {councilApprovalMarkedNA ? "Approval upload skipped for this job" : "Usually one council approval PDF"}
+                                <div className="text-xs font-medium text-gray-600">
+                                  {councilApprovalMarkedNA
+                                    ? "Approval upload skipped"
+                                    : councilApprovalFileCount
+                                      ? `${councilApprovalFileCount} approval file${councilApprovalFileCount === 1 ? "" : "s"} uploaded`
+                                      : "No approval files"}
                                 </div>
                                 <div className="flex items-center gap-2">
                                   <label className={`inline-flex items-center px-2.5 py-1.5 rounded-lg bg-[#1a3a4a] text-white text-xs font-semibold hover:opacity-95 ${councilApprovalMarkedNA || uploadingCouncilApproval ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}>
@@ -2443,9 +2446,6 @@ export default function JobDetailPage() {
                                     <button onClick={() => removeCouncilApprovalFile(f)} className="text-xs text-red-600 font-medium">Remove</button>
                                   </div>
                                 ))}
-                                {(!job.council?.files_CouncilApprovalLetters || job.council.files_CouncilApprovalLetters.length === 0) && !councilApprovalMarkedNA && (
-                                  <p className="text-xs text-gray-400">No council approval files uploaded yet.</p>
-                                )}
                                 {councilApprovalMarkedNA && (
                                   <p className="text-xs text-amber-700">Council approval is marked N/A. Completion pack can proceed without this upload.</p>
                                 )}

@@ -129,6 +129,7 @@ export default function JobCard({ job }: { job: Job }) {
   const returnTo = `/jobs${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
   const stageParam = searchParams.get("stage");
   const isInstallWorkflowTab = stageParam === "JOBS" || stageParam === "COMPLETED";
+  const missingInstallDate = isInstallWorkflowTab && !job.installation?.installDate;
 
   const [now] = useState(() => Date.now());
   const sentAt = job.quoteLastSentAt || null;
@@ -153,6 +154,7 @@ export default function JobCard({ job }: { job: Job }) {
         : leadStatus;
 
   const cardStyle = STATUS_STYLE[cardState] || STATUS_STYLE.NEW;
+  const cardBorder = missingInstallDate ? "border-l-red-500" : cardStyle.border;
   const ebaStatus = job.ebaForm?.clientApproved
     ? "Signed"
     : job.ebaLastSentAt
@@ -199,26 +201,33 @@ export default function JobCard({ job }: { job: Job }) {
 
   return (
     <Link href={{ pathname: `/jobs/${job._id}`, query: returnTo ? { returnTo } : {} }}>
-      <div className={`bg-white rounded-xl shadow-sm border border-gray-100 border-l-4 ${cardStyle.border} p-4 mb-3 active:bg-gray-50 transition-colors cursor-pointer`}>
-        <div className="flex items-start justify-between gap-2 mb-1">
-          <p className="font-semibold text-gray-900 text-base leading-tight">{c?.name || "Unknown"}</p>
-          <div className="flex items-center gap-1.5" />
+      <div className={`rounded-xl shadow-sm border border-gray-100 border-l-4 ${cardBorder} ${missingInstallDate ? "bg-red-50/40" : "bg-white"} px-3 py-2.5 mb-2 active:bg-gray-50 transition-colors cursor-pointer`}>
+        <div className="flex items-start justify-between gap-3 mb-1">
+          <div className="min-w-0">
+            <p className="font-semibold text-gray-900 text-[15px] leading-tight truncate">{c?.name || "Unknown"}</p>
+            {addressParts && <p className="text-xs text-gray-500 mt-0.5 truncate">{addressParts}</p>}
+          </div>
+          {missingInstallDate && (
+            <span className="shrink-0 rounded-full border border-red-200 bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-700">
+              Install date missing
+            </span>
+          )}
         </div>
 
-        {addressParts && <p className="text-sm text-gray-500 mb-1">{addressParts}</p>}
-        {(c?.phoneMobile || c?.email) && <p className="text-sm text-gray-400 mb-2">{[c?.phoneMobile, c?.email].filter(Boolean).join(" | ")}</p>}
-
-        <div className="flex flex-wrap gap-2 mb-2">
+        <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
           <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">Job #{job.jobNumber}</span>
           {job.quote?.quoteNumber && <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-medium">#{job.quote.quoteNumber} {job.quote.c_total ? formatCurrency(job.quote.c_total) : ""}</span>}
           {job.stage === "QUOTE" && sentAt && (
             <span className="text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">Sent at {formatDateTime(sentAt)}</span>
           )}
+          {(c?.phoneMobile || c?.email) && (
+            <span className="min-w-0 truncate text-xs text-gray-400">{[c?.phoneMobile, c?.email].filter(Boolean).join(" | ")}</span>
+          )}
         </div>
 
         <div className="flex items-center justify-between text-xs text-gray-400">
           <span>{job.lead?.allocatedTo ? `${job.lead.allocatedTo.firstname} ${job.lead.allocatedTo.lastname}` : "Unallocated"}</span>
-          <span className={cardState === "CALLBACK" && isCallbackOverdue ? "text-rose-600 font-semibold" : ""}>
+          <span className={missingInstallDate ? "text-red-700 font-semibold" : cardState === "CALLBACK" && isCallbackOverdue ? "text-rose-600 font-semibold" : ""}>
             {isInstallWorkflowTab
               ? `Installation: ${formatDate(job.installation?.installDate) || "Undated"}`
               : cardState === "CALLBACK"
@@ -232,16 +241,16 @@ export default function JobCard({ job }: { job: Job }) {
         </div>
 
         {isInstallWorkflowTab && (
-          <div className="mt-2 grid grid-cols-1 gap-2 text-xs text-gray-600 bg-gray-50 rounded-xl px-3 py-2">
-            <div className="flex items-center justify-between gap-3">
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-gray-600 rounded-lg bg-white/70 px-2.5 py-1.5">
+            <div className="flex items-center gap-2">
               <span className="font-medium text-gray-500">EBA status</span>
               <span className={`font-semibold px-2 py-0.5 rounded-full ${workflowTone.eba}`}>{ebaStatus}</span>
             </div>
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
               <span className="font-medium text-gray-500">Council paperwork status</span>
               <span className={`font-semibold px-2 py-0.5 rounded-full ${workflowTone.council}`}>{councilStatus}</span>
             </div>
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
               <span className="font-medium text-gray-500">Final invoice</span>
               <span className={`font-semibold px-2 py-0.5 rounded-full ${workflowTone.invoice}`}>{finalInvoiceStatus}</span>
             </div>

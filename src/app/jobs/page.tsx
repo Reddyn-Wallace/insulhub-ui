@@ -145,7 +145,7 @@ function JobsPageContent() {
         ttlMs: 2 * 60 * 1000,
       });
       const activeJobs = data.jobs.results.filter((j) => isActiveForStage(j, stage));
-      const activeTotal = stage === "JOBS" ? activeJobs.length : data.jobs.total;
+      const activeTotal = stage === "JOBS" || stage === "COMPLETED" ? activeJobs.length : data.jobs.total;
       cacheRef.current[stage] = { jobs: activeJobs, total: activeTotal };
 
       const isQuoteBooked = (job: Job) => Boolean(job.lead?.quoteBookingDate);
@@ -164,7 +164,9 @@ function JobsPageContent() {
         OPEN: activeJobs.filter((j) => quoteState(j) === "OPEN").length,
         DEAD: activeJobs.filter((j) => stage === "QUOTE" ? quoteState(j) === "DEAD" : j.lead?.leadStatus === "DEAD").length,
       };
-      writeStageCache(stage, { jobs: activeJobs, total: activeTotal, counts });
+      if (stage !== "COMPLETED") {
+        writeStageCache(stage, { jobs: activeJobs, total: activeTotal, counts });
+      }
       return cacheRef.current[stage];
     } catch (err) {
       console.warn(`[Prefetch] Failed for ${stage}:`, err);
@@ -227,7 +229,7 @@ function JobsPageContent() {
     const q = search;
 
     try {
-      const shouldFetchAllForStage = !isSearching && (activeStage === "LEAD" || activeStage === "QUOTE" || activeStage === "JOBS");
+      const shouldFetchAllForStage = !isSearching && (activeStage === "LEAD" || activeStage === "QUOTE" || activeStage === "JOBS" || activeStage === "COMPLETED");
       const stageFilter = activeStage === "JOBS" ? ["SCHEDULED", "INSTALLATION", "INVOICE"] : [activeStage];
       const data = await gql<JobsData>(JOBS_QUERY, {
         ...(isSearching ? {} : { stages: stageFilter }),
@@ -244,7 +246,7 @@ function JobsPageContent() {
       const activeJobs = allFetched.filter((j) => isActiveForStage(j, activeStage));
 
       setJobs(activeJobs);
-      setTotal(activeStage === "JOBS" ? activeJobs.length : data.jobs.total);
+      setTotal(activeStage === "JOBS" || activeStage === "COMPLETED" ? activeJobs.length : data.jobs.total);
       setStageHydrated(true);
 
       if (!isSearching && (activeStage === "LEAD" || activeStage === "QUOTE")) {
@@ -271,7 +273,7 @@ function JobsPageContent() {
 
       // Update cache for stage first page
       if (!isSearching && page === 0) {
-        const activeTotal = activeStage === "JOBS" ? activeJobs.length : data.jobs.total;
+        const activeTotal = activeStage === "JOBS" || activeStage === "COMPLETED" ? activeJobs.length : data.jobs.total;
         cacheRef.current[activeStage] = { jobs: activeJobs, total: activeTotal };
         if (activeStage === "JOBS") {
           writeStageCache(activeStage, { jobs: activeJobs, total: activeTotal });
@@ -293,7 +295,7 @@ function JobsPageContent() {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (!token) { router.push("/login"); return; }
 
-    const canUseWarmCache = !searchMode && !search && page === 0 && (activeStage === "LEAD" || activeStage === "QUOTE" || activeStage === "JOBS");
+    const canUseWarmCache = !searchMode && !search && page === 0 && (activeStage === "LEAD" || activeStage === "QUOTE" || activeStage === "JOBS" || activeStage === "COMPLETED");
     const cached = canUseWarmCache ? readStageCache(activeStage) : null;
 
     if (canUseWarmCache && cached && cached.jobs.length > 0) {
