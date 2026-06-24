@@ -20,6 +20,7 @@ interface CalendarJob {
       name?: string;
       email?: string;
       phoneMobile?: string;
+      phoneSecondary?: string;
       streetAddress?: string;
       suburb?: string;
       city?: string;
@@ -63,6 +64,7 @@ const CALENDAR_JOBS_QUERY = `
             name
             email
             phoneMobile
+            phoneSecondary
             streetAddress
             suburb
             city

@@ -28,6 +28,7 @@ interface CalendarJob {
       name?: string;
       email?: string;
       phoneMobile?: string;
+      phoneSecondary?: string;
       streetAddress?: string;
       suburb?: string;
       city?: string;
@@ -236,6 +237,13 @@ function address(job: CalendarJob) {
     job.client?.contactDetails?.suburb,
     job.client?.contactDetails?.city,
   ].filter(Boolean).join(", ");
+}
+
+function customerPhone(job: CalendarJob) {
+  return [
+    job.client?.contactDetails?.phoneMobile,
+    job.client?.contactDetails?.phoneSecondary,
+  ].map((phone) => phone?.trim()).find(Boolean) || "";
 }
 
 function parseInstallMeta(notes?: string | null): { status: "confirmed" | "pencilled"; note: string; scope: "internal" | "external" | "both" | "" } {
@@ -1141,6 +1149,7 @@ export default function JobsCalendarPage() {
                             const installTime = timeFromDatetimeLocal(job.installation?.installDate);
                             const statusLabel = isInstalled ? calendarStatusLabel(job) : isPencilled ? "Pencilled" : "Confirmed";
                             const csBadge = checksheetBadge(job);
+                            const phone = customerPhone(job);
                             return (
                               <div key={job._id} className={`group w-full rounded-xl border p-2 shadow-sm transition-colors border-l-4 ${isInstalled ? "border-emerald-200 bg-emerald-50/70 hover:bg-emerald-50" : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/70"} ${isPencilled ? "border-l-amber-500" : "border-l-emerald-500"}`}>
                                 <button onClick={() => openJobSheet(job)} className="w-full text-left">
@@ -1157,6 +1166,12 @@ export default function JobsCalendarPage() {
                                   <div className="mb-1 text-[13px] leading-4 font-semibold text-gray-800 line-clamp-3">
                                     {address(job) || "No address"}
                                   </div>
+
+                                  {phone && (
+                                    <div className="mb-1 text-[12px] leading-4 font-semibold text-gray-600 tabular-nums">
+                                      {phone}
+                                    </div>
+                                  )}
 
                                   <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-500">
                                     {installTime && <span>{installTime}</span>}
