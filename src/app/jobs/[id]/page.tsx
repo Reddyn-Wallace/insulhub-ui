@@ -1937,6 +1937,7 @@ export default function JobDetailPage() {
     name: contactName,
     firstname: firstName,
     salesperson: templateSalesperson,
+    salespersonfirstname: templateSalesperson,
     address: address || "your property",
     quotebookingdate: fmtDateTime(job.lead?.quoteBookingDate, true) || "the booked time",
     installdate: fmtDateOnly(fromDatetimeLocal(installDate) || job.installation?.installDate, true) || "the install date",
