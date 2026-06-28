@@ -250,6 +250,28 @@ function persistedFileList(files?: string[] | null) {
   return Array.isArray(files) && files.length > 0 ? files : undefined;
 }
 
+function clearedWallQuoteSection() {
+  return {
+    SQMPrice: null,
+    SQM: null,
+    cavityDepthMeters: null,
+    c_RValue: null,
+    c_bagCount: null,
+    internal: null,
+  };
+}
+
+function clearedCeilingQuoteSection() {
+  return {
+    SQMPrice: null,
+    SQM: null,
+    RValue: null,
+    downlights: null,
+    c_thickness: null,
+    c_bagCount: null,
+  };
+}
+
 const API_BASE = "https://api.insulhub.nz";
 const JOB_CACHE_TTL_MS = 3 * 60 * 1000;
 
@@ -1310,7 +1332,7 @@ export default function JobDetailPage() {
         cavityDepthMeters: q.wallCavityDepth ? parseFloat(q.wallCavityDepth) : 0.1,
         c_RValue: quoteCalc.wallR,
         c_bagCount: quoteCalc.wallBags,
-      } : {},
+      } : clearedWallQuoteSection(),
       ceiling: q.hasCeiling ? {
         ...existingCeiling,
         SQMPrice: q.ceilingSQMPrice ? parseFloat(q.ceilingSQMPrice) : null,
@@ -1319,7 +1341,7 @@ export default function JobDetailPage() {
         downlights: q.ceilingDownlights ? parseFloat(q.ceilingDownlights) : null,
         c_thickness: quoteCalc.ceilingThickness,
         c_bagCount: quoteCalc.ceilingBags,
-      } : {},
+      } : clearedCeilingQuoteSection(),
       files_QuoteSitePlan: persistedFileList(job?.quote?.files_QuoteSitePlan),
       ...quoteOverrides,
     };
