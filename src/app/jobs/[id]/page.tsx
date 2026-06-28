@@ -428,11 +428,9 @@ export default function JobDetailPage() {
   const [contactForm, setContactForm] = useState<ContactDetails>({});
 
   // Quote form
-  const defaultQuoteExtras = [{ name: "Council Fee", price: "330" }];
   const withQuoteDefaults = <T extends { consentFee?: string; extras?: { name: string; price: string }[] }>(value: T): T => ({
     ...value,
     consentFee: value.consentFee || "0",
-    extras: value.extras && value.extras.length > 0 ? value.extras : defaultQuoteExtras,
   });
   const [quoteForm, setQuoteForm] = useState({
     quoteNumber: "", date: "", consentFee: "", depositPercentage: "25",
@@ -1365,11 +1363,9 @@ export default function JobDetailPage() {
   function openQuoteSheet() {
     setQuoteForm((f) => {
       if (!job || job.stage !== "LEAD" || job.quote) return f;
-      const extras = f.extras.length > 0 ? f.extras : [{ name: "Council Fee", price: "330" }];
       return {
         ...f,
         consentFee: f.consentFee || "0",
-        extras,
       };
     });
     openSheet("quote");
