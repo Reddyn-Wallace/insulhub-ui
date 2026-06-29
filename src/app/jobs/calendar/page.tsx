@@ -428,6 +428,7 @@ export default function JobsCalendarPage() {
   const calendarCache = useRef(calendarMemoryCache);
   const rawJobsCache = useRef(rawJobsMemoryCache);
   const visibleJobsCountRef = useRef(0);
+  const calendarHeaderRef = useRef<HTMLDivElement | null>(null);
   const todayWeekRef = useRef<HTMLDivElement | null>(null);
   const todayScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shouldScrollToTodayRef = useRef(true);
@@ -1039,7 +1040,11 @@ export default function JobsCalendarPage() {
     if (todayScrollTimeoutRef.current) {
       window.clearTimeout(todayScrollTimeoutRef.current);
     }
-    const scroll = () => node.scrollIntoView({ behavior, block: "start", inline: "nearest" });
+    const scroll = () => {
+      const headerBottom = calendarHeaderRef.current?.getBoundingClientRect().bottom || 0;
+      const top = node.getBoundingClientRect().top + window.scrollY - headerBottom - 12;
+      window.scrollTo({ top: Math.max(0, top), behavior });
+    };
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(scroll);
     });
@@ -1084,7 +1089,7 @@ export default function JobsCalendarPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {dialog}
-      <div className="px-4 py-4 border-b border-gray-100 bg-white sticky z-30" style={{ top: "var(--nav-height, 80px)" }}>
+      <div ref={calendarHeaderRef} className="px-4 py-4 border-b border-gray-100 bg-white sticky z-30" style={{ top: "var(--nav-height, 80px)" }}>
         <div className="flex items-center justify-between gap-3 mb-3">
           <div>
             <h1 className="text-lg font-bold text-gray-900">Installation Calendar</h1>
