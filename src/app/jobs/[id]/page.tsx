@@ -813,6 +813,18 @@ export default function JobDetailPage() {
     if (!contactTemplates.length) loadContactTemplates();
   }
 
+  async function copyCustomerEmail() {
+    const email = c?.email?.trim();
+    if (!email) return;
+
+    try {
+      await navigator.clipboard.writeText(email);
+      setToast({ type: "success", text: "Email copied to clipboard." });
+    } catch {
+      setToast({ type: "error", text: "Could not copy the email address." });
+    }
+  }
+
   async function recordAndLaunchJobCommunication(input: {
     href: string;
     channel: "sms" | "email";
@@ -2319,9 +2331,9 @@ export default function JobDetailPage() {
                 </a>
               )}
               {c?.email && (
-                <a href={`mailto:${encodeURIComponent(c.email)}`} className="truncate hover:text-white">
+                <button type="button" onClick={copyCustomerEmail} className="truncate text-left hover:text-white">
                   {c.email}
-                </a>
+                </button>
               )}
             </div>
           </div>
