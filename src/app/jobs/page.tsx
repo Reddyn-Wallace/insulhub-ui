@@ -103,6 +103,7 @@ function JobsPageContent() {
   const [users, setUsers] = useState<User[]>([]);
   const [salespersonFilters, setSalespersonFilters] = useState<string[]>(initSalespersonFilters);
   const [leadSourceFilters, setLeadSourceFilters] = useState<string[]>(initLeadSourceFilters);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isFetchingStage, setIsFetchingStage] = useState(false);
   const [quoteSentByEmail, setQuoteSentByEmail] = useState<Record<string, string>>({});
@@ -505,6 +506,13 @@ function JobsPageContent() {
     router.replace(buildJobsUrl({ leadSourceFilters: next }));
   }
 
+  function clearAllFilters() {
+    setSalespersonFilters([]);
+    setLeadSourceFilters([]);
+    setPage(0);
+    router.replace(buildJobsUrl({ salespersonFilters: [], leadSourceFilters: [] }));
+  }
+
   // Calculate counts for sub-tabs across all fetched non-archived jobs for this stage
   const isQuoteBooked = (job: Job) => Boolean(job.lead?.quoteBookingDate);
   const isCallbackLead = (job: Job) => ["CALLBACK", "ON_HOLD"].includes((job.lead?.leadStatus || "").toUpperCase());
@@ -551,6 +559,7 @@ function JobsPageContent() {
 
   const selectedSalespersonLabel = salespersonFilters.length === 0 ? "All" : `${salespersonFilters.length} selected`;
   const selectedLeadSourceLabel = leadSourceFilters.length === 0 ? "All" : `${leadSourceFilters.length} selected`;
+  const activeFilterCount = salespersonFilters.length + leadSourceFilters.length;
 
   // Client-side sub-tab filter
   const filtered = decoratedJobs.filter((job) => {
@@ -716,72 +725,17 @@ function JobsPageContent() {
             </button>
           )}
         </div>
-        <div className="mt-2 flex gap-2 justify-end flex-wrap">
-          <div className="min-w-0 rounded-lg border border-gray-200 bg-white px-2 py-1.5">
-            <div className="mb-1 flex items-center justify-between gap-2">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Salespeople</span>
-              <span className="text-[11px] text-gray-400">{selectedSalespersonLabel}</span>
-            </div>
-            <div className="flex max-w-[calc(100vw-2rem)] flex-wrap gap-1.5">
-              {salespersonFilters.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => updateSalespersonFilters([])}
-                  className="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-100"
-                >
-                  Clear
-                </button>
-              )}
-              {salespersonOptions.map((u) => {
-                const active = salespersonFilters.includes(u._id);
-                return (
-                  <button
-                    key={u._id}
-                    type="button"
-                    onClick={() => updateSalespersonFilters(toggleMultiSelectValue(salespersonFilters, u._id))}
-                    className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${active ? "border-[#e85d04] bg-orange-50 text-[#e85d04]" : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"}`}
-                  >
-                    {u.firstname} {u.lastname}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <div className="min-w-0 rounded-lg border border-gray-200 bg-white px-2 py-1.5">
-            <div className="mb-1 flex items-center justify-between gap-2">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Lead sources</span>
-              <span className="text-[11px] text-gray-400">{selectedLeadSourceLabel}</span>
-            </div>
-            <div className="flex max-w-[calc(100vw-2rem)] flex-wrap gap-1.5">
-              {leadSourceFilters.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => updateLeadSourceFilters([])}
-                  className="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-100"
-                >
-                  Clear
-                </button>
-              )}
-              {leadSourceOptions.length > 0 ? (
-                leadSourceOptions.map((source) => {
-                  const key = normalizeFilterValue(source);
-                  const active = leadSourceFilters.includes(key);
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => updateLeadSourceFilters(toggleMultiSelectValue(leadSourceFilters, key))}
-                      className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${active ? "border-[#e85d04] bg-orange-50 text-[#e85d04]" : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"}`}
-                    >
-                      {source}
-                    </button>
-                  );
-                })
-              ) : (
-                <span className="px-1.5 py-1 text-[11px] text-gray-400">No lead sources found</span>
-              )}
-            </div>
-          </div>
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => setFiltersOpen((open) => !open)}
+            className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold ${filtersOpen || activeFilterCount > 0 ? "border-[#e85d04] bg-orange-50 text-[#e85d04]" : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"}`}
+          >
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="rounded-full bg-[#e85d04] px-1.5 py-0.5 text-[10px] leading-none text-white">{activeFilterCount}</span>
+            )}
+          </button>
           <button
             onClick={() => setSortOrder((prev) => (prev === "newest" ? "oldest" : "newest"))}
             className="text-xs bg-white border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg font-medium hover:bg-gray-50"
@@ -789,6 +743,93 @@ function JobsPageContent() {
             Sort: {activeStage === "QUOTE" ? "Quote date" : activeStage === "JOBS" || activeStage === "COMPLETED" ? "Install date" : "Created"} {sortOrder === "newest" ? "Latest first" : "Earliest first"}
           </button>
         </div>
+        {activeFilterCount > 0 && !filtersOpen && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {salespersonFilters.length > 0 && (
+              <span className="rounded-full bg-orange-50 px-2 py-1 text-[11px] font-medium text-[#e85d04]">
+                Salespeople: {selectedSalespersonLabel}
+              </span>
+            )}
+            {leadSourceFilters.length > 0 && (
+              <span className="rounded-full bg-orange-50 px-2 py-1 text-[11px] font-medium text-[#e85d04]">
+                Lead sources: {selectedLeadSourceLabel}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={clearAllFilters}
+              className="rounded-full border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-500"
+            >
+              Clear all
+            </button>
+          </div>
+        )}
+        {filtersOpen && (
+          <div className="mt-2 space-y-2 rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-xs font-semibold text-gray-800">Filter jobs</p>
+                <p className="text-[11px] text-gray-400">Choose one or more salespeople and lead sources.</p>
+              </div>
+              {activeFilterCount > 0 && (
+                <button
+                  type="button"
+                  onClick={clearAllFilters}
+                  className="text-[11px] font-semibold text-[#e85d04]"
+                >
+                  Clear all
+                </button>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Salespeople</span>
+                <span className="text-[11px] text-gray-400">{selectedSalespersonLabel}</span>
+              </div>
+              <div className="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto pr-1">
+                {salespersonOptions.map((u) => {
+                  const active = salespersonFilters.includes(u._id);
+                  return (
+                    <button
+                      key={u._id}
+                      type="button"
+                      onClick={() => updateSalespersonFilters(toggleMultiSelectValue(salespersonFilters, u._id))}
+                      className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${active ? "border-[#e85d04] bg-orange-50 text-[#e85d04]" : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"}`}
+                    >
+                      {u.firstname} {u.lastname}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Lead sources</span>
+                <span className="text-[11px] text-gray-400">{selectedLeadSourceLabel}</span>
+              </div>
+              <div className="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto pr-1">
+                {leadSourceOptions.length > 0 ? (
+                  leadSourceOptions.map((source) => {
+                    const key = normalizeFilterValue(source);
+                    const active = leadSourceFilters.includes(key);
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => updateLeadSourceFilters(toggleMultiSelectValue(leadSourceFilters, key))}
+                        className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${active ? "border-[#e85d04] bg-orange-50 text-[#e85d04]" : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"}`}
+                      >
+                        {source}
+                      </button>
+                    );
+                  })
+                ) : (
+                  <span className="px-1.5 py-1 text-[11px] text-gray-400">No lead sources found</span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Pagination */}
