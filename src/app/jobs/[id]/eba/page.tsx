@@ -473,6 +473,7 @@ export default function EbaPreviewPage() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
   const autosaveTimerRef = useRef<number | null>(null);
+  const editVersionRef = useRef(0);
 
   const locked = !!job?.ebaForm?.clientApproved;
 
@@ -490,11 +491,13 @@ export default function EbaPreviewPage() {
   const fileUrl = useCallback((fileName: string) => `https://api.insulhub.nz/files/documents/${encodeURIComponent(fileName)}?token=${getToken()}`, []);
 
   const setField = (name: string, value: unknown) => {
+    editVersionRef.current += 1;
     setDirty(true);
     setForm((prev) => ({ ...prev, [name]: value }));
   };
 
   const setInstallPlanningField = <K extends keyof InstallPlanningDetails>(name: K, value: InstallPlanningDetails[K]) => {
+    editVersionRef.current += 1;
     setDirty(true);
     setInstallPlanningDetails((prev) => {
       const next = { ...prev, [name]: value };
@@ -727,6 +730,7 @@ export default function EbaPreviewPage() {
         west: !!eba.skip_photos_elevation_west,
       });
       setDirty(false);
+      editVersionRef.current = 0;
       setSaveState("saved");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load EBA");
@@ -735,7 +739,7 @@ export default function EbaPreviewPage() {
     }
   }, [id]);
 
-  async function saveInstallPlanningDetails() {
+  async function saveInstallPlanningDetails(detailsToSave = installPlanningDetails) {
     if (!job) return;
     const res = await fetch("/api/install-planning", {
       method: "PUT",
@@ -745,12 +749,11 @@ export default function EbaPreviewPage() {
       },
       body: JSON.stringify({
         jobId: job._id,
-        ...normalizeInstallPlanningDetails(installPlanningDetails),
+        ...normalizeInstallPlanningDetails(detailsToSave),
       }),
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(json?.error || "Failed to save install planning");
-    setInstallPlanningDetails(normalizeInstallPlanningDetails(json?.planning));
   }
 
   useEffect(() => {
@@ -765,6 +768,8 @@ export default function EbaPreviewPage() {
 
   async function saveDraft(quiet = false) {
     if (!job || locked) return false;
+    const saveVersion = editVersionRef.current;
+    const installPlanningToSave = normalizeInstallPlanningDetails(installPlanningDetails);
     setSaving(true);
     setSaveState("saving");
     if (!quiet) setNotice("");
@@ -787,7 +792,7 @@ export default function EbaPreviewPage() {
         });
       }
       const res = await gql<{ saveEBA: Job }>(SAVE_EBA_MUTATION, { input: { _id: job._id, ebaForm: ebaPayload }, isDraft: true });
-      await saveInstallPlanningDetails();
+      await saveInstallPlanningDetails(installPlanningToSave);
       setJob((prev) => prev ? {
         ...prev,
         client: prev.client ? {
@@ -799,9 +804,13 @@ export default function EbaPreviewPage() {
         } : prev.client,
         ebaForm: { ...(prev.ebaForm || {}), ...(res.saveEBA.ebaForm || {}), ...ebaPayload },
       } : prev);
-      setDirty(false);
-      setSaveState("saved");
-      if (!quiet) setNotice("Draft saved.");
+      if (editVersionRef.current === saveVersion) {
+        setDirty(false);
+        setSaveState("saved");
+        if (!quiet) setNotice("Draft saved.");
+      } else {
+        setSaveState("saving");
+      }
       return true;
     } catch (err) {
       setSaveState("error");
