@@ -429,6 +429,7 @@ export default function JobsCalendarPage() {
   const rawJobsCache = useRef(rawJobsMemoryCache);
   const visibleJobsCountRef = useRef(0);
   const todayWeekRef = useRef<HTMLDivElement | null>(null);
+  const todayScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shouldScrollToTodayRef = useRef(true);
   const [todayAnchor, setTodayAnchor] = useState(() => new Date());
   const todayMonth = useMemo(() => startOfMonth(todayAnchor), [todayAnchor]);
@@ -1035,18 +1036,31 @@ export default function JobsCalendarPage() {
   const scrollToTodayWeek = useCallback((behavior: ScrollBehavior = "smooth") => {
     const node = todayWeekRef.current;
     if (!node) return false;
+    if (todayScrollTimeoutRef.current) {
+      window.clearTimeout(todayScrollTimeoutRef.current);
+    }
+    const scroll = () => node.scrollIntoView({ behavior, block: "start", inline: "nearest" });
     window.requestAnimationFrame(() => {
-      node.scrollIntoView({ behavior, block: "start", inline: "nearest" });
+      window.requestAnimationFrame(scroll);
     });
+    todayScrollTimeoutRef.current = window.setTimeout(scroll, 250);
     return true;
   }, []);
 
   useEffect(() => {
-    if (!shouldScrollToTodayRef.current || !sameMonth(monthCursor, todayMonth)) return;
+    if (loading || !shouldScrollToTodayRef.current || !sameMonth(monthCursor, todayMonth)) return;
     if (scrollToTodayWeek("auto")) {
       shouldScrollToTodayRef.current = false;
     }
-  }, [monthCursor, scrollToTodayWeek, todayMonth, weeks]);
+  }, [loading, monthCursor, scrollToTodayWeek, todayMonth, weeks]);
+
+  useEffect(() => {
+    return () => {
+      if (todayScrollTimeoutRef.current) {
+        window.clearTimeout(todayScrollTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const goToToday = useCallback(() => {
     const nextToday = new Date();
