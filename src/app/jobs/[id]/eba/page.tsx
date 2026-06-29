@@ -495,6 +495,7 @@ export default function EbaPreviewPage() {
   };
 
   const setInstallPlanningField = <K extends keyof InstallPlanningDetails>(name: K, value: InstallPlanningDetails[K]) => {
+    setDirty(true);
     setInstallPlanningDetails((prev) => {
       const next = { ...prev, [name]: value };
       if (name === "extensionHosesRequired" && value === false) next.extensionHosesDistance = "";
@@ -786,6 +787,7 @@ export default function EbaPreviewPage() {
         });
       }
       const res = await gql<{ saveEBA: Job }>(SAVE_EBA_MUTATION, { input: { _id: job._id, ebaForm: ebaPayload }, isDraft: true });
+      await saveInstallPlanningDetails();
       setJob((prev) => prev ? {
         ...prev,
         client: prev.client ? {
@@ -820,7 +822,7 @@ export default function EbaPreviewPage() {
     return () => {
       if (autosaveTimerRef.current) window.clearTimeout(autosaveTimerRef.current);
     };
-  }, [dirty, form, elevationSkip, loading, locked, job]);
+  }, [dirty, form, elevationSkip, installPlanningDetails, loading, locked, job]);
 
   async function finalise() {
     setFinaliseAttempted(true);
