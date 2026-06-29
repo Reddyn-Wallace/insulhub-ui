@@ -8,6 +8,7 @@ import { JOBS_QUERY, USERS_QUERY } from "@/lib/queries";
 import StageTabs from "@/components/StageTabs";
 import JobCard from "@/components/JobCard";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
+import { LEAD_SOURCE_OPTIONS, canonicalLeadSourceLabel, normalizeLeadSourceValue } from "@/lib/lead-sources";
 
 const PAGE_SIZE = 40;
 const STAGE_CACHE_TTL_MS = 30 * 60 * 1000;
@@ -77,17 +78,13 @@ interface EmailLogData {
   };
 }
 
-function normalizeFilterValue(value: string) {
-  return value.trim().toLowerCase();
-}
-
 function JobsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const initStage = searchParams.get("stage") || "LEAD";
   const initSubTab = searchParams.get("subTab") || (initStage === "QUOTE" ? "OPEN" : initStage === "LEAD" ? "NEW" : "ALL");
   const initSalespersonFilters = useMemo(() => searchParams.getAll("salesperson").filter(Boolean), [searchParams]);
-  const initLeadSourceFilters = useMemo(() => searchParams.getAll("leadSource").map(normalizeFilterValue).filter(Boolean), [searchParams]);
+  const initLeadSourceFilters = useMemo(() => searchParams.getAll("leadSource").map(normalizeLeadSourceValue).filter(Boolean), [searchParams]);
 
   const [activeStage, setActiveStage] = useState<string>(initStage);
   const [subTab, setSubTab] = useState(initSubTab);
@@ -104,6 +101,7 @@ function JobsPageContent() {
   const [salespersonFilters, setSalespersonFilters] = useState<string[]>(initSalespersonFilters);
   const [leadSourceFilters, setLeadSourceFilters] = useState<string[]>(initLeadSourceFilters);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [leadSourceMenuOpen, setLeadSourceMenuOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isFetchingStage, setIsFetchingStage] = useState(false);
   const [quoteSentByEmail, setQuoteSentByEmail] = useState<Record<string, string>>({});
@@ -111,6 +109,7 @@ function JobsPageContent() {
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fetchIdRef = useRef(0);
+  const leadSourceMenuRef = useRef<HTMLDivElement | null>(null);
   // Cache for first page of stage jobs to enable instant switching
   const cacheRef = useRef<Record<string, { jobs: Job[]; total: number }>>({});
 
@@ -241,6 +240,7 @@ function JobsPageContent() {
     setLeadSourceFilters(initLeadSourceFilters);
     setPage(0);
     setGlobalCounts(null);
+    setLeadSourceMenuOpen(false);
 
     // If we have cached data for this stage and we're not searching, use it immediately
     const inMemCached = cacheRef.current[initStage];
@@ -267,6 +267,31 @@ function JobsPageContent() {
     searchMode,
     readStageCache,
   ]); // Depend on searchMode too to ensure we clear/show correctly
+
+  useEffect(() => {
+    if (!filtersOpen) setLeadSourceMenuOpen(false);
+  }, [filtersOpen]);
+
+  useEffect(() => {
+    function handlePointerDown(event: MouseEvent) {
+      if (!leadSourceMenuOpen) return;
+      const target = event.target as Node | null;
+      if (target && leadSourceMenuRef.current && !leadSourceMenuRef.current.contains(target)) {
+        setLeadSourceMenuOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setLeadSourceMenuOpen(false);
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [leadSourceMenuOpen]);
 
   const fetchJobs = useCallback(async () => {
     const currentFetchId = ++fetchIdRef.current;
@@ -544,28 +569,24 @@ function JobsPageContent() {
     [...users].sort((a, b) => `${a.firstname} ${a.lastname}`.localeCompare(`${b.firstname} ${b.lastname}`))
   ), [users]);
 
-  const leadSourceOptions = useMemo(() => {
-    const seen = new Map<string, string>();
-    for (const job of jobs) {
-      for (const source of job.lead?.leadSource || []) {
-        const label = source.trim();
-        if (!label) continue;
-        const key = normalizeFilterValue(label);
-        if (!seen.has(key)) seen.set(key, label);
-      }
-    }
-    return [...seen.values()].sort((a, b) => a.localeCompare(b));
-  }, [jobs]);
-
   const selectedSalespersonLabel = salespersonFilters.length === 0 ? "All" : `${salespersonFilters.length} selected`;
-  const selectedLeadSourceLabel = leadSourceFilters.length === 0 ? "All" : `${leadSourceFilters.length} selected`;
+  const selectedLeadSourceLabels = useMemo(
+    () => leadSourceFilters.map((value) => canonicalLeadSourceLabel(value)),
+    [leadSourceFilters],
+  );
+  const selectedLeadSourceLabel = selectedLeadSourceLabels.length === 0
+    ? "All"
+    : selectedLeadSourceLabels.length <= 2
+      ? selectedLeadSourceLabels.join(", ")
+      : `${selectedLeadSourceLabels.slice(0, 2).join(", ")} +${selectedLeadSourceLabels.length - 2}`;
+  const leadSourceSelectedCountLabel = selectedLeadSourceLabels.length === 0 ? "All sources" : `${selectedLeadSourceLabels.length} selected`;
   const activeFilterCount = salespersonFilters.length + leadSourceFilters.length;
 
   // Client-side sub-tab filter
   const filtered = decoratedJobs.filter((job) => {
     if (salespersonFilters.length > 0 && !salespersonFilters.includes(job.lead?.allocatedTo?._id || "")) return false;
     if (leadSourceFilters.length > 0) {
-      const jobLeadSources = (job.lead?.leadSource || []).map(normalizeFilterValue).filter(Boolean);
+      const jobLeadSources = (job.lead?.leadSource || []).map(normalizeLeadSourceValue).filter(Boolean);
       if (!jobLeadSources.some((source) => leadSourceFilters.includes(source))) return false;
     }
     if (!searchMode && subTab !== "ALL" && (activeStage === "LEAD" || activeStage === "QUOTE")) {
@@ -752,7 +773,7 @@ function JobsPageContent() {
             )}
             {leadSourceFilters.length > 0 && (
               <span className="rounded-full bg-orange-50 px-2 py-1 text-[11px] font-medium text-[#e85d04]">
-                Lead sources: {selectedLeadSourceLabel}
+                Lead source: {selectedLeadSourceLabel}
               </span>
             )}
             <button
@@ -769,7 +790,7 @@ function JobsPageContent() {
             <div className="flex items-center justify-between gap-2">
               <div>
                 <p className="text-xs font-semibold text-gray-800">Filter jobs</p>
-                <p className="text-[11px] text-gray-400">Choose one or more salespeople and lead sources.</p>
+                <p className="text-[11px] text-gray-400">Choose one or more salespeople and lead source options.</p>
               </div>
               {activeFilterCount > 0 && (
                 <button
@@ -804,27 +825,54 @@ function JobsPageContent() {
             </div>
             <div className="space-y-1.5">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Lead sources</span>
-                <span className="text-[11px] text-gray-400">{selectedLeadSourceLabel}</span>
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Lead source</span>
+                <span className="text-[11px] text-gray-400">{leadSourceSelectedCountLabel}</span>
               </div>
-              <div className="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto pr-1">
-                {leadSourceOptions.length > 0 ? (
-                  leadSourceOptions.map((source) => {
-                    const key = normalizeFilterValue(source);
-                    const active = leadSourceFilters.includes(key);
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        onClick={() => updateLeadSourceFilters(toggleMultiSelectValue(leadSourceFilters, key))}
-                        className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${active ? "border-[#e85d04] bg-orange-50 text-[#e85d04]" : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"}`}
-                      >
-                        {source}
-                      </button>
-                    );
-                  })
-                ) : (
-                  <span className="px-1.5 py-1 text-[11px] text-gray-400">No lead sources found</span>
+              <div className="relative" ref={leadSourceMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setLeadSourceMenuOpen((open) => !open)}
+                  className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left text-sm transition-colors ${
+                    leadSourceMenuOpen
+                      ? "border-[#e85d04] bg-orange-50 text-gray-800"
+                      : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                  }`}
+                >
+                  <span className="min-w-0 truncate">
+                    {selectedLeadSourceLabels.length === 0
+                      ? "All lead sources"
+                      : selectedLeadSourceLabel}
+                  </span>
+                  <span className="text-xs font-semibold text-gray-400">{leadSourceMenuOpen ? "Close" : "Select"}</span>
+                </button>
+                {leadSourceMenuOpen && (
+                  <div className="absolute left-0 right-0 top-full z-20 mt-2 rounded-xl border border-gray-200 bg-white p-2 shadow-lg">
+                    <div className="max-h-60 overflow-y-auto pr-1">
+                      <div className="grid gap-1">
+                        {LEAD_SOURCE_OPTIONS.map((source) => {
+                          const key = normalizeLeadSourceValue(source);
+                          const active = leadSourceFilters.includes(key);
+                          return (
+                            <button
+                              key={source}
+                              type="button"
+                              onClick={() => updateLeadSourceFilters(toggleMultiSelectValue(leadSourceFilters, key))}
+                              className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                                active
+                                  ? "bg-orange-50 text-[#e85d04]"
+                                  : "text-gray-700 hover:bg-gray-50"
+                              }`}
+                            >
+                              <span>{source}</span>
+                              <span className={`ml-3 inline-flex h-4 w-16 items-center justify-center rounded border px-1 text-[10px] font-bold ${active ? "border-[#e85d04] bg-[#e85d04] text-white" : "border-gray-300 text-transparent"}`}>
+                                Selected
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>

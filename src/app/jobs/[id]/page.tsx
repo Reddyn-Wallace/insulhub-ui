@@ -14,6 +14,7 @@ import InstallPlanningForm, { DateTimeCalendarField, InstallPlanningActions } fr
 import { useAppDialog } from "@/components/AppDialog";
 import { firstNameForMerge, formatNameForMerge } from "@/lib/communication-merge-fields";
 import { buildInstallPlanningSummaryLines } from "@/lib/install-planning";
+import { LEAD_SOURCE_OPTIONS } from "@/lib/lead-sources";
 
 // ── Types ──────────────────────────────────────────────────────────
 interface User { _id: string; firstname: string; lastname: string; email: string; role?: string; }
@@ -3179,9 +3180,7 @@ export default function JobDetailPage() {
 
       {/* Edit lead source */}
       <BottomSheet open={sheet === "leadSource"} onClose={closeSheet} title="Lead Source">
-        {[
-          "Website", "Home Show", "TV", "Social Media", "Radio", "Vehicle Signage", "Mailchimp", "Referral", "Printed Media", "Door Drop", "Google Ads"
-        ].map((opt) => {
+        {LEAD_SOURCE_OPTIONS.map((opt) => {
           const checked = leadSourceForm.includes(opt);
           return (
             <label key={opt} className="flex items-center gap-2 py-2 text-sm text-gray-700">

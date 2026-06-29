@@ -5,12 +5,7 @@ import { useRouter } from "next/navigation";
 import { gql } from "@/lib/graphql";
 import { CREATE_JOB } from "@/lib/mutations";
 import AddressAutocomplete from "@/components/AddressAutocomplete";
-
-const LEAD_SOURCES = [
-  "Website", "Home Show", "TV", "Social Media", "Radio",
-  "Vehicle Signage", "Mailchimp", "Referral", "Printed Media",
-  "Door Drop", "Google Ads", "Contact Form",
-];
+import { LEAD_SOURCE_OPTIONS } from "@/lib/lead-sources";
 
 interface CreateJobResponse {
   createJob: { _id: string; jobNumber: number };
@@ -140,7 +135,7 @@ export default function NewLeadPage() {
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
           <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wide mb-3">Lead Source</h2>
           <div className="flex flex-wrap gap-2">
-            {LEAD_SOURCES.map((src) => (
+            {LEAD_SOURCE_OPTIONS.map((src) => (
               <button
                 key={src}
                 type="button"
