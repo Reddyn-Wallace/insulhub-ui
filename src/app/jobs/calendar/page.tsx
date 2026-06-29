@@ -430,7 +430,7 @@ export default function JobsCalendarPage() {
   const visibleJobsCountRef = useRef(0);
   const calendarHeaderRef = useRef<HTMLDivElement | null>(null);
   const todayWeekRef = useRef<HTMLDivElement | null>(null);
-  const todayScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const todayScrollTimeoutRef = useRef<number | null>(null);
   const shouldScrollToTodayRef = useRef(true);
   const [todayAnchor, setTodayAnchor] = useState(() => new Date());
   const todayMonth = useMemo(() => startOfMonth(todayAnchor), [todayAnchor]);
