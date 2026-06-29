@@ -1,14 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { gql } from "@/lib/graphql";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+type Person = {
+  _id?: string;
+  firstname?: string | null;
+  lastname?: string | null;
+};
 
-type BulkJob = {
+type ContactDetails = {
+  name?: string | null;
+  streetAddress?: string | null;
+  suburb?: string | null;
+  city?: string | null;
+  postCode?: string | null;
+};
+
+type ReportJob = {
   _id: string;
-  stage: string;
+  jobNumber?: number | null;
+  stage?: string | null;
+  notes?: string | null;
+  createdAt?: string | null;
   archivedAt?: string | null;
+  acceptedAt?: string | null;
+  lead?: {
+    allocatedTo?: Person | null;
+  } | null;
   quote?: {
     status?: string | null;
     c_total?: number | null;
@@ -19,33 +38,20 @@ type BulkJob = {
     installDate?: string | null;
     installStatus?: string | null;
   } | null;
-  installerChecksheet?: {
-    wallAreaInstalled?: number | null;
+  client?: {
+    contactDetails?: ContactDetails | null;
   } | null;
 };
 
-type DetailJob = {
-  _id: string;
-  acceptedAt?: string | null;
-  quote?: {
-    c_total?: number | null;
-    wall?: { SQM?: number | null } | null;
-    ceiling?: { SQM?: number | null } | null;
-  } | null;
-};
-
-type FutureJob = {
-  _id: string;
-  notes?: string | null;
-  archivedAt?: string | null;
-  quote?: {
-    c_total?: number | null;
-    wall?: { SQM?: number | null } | null;
-    ceiling?: { SQM?: number | null } | null;
-  } | null;
-  installation?: {
-    installDate?: string | null;
-  } | null;
+type ReportResult = {
+  leads: ReportJob[];
+  sales: ReportJob[];
+  installs: ReportJob[];
+  upcoming: {
+    unscheduled: ReportJob[];
+    pencilled: ReportJob[];
+    confirmed: ReportJob[];
+  };
 };
 
 type InstallPlanningRow = {
@@ -53,16 +59,20 @@ type InstallPlanningRow = {
   status: "confirmed" | "pencilled";
 };
 
-// ─── Queries ──────────────────────────────────────────────────────────────────
-
-const BULK_QUERY = `
-  query SalesInstallsBulk($stages: [JobStage!], $skip: Int, $limit: Int) {
+const REPORT_QUERY = `
+  query WeeklyTeamReport($stages: [JobStage!], $skip: Int, $limit: Int) {
     jobs(stages: $stages, skip: $skip, limit: $limit) {
       total
       results {
         _id
+        jobNumber
         stage
+        notes
+        createdAt
         archivedAt
+        lead {
+          allocatedTo { _id firstname lastname }
+        }
         quote {
           status
           c_total
@@ -73,8 +83,14 @@ const BULK_QUERY = `
           installDate
           installStatus
         }
-        installerChecksheet {
-          wallAreaInstalled
+        client {
+          contactDetails {
+            name
+            streetAddress
+            suburb
+            city
+            postCode
+          }
         }
       }
     }
@@ -82,41 +98,66 @@ const BULK_QUERY = `
 `;
 
 const DETAIL_QUERY = `
-  query SalesInstallsDetail($_id: ObjectId!) {
+  query WeeklyTeamReportDetail($_id: ObjectId!) {
     job(_id: $_id) {
       _id
+      jobNumber
+      stage
+      notes
+      createdAt
+      archivedAt
       acceptedAt
+      lead {
+        allocatedTo { _id firstname lastname }
+      }
       quote {
+        status
         c_total
         wall { SQM }
         ceiling { SQM }
       }
-    }
-  }
-`;
-
-const FUTURE_QUERY = `
-  query SalesInstallsFuture($stages: [JobStage!], $skip: Int, $limit: Int) {
-    jobs(stages: $stages, skip: $skip, limit: $limit) {
-      total
-      results {
-        _id
-        notes
-        archivedAt
-        quote {
-          c_total
-          wall { SQM }
-          ceiling { SQM }
-        }
-        installation {
-          installDate
+      installation {
+        installDate
+        installStatus
+      }
+      client {
+        contactDetails {
+          name
+          streetAddress
+          suburb
+          city
+          postCode
         }
       }
     }
   }
 `;
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+const REPORT_STAGES = ["LEAD", "QUOTE", "SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"];
+const SCHEDULED_STAGES = new Set(["SCHEDULED", "INSTALLATION", "INVOICE"]);
+const INSTALL_REPORT_STAGES = new Set(["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"]);
+
+function todayNzKey(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Pacific/Auckland",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function addDays(key: string, days: number): string {
+  const [year, month, day] = key.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  date.setDate(date.getDate() + days);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function defaultFromDate(today: string): string {
+  const day = new Date(`${today}T00:00:00`).getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  return addDays(today, mondayOffset);
+}
 
 function toNzDateKey(iso?: string | null): string {
   if (!iso) return "";
@@ -130,16 +171,34 @@ function toNzDateKey(iso?: string | null): string {
   }).format(d);
 }
 
-function todayNzKey(): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Pacific/Auckland",
-    year: "numeric",
-    month: "2-digit",
+function shortDate(key: string): string {
+  if (!key) return "";
+  const [year, month, day] = key.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-NZ", {
     day: "2-digit",
-  }).format(new Date());
+    month: "short",
+  }).format(new Date(year, month - 1, day));
 }
 
-function jobSqm(job: { quote?: { wall?: { SQM?: number | null } | null; ceiling?: { SQM?: number | null } | null } | null }): number {
+function formatInstallDate(iso?: string | null): string {
+  const key = toNzDateKey(iso);
+  return key ? shortDate(key) : "-";
+}
+
+function weekdayLabel(key: string): string {
+  const [year, month, day] = key.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-NZ", { weekday: "short" }).format(new Date(year, month - 1, day));
+}
+
+function daysInRange(fromDate: string, toDate: string): string[] {
+  const days: string[] = [];
+  for (let key = fromDate; key <= toDate; key = addDays(key, 1)) {
+    days.push(key);
+  }
+  return days;
+}
+
+function jobSqm(job: ReportJob): number {
   return (job.quote?.wall?.SQM ?? 0) + (job.quote?.ceiling?.SQM ?? 0);
 }
 
@@ -153,15 +212,58 @@ function formatNzd(amount: number): string {
 }
 
 function formatSqm(sqm: number): string {
-  return `${new Intl.NumberFormat("en-NZ", { maximumFractionDigits: 1 }).format(sqm)} m²`;
+  return `${new Intl.NumberFormat("en-NZ", {
+    minimumFractionDigits: sqm > 0 && sqm < 10 ? 1 : 0,
+    maximumFractionDigits: 1,
+  }).format(sqm)} m²`;
 }
 
-function parseInstallMeta(notes?: string | null): string | null {
-  if (!notes) return null;
-  const match = notes.match(/\[INSTALL_META\]([\s\S]*?)\[\/INSTALL_META\]/i);
-  if (!match) return null;
-  const statusMatch = match[1].match(/status:\s*(\w+)/i);
-  return statusMatch ? statusMatch[1].toLowerCase() : null;
+function fullName(person?: Person | null): string {
+  return [person?.firstname, person?.lastname].filter(Boolean).join(" ").trim();
+}
+
+function salesperson(job: ReportJob): string {
+  return fullName(job.lead?.allocatedTo) || "Unallocated";
+}
+
+function fullAddress(contact?: ContactDetails | null): string {
+  return [contact?.streetAddress, contact?.suburb, contact?.city, contact?.postCode].filter(Boolean).join(", ");
+}
+
+function installStatusLabel(status?: string | null): string {
+  if (status === "JOB_NOT_STARTED_YET") return "Not started";
+  if (status === "INSTALLED_AS_QUOTED") return "Installed";
+  if (status === "INSTALLED_WITH_VARIATIONS_FROM_QUOTE") return "Variation";
+  if (!status) return "Not set";
+  return status
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function parseInstallMetaStatus(notes?: string | null): "confirmed" | "pencilled" | null {
+  const text = notes || "";
+  const start = text.indexOf("[INSTALL_META]");
+  const end = text.indexOf("[/INSTALL_META]");
+  if (start === -1 || end === -1 || end < start) return null;
+  const body = text.slice(start, end);
+  const statusMatch = body.match(/^status:\s*(.+)$/im);
+  return statusMatch?.[1]?.trim().toLowerCase() === "pencilled" ? "pencilled" : "confirmed";
+}
+
+function classNames(...values: Array<string | false | null | undefined>): string {
+  return values.filter(Boolean).join(" ");
+}
+
+function isAcceptedJob(job: ReportJob): boolean {
+  const status = (job.quote?.status || "").toUpperCase();
+  return status === "ACCEPTED" || status === "INSTALL" || SCHEDULED_STAGES.has(job.stage || "");
+}
+
+function isActivePipelineJob(job: ReportJob): boolean {
+  return SCHEDULED_STAGES.has(job.stage || "")
+    && !["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"].includes(job.installation?.installStatus || "");
 }
 
 async function fetchInstallPlanningStatuses(jobIds: string[]): Promise<Record<string, "confirmed" | "pencilled">> {
@@ -169,11 +271,11 @@ async function fetchInstallPlanningStatuses(jobIds: string[]): Promise<Record<st
   if (!token || jobIds.length === 0) return {};
 
   const params = new URLSearchParams({ jobIds: jobIds.join(",") });
-  const res = await fetch(`/api/install-planning?${params.toString()}`, {
+  const response = await fetch(`/api/install-planning?${params.toString()}`, {
     headers: { "x-access-token": token },
   });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json?.error || "Failed to load install planning");
+  const json = await response.json();
+  if (!response.ok) throw new Error(json?.error || "Failed to load install planning");
 
   const statuses: Record<string, "confirmed" | "pencilled"> = {};
   for (const row of (json.planning || []) as InstallPlanningRow[]) {
@@ -182,85 +284,128 @@ async function fetchInstallPlanningStatuses(jobIds: string[]): Promise<Record<st
   return statuses;
 }
 
-// ─── Stat card ────────────────────────────────────────────────────────────────
-
-function StatCard({ value, label, accent }: { value: string; label: string; accent?: string }) {
-  return (
-    <div className="bg-white border border-gray-100 rounded-2xl px-5 py-4 flex flex-col gap-1 shadow-sm">
-      <span className={`text-3xl font-bold tracking-tight ${accent ?? "text-gray-900"}`}>{value}</span>
-      <span className="text-xs text-gray-500 font-medium">{label}</span>
-    </div>
-  );
-}
-
-function SectionHeading({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-3">{children}</p>
-  );
-}
-
-// ─── Pipeline row ─────────────────────────────────────────────────────────────
-
-function PipelineRow({
+function MetricCard({
   label,
-  count,
-  sqm,
-  total,
-  color,
+  value,
+  detail,
+  tone = "neutral",
 }: {
   label: string;
-  count: number;
-  sqm: number;
-  total: number;
-  color: "emerald" | "amber";
+  value: string;
+  detail?: string;
+  tone?: "brand" | "orange" | "neutral";
 }) {
-  const dot = color === "emerald" ? "bg-emerald-500" : "bg-amber-400";
-  const text = color === "emerald" ? "text-emerald-700" : "text-amber-700";
-  const bg = color === "emerald" ? "bg-emerald-50 border-emerald-100" : "bg-amber-50 border-amber-100";
+  return (
+    <div className={classNames(
+      "rounded-xl border px-4 py-3 shadow-sm",
+      tone === "brand" && "border-[#1a3a4a] bg-[#1a3a4a] text-white",
+      tone === "orange" && "border-[#e85d04]/20 bg-orange-50 text-gray-950",
+      tone === "neutral" && "border-gray-100 bg-white text-gray-950"
+    )}>
+      <div className={classNames("text-[10px] font-semibold uppercase tracking-widest", tone === "brand" ? "text-white/70" : "text-gray-500")}>
+        {label}
+      </div>
+      <div className="mt-1 text-2xl font-bold tracking-tight">{value}</div>
+      {detail && <div className={classNames("mt-0.5 text-xs", tone === "brand" ? "text-white/70" : "text-gray-500")}>{detail}</div>}
+    </div>
+  );
+}
+
+function Section({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+      <div className="mb-3 flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-sm font-bold text-gray-950">{title}</h2>
+          <p className="mt-0.5 text-xs text-gray-500">{subtitle}</p>
+        </div>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function EmptyBlock({ label }: { label: string }) {
+  return (
+    <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 px-3 py-5 text-center text-xs font-medium text-gray-500">
+      {label}
+    </div>
+  );
+}
+
+function LeadsChart({ days, leads }: { days: string[]; leads: ReportJob[] }) {
+  const counts = days.map((key) => ({
+    key,
+    count: leads.filter((lead) => toNzDateKey(lead.createdAt) === key).length,
+  }));
+  const max = Math.max(1, ...counts.map((point) => point.count));
 
   return (
-    <div className={`rounded-xl border px-5 py-4 ${bg}`}>
-      <div className="flex items-center gap-2 mb-2">
-        <span className={`w-2.5 h-2.5 rounded-full ${dot}`} />
-        <span className={`text-xs font-bold uppercase tracking-wider ${text}`}>{label}</span>
-      </div>
-      <div className="flex flex-wrap gap-x-6 gap-y-1">
-        <span className="text-2xl font-bold text-gray-900">{count}</span>
-        <div className="flex flex-col justify-center">
-          <span className="text-xs text-gray-500">jobs</span>
-        </div>
-        <div className="flex flex-col">
-          <span className="text-sm font-semibold text-gray-700">{formatSqm(sqm)}</span>
-          <span className="text-[10px] text-gray-400">total SQM</span>
-        </div>
-        <div className="flex flex-col">
-          <span className="text-sm font-semibold text-gray-700">{formatNzd(total)}</span>
-          <span className="text-[10px] text-gray-400">total value</span>
-        </div>
+    <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-3">
+      <div className="flex h-32 items-end gap-2">
+        {counts.map((point) => {
+          const height = point.count === 0 ? 4 : Math.max(18, (point.count / max) * 104);
+          return (
+            <div key={point.key} className="flex min-w-0 flex-1 flex-col items-center gap-1.5">
+              <div className="flex h-24 w-full items-end justify-center rounded-md bg-white px-1">
+                <div
+                  className={classNames(
+                    "w-full max-w-8 rounded-t-md",
+                    point.count > 0 ? "bg-[#e85d04]" : "bg-gray-200"
+                  )}
+                  style={{ height: `${height}px` }}
+                  title={`${point.count} leads`}
+                />
+              </div>
+              <div className="text-center leading-tight">
+                <div className="text-[10px] font-bold text-gray-700">{point.count}</div>
+                <div className="text-[10px] font-medium text-gray-400">{weekdayLabel(point.key)}</div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-// ─── Result shape ─────────────────────────────────────────────────────────────
-
-type ReportResult = {
-  installs: { count: number; sqm: number };
-  quotes: { count: number; total: number; sqm: number };
-  confirmed: { count: number; sqm: number; total: number };
-  pencilled: { count: number; sqm: number; total: number };
-};
-
-// ─── Page ─────────────────────────────────────────────────────────────────────
+function CompactTable({
+  headers,
+  children,
+}: {
+  headers: string[];
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-gray-100">
+      <table className="w-full table-fixed border-collapse text-left text-xs">
+        <thead className="bg-gray-50 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+          <tr>
+            {headers.map((header) => (
+              <th key={header} className="px-3 py-2">{header}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100 bg-white">
+          {children}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 export default function SalesInstallsPage() {
-  const todayKey = todayNzKey();
-  const [fromDate, setFromDate] = useState(() => {
-    // Default: start of current month
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
-  });
-  const [toDate, setToDate] = useState(todayKey);
+  const today = useMemo(() => todayNzKey(), []);
+  const [fromDate, setFromDate] = useState(() => defaultFromDate(today));
+  const [toDate, setToDate] = useState(today);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<ReportResult | null>(null);
@@ -271,197 +416,226 @@ export default function SalesInstallsPage() {
     setResult(null);
 
     try {
-      // ── Fetch 1: bulk query for date-range sections + future pipeline ────────
-      const [bulkData, futureData] = await Promise.all([
-        gql<{ jobs: { results: BulkJob[] } }>(BULK_QUERY, {
-          stages: ["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"],
-          skip: 0,
-          limit: 5000,
-        }, {
-          cacheKey: "report:sales-installs:bulk",
-          ttlMs: 5 * 60 * 1000,
-        }),
-        gql<{ jobs: { results: FutureJob[] } }>(FUTURE_QUERY, {
-          stages: ["SCHEDULED", "INSTALLATION", "INVOICE"],
-          skip: 0,
-          limit: 5000,
-        }, {
-          cacheKey: "report:sales-installs:future",
-          ttlMs: 5 * 60 * 1000,
-        }),
-      ]);
-
-      const allJobs = bulkData.jobs.results ?? [];
-
-      // ── Installs section ─────────────────────────────────────────────────────
-      const installedJobs = allJobs.filter((j) => {
-        if (j.archivedAt) return false;
-        const status = j.installation?.installStatus ?? "";
-        if (!["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"].includes(status)) return false;
-        const key = toNzDateKey(j.installation?.installDate);
-        return !!key && key >= fromDate && key <= toDate;
+      const data = await gql<{ jobs: { results: ReportJob[] } }>(REPORT_QUERY, {
+        stages: REPORT_STAGES,
+        skip: 0,
+        limit: 5000,
+      }, {
+        cacheKey: "report:weekly-team:v4:jobs",
+        ttlMs: 5 * 60 * 1000,
       });
 
-      const installsSqm = installedJobs.reduce(
-        (sum, j) => sum + (j.installerChecksheet?.wallAreaInstalled ?? 0),
-        0
-      );
+      const allJobs = (data.jobs.results || []).filter((job) => !job.archivedAt);
+      const quoteCandidates = allJobs.filter(isAcceptedJob);
 
-      // ── Quotes accepted: candidate filter then individual fetch ──────────────
-      const acceptedCandidates = allJobs.filter((j) => {
-        if (j.archivedAt) return false;
-        const s = j.quote?.status ?? "";
-        return s === "ACCEPTED" || s === "INSTALL";
-      });
-
-      // Fetch each candidate individually to read acceptedAt
       const detailResults = await Promise.allSettled(
-        acceptedCandidates.map((j) =>
-          gql<{ job: DetailJob }>(DETAIL_QUERY, { _id: j._id }, {
-            cacheKey: `report:sales-installs:detail:${j._id}`,
+        quoteCandidates.map((job) =>
+          gql<{ job: ReportJob }>(DETAIL_QUERY, { _id: job._id }, {
+            cacheKey: `report:weekly-team:v4:detail:${job._id}`,
             ttlMs: 5 * 60 * 1000,
           })
         )
       );
-
-      const acceptedInRange: DetailJob[] = [];
-      for (const r of detailResults) {
-        if (r.status !== "fulfilled") continue;
-        const job = r.value.job;
-        if (!job?.acceptedAt) continue;
-        const key = toNzDateKey(job.acceptedAt);
-        if (key && key >= fromDate && key <= toDate) {
-          acceptedInRange.push(job);
+      const detailsById = new Map<string, ReportJob>();
+      for (const detail of detailResults) {
+        if (detail.status === "fulfilled" && detail.value.job?._id) {
+          detailsById.set(detail.value.job._id, detail.value.job);
         }
       }
 
-      const quotesTotal = acceptedInRange.reduce((sum, j) => sum + (j.quote?.c_total ?? 0), 0);
-      const quotesSqm = acceptedInRange.reduce((sum, j) => sum + jobSqm(j), 0);
+      const hydratedJobs = allJobs.map((job) => detailsById.get(job._id) || job);
+      const leads = hydratedJobs
+        .filter((job) => {
+          const key = toNzDateKey(job.createdAt);
+          return !!key && key >= fromDate && key <= toDate;
+        })
+        .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
 
-      // ── Future pipeline ──────────────────────────────────────────────────────
-      const futureJobs = (futureData.jobs.results ?? []).filter((j) => {
-        if (j.archivedAt) return false;
-        const key = toNzDateKey(j.installation?.installDate);
-        return !!key && key > todayKey;
-      });
-      const futurePlanningStatuses = await fetchInstallPlanningStatuses(futureJobs.map((j) => j._id));
+      const sales = hydratedJobs
+        .filter((job) => {
+          const status = (job.quote?.status || "").toUpperCase();
+          const key = toNzDateKey(job.acceptedAt);
+          return (status === "ACCEPTED" || status === "INSTALL" || SCHEDULED_STAGES.has(job.stage || ""))
+            && !!key
+            && key >= fromDate
+            && key <= toDate;
+        })
+        .sort((a, b) => (toNzDateKey(a.acceptedAt)).localeCompare(toNzDateKey(b.acceptedAt)));
 
-      let confirmed = { count: 0, sqm: 0, total: 0 };
-      let pencilled = { count: 0, sqm: 0, total: 0 };
+      const installs = hydratedJobs
+        .filter((job) => {
+          const key = toNzDateKey(job.installation?.installDate);
+          return INSTALL_REPORT_STAGES.has(job.stage || "")
+            && !!key
+            && key >= fromDate
+            && key <= toDate;
+        })
+        .sort((a, b) => (a.installation?.installDate || "").localeCompare(b.installation?.installDate || ""));
 
-      for (const j of futureJobs) {
-        const status = futurePlanningStatuses[j._id] || parseInstallMeta(j.notes);
-        const sqm = jobSqm(j);
-        const total = j.quote?.c_total ?? 0;
-        if (status === "pencilled") {
-          pencilled = { count: pencilled.count + 1, sqm: pencilled.sqm + sqm, total: pencilled.total + total };
-        } else {
-          // No meta or explicitly confirmed → treat as confirmed
-          confirmed = { count: confirmed.count + 1, sqm: confirmed.sqm + sqm, total: confirmed.total + total };
-        }
-      }
+      const upcomingJobs = hydratedJobs.filter(isActivePipelineJob);
+      const upcomingWithDates = upcomingJobs.filter((job) => !!toNzDateKey(job.installation?.installDate));
+      const planningStatuses = await fetchInstallPlanningStatuses(upcomingWithDates.map((job) => job._id));
+      const upcoming = {
+        unscheduled: upcomingJobs.filter((job) => !toNzDateKey(job.installation?.installDate)),
+        pencilled: upcomingWithDates.filter((job) => (planningStatuses[job._id] || parseInstallMetaStatus(job.notes)) === "pencilled"),
+        confirmed: upcomingWithDates.filter((job) => (planningStatuses[job._id] || parseInstallMetaStatus(job.notes) || "confirmed") === "confirmed"),
+      };
 
-      setResult({
-        installs: { count: installedJobs.length, sqm: installsSqm },
-        quotes: { count: acceptedInRange.length, total: quotesTotal, sqm: quotesSqm },
-        confirmed,
-        pencilled,
-      });
+      setResult({ leads, sales, installs, upcoming });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load report data");
+      setError(err instanceof Error ? err.message : "Failed to load weekly report");
     } finally {
       setLoading(false);
     }
   }
 
   const dateRangeInvalid = !!fromDate && !!toDate && fromDate > toDate;
+  const days = useMemo(() => daysInRange(fromDate, toDate), [fromDate, toDate]);
+  const leadCount = result?.leads.length || 0;
+  const salesCount = result?.sales.length || 0;
+  const salesSqm = result?.sales.reduce((sum, job) => sum + jobSqm(job), 0) || 0;
+  const salesTotal = result?.sales.reduce((sum, job) => sum + (job.quote?.c_total || 0), 0) || 0;
+  const installCount = result?.installs.length || 0;
+  const installSqm = result?.installs.reduce((sum, job) => sum + jobSqm(job), 0) || 0;
+  const installTotal = result?.installs.reduce((sum, job) => sum + (job.quote?.c_total || 0), 0) || 0;
+  const upcoming = result?.upcoming;
+  const hasResults = result !== null;
 
   return (
     <div className="min-h-screen bg-gray-50" style={{ paddingTop: "var(--nav-height, 80px)" }}>
-      <div className="px-4 py-5 max-w-3xl mx-auto">
-        {/* Header card */}
-        <div className="bg-white border border-gray-100 rounded-2xl p-4 md:p-5 mb-4">
-          <h1 className="text-lg font-bold text-gray-900 mb-0.5">Sales & Installs Report</h1>
-          <p className="text-xs text-gray-400 mb-4">Select a date range to view installation and sales performance, plus the current future job pipeline.</p>
-
-          <div className="grid grid-cols-2 gap-3 mb-3">
+      <div className="mx-auto max-w-7xl px-3 py-4">
+        <div className="mb-4 rounded-xl border border-[#1a3a4a]/10 bg-white p-4 shadow-sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <label className="text-xs text-gray-500">From date</label>
-              <input
-                type="date"
-                value={fromDate}
-                onChange={(e) => setFromDate(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:ring-2 focus:ring-[#1a3a4a]/20"
-              />
+              <div className="text-[10px] font-semibold uppercase tracking-widest text-[#e85d04]">Team report</div>
+              <h1 className="mt-0.5 text-xl font-bold tracking-tight text-gray-950">Weekly Sales & Usage</h1>
+              <p className="mt-1 text-xs text-gray-500">
+                {shortDate(fromDate)} to {shortDate(toDate)} · leads by created date, quotes by accepted date, installs by install date.
+              </p>
             </div>
-            <div>
-              <label className="text-xs text-gray-500">To date</label>
-              <input
-                type="date"
-                value={toDate}
-                onChange={(e) => setToDate(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:ring-2 focus:ring-[#1a3a4a]/20"
-              />
+
+            <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
+              <div>
+                <label className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">From</label>
+                <input
+                  type="date"
+                  value={fromDate}
+                  onChange={(event) => setFromDate(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#1a3a4a]/20"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">To</label>
+                <input
+                  type="date"
+                  value={toDate}
+                  onChange={(event) => setToDate(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#1a3a4a]/20"
+                />
+              </div>
+              <button
+                onClick={runReport}
+                disabled={loading || !fromDate || !toDate || dateRangeInvalid}
+                className="self-end rounded-lg bg-[#1a3a4a] px-4 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-[#14313f] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {loading ? "Loading..." : "Run report"}
+              </button>
             </div>
           </div>
 
-          {dateRangeInvalid && (
-            <p className="text-xs text-red-600 mb-2">From date must be before or equal to To date.</p>
-          )}
-
-          <button
-            onClick={runReport}
-            disabled={loading || !fromDate || !toDate || dateRangeInvalid}
-            className="w-full bg-[#1a3a4a] text-white px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50 active:bg-[#152f3c] transition-colors"
-          >
-            {loading ? "Loading…" : "Run Report"}
-          </button>
-
-          {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
+          {dateRangeInvalid && <p className="mt-2 text-xs font-medium text-red-600">From date must be before or equal to To date.</p>}
+          {error && <p className="mt-2 text-xs font-medium text-red-600">{error}</p>}
         </div>
 
-        {/* Results */}
-        {result && (
-          <div className="flex flex-col gap-4">
-            {/* Installations */}
-            <div className="bg-white border border-gray-100 rounded-2xl p-4 md:p-5">
-              <SectionHeading>Installations · {fromDate} – {toDate}</SectionHeading>
-              <div className="grid grid-cols-2 gap-3">
-                <StatCard value={String(result.installs.count)} label="Jobs Installed" />
-                <StatCard value={formatSqm(result.installs.sqm)} label="Total SQM Installed" />
-              </div>
-            </div>
+        {!hasResults && (
+          <div className="rounded-xl border border-dashed border-gray-200 bg-white px-4 py-10 text-center shadow-sm">
+            <div className="text-sm font-semibold text-gray-900">Choose a date range and run the report.</div>
+            <p className="mt-1 text-xs text-gray-500">It is built for short weekly ranges so the whole summary screenshots cleanly.</p>
+          </div>
+        )}
 
-            {/* Quotes accepted */}
-            <div className="bg-white border border-gray-100 rounded-2xl p-4 md:p-5">
-              <SectionHeading>Quotes Accepted · {fromDate} – {toDate}</SectionHeading>
-              <div className="grid grid-cols-3 gap-3">
-                <StatCard value={String(result.quotes.count)} label="Quotes Accepted" />
-                <StatCard value={formatNzd(result.quotes.total)} label="Total Value" accent="text-[#1a3a4a]" />
-                <StatCard value={formatSqm(result.quotes.sqm)} label="Total SQM" />
+        {hasResults && (
+          <div className="grid gap-4 xl:grid-cols-3">
+            <Section title="Leads" subtitle="Newly created leads by day">
+              <div className="mb-3">
+                <MetricCard label="New leads" value={String(leadCount)} tone="brand" />
               </div>
-            </div>
+              {leadCount > 0 ? <LeadsChart days={days} leads={result.leads} /> : <EmptyBlock label="No new leads in this range." />}
+            </Section>
 
-            {/* Future pipeline */}
-            <div className="bg-white border border-gray-100 rounded-2xl p-4 md:p-5">
-              <SectionHeading>Future Pipeline · as at today</SectionHeading>
-              <div className="flex flex-col gap-3">
-                <PipelineRow
-                  label="Confirmed"
-                  count={result.confirmed.count}
-                  sqm={result.confirmed.sqm}
-                  total={result.confirmed.total}
-                  color="emerald"
+            <Section title="Sales" subtitle="Accepted quotes by accepted date">
+              <div className="mb-3 grid grid-cols-3 gap-2">
+                <MetricCard label="Accepted" value={String(salesCount)} tone="brand" />
+                <MetricCard label="SQM" value={formatSqm(salesSqm)} />
+                <MetricCard label="Value" value={formatNzd(salesTotal)} tone="orange" />
+              </div>
+              {salesCount > 0 ? (
+                <CompactTable headers={["Address", "SQM", "$", "Salesperson"]}>
+                  {result.sales.map((job) => (
+                    <tr key={job._id} className="align-top">
+                      <td className="px-3 py-2 text-gray-500 truncate">{fullAddress(job.client?.contactDetails) || "-"}</td>
+                      <td className="px-3 py-2 font-medium text-gray-800">{formatSqm(jobSqm(job))}</td>
+                      <td className="px-3 py-2 font-medium text-gray-800">{formatNzd(job.quote?.c_total || 0)}</td>
+                      <td className="px-3 py-2 text-gray-500 truncate">{salesperson(job)}</td>
+                    </tr>
+                  ))}
+                </CompactTable>
+              ) : (
+                <EmptyBlock label="No accepted quotes in this range." />
+              )}
+            </Section>
+
+            <Section title="Installs" subtitle="Jobs scheduled for install">
+              <div className="mb-3 grid grid-cols-3 gap-2">
+                <MetricCard label="Scheduled" value={String(installCount)} tone="brand" />
+                <MetricCard label="SQM" value={formatSqm(installSqm)} />
+                <MetricCard label="Value" value={formatNzd(installTotal)} tone="orange" />
+              </div>
+              {installCount > 0 ? (
+                <CompactTable headers={["Address", "Install", "SQM", "Status"]}>
+                  {result.installs.map((job) => (
+                    <tr key={job._id} className="align-top">
+                      <td className="px-3 py-2 text-gray-500 truncate">{fullAddress(job.client?.contactDetails) || "-"}</td>
+                      <td className="px-3 py-2 font-medium text-gray-800">{formatInstallDate(job.installation?.installDate)}</td>
+                      <td className="px-3 py-2 font-medium text-gray-800">{formatSqm(jobSqm(job))}</td>
+                      <td className="px-3 py-2">
+                        <span className="rounded-full bg-gray-100 px-2 py-1 text-[10px] font-semibold text-gray-700">
+                          {installStatusLabel(job.installation?.installStatus)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </CompactTable>
+              ) : (
+                <EmptyBlock label="No scheduled installs in this range." />
+              )}
+            </Section>
+
+            <section className="rounded-xl border border-[#1a3a4a]/10 bg-white p-4 shadow-sm xl:col-span-3">
+              <div className="mb-3">
+                <h2 className="text-sm font-bold text-gray-950">Upcoming</h2>
+                <p className="mt-0.5 text-xs text-gray-500">Accepted work still moving toward install.</p>
+              </div>
+              <div className="grid gap-2 md:grid-cols-3">
+                <MetricCard
+                  label="Unscheduled"
+                  value={String(upcoming?.unscheduled.length || 0)}
+                  detail="accepted, no install date"
+                  tone="orange"
                 />
-                <PipelineRow
+                <MetricCard
                   label="Pencilled"
-                  count={result.pencilled.count}
-                  sqm={result.pencilled.sqm}
-                  total={result.pencilled.total}
-                  color="amber"
+                  value={String(upcoming?.pencilled.length || 0)}
+                  detail="install date pencilled"
+                />
+                <MetricCard
+                  label="Confirmed"
+                  value={String(upcoming?.confirmed.length || 0)}
+                  detail="install date confirmed"
+                  tone="brand"
                 />
               </div>
-            </div>
+            </section>
           </div>
         )}
       </div>
