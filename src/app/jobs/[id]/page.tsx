@@ -2307,12 +2307,23 @@ export default function JobDetailPage() {
       {/* Header */}
       <div className="bg-[#1a3a4a] px-4 pt-3 pb-2">
         <button onClick={handleBack} className="text-gray-300 text-sm mb-1">← Back</button>
-        <div className="flex items-start justify-between">
-          <div>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
             <h1 className="text-white font-bold text-lg leading-tight">{c?.name || "Unknown"}</h1>
             {address && <p className="text-gray-300 text-xs mt-0.5">{address}</p>}
+            <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-300">
+              {phone && (
+                <a href={`tel:${phone.replace(/[^\d+]/g, "")}`} className="hover:text-white">
+                  {phone}
+                </a>
+              )}
+              {c?.email && (
+                <a href={`mailto:${encodeURIComponent(c.email)}`} className="truncate hover:text-white">
+                  {c.email}
+                </a>
+              )}
+            </div>
           </div>
-          <span className="text-xs text-gray-400 mt-1">#{job.jobNumber}</span>
         </div>
       </div>
 
