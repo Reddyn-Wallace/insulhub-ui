@@ -12,6 +12,7 @@ import LoadingSkeleton from "@/components/LoadingSkeleton";
 const PAGE_SIZE = 40;
 const STAGE_CACHE_TTL_MS = 30 * 60 * 1000;
 const SORT_PREFERENCE_KEY = "jobs-sort-order";
+const CACHE_KEY_VERSION = "v3";
 const EMAIL_LOGS_QUERY = `
   query EmailLogs($skip: Int, $limit: Int) {
     listEmailLogs(skip: $skip, limit: $limit) {
@@ -47,6 +48,7 @@ interface Job {
   };
   lead?: {
     leadStatus?: string;
+    leadSource?: string[];
     allocatedTo?: { _id: string; firstname: string; lastname: string };
     callbackDate?: string;
     quoteBookingDate?: string;
@@ -75,11 +77,17 @@ interface EmailLogData {
   };
 }
 
+function normalizeFilterValue(value: string) {
+  return value.trim().toLowerCase();
+}
+
 function JobsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const initStage = searchParams.get("stage") || "LEAD";
   const initSubTab = searchParams.get("subTab") || (initStage === "QUOTE" ? "OPEN" : initStage === "LEAD" ? "NEW" : "ALL");
+  const initSalespersonFilters = useMemo(() => searchParams.getAll("salesperson").filter(Boolean), [searchParams]);
+  const initLeadSourceFilters = useMemo(() => searchParams.getAll("leadSource").map(normalizeFilterValue).filter(Boolean), [searchParams]);
 
   const [activeStage, setActiveStage] = useState<string>(initStage);
   const [subTab, setSubTab] = useState(initSubTab);
@@ -93,7 +101,8 @@ function JobsPageContent() {
   const [globalCounts, setGlobalCounts] = useState<Record<string, number> | null>(null);
   const [stageHydrated, setStageHydrated] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
-  const [salespersonFilter, setSalespersonFilter] = useState<string>("ALL");
+  const [salespersonFilters, setSalespersonFilters] = useState<string[]>(initSalespersonFilters);
+  const [leadSourceFilters, setLeadSourceFilters] = useState<string[]>(initLeadSourceFilters);
   const [loading, setLoading] = useState(true);
   const [isFetchingStage, setIsFetchingStage] = useState(false);
   const [quoteSentByEmail, setQuoteSentByEmail] = useState<Record<string, string>>({});
@@ -104,7 +113,7 @@ function JobsPageContent() {
   // Cache for first page of stage jobs to enable instant switching
   const cacheRef = useRef<Record<string, { jobs: Job[]; total: number }>>({});
 
-  const cacheKey = useCallback((stage: string) => `jobs-cache-v2:${stage}`, []);
+  const cacheKey = useCallback((stage: string) => `jobs-cache-${CACHE_KEY_VERSION}:${stage}`, []);
   const sortPreferenceKey = useCallback((stage: string) => `${SORT_PREFERENCE_KEY}:${stage}`, []);
 
   const readStageCache = useCallback((stage: string): { jobs: Job[]; total: number; counts?: Record<string, number>; ts: number } | null => {
@@ -192,11 +201,43 @@ function JobsPageContent() {
     } catch {}
   }, [activeStage, sortOrder, sortPreferenceKey]);
 
+  function buildJobsUrl(next: {
+    stage?: string;
+    subTab?: string;
+    salespersonFilters?: string[];
+    leadSourceFilters?: string[];
+  }) {
+    const params = new URLSearchParams(searchParams.toString());
+    const stage = next.stage ?? activeStage;
+    const effectiveSubTab = next.subTab ?? subTab;
+    const salesperson = next.salespersonFilters ?? salespersonFilters;
+    const leadSources = next.leadSourceFilters ?? leadSourceFilters;
+
+    params.set("stage", stage);
+    if (stage === "QUOTE") params.set("subTab", effectiveSubTab || "OPEN");
+    else if (stage === "LEAD") params.set("subTab", effectiveSubTab || "NEW");
+    else params.delete("subTab");
+
+    params.delete("salesperson");
+    for (const salespersonId of salesperson) {
+      params.append("salesperson", salespersonId);
+    }
+
+    params.delete("leadSource");
+    for (const source of leadSources) {
+      params.append("leadSource", source);
+    }
+
+    return `/jobs?${params.toString()}`;
+  }
+
   // Sync state with URL changes (back/forward or tab click)
   // Only dependent on initStage to prevent toggle-back loops
   useEffect(() => {
     setActiveStage(initStage);
     setSubTab(initSubTab);
+    setSalespersonFilters(initSalespersonFilters);
+    setLeadSourceFilters(initLeadSourceFilters);
     setPage(0);
     setGlobalCounts(null);
 
@@ -217,7 +258,14 @@ function JobsPageContent() {
       setStageHydrated(false);
       setLoading(true);
     }
-  }, [initStage, initSubTab, searchMode, readStageCache]); // Depend on searchMode too to ensure we clear/show correctly
+  }, [
+    initStage,
+    initSubTab,
+    initSalespersonFilters,
+    initLeadSourceFilters,
+    searchMode,
+    readStageCache,
+  ]); // Depend on searchMode too to ensure we clear/show correctly
 
   const fetchJobs = useCallback(async () => {
     const currentFetchId = ++fetchIdRef.current;
@@ -433,17 +481,28 @@ function JobsPageContent() {
 
   function handleStageChange(stage: string) {
     if (stage === activeStage) return;
-    const params = new URLSearchParams();
-    params.set("stage", stage);
-    if (stage === "QUOTE") params.set("subTab", "OPEN");
-    else if (stage === "LEAD") params.set("subTab", "NEW");
-    router.replace(`/jobs?${params.toString()}`);
+    router.replace(buildJobsUrl({
+      stage,
+      subTab: stage === "QUOTE" ? "OPEN" : stage === "LEAD" ? "NEW" : undefined,
+    }));
   }
 
   function handleLogout() {
     localStorage.removeItem("token");
     localStorage.removeItem("me");
     router.push("/login");
+  }
+
+  function updateSalespersonFilters(next: string[]) {
+    setSalespersonFilters(next);
+    setPage(0);
+    router.replace(buildJobsUrl({ salespersonFilters: next }));
+  }
+
+  function updateLeadSourceFilters(next: string[]) {
+    setLeadSourceFilters(next);
+    setPage(0);
+    router.replace(buildJobsUrl({ leadSourceFilters: next }));
   }
 
   // Calculate counts for sub-tabs across all fetched non-archived jobs for this stage
@@ -473,9 +532,33 @@ function JobsPageContent() {
     })
   ), [jobs, quoteSentByEmail]);
 
+  const salespersonOptions = useMemo(() => (
+    [...users].sort((a, b) => `${a.firstname} ${a.lastname}`.localeCompare(`${b.firstname} ${b.lastname}`))
+  ), [users]);
+
+  const leadSourceOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const job of jobs) {
+      for (const source of job.lead?.leadSource || []) {
+        const label = source.trim();
+        if (!label) continue;
+        const key = normalizeFilterValue(label);
+        if (!seen.has(key)) seen.set(key, label);
+      }
+    }
+    return [...seen.values()].sort((a, b) => a.localeCompare(b));
+  }, [jobs]);
+
+  const selectedSalespersonLabel = salespersonFilters.length === 0 ? "All" : `${salespersonFilters.length} selected`;
+  const selectedLeadSourceLabel = leadSourceFilters.length === 0 ? "All" : `${leadSourceFilters.length} selected`;
+
   // Client-side sub-tab filter
   const filtered = decoratedJobs.filter((job) => {
-    if (salespersonFilter !== "ALL" && job.lead?.allocatedTo?._id !== salespersonFilter) return false;
+    if (salespersonFilters.length > 0 && !salespersonFilters.includes(job.lead?.allocatedTo?._id || "")) return false;
+    if (leadSourceFilters.length > 0) {
+      const jobLeadSources = (job.lead?.leadSource || []).map(normalizeFilterValue).filter(Boolean);
+      if (!jobLeadSources.some((source) => leadSourceFilters.includes(source))) return false;
+    }
     if (!searchMode && subTab !== "ALL" && (activeStage === "LEAD" || activeStage === "QUOTE")) {
       if (activeStage === "QUOTE") return quoteState(job) === subTab;
       if (subTab === "QUOTE_BOOKED") return isQuoteBooked(job);
@@ -564,13 +647,13 @@ function JobsPageContent() {
     }
   }, [loading, error, page, jobs.length, sortedJobs.length]);
 
-  useEffect(() => { setPage(0); }, [subTab, salespersonFilter]);
+  useEffect(() => { setPage(0); }, [subTab, salespersonFilters, leadSourceFilters]);
 
   // Self-heal: if tab counts say there should be rows but current filtered list is empty,
   // force a refetch to resolve stale cache/list mismatches.
   useEffect(() => {
     if (loading || error || searchMode) return;
-    if (salespersonFilter !== "ALL") return;
+    if (salespersonFilters.length > 0 || leadSourceFilters.length > 0) return;
     if (!(activeStage === "LEAD" || activeStage === "QUOTE")) return;
 
     const expected = globalCounts?.[subTab as keyof typeof globalCounts];
@@ -581,7 +664,8 @@ function JobsPageContent() {
     loading,
     error,
     searchMode,
-    salespersonFilter,
+    salespersonFilters,
+    leadSourceFilters,
     activeStage,
     subTab,
     globalCounts,
@@ -594,13 +678,21 @@ function JobsPageContent() {
   const totalPages = Math.max(1, Math.ceil(sortedJobs.length / PAGE_SIZE));
   const currentPage = page + 1;
 
+  function toggleMultiSelectValue(values: string[], value: string) {
+    return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
             {/* Tabs */}
       <StageTabs
         activeStage={activeStage}
         subTab={subTab}
-        onSubTabChange={(tab) => { setSubTab(tab); setPage(0); router.replace(`/jobs?stage=${activeStage}&subTab=${tab}`); }}
+        onSubTabChange={(tab) => {
+          setSubTab(tab);
+          setPage(0);
+          router.replace(buildJobsUrl({ subTab: tab }));
+        }}
         counts={showSubTabs ? counts : undefined}
         searchMode={searchMode}
       />
@@ -625,16 +717,71 @@ function JobsPageContent() {
           )}
         </div>
         <div className="mt-2 flex gap-2 justify-end flex-wrap">
-          <select
-            value={salespersonFilter}
-            onChange={(e) => setSalespersonFilter(e.target.value)}
-            className="text-xs bg-white border border-gray-200 text-gray-700 px-2 py-1.5 rounded-lg font-medium"
-          >
-            <option value="ALL">Salesperson: All</option>
-            {users.map((u) => (
-              <option key={u._id} value={u._id}>{u.firstname} {u.lastname}</option>
-            ))}
-          </select>
+          <div className="min-w-0 rounded-lg border border-gray-200 bg-white px-2 py-1.5">
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Salespeople</span>
+              <span className="text-[11px] text-gray-400">{selectedSalespersonLabel}</span>
+            </div>
+            <div className="flex max-w-[calc(100vw-2rem)] flex-wrap gap-1.5">
+              {salespersonFilters.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => updateSalespersonFilters([])}
+                  className="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-100"
+                >
+                  Clear
+                </button>
+              )}
+              {salespersonOptions.map((u) => {
+                const active = salespersonFilters.includes(u._id);
+                return (
+                  <button
+                    key={u._id}
+                    type="button"
+                    onClick={() => updateSalespersonFilters(toggleMultiSelectValue(salespersonFilters, u._id))}
+                    className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${active ? "border-[#e85d04] bg-orange-50 text-[#e85d04]" : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"}`}
+                  >
+                    {u.firstname} {u.lastname}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="min-w-0 rounded-lg border border-gray-200 bg-white px-2 py-1.5">
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Lead sources</span>
+              <span className="text-[11px] text-gray-400">{selectedLeadSourceLabel}</span>
+            </div>
+            <div className="flex max-w-[calc(100vw-2rem)] flex-wrap gap-1.5">
+              {leadSourceFilters.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => updateLeadSourceFilters([])}
+                  className="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-100"
+                >
+                  Clear
+                </button>
+              )}
+              {leadSourceOptions.length > 0 ? (
+                leadSourceOptions.map((source) => {
+                  const key = normalizeFilterValue(source);
+                  const active = leadSourceFilters.includes(key);
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => updateLeadSourceFilters(toggleMultiSelectValue(leadSourceFilters, key))}
+                      className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${active ? "border-[#e85d04] bg-orange-50 text-[#e85d04]" : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"}`}
+                    >
+                      {source}
+                    </button>
+                  );
+                })
+              ) : (
+                <span className="px-1.5 py-1 text-[11px] text-gray-400">No lead sources found</span>
+              )}
+            </div>
+          </div>
           <button
             onClick={() => setSortOrder((prev) => (prev === "newest" ? "oldest" : "newest"))}
             className="text-xs bg-white border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg font-medium hover:bg-gray-50"

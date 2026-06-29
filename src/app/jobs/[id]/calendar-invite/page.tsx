@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 type ContactTemplate = {
@@ -82,7 +82,7 @@ export default function CalendarInviteTemplatePage() {
   const returnTo = searchParams.get("returnTo") || "/jobs";
   const firstName = name.trim().split(/\s+/)[0] || name;
 
-  const fields = useMemo(() => ({
+  const fields = {
     customername: name,
     name,
     firstname: firstName,
@@ -98,7 +98,7 @@ export default function CalendarInviteTemplatePage() {
     jobnumber: jobNumber,
     phone,
     email,
-  }), [address, email, firstName, jobNumber, name, phone, start]);
+  };
 
   const fallbackTitle = `${address || "Insulmax"} - installation`;
   const fallbackBody = [
@@ -108,6 +108,13 @@ export default function CalendarInviteTemplatePage() {
     scope ? `Install scope: ${scope}` : "",
     note ? `Notes: ${note}` : "",
   ].filter(Boolean).join("\n");
+
+  function openCalendarInvite(href: string) {
+    if (typeof window === "undefined") return;
+
+    window.open(href, "_blank", "noopener,noreferrer");
+    router.replace(returnTo);
+  }
 
   useEffect(() => {
     const token = getToken();
@@ -182,8 +189,10 @@ export default function CalendarInviteTemplatePage() {
                 <a
                   key={template.id}
                   href={href}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    openCalendarInvite(href);
+                  }}
                   className="flex items-center justify-between gap-3 border-b border-gray-100 px-4 py-4 last:border-b-0 hover:bg-gray-50"
                 >
                   <span className="min-w-0 truncate text-sm font-semibold text-gray-900">{template.title}</span>
@@ -200,8 +209,10 @@ export default function CalendarInviteTemplatePage() {
 
         <a
           href={googleCalendarUrl({ start, title: fallbackTitle, details: fallbackBody, address, email })}
-          target="_blank"
-          rel="noopener noreferrer"
+          onClick={(event) => {
+            event.preventDefault();
+            openCalendarInvite(googleCalendarUrl({ start, title: fallbackTitle, details: fallbackBody, address, email }));
+          }}
           className="mt-4 inline-flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm font-semibold text-[#e85d04]"
         >
           No template

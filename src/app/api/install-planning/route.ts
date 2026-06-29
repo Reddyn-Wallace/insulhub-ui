@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireInsulhubAuth } from "@/lib/insulhub-auth";
 import { ensureOverlaySchema, overlaySql } from "@/lib/overlay-db";
+import { getDefaultInstallPlanningDetails, normalizeInstallPlanningDetails, type InstallPlanningDetails } from "@/lib/install-planning";
 
 type InstallPlanningInput = {
   jobId?: string;
@@ -8,6 +9,13 @@ type InstallPlanningInput = {
   installScope?: "" | "internal" | "external" | "both";
   planningNote?: string;
   councilApprovalNA?: boolean;
+  accessNotes?: string;
+  extensionHosesRequired?: boolean;
+  extensionHosesDistance?: string;
+  extensionLaddersRequired?: boolean;
+  extensionLaddersLocation?: "" | "internal" | "external";
+  externalPaintingRequired?: boolean;
+  externalPaintingSupply?: "" | "us" | "customer";
 };
 
 function toInstallPlanning(row: Record<string, unknown>) {
@@ -18,6 +26,15 @@ function toInstallPlanning(row: Record<string, unknown>) {
     installScope: row.install_scope,
     note: row.planning_note,
     councilApprovalNA: row.council_approval_na,
+    ...normalizeInstallPlanningDetails({
+      accessNotes: String(row.access_notes || ""),
+      extensionHosesRequired: row.extension_hoses_required === true,
+      extensionHosesDistance: String(row.extension_hoses_distance || ""),
+      extensionLaddersRequired: row.extension_ladders_required === true,
+      extensionLaddersLocation: row.extension_ladders_location === "internal" || row.extension_ladders_location === "external" ? row.extension_ladders_location as InstallPlanningDetails["extensionLaddersLocation"] : "",
+      externalPaintingRequired: row.external_painting_required === true,
+      externalPaintingSupply: row.external_painting_supply === "us" || row.external_painting_supply === "customer" ? row.external_painting_supply as InstallPlanningDetails["externalPaintingSupply"] : "",
+    }),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -69,8 +86,24 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "jobId is required" }, { status: 400 });
     }
 
-    const status = input.status || "confirmed";
-    const installScope = input.installScope || "";
+    const existingRows = await overlaySql`
+      SELECT *
+      FROM job_install_planning
+      WHERE insulhub_job_id = ${jobId}
+      LIMIT 1
+    `;
+    const existing = existingRows[0]
+      ? toInstallPlanning(existingRows[0])
+      : {
+          status: "confirmed",
+          installScope: "",
+          note: "",
+          councilApprovalNA: false,
+          ...getDefaultInstallPlanningDetails(),
+        };
+
+    const status = input.status || String(existing.status);
+    const installScope = input.installScope ?? String(existing.installScope);
     if (!["confirmed", "pencilled"].includes(status)) {
       return NextResponse.json({ error: "Invalid status" }, { status: 400 });
     }
@@ -78,20 +111,44 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Invalid installScope" }, { status: 400 });
     }
 
+    const details = normalizeInstallPlanningDetails({
+      accessNotes: input.accessNotes ?? existing.accessNotes,
+      extensionHosesRequired: input.extensionHosesRequired ?? existing.extensionHosesRequired,
+      extensionHosesDistance: input.extensionHosesDistance ?? existing.extensionHosesDistance,
+      extensionLaddersRequired: input.extensionLaddersRequired ?? existing.extensionLaddersRequired,
+      extensionLaddersLocation: input.extensionLaddersLocation ?? existing.extensionLaddersLocation,
+      externalPaintingRequired: input.externalPaintingRequired ?? existing.externalPaintingRequired,
+      externalPaintingSupply: input.externalPaintingSupply ?? existing.externalPaintingSupply,
+    });
+
     const rows = await overlaySql`
       INSERT INTO job_install_planning (
         insulhub_job_id,
         status,
         install_scope,
         planning_note,
-        council_approval_na
+        council_approval_na,
+        access_notes,
+        extension_hoses_required,
+        extension_hoses_distance,
+        extension_ladders_required,
+        extension_ladders_location,
+        external_painting_required,
+        external_painting_supply
       )
       VALUES (
         ${jobId},
         ${status},
         ${installScope},
-        ${input.planningNote?.trim() || ""},
-        ${input.councilApprovalNA ?? false}
+        ${input.planningNote?.trim() ?? existing.note},
+        ${input.councilApprovalNA ?? existing.councilApprovalNA},
+        ${details.accessNotes},
+        ${details.extensionHosesRequired},
+        ${details.extensionHosesDistance},
+        ${details.extensionLaddersRequired},
+        ${details.extensionLaddersLocation},
+        ${details.externalPaintingRequired},
+        ${details.externalPaintingSupply}
       )
       ON CONFLICT (insulhub_job_id)
       DO UPDATE SET
@@ -99,6 +156,13 @@ export async function PUT(request: NextRequest) {
         install_scope = EXCLUDED.install_scope,
         planning_note = EXCLUDED.planning_note,
         council_approval_na = EXCLUDED.council_approval_na,
+        access_notes = EXCLUDED.access_notes,
+        extension_hoses_required = EXCLUDED.extension_hoses_required,
+        extension_hoses_distance = EXCLUDED.extension_hoses_distance,
+        extension_ladders_required = EXCLUDED.extension_ladders_required,
+        extension_ladders_location = EXCLUDED.extension_ladders_location,
+        external_painting_required = EXCLUDED.external_painting_required,
+        external_painting_supply = EXCLUDED.external_painting_supply,
         updated_at = now()
       RETURNING *
     `;

@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { gql } from "@/lib/graphql";
+import {
+  getDefaultInstallPlanningDetails,
+  normalizeInstallPlanningDetails,
+  type InstallPlanningDetails,
+} from "@/lib/install-planning";
 
 type Photo = { fileName?: string; thumbnail?: string };
 
@@ -391,6 +396,7 @@ export default function EbaPage() {
   const [notice, setNotice] = useState("");
   const [job, setJob] = useState<Job | null>(null);
   const [form, setForm] = useState<Record<string, unknown>>({});
+  const [installPlanningDetails, setInstallPlanningDetails] = useState<InstallPlanningDetails>(() => getDefaultInstallPlanningDetails());
   const [roofTypeOtherChecked, setRoofTypeOtherChecked] = useState(false);
   const [roofCladdingOtherChecked, setRoofCladdingOtherChecked] = useState(false);
   const [ebaPhotos, setEbaPhotos] = useState<Record<string, string[]>>({});
@@ -404,10 +410,53 @@ export default function EbaPage() {
   const cameraInputRef = useRef<Record<string, HTMLInputElement | null>>({});
 
   const setField = (name: string, value: unknown) => setForm((f) => ({ ...f, [name]: value }));
+  const setInstallPlanningField = <K extends keyof InstallPlanningDetails>(name: K, value: InstallPlanningDetails[K]) => {
+    setInstallPlanningDetails((current) => {
+      const next = { ...current, [name]: value };
+      if (name === "extensionHosesRequired" && value === false) next.extensionHosesDistance = "";
+      if (name === "extensionLaddersRequired" && value === false) next.extensionLaddersLocation = "";
+      if (name === "externalPaintingRequired" && value === false) next.externalPaintingSupply = "";
+      return next;
+    });
+  };
 
 
-  const getToken = () => (typeof window !== "undefined" ? localStorage.getItem("token") || "" : "");
+  const getToken = useCallback(() => (typeof window !== "undefined" ? localStorage.getItem("token") || "" : ""), []);
   const fileUrl = (fileName: string) => `https://api.insulhub.nz/files/documents/${encodeURIComponent(fileName)}?token=${getToken()}`;
+
+  const fetchInstallPlanningDetails = useCallback(async (jobId: string) => {
+    const token = getToken();
+    if (!token) return getDefaultInstallPlanningDetails();
+
+    const params = new URLSearchParams({ jobIds: jobId });
+    const res = await fetch(`/api/install-planning?${params.toString()}`, {
+      headers: { "x-access-token": token },
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json?.error || "Failed to load install planning");
+    return normalizeInstallPlanningDetails(json.planning?.[0] || null);
+  }, [getToken]);
+
+  const saveInstallPlanningDetails = useCallback(async (jobId: string) => {
+    const token = getToken();
+    if (!token) throw new Error("Missing auth token");
+
+    const details = normalizeInstallPlanningDetails(installPlanningDetails);
+    const res = await fetch("/api/install-planning", {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-access-token": token,
+      },
+      body: JSON.stringify({
+        jobId,
+        ...details,
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json?.error || "Failed to save install planning");
+    setInstallPlanningDetails(normalizeInstallPlanningDetails(json.planning));
+  }, [getToken, installPlanningDetails]);
 
   const persistPhotoCache = useCallback((next: Record<string, string[]>) => {
     if (typeof window !== "undefined") {
@@ -608,7 +657,9 @@ export default function EbaPage() {
         cacheKey: `eba-job:${id}`,
         ttlMs: 5 * 60 * 1000,
       });
+      const planningDetails = await fetchInstallPlanningDetails(id);
       setJob(data.job);
+      setInstallPlanningDetails(planningDetails);
       const cachedPhotos = typeof window !== "undefined"
         ? (sessionStorage.getItem(`eba-photos:${id}`) || localStorage.getItem(`eba-photos:${id}`))
         : null;
@@ -633,6 +684,9 @@ export default function EbaPage() {
         const normalized = fromYesNoNA(nextForm[key]);
         if (normalized !== undefined) nextForm[key] = normalized;
       }
+      if (!hasValue(nextForm.joinery)) {
+        nextForm.joinery = ["Appears to be installed correctly"];
+      }
       setForm(nextForm);
       setRoofTypeOtherChecked(listValue(nextForm.roofAndEavesCol1).includes("Other") || !!getLegacyCustomOther(nextForm.roofAndEavesCol1, ["Hip Gable","Double Gable","Skillion / Mono pitch"]).trim());
       setRoofCladdingOtherChecked(listValue(nextForm.roofAndEavesCol2).includes("Other") || !!getLegacyCustomOther(nextForm.roofAndEavesCol2, ["Corrugated Steel","Tile","Membrane"]).trim());
@@ -652,7 +706,7 @@ export default function EbaPage() {
     } finally {
       setLoading(false);
     }
-  }, [id, persistPhotoCache]);
+  }, [fetchInstallPlanningDetails, id, persistPhotoCache]);
 
   useEffect(() => {
     load();
@@ -759,6 +813,7 @@ export default function EbaPage() {
         return;
       }
 
+      await saveInstallPlanningDetails(job._id);
       const input = { _id: job._id, ebaForm };
       const res = await gql<{ saveEBA: Job }>(SAVE_EBA_MUTATION, { input, isDraft });
       setJob((prev) => (prev ? { ...prev, ebaForm: { ...(prev.ebaForm || {}), ...(res.saveEBA.ebaForm || {}), ...ebaForm } } : prev));
@@ -824,9 +879,21 @@ export default function EbaPage() {
       c22_externalMoisture_priorToInstallationWorkRequired: "External moisture work required",
       c22_externalMoisture_priorToCertificationWorkRequired: "External moisture work required",
       assessorName: "Assessor name",
+      extensionHosesDistance: "Extension hose distance",
+      extensionLaddersLocation: "Extension ladder location",
+      externalPaintingSupply: "External painting paint supply",
     };
 
     const missingFields: string[] = FINALISE_REQUIRED_KEYS.filter((key) => !hasValue(form[key]));
+    if (installPlanningDetails.extensionHosesRequired && !installPlanningDetails.extensionHosesDistance.trim()) {
+      missingFields.push("extensionHosesDistance");
+    }
+    if (installPlanningDetails.extensionLaddersRequired && !installPlanningDetails.extensionLaddersLocation) {
+      missingFields.push("extensionLaddersLocation");
+    }
+    if (installPlanningDetails.externalPaintingRequired && !installPlanningDetails.externalPaintingSupply) {
+      missingFields.push("externalPaintingSupply");
+    }
 
     // finishOfCladding stores detail text in an "Other:" prefix, so hasValue would return true
     // even when no option is actually selected. Use parseLegacyMappedCheckboxList instead.
@@ -901,7 +968,15 @@ export default function EbaPage() {
       missingRoofTypeOther: roofTypeOtherChecked && !getLegacyCustomOther(form.roofAndEavesCol1, ["Hip Gable","Double Gable","Skillion / Mono pitch"]).trim(),
       missingRoofCladdingOther: roofCladdingOtherChecked && !getLegacyCustomOther(form.roofAndEavesCol2, ["Corrugated Steel","Tile","Membrane"]).trim(),
     };
-  }, [form, ebaPhotos, elevationSkip, job?.ebaForm?.signature_assessor]);
+  }, [
+    form,
+    installPlanningDetails,
+    ebaPhotos,
+    elevationSkip,
+    job?.ebaForm?.signature_assessor,
+    roofCladdingOtherChecked,
+    roofTypeOtherChecked,
+  ]);
 
   const YesNoRow = ({ keyName, label, notApplicable = false, noIsGreen = false, yesIsGreenText = false }: { keyName: string; label: string; notApplicable?: boolean; noIsGreen?: boolean; yesIsGreenText?: boolean }) => (
     <div>
@@ -1404,6 +1479,97 @@ export default function EbaPage() {
                       <div key={f} className="border border-gray-200 rounded p-1"><a href={fileUrl(f)} target="_blank" rel="noreferrer"><img src={fileUrl(f)} alt={f} className="w-full h-20 object-cover rounded" /></a><div className="flex justify-between items-center mt-1"><span className="text-[10px] text-gray-500 truncate max-w-[70%]">{f}</span><button type="button" onClick={() => removeEbaPhoto('maintenance', f)} className="text-[10px] text-red-600">Delete</button></div></div>
                     ))}</div>
                   )}
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white border border-gray-200 rounded-xl p-4">
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">Install notes for team</h2>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs text-gray-500">What is access to the property like?</label>
+                  <textarea
+                    value={installPlanningDetails.accessNotes}
+                    onChange={(e) => setInstallPlanningField("accessNotes", e.target.value)}
+                    rows={3}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1"
+                    placeholder="Driveway, parking, gates, stairs, narrow paths, site constraints..."
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <p className="text-sm text-gray-700">Are extension hoses needed?</p>
+                    <div className="flex gap-3 mt-1">
+                      <label className="text-sm"><input type="radio" name="extensionHosesRequired" className="mr-2" checked={installPlanningDetails.extensionHosesRequired} onChange={() => setInstallPlanningField("extensionHosesRequired", true)} />Yes</label>
+                      <label className="text-sm"><input type="radio" name="extensionHosesRequired" className="mr-2" checked={!installPlanningDetails.extensionHosesRequired} onChange={() => setInstallPlanningField("extensionHosesRequired", false)} />No</label>
+                    </div>
+                    {installPlanningDetails.extensionHosesRequired && (
+                      <div className="mt-2">
+                        <label className="text-xs text-gray-500">Distance to the property</label>
+                        <input
+                          value={installPlanningDetails.extensionHosesDistance}
+                          onChange={(e) => setInstallPlanningField("extensionHosesDistance", e.target.value)}
+                          className={`w-full border rounded-lg px-3 py-2 text-sm mt-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("extensionHosesDistance") ? "border-red-400 bg-red-50" : "border-gray-200"}`}
+                          placeholder="e.g. 25m"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <p className="text-sm text-gray-700">Are extension ladders required?</p>
+                    <div className="flex gap-3 mt-1">
+                      <label className="text-sm"><input type="radio" name="extensionLaddersRequired" className="mr-2" checked={installPlanningDetails.extensionLaddersRequired} onChange={() => setInstallPlanningField("extensionLaddersRequired", true)} />Yes</label>
+                      <label className="text-sm"><input type="radio" name="extensionLaddersRequired" className="mr-2" checked={!installPlanningDetails.extensionLaddersRequired} onChange={() => setInstallPlanningField("extensionLaddersRequired", false)} />No</label>
+                    </div>
+                    {installPlanningDetails.extensionLaddersRequired && (
+                      <div className={`flex gap-2 mt-2 flex-wrap rounded-lg p-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("extensionLaddersLocation") ? "border border-red-400 bg-red-50" : ""}`}>
+                        {[
+                          ["internal", "Internal"],
+                          ["external", "External"],
+                        ].map(([value, label]) => (
+                          <label key={value} className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white cursor-pointer">
+                            <input
+                              type="radio"
+                              name="extensionLaddersLocation"
+                              className="mr-1"
+                              checked={installPlanningDetails.extensionLaddersLocation === value}
+                              onChange={() => setInstallPlanningField("extensionLaddersLocation", value as InstallPlanningDetails["extensionLaddersLocation"])}
+                            />
+                            {label}
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <p className="text-sm text-gray-700">Does job require external painting?</p>
+                    <div className="flex gap-3 mt-1">
+                      <label className="text-sm"><input type="radio" name="externalPaintingRequired" className="mr-2" checked={installPlanningDetails.externalPaintingRequired} onChange={() => setInstallPlanningField("externalPaintingRequired", true)} />Yes</label>
+                      <label className="text-sm"><input type="radio" name="externalPaintingRequired" className="mr-2" checked={!installPlanningDetails.externalPaintingRequired} onChange={() => setInstallPlanningField("externalPaintingRequired", false)} />No</label>
+                    </div>
+                    {installPlanningDetails.externalPaintingRequired && (
+                      <div className={`flex gap-2 mt-2 flex-wrap rounded-lg p-1 ${finaliseAttempted && finaliseChecks.missingFields.includes("externalPaintingSupply") ? "border border-red-400 bg-red-50" : ""}`}>
+                        {[
+                          ["us", "Paint provided by us"],
+                          ["customer", "Paint provided by customer"],
+                        ].map(([value, label]) => (
+                          <label key={value} className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white cursor-pointer">
+                            <input
+                              type="radio"
+                              name="externalPaintingSupply"
+                              className="mr-1"
+                              checked={installPlanningDetails.externalPaintingSupply === value}
+                              onChange={() => setInstallPlanningField("externalPaintingSupply", value as InstallPlanningDetails["externalPaintingSupply"])}
+                            />
+                            {label}
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

@@ -28,6 +28,7 @@ export const JOBS_QUERY = `
         archivedAt
         lead {
           leadStatus
+          leadSource
           allocatedTo { _id firstname lastname }
           callbackDate
           quoteBookingDate

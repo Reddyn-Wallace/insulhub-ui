@@ -64,6 +64,13 @@ async function ensureOverlaySchemaInternal() {
       install_scope text NOT NULL DEFAULT '',
       planning_note text NOT NULL DEFAULT '',
       council_approval_na boolean NOT NULL DEFAULT false,
+      access_notes text NOT NULL DEFAULT '',
+      extension_hoses_required boolean NOT NULL DEFAULT false,
+      extension_hoses_distance text NOT NULL DEFAULT '',
+      extension_ladders_required boolean NOT NULL DEFAULT false,
+      extension_ladders_location text NOT NULL DEFAULT '',
+      external_painting_required boolean NOT NULL DEFAULT false,
+      external_painting_supply text NOT NULL DEFAULT '',
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now(),
       CONSTRAINT job_install_planning_status_check
@@ -76,6 +83,35 @@ async function ensureOverlaySchemaInternal() {
   await overlaySql`
     CREATE INDEX IF NOT EXISTS job_install_planning_job_id_idx
       ON job_install_planning (insulhub_job_id)
+  `;
+
+  await overlaySql`
+    ALTER TABLE job_install_planning
+    ADD COLUMN IF NOT EXISTS access_notes text NOT NULL DEFAULT ''
+  `;
+  await overlaySql`
+    ALTER TABLE job_install_planning
+    ADD COLUMN IF NOT EXISTS extension_hoses_required boolean NOT NULL DEFAULT false
+  `;
+  await overlaySql`
+    ALTER TABLE job_install_planning
+    ADD COLUMN IF NOT EXISTS extension_hoses_distance text NOT NULL DEFAULT ''
+  `;
+  await overlaySql`
+    ALTER TABLE job_install_planning
+    ADD COLUMN IF NOT EXISTS extension_ladders_required boolean NOT NULL DEFAULT false
+  `;
+  await overlaySql`
+    ALTER TABLE job_install_planning
+    ADD COLUMN IF NOT EXISTS extension_ladders_location text NOT NULL DEFAULT ''
+  `;
+  await overlaySql`
+    ALTER TABLE job_install_planning
+    ADD COLUMN IF NOT EXISTS external_painting_required boolean NOT NULL DEFAULT false
+  `;
+  await overlaySql`
+    ALTER TABLE job_install_planning
+    ADD COLUMN IF NOT EXISTS external_painting_supply text NOT NULL DEFAULT ''
   `;
 
   await overlaySql`

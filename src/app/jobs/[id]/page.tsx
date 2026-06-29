@@ -13,6 +13,7 @@ import AddressAutocomplete from "@/components/AddressAutocomplete";
 import InstallPlanningForm, { DateTimeCalendarField, InstallPlanningActions } from "@/components/InstallPlanningForm";
 import { useAppDialog } from "@/components/AppDialog";
 import { firstNameForMerge, formatNameForMerge } from "@/lib/communication-merge-fields";
+import { buildInstallPlanningSummaryLines } from "@/lib/install-planning";
 
 // ── Types ──────────────────────────────────────────────────────────
 interface User { _id: string; firstname: string; lastname: string; email: string; role?: string; }
@@ -71,6 +72,13 @@ interface InstallPlanningMeta {
   note: string;
   councilApprovalNA: boolean;
   installScope: "internal" | "external" | "both" | "";
+  accessNotes?: string;
+  extensionHosesRequired?: boolean;
+  extensionHosesDistance?: string;
+  extensionLaddersRequired?: boolean;
+  extensionLaddersLocation?: "" | "internal" | "external";
+  externalPaintingRequired?: boolean;
+  externalPaintingSupply?: "" | "us" | "customer";
 }
 
 type ContactTemplate = {
@@ -493,6 +501,7 @@ export default function JobDetailPage() {
   const saveInstallPlanningMeta = useCallback(async (next: InstallPlanningMeta) => {
     const token = getToken();
     if (!token) throw new Error("Missing auth token");
+    const merged = { ...(installPlanningMeta || {}), ...next };
 
     const res = await fetch("/api/install-planning", {
       method: "PUT",
@@ -506,13 +515,20 @@ export default function JobDetailPage() {
         installScope: next.installScope,
         planningNote: next.note,
         councilApprovalNA: next.councilApprovalNA,
+        accessNotes: merged.accessNotes || "",
+        extensionHosesRequired: merged.extensionHosesRequired ?? false,
+        extensionHosesDistance: merged.extensionHosesDistance || "",
+        extensionLaddersRequired: merged.extensionLaddersRequired ?? false,
+        extensionLaddersLocation: merged.extensionLaddersLocation || "",
+        externalPaintingRequired: merged.externalPaintingRequired ?? false,
+        externalPaintingSupply: merged.externalPaintingSupply || "",
       }),
     });
     const json = await res.json();
     if (!res.ok) throw new Error(json?.error || "Could not save install planning");
     setInstallPlanningMeta(json.planning);
     return json.planning as InstallPlanningMeta;
-  }, [id]);
+  }, [id, installPlanningMeta]);
 
   const loadContactTemplates = useCallback(async () => {
     const token = getToken();
@@ -2007,7 +2023,7 @@ export default function JobDetailPage() {
     : job.installerChecksheet?._id
       ? "In progress"
       : "No checksheet found";
-  const installMeta = installPlanningMeta || parseInstallMeta(job.notes);
+  const installMeta = (installPlanningMeta || parseInstallMeta(job.notes)) as InstallPlanningMeta;
   const installScopeLabel = installMeta.installScope === "internal" ? "Internal" : installMeta.installScope === "external" ? "External" : installMeta.installScope === "both" ? "Internal + External" : "Not set";
   const councilApprovalMarkedNA = installMeta.councilApprovalNA;
   const hasCouncilApprovalFile = !!job.council?.files_CouncilApprovalLetters?.length;
@@ -2016,6 +2032,15 @@ export default function JobDetailPage() {
   const consentNumberChanged = consentNumber.trim() !== (job.council?.consentNumber || "").trim();
   const hasFinalInvoiceInXero = !!(job.finalInvoice?.xeroInvoiceId || job.finalInvoice?.xeroInvoiceNumber);
   const visibleJobNotes = stripInstallMeta(job.notes);
+  const installPlanningSummaryLines = buildInstallPlanningSummaryLines({
+    accessNotes: installMeta.accessNotes,
+    extensionHosesRequired: installMeta.extensionHosesRequired,
+    extensionHosesDistance: installMeta.extensionHosesDistance,
+    extensionLaddersRequired: installMeta.extensionLaddersRequired,
+    extensionLaddersLocation: installMeta.extensionLaddersLocation,
+    externalPaintingRequired: installMeta.externalPaintingRequired,
+    externalPaintingSupply: installMeta.externalPaintingSupply,
+  });
   const completionActions = [
     {
       title: "Add installation date",
@@ -2584,9 +2609,19 @@ export default function JobDetailPage() {
                 </div>
               }
             >
+              {installPlanningSummaryLines.length > 0 && (
+                <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Install notes for team</div>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-4 text-sm text-blue-900">
+                    {installPlanningSummaryLines.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {visibleJobNotes ? (
                 <p className="text-sm text-gray-700 whitespace-pre-wrap">{visibleJobNotes}</p>
-              ) : (
+              ) : installPlanningSummaryLines.length > 0 ? null : (
                 <p className="text-sm text-gray-400">No notes yet</p>
               )}
             </Section>
@@ -2862,13 +2897,6 @@ export default function JobDetailPage() {
               >
                 🧾 {job.ebaForm?.clientApproved ? "EBA Signed" : job.ebaForm?.complete || job.ebaForm?.signature_assessor?.fileName ? "Edit EBA" : "Complete EBA"}
               </button>
-              <button
-                type="button"
-                onClick={() => router.push(`/jobs/${id}/eba-preview`)}
-                className="flex-1 bg-slate-900 text-white text-sm font-semibold py-2.5 rounded-xl"
-              >
-                EBA preview rebuild
-              </button>
             </div>
           </Section>
         )}
@@ -2883,9 +2911,19 @@ export default function JobDetailPage() {
             </div>
           }
         >
+          {installPlanningSummaryLines.length > 0 && (
+            <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Install notes for team</div>
+              <ul className="mt-1 list-disc space-y-0.5 pl-4 text-sm text-blue-900">
+                {installPlanningSummaryLines.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           {visibleJobNotes ? (
             <p className="text-sm text-gray-700 whitespace-pre-wrap">{visibleJobNotes}</p>
-          ) : (
+          ) : installPlanningSummaryLines.length > 0 ? null : (
             <p className="text-sm text-gray-400">No notes yet</p>
           )}
         </Section>
