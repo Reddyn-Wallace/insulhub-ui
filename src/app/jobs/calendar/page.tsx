@@ -152,6 +152,10 @@ function formatMonth(date: Date) {
   }).format(date);
 }
 
+function sameMonth(a: Date, b: Date) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
+}
+
 function formatCurrency(value?: number | null) {
   const amount = value || 0;
   return `$${amount.toLocaleString("en-NZ", { maximumFractionDigits: 0 })}`;
@@ -418,6 +422,12 @@ export default function JobsCalendarPage() {
   const calendarCache = useRef(calendarMemoryCache);
   const rawJobsCache = useRef(rawJobsMemoryCache);
   const visibleJobsCountRef = useRef(0);
+  const todayWeekRef = useRef<HTMLDivElement | null>(null);
+  const shouldScrollToTodayRef = useRef(true);
+  const today = useMemo(() => new Date(), []);
+  const todayMonth = useMemo(() => startOfMonth(today), [today]);
+  const todayKey = useMemo(() => dateKeyLocal(today), [today]);
+  const todayWeekStartKey = useMemo(() => dateKeyLocal(startOfWeekMonday(today)), [today]);
 
   useEffect(() => {
     visibleJobsCountRef.current = jobs.length;
@@ -1016,6 +1026,27 @@ export default function JobsCalendarPage() {
     return rows;
   }, [jobsByDay, monthCursor, placeholdersByDay]);
 
+  const scrollToTodayWeek = useCallback((behavior: ScrollBehavior = "smooth") => {
+    window.requestAnimationFrame(() => {
+      todayWeekRef.current?.scrollIntoView({ behavior, block: "start" });
+    });
+  }, []);
+
+  useEffect(() => {
+    if (loading || !shouldScrollToTodayRef.current || !sameMonth(monthCursor, todayMonth)) return;
+    scrollToTodayWeek("auto");
+    shouldScrollToTodayRef.current = false;
+  }, [loading, monthCursor, scrollToTodayWeek, todayMonth]);
+
+  const goToToday = useCallback(() => {
+    shouldScrollToTodayRef.current = true;
+    setMonthCursor(todayMonth);
+    if (sameMonth(monthCursor, todayMonth)) {
+      scrollToTodayWeek();
+      shouldScrollToTodayRef.current = false;
+    }
+  }, [monthCursor, scrollToTodayWeek, todayMonth]);
+
   return (
     <div className="min-h-screen bg-gray-50">
       {dialog}
@@ -1045,12 +1076,20 @@ export default function JobsCalendarPage() {
             <div className="text-lg font-bold text-gray-900">{formatMonth(monthCursor)}</div>
             <div className="text-xs text-gray-500">Monday to Sunday view</div>
           </div>
-          <button
-            onClick={() => setMonthCursor((curr) => addMonths(curr, 1))}
-            className="px-3 py-2 rounded-lg text-sm font-semibold bg-white border border-gray-200 text-gray-700"
-          >
-            Next month →
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={goToToday}
+              className="px-3 py-2 rounded-lg text-sm font-semibold bg-[#e85d04] text-white border border-[#e85d04]"
+            >
+              Today
+            </button>
+            <button
+              onClick={() => setMonthCursor((curr) => addMonths(curr, 1))}
+              className="px-3 py-2 rounded-lg text-sm font-semibold bg-white border border-gray-200 text-gray-700"
+            >
+              Next month →
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1078,15 +1117,21 @@ export default function JobsCalendarPage() {
               </div>
 
               <div className="space-y-3">
-                {weeks.map((week) => (
-                  <div key={week.weekStart.toISOString()} className="grid grid-cols-[repeat(7,minmax(0,1fr))_150px] gap-2 items-start">
-                    {week.days.map((day) => (
-                      <div
-                        key={day.key}
-                        className={`rounded-2xl border min-h-[180px] p-1.5 ${day.inMonth ? "bg-white border-gray-100" : "bg-gray-100/70 border-gray-200"}`}
-                      >
+                {weeks.map((week) => {
+                  const isTodayWeek = dateKeyLocal(week.weekStart) === todayWeekStartKey;
+                  return (
+                    <div
+                      key={week.weekStart.toISOString()}
+                      ref={isTodayWeek ? todayWeekRef : null}
+                      className={`grid scroll-mt-36 grid-cols-[repeat(7,minmax(0,1fr))_150px] gap-2 items-start ${isTodayWeek ? "rounded-2xl ring-2 ring-[#e85d04]/30 ring-offset-2 ring-offset-gray-50" : ""}`}
+                    >
+                      {week.days.map((day) => (
+                        <div
+                          key={day.key}
+                          className={`rounded-2xl border min-h-[180px] p-1.5 ${day.key === todayKey ? "bg-orange-50 border-[#e85d04]/40" : day.inMonth ? "bg-white border-gray-100" : "bg-gray-100/70 border-gray-200"}`}
+                        >
                         <div className="flex items-center justify-between mb-2">
-                          <span className={`text-sm font-bold ${day.inMonth ? "text-gray-900" : "text-gray-400"}`}>
+                          <span className={`text-sm font-bold ${day.key === todayKey ? "text-[#c2410c]" : day.inMonth ? "text-gray-900" : "text-gray-400"}`}>
                             {day.date.getDate()}
                           </span>
                           <div className="flex items-center gap-1">
@@ -1225,7 +1270,8 @@ export default function JobsCalendarPage() {
                       </div>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
