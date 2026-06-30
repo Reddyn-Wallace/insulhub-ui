@@ -93,9 +93,9 @@ const WALL_DRAG_ENDPOINT_SNAP_RADIUS = 0.3;
 const DRAG_DEAD_ZONE = 0.18;
 const ROTATE_SOFT_SNAP_DEG = 2.5;
 const ROTATE_RELEASE_SNAP_DEG = 3.0;
-const TEXT_NOTE_MIN_WIDTH = 2.2;
+const TEXT_NOTE_MIN_WIDTH = 0.8;
 const TEXT_NOTE_MAX_WIDTH = 10.5;
-const TEXT_NOTE_DEFAULT_WIDTH = 3.8;
+const TEXT_NOTE_DEFAULT_WIDTH = 0.8;
 const TEXT_NOTE_GROW_BUFFER = 0.18;
 const TEXT_NOTE_FONT_FAMILY = 'Arial, Helvetica, sans-serif';
 const TEXT_NOTE_HEIGHT = 0.8;
@@ -182,6 +182,14 @@ function getTextNoteLayout(note: TextNote, liveText: string) {
 function getTextNoteBox(note: TextNote, liveText: string) {
   const layout = getTextNoteLayout(note, liveText);
   return { width: layout.width, height: layout.height, x: layout.x, y: layout.y };
+}
+function measureCanvasTextWidth(text: string, fontSizePx: number): number {
+  if (typeof document === "undefined") return text.length * fontSizePx * 0.56;
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return text.length * fontSizePx * 0.56;
+  ctx.font = `${fontSizePx}px ${TEXT_NOTE_FONT_FAMILY}`;
+  return ctx.measureText(text || " ").width;
 }
 
 const JUNCTION_EPSILON = 0.012;
@@ -373,26 +381,23 @@ export default function DrawSitePlanPage() {
     }
   }, [editingTextId]);
 
-  const syncEditingTextBoxFromDom = useCallback((opts?: { forceGrow?: boolean }) => {
+  const syncEditingTextBoxFromDom = useCallback(() => {
     if (!editingTextNote || !canvasDims) return;
     const textarea = textInputRef.current;
     if (!textarea) return;
-    const forceGrow = opts?.forceGrow ?? false;
     const toUnitsX = (px: number) => (px / canvasDims.w) * CELLS_X;
-    const toUnitsY = (px: number) => (px / canvasDims.h) * CELLS_Y;
     const pxX = (units: number) => (units / CELLS_X) * canvasDims.w;
     const pxY = (units: number) => (units / CELLS_Y) * canvasDims.h;
 
-    const currentWidthPx = textarea.getBoundingClientRect().width;
-    const maxWidthPx = pxX(TEXT_NOTE_MAX_WIDTH);
-    const nextWidthPx = (forceGrow || textarea.scrollWidth > currentWidthPx + 0.5)
-      ? Math.min(maxWidthPx, Math.max(currentWidthPx, textarea.scrollWidth + pxX(TEXT_NOTE_GROW_BUFFER)))
-      : currentWidthPx;
-
-    const minHeightPx = pxY(getTextNoteMinHeight(editingTextNote.fontSize));
-    const nextHeightPx = Math.max(minHeightPx, textarea.scrollHeight);
-    const nextWidthUnits = Number(clampTextNoteWidth(toUnitsX(nextWidthPx)).toFixed(3));
-    const nextHeightUnits = Number(Math.max(getTextNoteMinHeight(editingTextNote.fontSize), toUnitsY(nextHeightPx)).toFixed(3));
+    const lines = getTextNoteLines(textarea.value);
+    const fontSizePx = pxY(editingTextNote.fontSize);
+    const measuredContentWidthPx = Math.max(...lines.map((line) => measureCanvasTextWidth(line, fontSizePx)));
+    const desiredWidthPx = measuredContentWidthPx + pxX(TEXT_NOTE_PADDING_X * 2 + TEXT_NOTE_GROW_BUFFER);
+    const minWidthUnits = textarea.value.trim() ? TEXT_NOTE_MIN_WIDTH : TEXT_NOTE_DEFAULT_WIDTH;
+    const nextWidthUnits = Number(Math.max(minWidthUnits, Math.min(TEXT_NOTE_MAX_WIDTH, toUnitsX(desiredWidthPx))).toFixed(3));
+    const lineCount = Math.max(1, lines.length);
+    const desiredHeightUnits = editingTextNote.fontSize * TEXT_NOTE_LINE_HEIGHT * lineCount + TEXT_NOTE_PADDING_Y * 2;
+    const nextHeightUnits = Number(Math.max(getTextNoteMinHeight(editingTextNote.fontSize), desiredHeightUnits).toFixed(3));
     const currentWidthUnits = clampTextNoteWidth(editingTextNote.boxWidth);
     const currentHeightUnits = getTextNoteHeight(editingTextNote);
 
@@ -402,7 +407,7 @@ export default function DrawSitePlanPage() {
 
   useEffect(() => {
     if (!editingTextId || !canvasDims) return;
-    const raf = requestAnimationFrame(() => syncEditingTextBoxFromDom({ forceGrow: true }));
+    const raf = requestAnimationFrame(() => syncEditingTextBoxFromDom());
     return () => cancelAnimationFrame(raf);
   }, [editingTextId, canvasDims, syncEditingTextBoxFromDom]);
 
@@ -1657,7 +1662,7 @@ export default function DrawSitePlanPage() {
                     requestAnimationFrame(() => syncEditingTextBoxFromDom());
                   }}
                   onBlur={() => {
-                    syncEditingTextBoxFromDom({ forceGrow: true });
+                    syncEditingTextBoxFromDom();
                     setEditingTextId(null);
                   }}
                   className="pointer-events-auto w-full h-full text-gray-900 outline-none resize-none overflow-hidden rounded-[inherit]"
