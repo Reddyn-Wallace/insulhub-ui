@@ -630,7 +630,7 @@ export default function JobDetailPage() {
       const initials = ((me.firstname?.[0] || "") + (me.lastname?.[0] || "")).toUpperCase();
       const autoQuoteNum = initials ? `${initials}${j.jobNumber}` : `${j.jobNumber}`;
 
-      if (j.quote) {
+      if (j.quote && quoteHasEnteredDetails(j.quote)) {
         setQuoteForm(withQuoteDefaults({
           quoteNumber: j.quote.quoteNumber || autoQuoteNum,
           date: toDatetimeLocal(j.quote.date),
@@ -1391,10 +1391,11 @@ export default function JobDetailPage() {
 
   function openQuoteSheet() {
     setQuoteForm((f) => {
-      if (!job || job.stage !== "LEAD" || job.quote) return f;
+      if (!job || job.stage !== "LEAD" || quoteHasEnteredDetails(job.quote)) return f;
       return {
         ...f,
         consentFee: f.consentFee || "0",
+        extras: f.extras?.length ? f.extras : NEW_QUOTE_DEFAULT_EXTRAS.map((extra) => ({ ...extra })),
       };
     });
     openSheet("quote");
