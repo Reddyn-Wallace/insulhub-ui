@@ -71,7 +71,6 @@ const REPORT_QUERY = `
         notes
         createdAt
         archivedAt
-        acceptedAt
         lead {
           allocatedTo { _id firstname lastname }
         }
@@ -99,10 +98,19 @@ const REPORT_QUERY = `
   }
 `;
 
+const ACCEPTED_AT_QUERY = `
+  query WeeklyTeamReportAcceptedAt($_id: ObjectId!) {
+    job(_id: $_id) {
+      _id
+      acceptedAt
+    }
+  }
+`;
+
 const REPORT_STAGES = ["LEAD", "QUOTE", "SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"];
 const SCHEDULED_STAGES = new Set(["SCHEDULED", "INSTALLATION", "INVOICE"]);
 const INSTALL_REPORT_STAGES = new Set(["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"]);
-const REPORT_RESULT_CACHE_PREFIX = "report:weekly-sales-usage:v1:";
+const REPORT_RESULT_CACHE_PREFIX = "report:weekly-sales-usage:v2:";
 const CURRENT_WEEK_TTL_MS = 5 * 60 * 1000;
 const PREVIOUS_WEEK_TTL_MS = 30 * 60 * 1000;
 const reportResultRequests = new Map<string, Promise<ReportResult>>();
@@ -243,6 +251,11 @@ function classNames(...values: Array<string | false | null | undefined>): string
   return values.filter(Boolean).join(" ");
 }
 
+function isAcceptedJob(job: ReportJob): boolean {
+  const status = (job.quote?.status || "").toUpperCase();
+  return status === "ACCEPTED" || status === "INSTALL" || SCHEDULED_STAGES.has(job.stage || "");
+}
+
 function isActivePipelineJob(job: ReportJob): boolean {
   return SCHEDULED_STAGES.has(job.stage || "")
     && !["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"].includes(job.installation?.installStatus || "");
@@ -266,17 +279,43 @@ async function fetchInstallPlanningStatuses(jobIds: string[]): Promise<Record<st
   return statuses;
 }
 
+async function hydrateAcceptedDates(jobs: ReportJob[]): Promise<ReportJob[]> {
+  const candidates = jobs.filter(isAcceptedJob);
+  if (candidates.length === 0) return jobs;
+
+  const results = await Promise.allSettled(
+    candidates.map((job) =>
+      gql<{ job: Pick<ReportJob, "_id" | "acceptedAt"> }>(ACCEPTED_AT_QUERY, { _id: job._id }, {
+        cacheKey: `report:weekly-team:v6:accepted-at:${job._id}`,
+        ttlMs: 30 * 60 * 1000,
+      })
+    )
+  );
+
+  const acceptedAtById = new Map<string, string | null | undefined>();
+  for (const result of results) {
+    if (result.status === "fulfilled" && result.value.job?._id) {
+      acceptedAtById.set(result.value.job._id, result.value.job.acceptedAt);
+    }
+  }
+
+  if (acceptedAtById.size === 0) return jobs;
+  return jobs.map((job) => acceptedAtById.has(job._id)
+    ? { ...job, acceptedAt: acceptedAtById.get(job._id) }
+    : job);
+}
+
 async function buildReport(fromDate: string, toDate: string): Promise<ReportResult> {
   const data = await gql<{ jobs: { results: ReportJob[] } }>(REPORT_QUERY, {
     stages: REPORT_STAGES,
     skip: 0,
     limit: 5000,
   }, {
-    cacheKey: "report:weekly-team:v5:jobs",
+    cacheKey: "report:weekly-team:v6:jobs",
     ttlMs: 5 * 60 * 1000,
   });
 
-  const allJobs = (data.jobs.results || []).filter((job) => !job.archivedAt);
+  const allJobs = await hydrateAcceptedDates((data.jobs.results || []).filter((job) => !job.archivedAt));
   const leads = allJobs
     .filter((job) => {
       const key = toNzDateKey(job.createdAt);
