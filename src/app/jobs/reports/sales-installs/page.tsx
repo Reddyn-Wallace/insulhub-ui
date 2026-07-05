@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { gql } from "@/lib/graphql";
+import { readBrowserCache, writeBrowserCache } from "@/lib/client-cache";
 
 type Person = {
   _id?: string;
@@ -70,6 +71,7 @@ const REPORT_QUERY = `
         notes
         createdAt
         archivedAt
+        acceptedAt
         lead {
           allocatedTo { _id firstname lastname }
         }
@@ -97,45 +99,13 @@ const REPORT_QUERY = `
   }
 `;
 
-const DETAIL_QUERY = `
-  query WeeklyTeamReportDetail($_id: ObjectId!) {
-    job(_id: $_id) {
-      _id
-      jobNumber
-      stage
-      notes
-      createdAt
-      archivedAt
-      acceptedAt
-      lead {
-        allocatedTo { _id firstname lastname }
-      }
-      quote {
-        status
-        c_total
-        wall { SQM }
-        ceiling { SQM }
-      }
-      installation {
-        installDate
-        installStatus
-      }
-      client {
-        contactDetails {
-          name
-          streetAddress
-          suburb
-          city
-          postCode
-        }
-      }
-    }
-  }
-`;
-
 const REPORT_STAGES = ["LEAD", "QUOTE", "SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"];
 const SCHEDULED_STAGES = new Set(["SCHEDULED", "INSTALLATION", "INVOICE"]);
 const INSTALL_REPORT_STAGES = new Set(["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"]);
+const REPORT_RESULT_CACHE_PREFIX = "report:weekly-sales-usage:v1:";
+const CURRENT_WEEK_TTL_MS = 5 * 60 * 1000;
+const PREVIOUS_WEEK_TTL_MS = 30 * 60 * 1000;
+const reportResultRequests = new Map<string, Promise<ReportResult>>();
 
 function todayNzKey(): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -157,6 +127,23 @@ function defaultFromDate(today: string): string {
   const day = new Date(`${today}T00:00:00`).getDay();
   const mondayOffset = day === 0 ? -6 : 1 - day;
   return addDays(today, mondayOffset);
+}
+
+function weekRangeFor(key: string): { fromDate: string; toDate: string } {
+  const fromDate = defaultFromDate(key);
+  return { fromDate, toDate: addDays(fromDate, 6) };
+}
+
+function reportResultCacheKey(fromDate: string, toDate: string): string {
+  return `${REPORT_RESULT_CACHE_PREFIX}${fromDate}:${toDate}`;
+}
+
+function reportResultTtlMs(fromDate: string, toDate: string, today: string): number {
+  const currentWeek = weekRangeFor(today);
+  if (fromDate === currentWeek.fromDate && toDate >= currentWeek.fromDate && toDate <= currentWeek.toDate) {
+    return CURRENT_WEEK_TTL_MS;
+  }
+  return PREVIOUS_WEEK_TTL_MS;
 }
 
 function toNzDateKey(iso?: string | null): string {
@@ -256,11 +243,6 @@ function classNames(...values: Array<string | false | null | undefined>): string
   return values.filter(Boolean).join(" ");
 }
 
-function isAcceptedJob(job: ReportJob): boolean {
-  const status = (job.quote?.status || "").toUpperCase();
-  return status === "ACCEPTED" || status === "INSTALL" || SCHEDULED_STAGES.has(job.stage || "");
-}
-
 function isActivePipelineJob(job: ReportJob): boolean {
   return SCHEDULED_STAGES.has(job.stage || "")
     && !["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"].includes(job.installation?.installStatus || "");
@@ -282,6 +264,77 @@ async function fetchInstallPlanningStatuses(jobIds: string[]): Promise<Record<st
     statuses[row.jobId] = row.status;
   }
   return statuses;
+}
+
+async function buildReport(fromDate: string, toDate: string): Promise<ReportResult> {
+  const data = await gql<{ jobs: { results: ReportJob[] } }>(REPORT_QUERY, {
+    stages: REPORT_STAGES,
+    skip: 0,
+    limit: 5000,
+  }, {
+    cacheKey: "report:weekly-team:v5:jobs",
+    ttlMs: 5 * 60 * 1000,
+  });
+
+  const allJobs = (data.jobs.results || []).filter((job) => !job.archivedAt);
+  const leads = allJobs
+    .filter((job) => {
+      const key = toNzDateKey(job.createdAt);
+      return !!key && key >= fromDate && key <= toDate;
+    })
+    .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
+
+  const sales = allJobs
+    .filter((job) => {
+      const status = (job.quote?.status || "").toUpperCase();
+      const key = toNzDateKey(job.acceptedAt);
+      return (status === "ACCEPTED" || status === "INSTALL" || SCHEDULED_STAGES.has(job.stage || ""))
+        && !!key
+        && key >= fromDate
+        && key <= toDate;
+    })
+    .sort((a, b) => (toNzDateKey(a.acceptedAt)).localeCompare(toNzDateKey(b.acceptedAt)));
+
+  const installs = allJobs
+    .filter((job) => {
+      const key = toNzDateKey(job.installation?.installDate);
+      return INSTALL_REPORT_STAGES.has(job.stage || "")
+        && !!key
+        && key >= fromDate
+        && key <= toDate;
+    })
+    .sort((a, b) => (a.installation?.installDate || "").localeCompare(b.installation?.installDate || ""));
+
+  const upcomingJobs = allJobs.filter(isActivePipelineJob);
+  const upcomingWithDates = upcomingJobs.filter((job) => !!toNzDateKey(job.installation?.installDate));
+  const planningStatuses = await fetchInstallPlanningStatuses(upcomingWithDates.map((job) => job._id));
+  const upcoming = {
+    unscheduled: upcomingJobs.filter((job) => !toNzDateKey(job.installation?.installDate)),
+    pencilled: upcomingWithDates.filter((job) => (planningStatuses[job._id] || parseInstallMetaStatus(job.notes)) === "pencilled"),
+    confirmed: upcomingWithDates.filter((job) => (planningStatuses[job._id] || parseInstallMetaStatus(job.notes) || "confirmed") === "confirmed"),
+  };
+
+  return { leads, sales, installs, upcoming };
+}
+
+async function getReportForRange(fromDate: string, toDate: string, today: string): Promise<ReportResult> {
+  const cacheKey = reportResultCacheKey(fromDate, toDate);
+  const ttlMs = reportResultTtlMs(fromDate, toDate, today);
+  const cached = readBrowserCache<ReportResult>(cacheKey, ttlMs);
+  if (cached) return cached;
+
+  const existing = reportResultRequests.get(cacheKey);
+  if (existing) return existing;
+
+  const request = buildReport(fromDate, toDate)
+    .then((report) => {
+      writeBrowserCache(cacheKey, report);
+      return report;
+    })
+    .finally(() => reportResultRequests.delete(cacheKey));
+
+  reportResultRequests.set(cacheKey, request);
+  return request;
 }
 
 function MetricCard({
@@ -410,84 +463,28 @@ export default function SalesInstallsPage() {
   const [error, setError] = useState("");
   const [result, setResult] = useState<ReportResult | null>(null);
 
-  async function runReport() {
+  const runReport = useCallback(async () => {
     setLoading(true);
     setError("");
     setResult(null);
 
     try {
-      const data = await gql<{ jobs: { results: ReportJob[] } }>(REPORT_QUERY, {
-        stages: REPORT_STAGES,
-        skip: 0,
-        limit: 5000,
-      }, {
-        cacheKey: "report:weekly-team:v4:jobs",
-        ttlMs: 5 * 60 * 1000,
-      });
-
-      const allJobs = (data.jobs.results || []).filter((job) => !job.archivedAt);
-      const quoteCandidates = allJobs.filter(isAcceptedJob);
-
-      const detailResults = await Promise.allSettled(
-        quoteCandidates.map((job) =>
-          gql<{ job: ReportJob }>(DETAIL_QUERY, { _id: job._id }, {
-            cacheKey: `report:weekly-team:v4:detail:${job._id}`,
-            ttlMs: 5 * 60 * 1000,
-          })
-        )
-      );
-      const detailsById = new Map<string, ReportJob>();
-      for (const detail of detailResults) {
-        if (detail.status === "fulfilled" && detail.value.job?._id) {
-          detailsById.set(detail.value.job._id, detail.value.job);
-        }
-      }
-
-      const hydratedJobs = allJobs.map((job) => detailsById.get(job._id) || job);
-      const leads = hydratedJobs
-        .filter((job) => {
-          const key = toNzDateKey(job.createdAt);
-          return !!key && key >= fromDate && key <= toDate;
-        })
-        .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
-
-      const sales = hydratedJobs
-        .filter((job) => {
-          const status = (job.quote?.status || "").toUpperCase();
-          const key = toNzDateKey(job.acceptedAt);
-          return (status === "ACCEPTED" || status === "INSTALL" || SCHEDULED_STAGES.has(job.stage || ""))
-            && !!key
-            && key >= fromDate
-            && key <= toDate;
-        })
-        .sort((a, b) => (toNzDateKey(a.acceptedAt)).localeCompare(toNzDateKey(b.acceptedAt)));
-
-      const installs = hydratedJobs
-        .filter((job) => {
-          const key = toNzDateKey(job.installation?.installDate);
-          return INSTALL_REPORT_STAGES.has(job.stage || "")
-            && !!key
-            && key >= fromDate
-            && key <= toDate;
-        })
-        .sort((a, b) => (a.installation?.installDate || "").localeCompare(b.installation?.installDate || ""));
-
-      const upcomingJobs = hydratedJobs.filter(isActivePipelineJob);
-      const upcomingWithDates = upcomingJobs.filter((job) => !!toNzDateKey(job.installation?.installDate));
-      const planningStatuses = await fetchInstallPlanningStatuses(upcomingWithDates.map((job) => job._id));
-      const upcoming = {
-        unscheduled: upcomingJobs.filter((job) => !toNzDateKey(job.installation?.installDate)),
-        pencilled: upcomingWithDates.filter((job) => (planningStatuses[job._id] || parseInstallMetaStatus(job.notes)) === "pencilled"),
-        confirmed: upcomingWithDates.filter((job) => (planningStatuses[job._id] || parseInstallMetaStatus(job.notes) || "confirmed") === "confirmed"),
-      };
-
-      setResult({ leads, sales, installs, upcoming });
+      setResult(await getReportForRange(fromDate, toDate, today));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load weekly report");
     } finally {
       setLoading(false);
     }
-  }
+  }, [fromDate, today, toDate]);
+
+  useEffect(() => {
+    const currentWeek = { fromDate: defaultFromDate(today), toDate: today };
+    const previousWeekEnd = addDays(currentWeek.fromDate, -1);
+    const previousWeek = weekRangeFor(previousWeekEnd);
+
+    void getReportForRange(currentWeek.fromDate, currentWeek.toDate, today).catch(() => undefined);
+    void getReportForRange(previousWeek.fromDate, previousWeek.toDate, today).catch(() => undefined);
+  }, [today]);
 
   const dateRangeInvalid = !!fromDate && !!toDate && fromDate > toDate;
   const days = useMemo(() => daysInRange(fromDate, toDate), [fromDate, toDate]);
