@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "prod-smoke:sales-report": "node scripts/prod-smoke-sales-report.cjs",
     "test:communications": "node scripts/test-communication-settings.cjs && node scripts/test-communication-delivery.cjs && node scripts/test-communication-merge-fields.cjs",
     "test": "npm run test:communications"
   },
@@ -21,10 +22,12 @@
     "react-dom": "19.2.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@playwright/test": "^1.57.0",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
