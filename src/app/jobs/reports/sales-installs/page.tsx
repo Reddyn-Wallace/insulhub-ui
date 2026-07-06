@@ -111,6 +111,8 @@ const REPORT_STAGES = ["LEAD", "QUOTE", "SCHEDULED", "INSTALLATION", "INVOICE", 
 const SCHEDULED_STAGES = new Set(["SCHEDULED", "INSTALLATION", "INVOICE"]);
 const INSTALL_REPORT_STAGES = new Set(["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"]);
 const REPORT_RESULT_CACHE_PREFIX = "report:weekly-sales-usage:v2:";
+const ACCEPTED_AT_CACHE_KEY = "report:weekly-sales-usage:accepted-at:v1";
+const ACCEPTED_AT_CACHE_TTL_MS = 180 * 24 * 60 * 60 * 1000;
 const CURRENT_WEEK_TTL_MS = 5 * 60 * 1000;
 const PREVIOUS_WEEK_TTL_MS = 30 * 60 * 1000;
 const reportResultRequests = new Map<string, Promise<ReportResult>>();
@@ -283,22 +285,46 @@ async function hydrateAcceptedDates(jobs: ReportJob[]): Promise<ReportJob[]> {
   const candidates = jobs.filter(isAcceptedJob);
   if (candidates.length === 0) return jobs;
 
-  const results = await Promise.allSettled(
-    candidates.map((job) =>
-      gql<{ job: Pick<ReportJob, "_id" | "acceptedAt"> }>(ACCEPTED_AT_QUERY, { _id: job._id }, {
-        cacheKey: `report:weekly-team:v6:accepted-at:${job._id}`,
-        ttlMs: 30 * 60 * 1000,
-      })
-    )
-  );
+  const cached = readBrowserCache<Record<string, string>>(
+    ACCEPTED_AT_CACHE_KEY,
+    ACCEPTED_AT_CACHE_TTL_MS,
+    "local"
+  ) ?? {};
 
   const acceptedAtById = new Map<string, string | null | undefined>();
-  for (const result of results) {
-    if (result.status === "fulfilled" && result.value.job?._id) {
-      acceptedAtById.set(result.value.job._id, result.value.job.acceptedAt);
+  const missing: ReportJob[] = [];
+
+  for (const job of candidates) {
+    const acceptedAt = cached[job._id];
+    if (acceptedAt) {
+      acceptedAtById.set(job._id, acceptedAt);
+    } else {
+      missing.push(job);
     }
   }
 
+  if (missing.length === 0) {
+    return jobs.map((job) => acceptedAtById.has(job._id)
+      ? { ...job, acceptedAt: acceptedAtById.get(job._id) }
+      : job);
+  }
+
+  const detailResults = await Promise.allSettled(
+    missing.map((job) => gql<{ job: Pick<ReportJob, "_id" | "acceptedAt"> }>(ACCEPTED_AT_QUERY, { _id: job._id }))
+  );
+
+  let cacheChanged = false;
+  for (const result of detailResults) {
+    if (result.status === "fulfilled" && result.value.job?._id) {
+      acceptedAtById.set(result.value.job._id, result.value.job.acceptedAt);
+      if (result.value.job.acceptedAt) {
+        cached[result.value.job._id] = result.value.job.acceptedAt;
+        cacheChanged = true;
+      }
+    }
+  }
+
+  if (cacheChanged) writeBrowserCache(ACCEPTED_AT_CACHE_KEY, cached, "local");
   if (acceptedAtById.size === 0) return jobs;
   return jobs.map((job) => acceptedAtById.has(job._id)
     ? { ...job, acceptedAt: acceptedAtById.get(job._id) }
