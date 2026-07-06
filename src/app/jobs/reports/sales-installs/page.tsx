@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { gql } from "@/lib/graphql";
 import { readBrowserCache, writeBrowserCache } from "@/lib/client-cache";
 
@@ -113,6 +113,7 @@ const INSTALL_REPORT_STAGES = new Set(["SCHEDULED", "INSTALLATION", "INVOICE", "
 const REPORT_RESULT_CACHE_PREFIX = "report:weekly-sales-usage:v2:";
 const ACCEPTED_AT_CACHE_KEY = "report:weekly-sales-usage:accepted-at:v1";
 const ACCEPTED_AT_CACHE_TTL_MS = 180 * 24 * 60 * 60 * 1000;
+const ACCEPTED_AT_FETCH_CONCURRENCY = 8;
 const CURRENT_WEEK_TTL_MS = 5 * 60 * 1000;
 const PREVIOUS_WEEK_TTL_MS = 30 * 60 * 1000;
 const reportResultRequests = new Map<string, Promise<ReportResult>>();
@@ -309,17 +310,21 @@ async function hydrateAcceptedDates(jobs: ReportJob[]): Promise<ReportJob[]> {
       : job);
   }
 
-  const detailResults = await Promise.allSettled(
-    missing.map((job) => gql<{ job: Pick<ReportJob, "_id" | "acceptedAt"> }>(ACCEPTED_AT_QUERY, { _id: job._id }))
-  );
-
   let cacheChanged = false;
-  for (const result of detailResults) {
-    if (result.status === "fulfilled" && result.value.job?._id) {
-      acceptedAtById.set(result.value.job._id, result.value.job.acceptedAt);
-      if (result.value.job.acceptedAt) {
-        cached[result.value.job._id] = result.value.job.acceptedAt;
-        cacheChanged = true;
+
+  for (let i = 0; i < missing.length; i += ACCEPTED_AT_FETCH_CONCURRENCY) {
+    const batch = missing.slice(i, i + ACCEPTED_AT_FETCH_CONCURRENCY);
+    const detailResults = await Promise.allSettled(
+      batch.map((job) => gql<{ job: Pick<ReportJob, "_id" | "acceptedAt"> }>(ACCEPTED_AT_QUERY, { _id: job._id }))
+    );
+
+    for (const result of detailResults) {
+      if (result.status === "fulfilled" && result.value.job?._id) {
+        acceptedAtById.set(result.value.job._id, result.value.job.acceptedAt);
+        if (result.value.job.acceptedAt) {
+          cached[result.value.job._id] = result.value.job.acceptedAt;
+          cacheChanged = true;
+        }
       }
     }
   }
@@ -541,15 +546,6 @@ export default function SalesInstallsPage() {
       setLoading(false);
     }
   }, [fromDate, today, toDate]);
-
-  useEffect(() => {
-    const currentWeek = { fromDate: defaultFromDate(today), toDate: today };
-    const previousWeekEnd = addDays(currentWeek.fromDate, -1);
-    const previousWeek = weekRangeFor(previousWeekEnd);
-
-    void getReportForRange(currentWeek.fromDate, currentWeek.toDate, today).catch(() => undefined);
-    void getReportForRange(previousWeek.fromDate, previousWeek.toDate, today).catch(() => undefined);
-  }, [today]);
 
   const dateRangeInvalid = !!fromDate && !!toDate && fromDate > toDate;
   const days = useMemo(() => daysInRange(fromDate, toDate), [fromDate, toDate]);
