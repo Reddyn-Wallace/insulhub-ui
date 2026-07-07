@@ -113,7 +113,7 @@ const INSTALL_REPORT_STAGES = new Set(["SCHEDULED", "INSTALLATION", "INVOICE", "
 const REPORT_RESULT_CACHE_PREFIX = "report:weekly-sales-usage:v2:";
 const ACCEPTED_AT_CACHE_KEY = "report:weekly-sales-usage:accepted-at:v1";
 const ACCEPTED_AT_CACHE_TTL_MS = 180 * 24 * 60 * 60 * 1000;
-const ACCEPTED_AT_FETCH_CONCURRENCY = 8;
+const ACCEPTED_AT_FETCH_CONCURRENCY = 32;
 const CURRENT_WEEK_TTL_MS = 5 * 60 * 1000;
 const PREVIOUS_WEEK_TTL_MS = 30 * 60 * 1000;
 const reportResultRequests = new Map<string, Promise<ReportResult>>();
@@ -596,13 +596,18 @@ export default function SalesInstallsPage() {
                 disabled={loading || !fromDate || !toDate || dateRangeInvalid}
                 className="self-end rounded-lg bg-[#1a3a4a] px-4 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-[#14313f] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {loading ? "Loading..." : "Run report"}
+                {loading ? "Building..." : "Run report"}
               </button>
             </div>
           </div>
 
           {dateRangeInvalid && <p className="mt-2 text-xs font-medium text-red-600">From date must be before or equal to To date.</p>}
           {error && <p className="mt-2 text-xs font-medium text-red-600">{error}</p>}
+          {loading && (
+            <p className="mt-2 text-xs font-medium text-gray-500">
+              First run may take a minute while accepted dates are cached.
+            </p>
+          )}
         </div>
 
         {!hasResults && (

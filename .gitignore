@@ -12,8 +12,8 @@
 
 # testing
 /coverage
-/tmp/prod-smoke-profile/
-/tmp/prod-smoke-sales-report.png
+/tmp/prod-smoke-profile*/
+/tmp/prod-smoke-sales-report*.png
 
 # next.js
 /.next/

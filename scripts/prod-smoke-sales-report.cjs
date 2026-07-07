@@ -38,13 +38,20 @@ async function bodyText(page) {
   return page.locator("body").innerText({ timeout: 5_000 }).catch(() => "");
 }
 
+function isVercelCheckpointText(text) {
+  const lower = text.toLowerCase();
+  return lower.includes("failed to verify your browser")
+    || lower.includes("vercel security checkpoint")
+    || lower.includes("/.well-known/vercel/security/request-challenge");
+}
+
 async function waitForReportOutcome(page, timeoutMs) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     const text = await bodyText(page);
     const lower = text.toLowerCase();
 
-    if (lower.includes("failed to verify your browser") || lower.includes("vercel security checkpoint")) {
+    if (isVercelCheckpointText(text)) {
       throw new Error("Blocked by Vercel Security Checkpoint. Add VERCEL_AUTOMATION_BYPASS_SECRET.");
     }
 
@@ -80,6 +87,29 @@ async function countAcceptedAtCache(page) {
       return 0;
     }
   });
+}
+
+async function hasToken(page) {
+  return page.evaluate(() => Boolean(localStorage.getItem("token"))).catch(() => false);
+}
+
+async function pageHasLoginForm(page) {
+  const emailCount = await page.locator('input[type="email"]').count().catch(() => 0);
+  const passwordCount = await page.locator('input[type="password"]').count().catch(() => 0);
+  return emailCount > 0 && passwordCount > 0;
+}
+
+async function waitForLoginOutcome(page) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 45_000) {
+    if (await hasToken(page)) return;
+    const text = await bodyText(page);
+    if (text.toLowerCase().includes("wrong email or password")) {
+      throw new Error("Login rejected by InsulHub. Refresh .credentials/insulhub-login.env or reuse a valid persistent profile.");
+    }
+    await page.waitForTimeout(500);
+  }
+  throw new Error("Timed out waiting for InsulHub login token.");
 }
 
 async function main() {
@@ -142,17 +172,29 @@ async function main() {
   });
 
   try {
-    await page.goto(safeUrlJoin(baseUrl, "/login"), { waitUntil: "domcontentloaded", timeout: 60_000 });
-    if ((await bodyText(page)).includes("Failed to verify your browser")) {
-      throw new Error("Blocked by Vercel Security Checkpoint before login. Add VERCEL_AUTOMATION_BYPASS_SECRET.");
+    const reportUrl = safeUrlJoin(baseUrl, "/jobs/reports/sales-installs");
+
+    await page.goto(reportUrl, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    if (isVercelCheckpointText(await bodyText(page))) {
+      throw new Error("Blocked by Vercel Security Checkpoint. Add VERCEL_AUTOMATION_BYPASS_SECRET.");
     }
 
-    await page.locator('input[type="email"]').fill(username);
-    await page.locator('input[type="password"]').fill(password);
-    await page.getByRole("button", { name: /sign in/i }).click();
-    await page.waitForFunction(() => Boolean(localStorage.getItem("token")), null, { timeout: 45_000 });
+    if (!(await hasToken(page)) || await pageHasLoginForm(page)) {
+      await page.goto(safeUrlJoin(baseUrl, "/login"), { waitUntil: "domcontentloaded", timeout: 60_000 });
+      if (isVercelCheckpointText(await bodyText(page))) {
+        throw new Error("Blocked by Vercel Security Checkpoint before login. Add VERCEL_AUTOMATION_BYPASS_SECRET.");
+      }
 
-    await page.goto(safeUrlJoin(baseUrl, "/jobs/reports/sales-installs"), { waitUntil: "domcontentloaded", timeout: 60_000 });
+      await page.locator('input[type="email"]').fill(username);
+      await page.locator('input[type="password"]').fill(password);
+      await page.getByRole("button", { name: /sign in/i }).click();
+      await waitForLoginOutcome(page);
+
+      await page.goto(reportUrl, { waitUntil: "domcontentloaded", timeout: 60_000 });
+      if (isVercelCheckpointText(await bodyText(page))) {
+        throw new Error("Blocked by Vercel Security Checkpoint. Add VERCEL_AUTOMATION_BYPASS_SECRET.");
+      }
+    }
 
     if (process.env.CLEAR_REPORT_CACHE === "1") {
       await page.evaluate(() => {
