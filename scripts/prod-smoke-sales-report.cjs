@@ -76,17 +76,12 @@ async function waitForReportOutcome(page, timeoutMs) {
   throw new Error(`Timed out waiting for report results after ${timeoutMs}ms. Visible text: ${text.slice(0, 500)}`);
 }
 
-async function countAcceptedAtCache(page) {
-  return page.evaluate(() => {
-    const raw = localStorage.getItem("report:weekly-sales-usage:accepted-at:v1");
-    if (!raw) return 0;
-    try {
-      const parsed = JSON.parse(raw);
-      return parsed?.data ? Object.keys(parsed.data).length : 0;
-    } catch {
-      return 0;
-    }
-  });
+async function reportCacheStatus(page) {
+  const text = await bodyText(page);
+  if (text.includes("Loaded from shared cache")) return "hit";
+  if (text.includes("Refreshed from InsulHub")) return "refresh";
+  if (text.includes("Built and cached")) return "miss";
+  return "unknown";
 }
 
 async function hasToken(page) {
@@ -196,21 +191,10 @@ async function main() {
       }
     }
 
-    if (process.env.CLEAR_REPORT_CACHE === "1") {
-      await page.evaluate(() => {
-        for (const key of Object.keys(localStorage)) {
-          if (key.startsWith("report:weekly-sales-usage:v2:")) localStorage.removeItem(key);
-        }
-      });
-    }
-
-    if (process.env.CLEAR_ACCEPTED_AT_CACHE === "1") {
-      await page.evaluate(() => localStorage.removeItem("report:weekly-sales-usage:accepted-at:v1"));
-    }
-
-    await page.getByRole("button", { name: /run report/i }).click();
+    const buttonName = process.env.FORCE_REPORT_REFRESH === "1" ? /^refresh$/i : /run report/i;
+    await page.getByRole("button", { name: buttonName }).click();
     const elapsedMs = await waitForReportOutcome(page, timeoutMs);
-    const acceptedAtCacheCount = await countAcceptedAtCache(page);
+    const cacheStatus = await reportCacheStatus(page);
 
     fs.mkdirSync(path.dirname(screenshotPath), { recursive: true });
     await page.screenshot({ path: screenshotPath, fullPage: true });
@@ -219,7 +203,7 @@ async function main() {
       ok: true,
       baseUrl,
       elapsedMs,
-      acceptedAtCacheCount,
+      cacheStatus,
       screenshotPath,
       failedRequests: failedRequests.slice(-10),
       badResponses: badResponses.slice(-10),

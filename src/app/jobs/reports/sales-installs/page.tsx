@@ -1,173 +1,17 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
-import { gql } from "@/lib/graphql";
-import { readBrowserCache, writeBrowserCache } from "@/lib/client-cache";
-
-type Person = {
-  _id?: string;
-  firstname?: string | null;
-  lastname?: string | null;
-};
-
-type ContactDetails = {
-  name?: string | null;
-  streetAddress?: string | null;
-  suburb?: string | null;
-  city?: string | null;
-  postCode?: string | null;
-};
-
-type ReportJob = {
-  _id: string;
-  jobNumber?: number | null;
-  stage?: string | null;
-  notes?: string | null;
-  createdAt?: string | null;
-  archivedAt?: string | null;
-  acceptedAt?: string | null;
-  lead?: {
-    allocatedTo?: Person | null;
-  } | null;
-  quote?: {
-    status?: string | null;
-    c_total?: number | null;
-    wall?: { SQM?: number | null } | null;
-    ceiling?: { SQM?: number | null } | null;
-  } | null;
-  installation?: {
-    installDate?: string | null;
-    installStatus?: string | null;
-  } | null;
-  client?: {
-    contactDetails?: ContactDetails | null;
-  } | null;
-};
-
-type ReportResult = {
-  leads: ReportJob[];
-  sales: ReportJob[];
-  installs: ReportJob[];
-  upcoming: {
-    unscheduled: ReportJob[];
-    pencilled: ReportJob[];
-    confirmed: ReportJob[];
-  };
-};
-
-type InstallPlanningRow = {
-  jobId: string;
-  status: "confirmed" | "pencilled";
-};
-
-const REPORT_QUERY = `
-  query WeeklyTeamReport($stages: [JobStage!], $skip: Int, $limit: Int) {
-    jobs(stages: $stages, skip: $skip, limit: $limit) {
-      total
-      results {
-        _id
-        jobNumber
-        stage
-        notes
-        createdAt
-        archivedAt
-        lead {
-          allocatedTo { _id firstname lastname }
-        }
-        quote {
-          status
-          c_total
-          wall { SQM }
-          ceiling { SQM }
-        }
-        installation {
-          installDate
-          installStatus
-        }
-        client {
-          contactDetails {
-            name
-            streetAddress
-            suburb
-            city
-            postCode
-          }
-        }
-      }
-    }
-  }
-`;
-
-const ACCEPTED_AT_QUERY = `
-  query WeeklyTeamReportAcceptedAt($_id: ObjectId!) {
-    job(_id: $_id) {
-      _id
-      acceptedAt
-    }
-  }
-`;
-
-const REPORT_STAGES = ["LEAD", "QUOTE", "SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"];
-const SCHEDULED_STAGES = new Set(["SCHEDULED", "INSTALLATION", "INVOICE"]);
-const INSTALL_REPORT_STAGES = new Set(["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"]);
-const REPORT_RESULT_CACHE_PREFIX = "report:weekly-sales-usage:v2:";
-const ACCEPTED_AT_CACHE_KEY = "report:weekly-sales-usage:accepted-at:v1";
-const ACCEPTED_AT_CACHE_TTL_MS = 180 * 24 * 60 * 60 * 1000;
-const ACCEPTED_AT_FETCH_CONCURRENCY = 32;
-const CURRENT_WEEK_TTL_MS = 5 * 60 * 1000;
-const PREVIOUS_WEEK_TTL_MS = 30 * 60 * 1000;
-const reportResultRequests = new Map<string, Promise<ReportResult>>();
-
-function todayNzKey(): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Pacific/Auckland",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-}
-
-function addDays(key: string, days: number): string {
-  const [year, month, day] = key.split("-").map(Number);
-  const date = new Date(year, month - 1, day);
-  date.setDate(date.getDate() + days);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-function defaultFromDate(today: string): string {
-  const day = new Date(`${today}T00:00:00`).getDay();
-  const mondayOffset = day === 0 ? -6 : 1 - day;
-  return addDays(today, mondayOffset);
-}
-
-function weekRangeFor(key: string): { fromDate: string; toDate: string } {
-  const fromDate = defaultFromDate(key);
-  return { fromDate, toDate: addDays(fromDate, 6) };
-}
-
-function reportResultCacheKey(fromDate: string, toDate: string): string {
-  return `${REPORT_RESULT_CACHE_PREFIX}${fromDate}:${toDate}`;
-}
-
-function reportResultTtlMs(fromDate: string, toDate: string, today: string): number {
-  const currentWeek = weekRangeFor(today);
-  if (fromDate === currentWeek.fromDate && toDate >= currentWeek.fromDate && toDate <= currentWeek.toDate) {
-    return CURRENT_WEEK_TTL_MS;
-  }
-  return PREVIOUS_WEEK_TTL_MS;
-}
-
-function toNzDateKey(iso?: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Pacific/Auckland",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(d);
-}
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  addDays,
+  defaultFromDate,
+  todayNzKey,
+  toNzDateKey,
+  type ContactDetails,
+  type Person,
+  type ReportJob,
+  type ReportResponse,
+  type ReportResult,
+} from "@/lib/reports/sales-installs-types";
 
 function shortDate(key: string): string {
   if (!key) return "";
@@ -240,171 +84,37 @@ function installStatusLabel(status?: string | null): string {
     .join(" ");
 }
 
-function parseInstallMetaStatus(notes?: string | null): "confirmed" | "pencilled" | null {
-  const text = notes || "";
-  const start = text.indexOf("[INSTALL_META]");
-  const end = text.indexOf("[/INSTALL_META]");
-  if (start === -1 || end === -1 || end < start) return null;
-  const body = text.slice(start, end);
-  const statusMatch = body.match(/^status:\s*(.+)$/im);
-  return statusMatch?.[1]?.trim().toLowerCase() === "pencilled" ? "pencilled" : "confirmed";
-}
-
 function classNames(...values: Array<string | false | null | undefined>): string {
   return values.filter(Boolean).join(" ");
 }
 
-function isAcceptedJob(job: ReportJob): boolean {
-  const status = (job.quote?.status || "").toUpperCase();
-  return status === "ACCEPTED" || status === "INSTALL" || SCHEDULED_STAGES.has(job.stage || "");
-}
-
-function isActivePipelineJob(job: ReportJob): boolean {
-  return SCHEDULED_STAGES.has(job.stage || "")
-    && !["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"].includes(job.installation?.installStatus || "");
-}
-
-async function fetchInstallPlanningStatuses(jobIds: string[]): Promise<Record<string, "confirmed" | "pencilled">> {
+async function fetchReport(fromDate: string, toDate: string, refresh = false): Promise<ReportResponse> {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-  if (!token || jobIds.length === 0) return {};
+  if (!token) throw new Error("Unauthorized");
 
-  const params = new URLSearchParams({ jobIds: jobIds.join(",") });
-  const response = await fetch(`/api/install-planning?${params.toString()}`, {
+  const params = new URLSearchParams({ from: fromDate, to: toDate });
+  if (refresh) params.set("refresh", "1");
+
+  const response = await fetch(`/api/reports/sales-installs?${params.toString()}`, {
     headers: { "x-access-token": token },
   });
   const json = await response.json();
-  if (!response.ok) throw new Error(json?.error || "Failed to load install planning");
-
-  const statuses: Record<string, "confirmed" | "pencilled"> = {};
-  for (const row of (json.planning || []) as InstallPlanningRow[]) {
-    statuses[row.jobId] = row.status;
-  }
-  return statuses;
+  if (!response.ok) throw new Error(json?.error || "Failed to load weekly report");
+  return json as ReportResponse;
 }
 
-async function hydrateAcceptedDates(jobs: ReportJob[]): Promise<ReportJob[]> {
-  const candidates = jobs.filter(isAcceptedJob);
-  if (candidates.length === 0) return jobs;
+async function warmReports() {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  if (!token) return;
 
-  const cached = readBrowserCache<Record<string, string>>(
-    ACCEPTED_AT_CACHE_KEY,
-    ACCEPTED_AT_CACHE_TTL_MS,
-    "local"
-  ) ?? {};
-
-  const acceptedAtById = new Map<string, string | null | undefined>();
-  const missing: ReportJob[] = [];
-
-  for (const job of candidates) {
-    const acceptedAt = cached[job._id];
-    if (acceptedAt) {
-      acceptedAtById.set(job._id, acceptedAt);
-    } else {
-      missing.push(job);
-    }
-  }
-
-  if (missing.length === 0) {
-    return jobs.map((job) => acceptedAtById.has(job._id)
-      ? { ...job, acceptedAt: acceptedAtById.get(job._id) }
-      : job);
-  }
-
-  let cacheChanged = false;
-
-  for (let i = 0; i < missing.length; i += ACCEPTED_AT_FETCH_CONCURRENCY) {
-    const batch = missing.slice(i, i + ACCEPTED_AT_FETCH_CONCURRENCY);
-    const detailResults = await Promise.allSettled(
-      batch.map((job) => gql<{ job: Pick<ReportJob, "_id" | "acceptedAt"> }>(ACCEPTED_AT_QUERY, { _id: job._id }))
-    );
-
-    for (const result of detailResults) {
-      if (result.status === "fulfilled" && result.value.job?._id) {
-        acceptedAtById.set(result.value.job._id, result.value.job.acceptedAt);
-        if (result.value.job.acceptedAt) {
-          cached[result.value.job._id] = result.value.job.acceptedAt;
-          cacheChanged = true;
-        }
-      }
-    }
-  }
-
-  if (cacheChanged) writeBrowserCache(ACCEPTED_AT_CACHE_KEY, cached, "local");
-  if (acceptedAtById.size === 0) return jobs;
-  return jobs.map((job) => acceptedAtById.has(job._id)
-    ? { ...job, acceptedAt: acceptedAtById.get(job._id) }
-    : job);
-}
-
-async function buildReport(fromDate: string, toDate: string): Promise<ReportResult> {
-  const data = await gql<{ jobs: { results: ReportJob[] } }>(REPORT_QUERY, {
-    stages: REPORT_STAGES,
-    skip: 0,
-    limit: 5000,
-  }, {
-    cacheKey: "report:weekly-team:v6:jobs",
-    ttlMs: 5 * 60 * 1000,
-  });
-
-  const allJobs = await hydrateAcceptedDates((data.jobs.results || []).filter((job) => !job.archivedAt));
-  const leads = allJobs
-    .filter((job) => {
-      const key = toNzDateKey(job.createdAt);
-      return !!key && key >= fromDate && key <= toDate;
-    })
-    .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
-
-  const sales = allJobs
-    .filter((job) => {
-      const status = (job.quote?.status || "").toUpperCase();
-      const key = toNzDateKey(job.acceptedAt);
-      return (status === "ACCEPTED" || status === "INSTALL" || SCHEDULED_STAGES.has(job.stage || ""))
-        && !!key
-        && key >= fromDate
-        && key <= toDate;
-    })
-    .sort((a, b) => (toNzDateKey(a.acceptedAt)).localeCompare(toNzDateKey(b.acceptedAt)));
-
-  const installs = allJobs
-    .filter((job) => {
-      const key = toNzDateKey(job.installation?.installDate);
-      return INSTALL_REPORT_STAGES.has(job.stage || "")
-        && !!key
-        && key >= fromDate
-        && key <= toDate;
-    })
-    .sort((a, b) => (a.installation?.installDate || "").localeCompare(b.installation?.installDate || ""));
-
-  const upcomingJobs = allJobs.filter(isActivePipelineJob);
-  const upcomingWithDates = upcomingJobs.filter((job) => !!toNzDateKey(job.installation?.installDate));
-  const planningStatuses = await fetchInstallPlanningStatuses(upcomingWithDates.map((job) => job._id));
-  const upcoming = {
-    unscheduled: upcomingJobs.filter((job) => !toNzDateKey(job.installation?.installDate)),
-    pencilled: upcomingWithDates.filter((job) => (planningStatuses[job._id] || parseInstallMetaStatus(job.notes)) === "pencilled"),
-    confirmed: upcomingWithDates.filter((job) => (planningStatuses[job._id] || parseInstallMetaStatus(job.notes) || "confirmed") === "confirmed"),
-  };
-
-  return { leads, sales, installs, upcoming };
-}
-
-async function getReportForRange(fromDate: string, toDate: string, today: string): Promise<ReportResult> {
-  const cacheKey = reportResultCacheKey(fromDate, toDate);
-  const ttlMs = reportResultTtlMs(fromDate, toDate, today);
-  const cached = readBrowserCache<ReportResult>(cacheKey, ttlMs);
-  if (cached) return cached;
-
-  const existing = reportResultRequests.get(cacheKey);
-  if (existing) return existing;
-
-  const request = buildReport(fromDate, toDate)
-    .then((report) => {
-      writeBrowserCache(cacheKey, report);
-      return report;
-    })
-    .finally(() => reportResultRequests.delete(cacheKey));
-
-  reportResultRequests.set(cacheKey, request);
-  return request;
+  await fetch("/api/reports/sales-installs/warm", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-access-token": token,
+    },
+    body: JSON.stringify({}),
+  }).catch(() => undefined);
 }
 
 function MetricCard({
@@ -532,20 +242,36 @@ export default function SalesInstallsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<ReportResult | null>(null);
+  const [cacheInfo, setCacheInfo] = useState<ReportResponse["cache"] | null>(null);
 
-  const runReport = useCallback(async () => {
+  useEffect(() => {
+    void warmReports();
+  }, []);
+
+  const loadReport = useCallback(async (refresh = false) => {
     setLoading(true);
     setError("");
     setResult(null);
+    setCacheInfo(null);
 
     try {
-      setResult(await getReportForRange(fromDate, toDate, today));
+      const response = await fetchReport(fromDate, toDate, refresh);
+      setResult(response.report);
+      setCacheInfo(response.cache);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load weekly report");
     } finally {
       setLoading(false);
     }
-  }, [fromDate, today, toDate]);
+  }, [fromDate, toDate]);
+
+  const runReport = useCallback(() => {
+    void loadReport(false);
+  }, [loadReport]);
+
+  const refreshReport = useCallback(() => {
+    void loadReport(true);
+  }, [loadReport]);
 
   const dateRangeInvalid = !!fromDate && !!toDate && fromDate > toDate;
   const days = useMemo(() => daysInRange(fromDate, toDate), [fromDate, toDate]);
@@ -572,7 +298,7 @@ export default function SalesInstallsPage() {
               </p>
             </div>
 
-            <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
+            <div className="grid grid-cols-2 gap-2 lg:grid-cols-[1fr_1fr_auto_auto]">
               <div>
                 <label className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">From</label>
                 <input
@@ -598,6 +324,13 @@ export default function SalesInstallsPage() {
               >
                 {loading ? "Building..." : "Run report"}
               </button>
+              <button
+                onClick={refreshReport}
+                disabled={loading || !fromDate || !toDate || dateRangeInvalid}
+                className="self-end rounded-lg border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-gray-700 shadow-sm transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Refresh
+              </button>
             </div>
           </div>
 
@@ -605,7 +338,13 @@ export default function SalesInstallsPage() {
           {error && <p className="mt-2 text-xs font-medium text-red-600">{error}</p>}
           {loading && (
             <p className="mt-2 text-xs font-medium text-gray-500">
-              First run may take a minute while accepted dates are cached.
+              Preparing the shared report cache.
+            </p>
+          )}
+          {cacheInfo && (
+            <p className="mt-2 text-xs font-medium text-gray-500">
+              {cacheInfo.status === "hit" ? "Loaded from shared cache" : cacheInfo.status === "refresh" ? "Refreshed from InsulHub" : "Built and cached"}.
+              {" "}Cache expires {new Intl.DateTimeFormat("en-NZ", { dateStyle: "medium", timeStyle: "short" }).format(new Date(cacheInfo.expiresAt))}.
             </p>
           )}
         </div>

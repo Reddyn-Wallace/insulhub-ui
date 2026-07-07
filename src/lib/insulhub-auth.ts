@@ -6,7 +6,7 @@ const AUTH_CACHE_TTL_MS = 5 * 60 * 1000;
 const authOkCache = new Map<string, number>();
 const authInFlight = new Map<string, Promise<NextResponse | null>>();
 
-function tokenFromRequest(request: NextRequest) {
+export function tokenFromRequest(request: NextRequest) {
   const auth = request.headers.get("authorization");
   if (auth?.toLowerCase().startsWith("bearer ")) return auth.slice(7).trim();
   return request.headers.get("x-access-token") || "";

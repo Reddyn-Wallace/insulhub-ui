@@ -385,4 +385,44 @@ async function ensureOverlaySchemaInternal() {
     CREATE INDEX IF NOT EXISTS job_communication_logs_job_launched_idx
       ON job_communication_logs (insulhub_job_id, launched_at DESC)
   `;
+
+  await overlaySql`
+    CREATE TABLE IF NOT EXISTS report_accepted_dates (
+      insulhub_job_id text PRIMARY KEY,
+      accepted_at timestamptz,
+      accepted_at_missing boolean NOT NULL DEFAULT false,
+      last_checked_at timestamptz NOT NULL DEFAULT now(),
+      last_error text NOT NULL DEFAULT '',
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+  `;
+
+  await overlaySql`
+    CREATE INDEX IF NOT EXISTS report_accepted_dates_checked_idx
+      ON report_accepted_dates (last_checked_at)
+  `;
+
+  await overlaySql`
+    CREATE TABLE IF NOT EXISTS report_snapshots (
+      report_key text NOT NULL,
+      from_date date NOT NULL,
+      to_date date NOT NULL,
+      payload jsonb,
+      build_status text NOT NULL DEFAULT 'ready',
+      built_at timestamptz,
+      expires_at timestamptz,
+      last_error text NOT NULL DEFAULT '',
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (report_key, from_date, to_date),
+      CONSTRAINT report_snapshots_status_check
+        CHECK (build_status IN ('ready', 'building', 'failed'))
+    )
+  `;
+
+  await overlaySql`
+    CREATE INDEX IF NOT EXISTS report_snapshots_expiry_idx
+      ON report_snapshots (report_key, expires_at)
+  `;
 }
