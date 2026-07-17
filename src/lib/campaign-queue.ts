@@ -304,3 +304,23 @@ export async function loadDueCampaignIds(limit = 10) {
   `;
   return rows.map((row) => stringValue(row.id)).filter(Boolean);
 }
+
+export async function loadCampaignQueueState() {
+  await ensureOverlaySchema();
+  const rows = await overlaySql`
+    SELECT
+      COUNT(*)::int AS pending_count,
+      MIN(COALESCE(cr.scheduled_at, now())) AS next_run_at
+    FROM campaigns c
+    JOIN campaign_recipients cr ON cr.campaign_id = c.id
+    WHERE c.status IN ('pending', 'sending')
+      AND cr.selected = true
+      AND cr.status = 'pending'
+  `;
+
+  const nextRunAt = rows[0]?.next_run_at;
+  return {
+    pendingCount: Number(rows[0]?.pending_count || 0),
+    nextRunAt: nextRunAt ? new Date(String(nextRunAt)).toISOString() : null,
+  };
+}

@@ -87,6 +87,17 @@ The Neon connection comes from:
 DATABASE_URL
 ```
 
+The campaign scheduler also uses:
+
+```txt
+CRON_SECRET
+CAMPAIGN_QUEUE_WORKER_URL
+```
+
+`CAMPAIGN_QUEUE_WORKER_URL` is the deployed `insulhub-campaign-queue` Worker origin. Queueing a campaign calls its authenticated `/activate` endpoint, which schedules a Durable Object alarm for the next pending recipient. The one-minute Cloudflare Cron Trigger is only a Cloudflare-side initialization safety check and must not query Neon while idle.
+
+Overlay schema setup is disabled during normal requests. Existing environments already have the schema. For deliberate schema provisioning or upgrades, temporarily set `RUN_OVERLAY_MIGRATIONS=true`, run one authenticated overlay request, verify the schema, and remove the flag again.
+
 Use Neon for UI-owned data that does not belong to the old Insulhub schema.
 
 Current Neon tables:

@@ -4,7 +4,12 @@ import {
   campaignRecipientScheduleAt,
   loadCommunicationSettings,
 } from "@/lib/communication-settings";
-import { loadQueuedRecipients, processCampaignQueue } from "@/lib/campaign-queue";
+import {
+  loadCampaignQueueState,
+  loadQueuedRecipients,
+  processCampaignQueue,
+} from "@/lib/campaign-queue";
+import { activateCampaignScheduler } from "@/lib/campaign-scheduler";
 import { deliverCommunication } from "@/lib/communication-delivery";
 import { firstNameForMerge, formatNameForMerge } from "@/lib/communication-merge-fields";
 import { ensureOverlaySchema, overlaySql } from "@/lib/overlay-db";
@@ -390,16 +395,24 @@ export async function PATCH(
 
       const processResult = await processCampaignQueue(id);
       const updatedRecipients = await loadQueuedRecipients(id);
+      const queue = await loadCampaignQueueState();
+      const scheduler = queue.pendingCount > 0
+        ? await activateCampaignScheduler(queue.nextRunAt)
+        : { activated: true };
       const remainingQueued = snapshots.length - processResult.processedCount;
+      const schedulerWarning = scheduler.activated
+        ? ""
+        : " Automatic delivery could not be scheduled; use Process Due until the scheduler is configured.";
 
       return NextResponse.json({
         campaign: toCampaign(processResult.campaign || campaignRows[0]),
         recipients: updatedRecipients.map(toRecipient),
-        sendResult: processResult.processedCount
+        sendResult: (processResult.processedCount
           ? remainingQueued > 0
             ? `${processResult.processResult} ${remainingQueued} recipient${remainingQueued === 1 ? "" : "s"} remain queued.`
             : processResult.processResult
-          : `${snapshots.length} recipient${snapshots.length === 1 ? "" : "s"} queued for delivery.`,
+          : `${snapshots.length} recipient${snapshots.length === 1 ? "" : "s"} queued for delivery.`) + schedulerWarning,
+        scheduler,
       });
     }
 

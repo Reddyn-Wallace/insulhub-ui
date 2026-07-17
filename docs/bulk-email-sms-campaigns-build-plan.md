@@ -605,6 +605,7 @@ Decisions made:
 - Existing Gmail senders connected before Gmail signature sync need to reconnect once so Google grants the additional signature-settings permission.
 - Email spacing includes small random jitter except for the first recipient in each daily limit block. Multi-day rollover is handled by queued scheduling plus Cloudflare Worker cron processing.
 - The queue is processed by both the campaign page/manual Process Due button and Cloudflare Workers Cron. Cron calls are protected with `CRON_SECRET`.
+- On 2026-07-17 the always-on Neon polling was replaced with a Cloudflare Durable Object alarm. Queueing or manually processing a campaign activates the Worker through `CAMPAIGN_QUEUE_WORKER_URL`; the alarm calls Neon only while recipients remain pending and deletes itself when the queue is empty. The legacy one-minute Cron Trigger now performs a Cloudflare-only initialization check and does not contact Neon after initialization.
 - Vercel rejected once-per-minute cron on the current Hobby account, so unattended minute-level scheduling moved to Cloudflare Workers.
 - Confirmation estimates use the saved Communication Settings and communicate that email sends are spaced with random jitter.
 - Audience filter presets and opt-out/exclusion handling are intentionally out of MVP scope per product decision on 2026-06-19.

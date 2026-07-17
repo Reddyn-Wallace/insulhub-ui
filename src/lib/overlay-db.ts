@@ -21,6 +21,11 @@ export function overlaySql(strings: TemplateStringsArray, ...values: unknown[]):
 }
 
 export function ensureOverlaySchema() {
+  // Production schema changes are opt-in. Running the full DDL sequence from
+  // every new serverless instance creates unnecessary database work.
+  if (process.env.RUN_OVERLAY_MIGRATIONS !== "true") {
+    return Promise.resolve();
+  }
   schemaPromise ||= ensureOverlaySchemaInternal().catch((error) => {
     schemaPromise = null;
     throw error;

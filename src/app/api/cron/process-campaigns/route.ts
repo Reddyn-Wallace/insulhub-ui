@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { loadDueCampaignIds, processCampaignQueue } from "@/lib/campaign-queue";
+import {
+  loadCampaignQueueState,
+  loadDueCampaignIds,
+  processCampaignQueue,
+} from "@/lib/campaign-queue";
 
 export async function GET(request: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -27,11 +31,13 @@ export async function GET(request: NextRequest) {
         });
       }
     }
+    const queue = await loadCampaignQueueState();
 
     return NextResponse.json({
       ok: true,
       checkedCampaigns: campaignIds.length,
       results,
+      queue,
     });
   } catch (error) {
     return NextResponse.json(
