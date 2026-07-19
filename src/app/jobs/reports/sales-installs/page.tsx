@@ -283,6 +283,13 @@ export default function SalesInstallsPage() {
   const installSqm = result?.installs.reduce((sum, job) => sum + jobSqm(job), 0) || 0;
   const installTotal = result?.installs.reduce((sum, job) => sum + (job.quote?.c_total || 0), 0) || 0;
   const upcoming = result?.upcoming;
+  const upcomingUnscheduledSqm = upcoming?.unscheduled.reduce((sum, job) => sum + jobSqm(job), 0) || 0;
+  const upcomingPencilledSqm = upcoming?.pencilled.reduce((sum, job) => sum + jobSqm(job), 0) || 0;
+  const upcomingConfirmedSqm = upcoming?.confirmed.reduce((sum, job) => sum + jobSqm(job), 0) || 0;
+  const upcomingTotalCount = (upcoming?.unscheduled.length || 0)
+    + (upcoming?.pencilled.length || 0)
+    + (upcoming?.confirmed.length || 0);
+  const upcomingTotalSqm = upcomingUnscheduledSqm + upcomingPencilledSqm + upcomingConfirmedSqm;
   const hasResults = result !== null;
 
   return (
@@ -418,23 +425,28 @@ export default function SalesInstallsPage() {
                 <h2 className="text-sm font-bold text-gray-950">Upcoming</h2>
                 <p className="mt-0.5 text-xs text-gray-500">Accepted work still moving toward install.</p>
               </div>
-              <div className="grid gap-2 md:grid-cols-3">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <MetricCard
+                  label="Total"
+                  value={String(upcomingTotalCount)}
+                  detail={`${formatSqm(upcomingTotalSqm)} across pipeline`}
+                  tone="brand"
+                />
                 <MetricCard
                   label="Unscheduled"
                   value={String(upcoming?.unscheduled.length || 0)}
-                  detail="accepted, no install date"
+                  detail={`${formatSqm(upcomingUnscheduledSqm)} · accepted, no install date`}
                   tone="orange"
                 />
                 <MetricCard
                   label="Pencilled"
                   value={String(upcoming?.pencilled.length || 0)}
-                  detail="install date pencilled"
+                  detail={`${formatSqm(upcomingPencilledSqm)} · install date pencilled`}
                 />
                 <MetricCard
                   label="Confirmed"
                   value={String(upcoming?.confirmed.length || 0)}
-                  detail="install date confirmed"
-                  tone="brand"
+                  detail={`${formatSqm(upcomingConfirmedSqm)} · install date confirmed`}
                 />
               </div>
             </section>
