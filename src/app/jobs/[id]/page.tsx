@@ -58,7 +58,7 @@ interface Job {
     extras?: { name?: string; price?: number }[];
     files_QuoteSitePlan?: string[];
   };
-  ebaForm?: { complete?: boolean; clientApproved?: boolean; clientApprovedAt?: string; signature_assessor?: { fileName?: string } | null };
+  ebaForm?: { complete?: boolean; clientApproved?: boolean; clientApprovedAt?: string; lotOrDPNumber?: string; signature_assessor?: { fileName?: string } | null };
   client?: {
     _id?: string;
     contactDetails?: ContactDetails;
@@ -826,7 +826,7 @@ export default function JobDetailPage() {
   }
 
   async function copyLotDPNumber() {
-    const lotDPNumber = c?.lotDPNumber?.trim();
+    const lotDPNumber = c?.lotDPNumber?.trim() || job?.ebaForm?.lotOrDPNumber?.trim();
     if (!lotDPNumber) return;
 
     try {
@@ -1964,7 +1964,7 @@ export default function JobDetailPage() {
   const c = job.client?.contactDetails;
   const phone = c?.phoneMobile || c?.phoneSecondary;
   const address = [c?.streetAddress, c?.suburb, c?.city, c?.postCode].filter(Boolean).join(", ");
-  const lotDPNumber = c?.lotDPNumber?.trim();
+  const lotDPNumber = c?.lotDPNumber?.trim() || job.ebaForm?.lotOrDPNumber?.trim();
   const contactName = formatNameForMerge(c?.name?.trim() || "") || "there";
   const firstName = firstNameForMerge(contactName) || "there";
   const statusRaw = (job.lead?.leadStatus || "NEW").toUpperCase();
@@ -2332,30 +2332,51 @@ export default function JobDetailPage() {
     <div className="min-h-screen bg-gray-50 pb-10">
       {dialog}
       {/* Header */}
-      <div className="bg-[#1a3a4a] px-4 pt-3 pb-2">
-        <button onClick={handleBack} className="text-gray-300 text-sm mb-1">← Back</button>
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="text-white font-bold text-lg leading-tight">{c?.name || "Unknown"}</h1>
-            {address && <p className="text-gray-300 text-xs mt-0.5">{address}</p>}
-            <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-300">
+      <div className="bg-[#1a3a4a] px-4 pb-4 pt-3">
+        <button onClick={handleBack} className="mb-2 text-sm text-slate-300 transition-colors hover:text-white">← Back</button>
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold leading-tight text-white">{c?.name || "Unknown"}</h1>
+          {address && (
+            <div className="mt-1.5">
+              <span className="block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Site address</span>
+              <p className="mt-0.5 text-sm leading-snug text-slate-200">{address}</p>
+            </div>
+          )}
+          {(phone || c?.email || lotDPNumber) && (
+            <div className="mt-3 flex flex-wrap gap-2">
               {phone && (
-                <a href={`tel:${phone.replace(/[^\d+]/g, "")}`} className="hover:text-white">
-                  {phone}
+                <a
+                  href={`tel:${phone.replace(/[^\d+]/g, "")}`}
+                  className="min-w-0 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-left transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                >
+                  <span className="block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Phone</span>
+                  <span className="block text-sm font-medium text-white">{phone}</span>
                 </a>
               )}
               {c?.email && (
-                <button type="button" onClick={copyCustomerEmail} className="truncate text-left hover:text-white">
-                  {c.email}
+                <button
+                  type="button"
+                  onClick={copyCustomerEmail}
+                  title="Copy email address"
+                  className="min-w-0 max-w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-left transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                >
+                  <span className="block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Email</span>
+                  <span className="block max-w-full truncate text-sm font-medium text-white">{c.email}</span>
                 </button>
               )}
               {lotDPNumber && (
-                <button type="button" onClick={copyLotDPNumber} className="truncate text-left hover:text-white">
-                  Lot / DP: {lotDPNumber}
+                <button
+                  type="button"
+                  onClick={copyLotDPNumber}
+                  title="Copy Lot / DP number"
+                  className="min-w-0 max-w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-left transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                >
+                  <span className="block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Lot / DP</span>
+                  <span className="block max-w-full truncate text-sm font-medium text-white">{lotDPNumber}</span>
                 </button>
               )}
             </div>
-          </div>
+          )}
         </div>
       </div>
 

@@ -123,6 +123,7 @@ export const JOB_QUERY = `
       ebaForm {
         complete
         clientApproved
+        lotOrDPNumber
         signature_assessor { fileName }
       }
       installation {
