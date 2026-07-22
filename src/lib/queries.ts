@@ -204,6 +204,7 @@ export const JOB_QUERY = `
           suburb
           city
           postCode
+          lotDPNumber
         }
         billingDetails {
           name

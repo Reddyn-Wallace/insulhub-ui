@@ -20,7 +20,7 @@ import { LEAD_SOURCE_OPTIONS } from "@/lib/lead-sources";
 interface User { _id: string; firstname: string; lastname: string; email: string; role?: string; }
 interface ContactDetails {
   name?: string; email?: string; phoneMobile?: string; phoneSecondary?: string;
-  streetAddress?: string; suburb?: string; city?: string; postCode?: string;
+  streetAddress?: string; suburb?: string; city?: string; postCode?: string; lotDPNumber?: string;
 }
 interface Job {
   _id: string; jobNumber: number; stage: string; notes?: string; updatedAt: string; archivedAt?: string; certificateSentAt?: string;
@@ -822,6 +822,18 @@ export default function JobDetailPage() {
       setToast({ type: "success", text: "Email copied to clipboard." });
     } catch {
       setToast({ type: "error", text: "Could not copy the email address." });
+    }
+  }
+
+  async function copyLotDPNumber() {
+    const lotDPNumber = c?.lotDPNumber?.trim();
+    if (!lotDPNumber) return;
+
+    try {
+      await navigator.clipboard.writeText(lotDPNumber);
+      setToast({ type: "success", text: "Lot / DP number copied to clipboard." });
+    } catch {
+      setToast({ type: "error", text: "Could not copy the Lot / DP number." });
     }
   }
 
@@ -1952,6 +1964,7 @@ export default function JobDetailPage() {
   const c = job.client?.contactDetails;
   const phone = c?.phoneMobile || c?.phoneSecondary;
   const address = [c?.streetAddress, c?.suburb, c?.city, c?.postCode].filter(Boolean).join(", ");
+  const lotDPNumber = c?.lotDPNumber?.trim();
   const contactName = formatNameForMerge(c?.name?.trim() || "") || "there";
   const firstName = firstNameForMerge(contactName) || "there";
   const statusRaw = (job.lead?.leadStatus || "NEW").toUpperCase();
@@ -2334,6 +2347,11 @@ export default function JobDetailPage() {
               {c?.email && (
                 <button type="button" onClick={copyCustomerEmail} className="truncate text-left hover:text-white">
                   {c.email}
+                </button>
+              )}
+              {lotDPNumber && (
+                <button type="button" onClick={copyLotDPNumber} className="truncate text-left hover:text-white">
+                  Lot / DP: {lotDPNumber}
                 </button>
               )}
             </div>
