@@ -2011,6 +2011,9 @@ export default function JobDetailPage() {
   const assignableUsers = users.filter((u) => (u.role || "").toUpperCase() !== "INSTALLER");
   const hasWall = !!job.quote?.wall?.SQM;
   const hasCeiling = !!job.quote?.ceiling?.SQM;
+  const quoteExtras = (job.quote?.extras || []).filter((extra) => (
+    Boolean(extra.name?.trim()) || (extra.price !== null && extra.price !== undefined)
+  ));
   const displayCallbackDate = status === "CALLBACK" ? (job.stage === "QUOTE" ? (job.quote?.deferralDate || job.lead?.callbackDate) : job.lead?.callbackDate) : null;
   const isArchived = !!job.archivedAt;
   const isPostQuoteStage = ["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"].includes(job.stage);
@@ -2892,6 +2895,19 @@ export default function JobDetailPage() {
               <>
                 <InfoRow label="Consent Fee" value={job.quote?.consentFee !== null && job.quote?.consentFee !== undefined ? fmtCurrency(job.quote.consentFee) : null} />
                 <InfoRow label="Deposit" value={job.quote?.depositPercentage ? `${job.quote.depositPercentage}% — ${fmtCurrency(job.quote.c_deposit)}` : null} />
+                {quoteExtras.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-gray-100">
+                    <p className="text-xs font-bold text-gray-400 uppercase mb-2">Extra Charges</p>
+                    {quoteExtras.map((extra, index) => (
+                      <div key={`${extra.name || "extra"}-${index}`} className="flex items-center justify-between gap-3 py-2 border-b border-gray-50 last:border-0">
+                        <span className="text-sm text-gray-800">{extra.name?.trim() || "Extra charge"}</span>
+                        <span className="text-sm font-medium text-gray-800">
+                          {extra.price !== null && extra.price !== undefined ? fmtCurrency(extra.price) : "-"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {job.quote?.quoteNote && (
                   <div className="mt-2 pt-2 border-t border-gray-50">
                     <span className="text-xs text-gray-400 uppercase tracking-wide font-medium">Comments</span>
