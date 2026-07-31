@@ -1,16 +1,9 @@
 export const LEAD_SOURCE_OPTIONS = [
-  "Website",
-  "Home Show",
-  "TV",
-  "Social Media",
-  "Radio",
-  "Vehicle Signage",
-  "Mailchimp",
-  "Referral",
-  "Printed Media",
-  "Door Drop",
-  "Google Ads",
   "Contact Form",
+  "Social Media",
+  "Phone Call",
+  "Referral",
+  "Homeshow",
 ] as const;
 
 export type LeadSourceOption = (typeof LEAD_SOURCE_OPTIONS)[number];
