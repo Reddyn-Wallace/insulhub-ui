@@ -23,6 +23,8 @@ const REPORT_KEY = "sales-installs";
 const REPORT_STAGES = ["LEAD", "QUOTE", "SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"];
 const SCHEDULED_STAGES = new Set(["SCHEDULED", "INSTALLATION", "INVOICE"]);
 const INSTALL_REPORT_STAGES = new Set(["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"]);
+const REPORT_PAGE_SIZE = 250;
+const MAX_REPORT_PAGES = 100;
 const ACCEPTED_AT_FETCH_CONCURRENCY = 32;
 const MISSING_ACCEPTED_AT_RECHECK_MS = 7 * 24 * 60 * 60 * 1000;
 const CURRENT_WEEK_TTL_MS = 10 * 60 * 1000;
@@ -251,14 +253,51 @@ async function hydrateAcceptedDates(token: string, jobs: ReportJob[]): Promise<R
     : job);
 }
 
-async function buildReport(token: string, fromDate: string, toDate: string): Promise<ReportResult> {
-  const data = await insulhubGql<{ jobs: { results: ReportJob[] } }>(token, REPORT_QUERY, {
-    stages: REPORT_STAGES,
-    skip: 0,
-    limit: 5000,
-  });
+async function fetchReportJobs(token: string): Promise<ReportJob[]> {
+  const jobsById = new Map<string, ReportJob>();
+  let expectedTotal: number | null = null;
+  let skip = 0;
 
-  const allJobs = await hydrateAcceptedDates(token, (data.jobs.results || []).filter((job) => !job.archivedAt));
+  for (let page = 0; page < MAX_REPORT_PAGES; page += 1) {
+    const data = await insulhubGql<{ jobs: { total: number; results: ReportJob[] } }>(token, REPORT_QUERY, {
+      stages: REPORT_STAGES,
+      skip,
+      limit: REPORT_PAGE_SIZE,
+    });
+
+    const pageJobs = data.jobs.results || [];
+    if (expectedTotal === null) expectedTotal = data.jobs.total;
+    if (data.jobs.total !== expectedTotal) {
+      throw new Error("Jobs changed while the report was loading. Please run the report again.");
+    }
+
+    if (pageJobs.length === 0) {
+      if (skip < expectedTotal) {
+        throw new Error("The report stopped before all jobs were loaded. Please refresh and try again.");
+      }
+      break;
+    }
+
+    for (const job of pageJobs) jobsById.set(job._id, job);
+    skip += pageJobs.length;
+
+    if (skip >= expectedTotal) break;
+  }
+
+  if (expectedTotal === null) return [];
+  if (skip < expectedTotal) {
+    throw new Error("The report contains too many jobs to load safely. Please contact support.");
+  }
+  if (jobsById.size !== expectedTotal) {
+    throw new Error("Jobs changed while the report was loading. Please run the report again.");
+  }
+
+  return Array.from(jobsById.values());
+}
+
+async function buildReport(token: string, fromDate: string, toDate: string): Promise<ReportResult> {
+  const reportJobs = await fetchReportJobs(token);
+  const allJobs = await hydrateAcceptedDates(token, reportJobs.filter((job) => !job.archivedAt));
 
   const leads = allJobs
     .filter((job) => {
