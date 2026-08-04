@@ -430,4 +430,28 @@ async function ensureOverlaySchemaInternal() {
     CREATE INDEX IF NOT EXISTS report_snapshots_expiry_idx
       ON report_snapshots (report_key, expires_at)
   `;
+
+  await overlaySql`
+    CREATE TABLE IF NOT EXISTS site_plan_drawings (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      insulhub_job_id text NOT NULL,
+      name text NOT NULL,
+      drawing_document jsonb NOT NULL,
+      schema_version integer NOT NULL DEFAULT 1,
+      revision integer NOT NULL DEFAULT 1,
+      last_pdf_file_name text,
+      last_exported_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      CONSTRAINT site_plan_drawings_name_check
+        CHECK (char_length(name) BETWEEN 1 AND 120),
+      CONSTRAINT site_plan_drawings_schema_version_check
+        CHECK (schema_version >= 1)
+    )
+  `;
+
+  await overlaySql`
+    CREATE INDEX IF NOT EXISTS site_plan_drawings_job_updated_idx
+      ON site_plan_drawings (insulhub_job_id, updated_at DESC)
+  `;
 }
