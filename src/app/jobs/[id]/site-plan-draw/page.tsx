@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { PDFDocument, rgb } from "pdf-lib";
 import { gql } from "@/lib/graphql";
 import { AppDialog } from "@/components/AppDialog";
+import type { SitePlanDrawing, SitePlanDrawingDocument } from "@/lib/site-plan-drawings";
 
 type WallStyle = "solid" | "dotted";
 type WallColor = "slate" | "teal" | "blue" | "amber" | "red";
@@ -204,7 +205,7 @@ function findLinkedEndpoints(pt: Point, excludeWallId: string, walls: Wall[]): {
 }
 
 export default function DrawSitePlanPage() {
-  const { id } = useParams<{ id: string }>();
+  const { id, drawingId: routeDrawingId } = useParams<{ id: string; drawingId?: string }>();
   const router = useRouter();
   const token = typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
 
@@ -216,11 +217,16 @@ export default function DrawSitePlanPage() {
   const [selectedWallIds, setSelectedWallIds] = useState<string[]>([]);
   const [mode, setMode] = useState<"trace" | "single" | "select">("trace");
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [loadingDrawing, setLoadingDrawing] = useState(!!routeDrawingId);
   const [notice, setNotice] = useState("");
   const [showDimensions, setShowDimensions] = useState(true);
-  const [saveFilename, setSaveFilename] = useState("");
-  const [saveChoiceOpen, setSaveChoiceOpen] = useState(false);
-  const [saveMode, setSaveMode] = useState<"exit" | "continue">("exit");
+  const [drawingName, setDrawingName] = useState("");
+  const [activeDrawingId, setActiveDrawingId] = useState<string | null>(routeDrawingId || null);
+  const [drawingRevision, setDrawingRevision] = useState<number | null>(null);
+  const [lastPdfFileName, setLastPdfFileName] = useState<string | null>(null);
+  const [savedSnapshot, setSavedSnapshot] = useState("");
+  const [exitChoiceOpen, setExitChoiceOpen] = useState(false);
   const [wallColorPaletteOpen, setWallColorPaletteOpen] = useState(false);
 
   const [drawStart, setDrawStart] = useState<Point | null>(null);
@@ -291,6 +297,19 @@ export default function DrawSitePlanPage() {
     const firstStreetLine = job?.client?.contactDetails?.streetAddress?.split(/\r?\n/)[0]?.trim() || "";
     return firstStreetLine ? `${firstStreetLine} - site plan` : "site plan";
   }, [job]);
+
+  const drawingDocument = useMemo<SitePlanDrawingDocument>(() => ({
+    schemaVersion: 1,
+    templateVersion: "site-plan-template-v2",
+    walls,
+    textNotes,
+    showDimensions,
+  }), [showDimensions, textNotes, walls]);
+  const currentSnapshot = useMemo(
+    () => JSON.stringify({ name: drawingName.trim(), document: drawingDocument }),
+    [drawingDocument, drawingName],
+  );
+  const hasUnsavedChanges = !loadingDrawing && currentSnapshot !== savedSnapshot;
 
   const selectedWall = useMemo(() => walls.find((w) => w.id === selectedWallId) || null, [walls, selectedWallId]);
   const selectedWallLength = useMemo(() => {
@@ -367,10 +386,57 @@ export default function DrawSitePlanPage() {
   }, [id]);
 
   useEffect(() => {
-    if (job) {
-      setSaveFilename(`${sitePlanFilenameBase}.pdf`);
+    if (!job || routeDrawingId || drawingName) return;
+    setDrawingName("Ground floor");
+  }, [drawingName, job, routeDrawingId]);
+
+  useEffect(() => {
+    if (!id || !routeDrawingId || !token) {
+      setLoadingDrawing(false);
+      return;
     }
-  }, [sitePlanFilenameBase, job]);
+
+    let cancelled = false;
+    setLoadingDrawing(true);
+    (async () => {
+      const params = new URLSearchParams({ jobId: id });
+      const res = await fetch(`/api/site-plan-drawings/${routeDrawingId}?${params.toString()}`, {
+        headers: { "x-access-token": token },
+        cache: "no-store",
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "Failed to load drawing");
+      if (cancelled) return;
+
+      const drawing = json.drawing as SitePlanDrawing;
+      setActiveDrawingId(drawing.id);
+      setDrawingRevision(drawing.revision);
+      setDrawingName(drawing.name);
+      setWalls(drawing.document.walls);
+      setTextNotes(drawing.document.textNotes);
+      setShowDimensions(drawing.document.showDimensions);
+      setLastPdfFileName(drawing.lastPdfFileName);
+      setHistory([]);
+      setSavedSnapshot(JSON.stringify({ name: drawing.name, document: drawing.document }));
+    })()
+      .catch((error) => {
+        if (!cancelled) setNotice(error instanceof Error ? error.message : "Failed to load drawing");
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingDrawing(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [id, routeDrawingId, token]);
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+    };
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    return () => window.removeEventListener("beforeunload", warnBeforeUnload);
+  }, [hasUnsavedChanges]);
 
   useEffect(() => {
     if (editingTextId) {
@@ -1050,14 +1116,82 @@ export default function DrawSitePlanPage() {
     });
   }
 
-  async function saveCompletedSitePlan(shouldExit = true) {
-    if (!walls.length) {
-      setNotice("Draw at least one wall.");
+  async function persistDrawing(updateRoute = true) {
+    const name = drawingName.trim();
+    if (!name) throw new Error("Give this drawing a name before saving.");
+    if (!token) throw new Error("Missing authentication token.");
+
+    const isExisting = !!activeDrawingId;
+    if (isExisting && !drawingRevision) throw new Error("The drawing has not finished loading.");
+    const endpoint = isExisting
+      ? `/api/site-plan-drawings/${activeDrawingId}`
+      : "/api/site-plan-drawings";
+    const res = await fetch(endpoint, {
+      method: isExisting ? "PATCH" : "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-access-token": token,
+      },
+      body: JSON.stringify({
+        jobId: id,
+        name,
+        document: drawingDocument,
+        ...(isExisting ? { expectedRevision: drawingRevision } : {}),
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json?.error || "Failed to save drawing");
+
+    const saved = json.drawing as {
+      id: string;
+      revision: number;
+      lastPdfFileName?: string | null;
+    };
+    setActiveDrawingId(saved.id);
+    setDrawingRevision(saved.revision);
+    setDrawingName(name);
+    if (saved.lastPdfFileName !== undefined) setLastPdfFileName(saved.lastPdfFileName);
+    setSavedSnapshot(JSON.stringify({ name, document: drawingDocument }));
+    if (!isExisting && updateRoute) {
+      router.replace(`/jobs/${id}/site-plan-draw/${saved.id}`);
+    }
+    return {
+      id: saved.id,
+      revision: saved.revision,
+      lastPdfFileName: saved.lastPdfFileName ?? lastPdfFileName,
+    };
+  }
+
+  async function saveDraft(shouldExit: boolean) {
+    if (shouldExit && !hasUnsavedChanges && activeDrawingId) {
+      router.push(`/jobs/${id}`);
       return;
     }
     setSaving(true);
     setNotice("");
     try {
+      await persistDrawing(!shouldExit);
+      if (shouldExit) {
+        router.push(`/jobs/${id}`);
+      } else {
+        setNotice("Drawing saved. You can keep editing it.");
+      }
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Failed to save drawing");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function exportCompletedSitePlan() {
+    if (!walls.length) {
+      setNotice("Draw at least one wall.");
+      return;
+    }
+    setExporting(true);
+    setNotice("");
+    try {
+      const persisted = await persistDrawing();
       const sourcePdfBytes = await fetch(`/site-plan-template-v2.pdf`).then((r) => {
         if (!r.ok) throw new Error("Could not load locked site plan template PDF.");
         return r.arrayBuffer();
@@ -1145,8 +1279,8 @@ export default function DrawSitePlanPage() {
 
       const pdfBytes = await pdfDoc.save();
       const blob = new Blob([new Uint8Array(pdfBytes)], { type: "application/pdf" });
-      const cleanedFilename = saveFilename.trim().replace(/\.pdf$/i, "").replace(/[\\/]/g, "-") || sitePlanFilenameBase;
-      const filename = `${cleanedFilename}.pdf`;
+      const cleanedDrawingName = drawingName.trim().replace(/\.pdf$/i, "").replace(/[\\/]/g, "-") || "site plan";
+      const filename = `${sitePlanFilenameBase} - ${cleanedDrawingName}.pdf`;
       const file = new File([blob], filename, { type: "application/pdf" });
 
       const uploadData = new FormData();
@@ -1168,16 +1302,66 @@ export default function DrawSitePlanPage() {
       }
       setJob(fresh.job);
 
-      setNotice("Site plan saved successfully.");
-      if (shouldExit) setTimeout(() => router.push(`/jobs/${id}`), 400);
+      const metadataRes = await fetch(`/api/site-plan-drawings/${persisted.id}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          "x-access-token": token,
+        },
+        body: JSON.stringify({
+          jobId: id,
+          expectedRevision: persisted.revision,
+          lastPdfFileName: uploaded[0],
+        }),
+      });
+      const metadataJson = await metadataRes.json();
+      if (!metadataRes.ok) throw new Error(metadataJson?.error || "PDF was attached, but its drawing link could not be saved.");
+      const updatedDrawing = metadataJson.drawing as SitePlanDrawing;
+      setDrawingRevision(updatedDrawing.revision);
+      setLastPdfFileName(updatedDrawing.lastPdfFileName);
+
+      const downloadUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = downloadUrl;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(downloadUrl), 1_000);
+
+      let previousPdfRemoved = true;
+      if (persisted.lastPdfFileName && persisted.lastPdfFileName !== uploaded[0]) {
+        try {
+          await gql(REMOVE_FILE, {
+            _id: id,
+            documentType: "QUOTE_SITE_PLAN",
+            fileName: persisted.lastPdfFileName,
+          });
+        } catch {
+          previousPdfRemoved = false;
+        }
+      }
+
+      setNotice(previousPdfRemoved
+        ? "PDF created, attached to the job, and downloaded."
+        : "PDF created and downloaded. The previous PDF could not be removed from the job.");
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : "Failed to save site plan");
+      setNotice(e instanceof Error ? e.message : "Failed to create site plan PDF");
     } finally {
-      setSaving(false);
+      setExporting(false);
     }
   }
 
   const canCloseShape = mode === "trace" && !!drawStart && walls.length >= 3;
+  const editorBusy = saving || exporting || loadingDrawing;
+
+  function requestEditorExit() {
+    if (hasUnsavedChanges) {
+      setExitChoiceOpen(true);
+      return;
+    }
+    router.push(`/jobs/${id}`);
+  }
 
   return (
     <div className="fixed inset-x-0 bottom-0 flex flex-col bg-[#eef0f3] overflow-hidden" style={{ top: "var(--nav-height, 0px)" }}>
@@ -1185,47 +1369,58 @@ export default function DrawSitePlanPage() {
       {/* Top bar */}
       <div className="relative flex items-center justify-between px-4 bg-white border-b border-gray-200 z-30 flex-shrink-0" style={{ height: 56 }}>
         <button
-          onClick={() => router.push(`/jobs/${id}`)}
+          onClick={requestEditorExit}
           className="text-sm font-medium text-gray-500 -ml-1 px-2 h-10 rounded-lg flex items-center gap-1 active:bg-gray-100"
         >
           ← Back
         </button>
-        <div className="flex items-center gap-2 flex-1 justify-end min-w-0">
+        <div className="flex items-center gap-2 flex-1 justify-end min-w-0 overflow-x-auto py-1">
+          <span className={`text-[11px] font-semibold whitespace-nowrap ${hasUnsavedChanges ? "text-amber-600" : "text-emerald-600"}`}>
+            {loadingDrawing ? "Loading…" : hasUnsavedChanges ? "Unsaved" : "Saved"}
+          </span>
           <input
-            value={saveFilename}
-            onChange={(e) => setSaveFilename(e.target.value)}
-            placeholder="siteplan filename"
-            className="flex-1 min-w-[320px] h-10 px-3 rounded-xl border border-gray-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1a3a4a]/20"
+            value={drawingName}
+            onChange={(e) => setDrawingName(e.target.value)}
+            placeholder="Drawing name, e.g. Ground floor"
+            disabled={loadingDrawing}
+            className="flex-1 min-w-[190px] h-10 px-3 rounded-xl border border-gray-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1a3a4a]/20 disabled:opacity-60"
           />
           <button
-            onClick={() => { setSaveMode("exit"); setSaveChoiceOpen(true); }}
-            disabled={saving}
+            onClick={() => void exportCompletedSitePlan()}
+            disabled={editorBusy || !walls.length}
+            className="shrink-0 bg-[#e85d04] text-white px-4 h-10 rounded-xl text-sm font-semibold disabled:opacity-60 active:opacity-80"
+          >
+            {exporting ? "Creating PDF…" : lastPdfFileName ? "Update PDF" : "Create PDF"}
+          </button>
+          <button
+            onClick={() => void saveDraft(false)}
+            disabled={editorBusy || !hasUnsavedChanges}
+            className="shrink-0 bg-white text-[#1a3a4a] border border-[#1a3a4a]/20 px-4 h-10 rounded-xl text-sm font-semibold disabled:opacity-60 active:opacity-80"
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+          <button
+            onClick={() => void saveDraft(true)}
+            disabled={editorBusy}
             className="shrink-0 bg-[#1a3a4a] text-white px-4 h-10 rounded-xl text-sm font-semibold disabled:opacity-60 active:opacity-80"
           >
             {saving ? "Saving…" : "Save & Exit"}
-          </button>
-          <button
-            onClick={() => { setSaveMode("continue"); setSaveChoiceOpen(true); }}
-            disabled={saving}
-            className="shrink-0 bg-white text-[#1a3a4a] border border-[#1a3a4a]/20 px-4 h-10 rounded-xl text-sm font-semibold disabled:opacity-60 active:opacity-80"
-          >
-            Save
           </button>
         </div>
       </div>
 
       <AppDialog
-        open={saveChoiceOpen}
-        title={saveMode === "exit" ? "Save and exit?" : "Save site plan?"}
-        description={
-          saveMode === "exit"
-            ? "This will save the completed floor plan and return to the job. You will no longer be able to edit this version."
-            : "This will save the current floor plan and keep the editor open."
-        }
-        confirmLabel={saving ? "Saving..." : saveMode === "exit" ? "Save & Exit" : "Save"}
-        cancelLabel="Cancel"
-        onCancel={() => setSaveChoiceOpen(false)}
-        onConfirm={() => { setSaveChoiceOpen(false); void saveCompletedSitePlan(saveMode === "exit"); }}
+        open={exitChoiceOpen}
+        title="Discard unsaved changes?"
+        description="This drawing has changes that have not been saved. Leaving now will discard them."
+        confirmLabel="Discard & Exit"
+        cancelLabel="Keep Editing"
+        tone="danger"
+        onCancel={() => setExitChoiceOpen(false)}
+        onConfirm={() => {
+          setExitChoiceOpen(false);
+          router.push(`/jobs/${id}`);
+        }}
       />
 
       {/* Notice toast */}
@@ -1240,6 +1435,11 @@ export default function DrawSitePlanPage() {
 
       {/* Canvas area */}
       <div ref={canvasAreaRef} className="flex-1 min-h-0 overflow-hidden relative">
+        {loadingDrawing && (
+          <div className="absolute inset-0 z-40 flex items-center justify-center bg-white/75 backdrop-blur-sm">
+            <p className="text-sm font-semibold text-gray-600">Loading drawing…</p>
+          </div>
+        )}
         <div className="absolute inset-0 flex items-center justify-center p-2">
         {canvasDims && (
         <div

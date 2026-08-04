@@ -15,6 +15,7 @@ import { useAppDialog } from "@/components/AppDialog";
 import { firstNameForMerge, formatNameForMerge } from "@/lib/communication-merge-fields";
 import { buildInstallPlanningSummaryLines } from "@/lib/install-planning";
 import { LEAD_SOURCE_OPTIONS } from "@/lib/lead-sources";
+import type { SitePlanDrawingSummary } from "@/lib/site-plan-drawings";
 
 // ── Types ──────────────────────────────────────────────────────────
 interface User { _id: string; firstname: string; lastname: string; email: string; role?: string; }
@@ -416,6 +417,10 @@ export default function JobDetailPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingSitePlan, setUploadingSitePlan] = useState(false);
+  const [sitePlanDrawings, setSitePlanDrawings] = useState<SitePlanDrawingSummary[]>([]);
+  const [loadingSitePlanDrawings, setLoadingSitePlanDrawings] = useState(true);
+  const [creatingSitePlanDrawing, setCreatingSitePlanDrawing] = useState(false);
+  const [sitePlanDrawingsError, setSitePlanDrawingsError] = useState("");
   const [uploadingCompletionFiles, setUploadingCompletionFiles] = useState(false);
   const [completionUploadProgress, setCompletionUploadProgress] = useState(0);
   const [uploadingCouncilApproval, setUploadingCouncilApproval] = useState(false);
@@ -498,6 +503,27 @@ export default function JobDetailPage() {
     if (!res.ok) throw new Error(json?.error || "Failed to load install planning");
     return (json.planning?.[0] || null) as InstallPlanningMeta | null;
   }, []);
+
+  const loadSitePlanDrawings = useCallback(async () => {
+    const token = getToken();
+    if (!token) return;
+    setLoadingSitePlanDrawings(true);
+    setSitePlanDrawingsError("");
+    try {
+      const params = new URLSearchParams({ jobId: id });
+      const res = await fetch(`/api/site-plan-drawings?${params.toString()}`, {
+        headers: { "x-access-token": token },
+        cache: "no-store",
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "Failed to load editable drawings");
+      setSitePlanDrawings(json.drawings || []);
+    } catch (error) {
+      setSitePlanDrawingsError(error instanceof Error ? error.message : "Failed to load editable drawings");
+    } finally {
+      setLoadingSitePlanDrawings(false);
+    }
+  }, [id]);
 
   const saveInstallPlanningMeta = useCallback(async (next: InstallPlanningMeta) => {
     const token = getToken();
@@ -674,7 +700,8 @@ export default function JobDetailPage() {
     load();
     loadContactTemplates();
     loadCampaignCommunications();
-  }, [load, loadCampaignCommunications, loadContactTemplates, router]);
+    loadSitePlanDrawings();
+  }, [load, loadCampaignCommunications, loadContactTemplates, loadSitePlanDrawings, router]);
 
   useEffect(() => {
     const email = job?.client?.contactDetails?.email?.trim().toLowerCase();
@@ -1427,6 +1454,63 @@ export default function JobDetailPage() {
     }
   }
 
+  function nextSitePlanDrawingName() {
+    const existingNames = new Set(sitePlanDrawings.map((drawing) => drawing.name.trim().toLowerCase()));
+    if (!existingNames.has("ground floor")) return "Ground floor";
+    if (!existingNames.has("upper floor")) return "Upper floor";
+    let number = 3;
+    while (existingNames.has(`drawing ${number}`)) number += 1;
+    return `Drawing ${number}`;
+  }
+
+  async function createSitePlanDrawing() {
+    const token = getToken();
+    if (!token) return;
+    setCreatingSitePlanDrawing(true);
+    setSitePlanDrawingsError("");
+    try {
+      const res = await fetch("/api/site-plan-drawings", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-access-token": token,
+        },
+        body: JSON.stringify({ jobId: id, name: nextSitePlanDrawingName() }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "Could not create drawing");
+      router.push(`/jobs/${id}/site-plan-draw/${json.drawing.id}`);
+    } catch (error) {
+      setSitePlanDrawingsError(error instanceof Error ? error.message : "Could not create drawing");
+    } finally {
+      setCreatingSitePlanDrawing(false);
+    }
+  }
+
+  async function deleteSitePlanDrawing(drawing: SitePlanDrawingSummary) {
+    const shouldDelete = await confirm({
+      title: `Delete “${drawing.name}”?`,
+      description: "The editable drawing will be deleted. Any PDF already attached to the job will remain in Completed Site Plans.",
+      confirmLabel: "Delete Drawing",
+      tone: "danger",
+    });
+    if (!shouldDelete) return;
+
+    try {
+      const params = new URLSearchParams({ jobId: id });
+      const res = await fetch(`/api/site-plan-drawings/${drawing.id}?${params.toString()}`, {
+        method: "DELETE",
+        headers: { "x-access-token": getToken() },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "Could not delete drawing");
+      setSitePlanDrawings((current) => current.filter((item) => item.id !== drawing.id));
+      setToast({ type: "success", text: `${drawing.name} deleted.` });
+    } catch (error) {
+      setToast({ type: "error", text: error instanceof Error ? error.message : "Could not delete drawing" });
+    }
+  }
+
   async function printQuoteSitePlanPDF() {
     try {
       const quoteDate = fromDatetimeLocal(quoteForm.date) || new Date().toISOString();
@@ -1492,7 +1576,33 @@ export default function JobDetailPage() {
       tone: "danger",
     });
     if (!shouldRemove) return;
-    await run(() => gql(REMOVE_FILE, { _id: id, documentType: "QUOTE_SITE_PLAN", fileName }));
+    setSaving(true);
+    try {
+      await gql(REMOVE_FILE, { _id: id, documentType: "QUOTE_SITE_PLAN", fileName });
+
+      const linkedDrawings = sitePlanDrawings.filter((drawing) => drawing.lastPdfFileName === fileName);
+      await Promise.allSettled(linkedDrawings.map(async (drawing) => {
+        const res = await fetch(`/api/site-plan-drawings/${drawing.id}`, {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json",
+            "x-access-token": getToken(),
+          },
+          body: JSON.stringify({
+            jobId: id,
+            expectedRevision: drawing.revision,
+            lastPdfFileName: null,
+          }),
+        });
+        if (!res.ok) throw new Error("Could not clear drawing PDF link");
+      }));
+
+      await Promise.all([load(), loadSitePlanDrawings()]);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not remove site plan PDF");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function uploadTrackedFiles(
@@ -2849,12 +2959,60 @@ export default function JobDetailPage() {
         {(isQuoteInfoStage || job.stage === "LEAD") && (
           <Section title="Site Plan">
             <div className="flex gap-2 mb-3 flex-wrap">
-              <button onClick={printQuoteSitePlanPDF} className="bg-gray-700 text-white text-sm font-semibold px-3 py-2.5 rounded-xl">🖨️ Print Site Plan PDF</button>
-              <button onClick={() => router.push(`/jobs/${id}/site-plan-draw`)} className="bg-[#1a3a4a] text-white text-sm font-semibold px-3 py-2.5 rounded-xl">✏️ Draw Site Plan</button>
+              <button onClick={() => void createSitePlanDrawing()} disabled={creatingSitePlanDrawing} className="bg-[#1a3a4a] text-white text-sm font-semibold px-3 py-2.5 rounded-xl disabled:opacity-60">
+                {creatingSitePlanDrawing ? "Creating…" : "✏️ New Drawing"}
+              </button>
+              <button onClick={printQuoteSitePlanPDF} className="bg-gray-700 text-white text-sm font-semibold px-3 py-2.5 rounded-xl">🖨️ Download Blank PDF</button>
             </div>
+
+            <div className="border border-gray-200 rounded-xl p-3 mb-3">
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase">Editable Drawings</p>
+                  <p className="text-xs text-gray-400 mt-0.5">Save drafts here, then open one to create or update its PDF.</p>
+                </div>
+                {!loadingSitePlanDrawings && sitePlanDrawings.length > 0 && (
+                  <span className="text-xs font-semibold text-gray-400">{sitePlanDrawings.length}</span>
+                )}
+              </div>
+              {loadingSitePlanDrawings && <p className="text-sm text-gray-400 py-2">Loading drawings…</p>}
+              {sitePlanDrawingsError && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  {sitePlanDrawingsError}
+                  <button onClick={() => void loadSitePlanDrawings()} className="ml-2 font-semibold underline">Try again</button>
+                </div>
+              )}
+              {!loadingSitePlanDrawings && !sitePlanDrawingsError && sitePlanDrawings.length === 0 && (
+                <div className="rounded-lg bg-gray-50 px-3 py-3 text-sm text-gray-500">
+                  No editable drawings yet. Create one for the ground, upper, or any other floor.
+                </div>
+              )}
+              <div className="space-y-2">
+                {sitePlanDrawings.map((drawing) => (
+                  <div key={drawing.id} className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50/60 p-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="truncate text-sm font-semibold text-gray-900">{drawing.name}</p>
+                        {drawing.lastPdfFileName && (
+                          <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-700">PDF created</span>
+                        )}
+                      </div>
+                      <p className="mt-0.5 text-xs text-gray-500">
+                        {drawing.wallCount} {drawing.wallCount === 1 ? "wall" : "walls"}
+                        {drawing.textNoteCount > 0 ? ` · ${drawing.textNoteCount} ${drawing.textNoteCount === 1 ? "note" : "notes"}` : ""}
+                        {drawing.updatedAt ? ` · Updated ${fmt(drawing.updatedAt)}` : ""}
+                      </p>
+                    </div>
+                    <button onClick={() => router.push(`/jobs/${id}/site-plan-draw/${drawing.id}`)} className="shrink-0 rounded-lg bg-white px-3 py-2 text-xs font-semibold text-[#1a3a4a] shadow-sm ring-1 ring-gray-200">Edit</button>
+                    <button onClick={() => void deleteSitePlanDrawing(drawing)} className="shrink-0 px-1 py-2 text-xs font-semibold text-red-600">Delete</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div className="border border-gray-200 rounded-xl p-3">
-              <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Completed Site Plan</p>
-              <input type="file" onChange={(e) => uploadQuoteSitePlan(e.target.files)} disabled={uploadingSitePlan} className="text-sm mb-2" />
+              <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Completed Site Plan PDFs</p>
+              <input type="file" accept="application/pdf,.pdf" onChange={(e) => uploadQuoteSitePlan(e.target.files)} disabled={uploadingSitePlan} className="text-sm mb-2" />
               {uploadingSitePlan && <p className="text-xs text-gray-500">Uploading...</p>}
               <div className="space-y-1">
                 {(job.quote?.files_QuoteSitePlan || []).map((f) => (
