@@ -228,7 +228,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: session.failureReason }, { status: 502 });
   }
   session.webhookId = webhookId;
-  await new Promise((resolve) => setTimeout(resolve, 5_000));
+  // Cloud registrations are asynchronous and must reach the Android device
+  // before an inbox refresh can emit its export callbacks.
+  await new Promise((resolve) => setTimeout(resolve, 30_000));
   const registeredWebhooks = await listSmsgateWebhooks(config);
   session.diagnostics.webhookListedAfterRegistration = Boolean(
     registeredWebhooks.ok
