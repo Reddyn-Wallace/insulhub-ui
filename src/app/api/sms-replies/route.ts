@@ -2,6 +2,8 @@ import crypto from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import {
   deleteSmsgateWebhook,
+  getSmsgateLogs,
+  getSmsgateSettings,
   listSmsgateDevices,
   listSmsgateWebhooks,
   refreshSmsgateInbox,
@@ -100,6 +102,28 @@ function providerConfig(sender: Record<string, unknown>) {
     : {};
 }
 
+function nestedBoolean(value: unknown, path: string[]) {
+  let current = value;
+  for (const key of path) {
+    if (!current || typeof current !== "object" || Array.isArray(current)) return null;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return typeof current === "boolean" ? current : null;
+}
+
+function logSignals(value: unknown) {
+  const logs = Array.isArray(value) ? value : [];
+  const messages = logs.map((entry) => (
+    entry && typeof entry === "object" ? stringValue((entry as Record<string, unknown>).message) : ""
+  ));
+  return {
+    logCount: logs.length,
+    permissionError: messages.some((message) => /permission|securityexception|read_sms|receive_sms/i.test(message)),
+    inboxRefreshSeen: messages.some((message) => /inbox|refresh|export/i.test(message)),
+    webhookError: messages.some((message) => /webhook/i.test(message) && /error|fail|reject|retry/i.test(message)),
+  };
+}
+
 async function removeStaleInsulhubPollWebhooks(config: Record<string, string>, origin: string) {
   const listed = await listSmsgateWebhooks(config);
   if (!listed.ok || !Array.isArray(listed.value)) {
@@ -170,6 +194,29 @@ export async function POST(request: NextRequest) {
   const sender = await loadSender(stringValue(input.senderId));
   if (!sender) return NextResponse.json({ error: "No connected SMSGate sender is configured" }, { status: 404 });
   const config = providerConfig(sender);
+  if (input.action === "diagnose") {
+    const to = new Date();
+    const from = new Date(to.getTime() - 30 * 60_000);
+    const [devices, settings, logs] = await Promise.all([
+      listSmsgateDevices(config),
+      getSmsgateSettings(config),
+      getSmsgateLogs({ providerConfig: config, from: from.toISOString(), to: to.toISOString() }),
+    ]);
+    const configuredDeviceId = stringValue(config.smsgateDeviceId);
+    const selectedDevice = devices.ok && Array.isArray(devices.value)
+      ? (configuredDeviceId ? devices.value.find((device) => device.id === configuredDeviceId) : devices.value[0])
+      : undefined;
+    return NextResponse.json({
+      deviceFound: Boolean(selectedDevice),
+      deviceLastSeen: stringValue(selectedDevice?.lastSeen),
+      receiverContentProviderEnabled: settings.ok
+        ? nestedBoolean(settings.value, ["receiver", "content_provider_enabled"])
+        : null,
+      settingsStatus: settings.status,
+      logsStatus: logs.status,
+      ...logSignals(logs.value),
+    });
+  }
   const hours = boundedNumber(input.hours, 72, 1, 24 * 31);
   const to = new Date();
   const from = new Date(to.getTime() - hours * 60 * 60_000);

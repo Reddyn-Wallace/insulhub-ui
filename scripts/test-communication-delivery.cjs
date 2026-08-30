@@ -246,6 +246,12 @@ function loadCommunicationDeliveryModule(fetchProxy) {
   const devices = await delivery.listSmsgateDevices(gatewayConfig);
   assert.equal(devices.ok, true);
   assert.equal(devices.value[0].id, "device-1");
+  assert.equal((await delivery.getSmsgateSettings(gatewayConfig)).ok, true);
+  assert.equal((await delivery.getSmsgateLogs({
+    providerConfig: gatewayConfig,
+    from: "2026-08-30T19:00:00Z",
+    to: "2026-08-30T20:00:00Z",
+  })).ok, true);
   assert.equal((await delivery.listSmsgateWebhooks(gatewayConfig)).ok, true);
   assert.equal((await delivery.registerSmsgateWebhook({
     providerConfig: gatewayConfig,
@@ -258,13 +264,13 @@ function loadCommunicationDeliveryModule(fetchProxy) {
     to: "2026-08-30T23:59:59Z",
   })).ok, true);
   assert.equal((await delivery.deleteSmsgateWebhook(gatewayConfig, "hook-1")).ok, true);
-  const registerBody = JSON.parse(smsgateCalls[2].init.body);
+  const registerBody = JSON.parse(smsgateCalls[4].init.body);
   assert.equal(registerBody.deviceId, "device-1");
   assert.equal(registerBody.event, "sms:batch:received");
-  const refreshBody = JSON.parse(smsgateCalls[3].init.body);
+  const refreshBody = JSON.parse(smsgateCalls[5].init.body);
   assert.deepEqual(refreshBody.messageTypes, ["SMS"]);
   assert.equal(refreshBody.webhookDelivery, "Batch");
-  assert.equal(smsgateCalls[4].url, "https://api.sms-gate.app/3rdparty/v1/webhooks/hook-1");
+  assert.equal(smsgateCalls[6].url, "https://api.sms-gate.app/3rdparty/v1/webhooks/hook-1");
 
   console.log("communication delivery tests passed");
 })().catch((error) => {

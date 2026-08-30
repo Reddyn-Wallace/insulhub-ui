@@ -72,6 +72,13 @@ export type SmsgateDevice = {
   updatedAt: string;
 };
 
+export type SmsgateLogEntry = {
+  createdAt: string;
+  module: string;
+  priority: string;
+  message: string;
+};
+
 export type SmsgateApiResult<T> = {
   ok: boolean;
   status: number;
@@ -512,6 +519,19 @@ export async function listSmsgateWebhooks(providerConfig?: Record<string, string
 
 export async function listSmsgateDevices(providerConfig?: Record<string, string>) {
   return smsgateJsonRequest<SmsgateDevice[]>({ providerConfig, path: "/devices" });
+}
+
+export async function getSmsgateLogs(input: {
+  providerConfig?: Record<string, string>;
+  from: string;
+  to: string;
+}) {
+  const params = new URLSearchParams({ from: input.from, to: input.to });
+  return smsgateJsonRequest<SmsgateLogEntry[]>({ providerConfig: input.providerConfig, path: `/logs?${params}` });
+}
+
+export async function getSmsgateSettings(providerConfig?: Record<string, string>) {
+  return smsgateJsonRequest<Record<string, unknown>>({ providerConfig, path: "/settings" });
 }
 
 export async function registerSmsgateWebhook(input: {
