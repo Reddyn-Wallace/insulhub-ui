@@ -226,6 +226,9 @@ function loadCommunicationDeliveryModule(fetchProxy) {
   const smsgateCalls = [];
   mockFetch = async (url, init = {}) => {
     smsgateCalls.push({ url: String(url), init });
+    if (String(url).endsWith("/devices") && (init.method || "GET") === "GET") {
+      return { ok: true, status: 200, statusText: "OK", text: async () => JSON.stringify([{ id: "device-1", name: "Phone", lastSeen: "2026-08-30T20:00:00Z" }]) };
+    }
     if (String(url).endsWith("/webhooks") && (init.method || "GET") === "GET") {
       return { ok: true, status: 200, statusText: "OK", text: async () => JSON.stringify([]) };
     }
@@ -240,6 +243,9 @@ function loadCommunicationDeliveryModule(fetchProxy) {
     smsgatePassword: "pass",
     smsgateDeviceId: "device-1",
   };
+  const devices = await delivery.listSmsgateDevices(gatewayConfig);
+  assert.equal(devices.ok, true);
+  assert.equal(devices.value[0].id, "device-1");
   assert.equal((await delivery.listSmsgateWebhooks(gatewayConfig)).ok, true);
   assert.equal((await delivery.registerSmsgateWebhook({
     providerConfig: gatewayConfig,
@@ -252,13 +258,13 @@ function loadCommunicationDeliveryModule(fetchProxy) {
     to: "2026-08-30T23:59:59Z",
   })).ok, true);
   assert.equal((await delivery.deleteSmsgateWebhook(gatewayConfig, "hook-1")).ok, true);
-  const registerBody = JSON.parse(smsgateCalls[1].init.body);
+  const registerBody = JSON.parse(smsgateCalls[2].init.body);
   assert.equal(registerBody.deviceId, "device-1");
   assert.equal(registerBody.event, "sms:batch:received");
-  const refreshBody = JSON.parse(smsgateCalls[2].init.body);
+  const refreshBody = JSON.parse(smsgateCalls[3].init.body);
   assert.deepEqual(refreshBody.messageTypes, ["SMS"]);
   assert.equal(refreshBody.webhookDelivery, "Batch");
-  assert.equal(smsgateCalls[3].url, "https://api.sms-gate.app/3rdparty/v1/webhooks/hook-1");
+  assert.equal(smsgateCalls[4].url, "https://api.sms-gate.app/3rdparty/v1/webhooks/hook-1");
 
   console.log("communication delivery tests passed");
 })().catch((error) => {

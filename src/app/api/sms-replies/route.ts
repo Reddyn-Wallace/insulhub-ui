@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import {
   deleteSmsgateWebhook,
+  listSmsgateDevices,
   listSmsgateWebhooks,
   refreshSmsgateInbox,
   registerSmsgateWebhook,
@@ -24,6 +25,15 @@ type PollSession = {
   lastWebhookAt: string;
   state: "starting" | "waiting" | "closed" | "failed";
   failureReason?: string;
+  diagnostics: {
+    configuredDeviceId: string;
+    configuredDeviceFound: boolean;
+    deviceLastSeen: string;
+    webhookListedAfterRegistration: boolean;
+    refreshStatus: number;
+    callbackCount: number;
+    acceptedMessageCount: number;
+  };
 };
 
 function stringValue(value: unknown) {
@@ -178,7 +188,26 @@ export async function POST(request: NextRequest) {
     refreshRequestedAt: "",
     lastWebhookAt: "",
     state: "starting",
+    diagnostics: {
+      configuredDeviceId: stringValue(config.smsgateDeviceId),
+      configuredDeviceFound: false,
+      deviceLastSeen: "",
+      webhookListedAfterRegistration: false,
+      refreshStatus: 0,
+      callbackCount: 0,
+      acceptedMessageCount: 0,
+    },
   };
+
+  const devices = await listSmsgateDevices(config);
+  if (devices.ok && Array.isArray(devices.value)) {
+    const configuredDeviceId = session.diagnostics.configuredDeviceId;
+    const selectedDevice = configuredDeviceId
+      ? devices.value.find((device) => device.id === configuredDeviceId)
+      : devices.value[0];
+    session.diagnostics.configuredDeviceFound = Boolean(selectedDevice);
+    session.diagnostics.deviceLastSeen = stringValue(selectedDevice?.lastSeen);
+  }
   await saveSession(session);
 
   const origin = new URL(process.env.INSULHUB_PUBLIC_URL?.trim() || "https://insulhub-ui.vercel.app").origin;
@@ -200,11 +229,19 @@ export async function POST(request: NextRequest) {
   }
   session.webhookId = webhookId;
   await new Promise((resolve) => setTimeout(resolve, 5_000));
+  const registeredWebhooks = await listSmsgateWebhooks(config);
+  session.diagnostics.webhookListedAfterRegistration = Boolean(
+    registeredWebhooks.ok
+    && Array.isArray(registeredWebhooks.value)
+    && registeredWebhooks.value.some((webhook) => webhook.id === webhookId)
+  );
   session.state = "waiting";
   session.refreshRequestedAt = new Date().toISOString();
   await saveSession(session);
 
   const refreshed = await refreshSmsgateInbox({ providerConfig: config, from: session.from, to: session.to });
+  session.diagnostics.refreshStatus = refreshed.status;
+  await saveSession(session);
   if (!refreshed.ok) {
     await deleteSmsgateWebhook(config, webhookId);
     session.state = "failed";
@@ -288,6 +325,15 @@ export async function GET(request: NextRequest) {
     matchedCount: replies.filter((reply) => reply.match).length,
     ambiguousCount: replies.filter((reply) => reply.ambiguous).length,
     unmatchedCount: replies.filter((reply) => !reply.match && !reply.ambiguous).length,
+    diagnostics: {
+      configuredDeviceFound: session.diagnostics?.configuredDeviceFound || false,
+      deviceLastSeen: session.diagnostics?.deviceLastSeen || "",
+      webhookListedAfterRegistration: session.diagnostics?.webhookListedAfterRegistration || false,
+      refreshStatus: session.diagnostics?.refreshStatus || 0,
+      callbackCount: session.diagnostics?.callbackCount || 0,
+      acceptedMessageCount: session.diagnostics?.acceptedMessageCount || 0,
+      callbackReceived: Boolean(session.lastWebhookAt),
+    },
     replies,
   });
 }

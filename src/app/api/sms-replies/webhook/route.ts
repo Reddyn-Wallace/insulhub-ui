@@ -56,7 +56,17 @@ export async function POST(request: NextRequest) {
   const now = new Date().toISOString();
   const claimed = await overlaySql`
     UPDATE overlay_settings
-    SET value = jsonb_set(value::jsonb, '{lastWebhookAt}', to_jsonb(${now}::text), true)::text,
+    SET value = jsonb_set(
+          jsonb_set(
+            jsonb_set(value::jsonb, '{lastWebhookAt}', to_jsonb(${now}::text), true),
+            '{diagnostics,callbackCount}',
+            to_jsonb(COALESCE((value::jsonb#>>'{diagnostics,callbackCount}')::int, 0) + 1),
+            true
+          ),
+          '{diagnostics,acceptedMessageCount}',
+          to_jsonb(COALESCE((value::jsonb#>>'{diagnostics,acceptedMessageCount}')::int, 0) + ${records.length}),
+          true
+        )::text,
         updated_at = now()
     WHERE key = ${`sms_reply_poll:${pollId}`}
       AND value::jsonb->>'state' = 'waiting'

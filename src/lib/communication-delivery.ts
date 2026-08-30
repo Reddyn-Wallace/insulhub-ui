@@ -64,6 +64,14 @@ export type SmsgateWebhook = {
   deviceId: string;
 };
 
+export type SmsgateDevice = {
+  id: string;
+  name: string;
+  lastSeen: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type SmsgateApiResult<T> = {
   ok: boolean;
   status: number;
@@ -500,6 +508,10 @@ async function smsgateJsonRequest<T>(input: {
 
 export async function listSmsgateWebhooks(providerConfig?: Record<string, string>) {
   return smsgateJsonRequest<SmsgateWebhook[]>({ providerConfig, path: "/webhooks" });
+}
+
+export async function listSmsgateDevices(providerConfig?: Record<string, string>) {
+  return smsgateJsonRequest<SmsgateDevice[]>({ providerConfig, path: "/devices" });
 }
 
 export async function registerSmsgateWebhook(input: {
