@@ -175,6 +175,37 @@ async function closePoll(pollId: string) {
   return { ok: true, status: 200, session };
 }
 
+async function refreshPoll(pollId: string) {
+  const session = await loadSession(pollId);
+  if (!session) return { ok: false, status: 404, error: "SMS reply poll was not found" };
+  if (session.state !== "starting") {
+    return { ok: false, status: 409, error: `SMS reply poll cannot refresh from state ${session.state}` };
+  }
+  if (safeDate(session.expiresAt) <= Date.now()) {
+    return { ok: false, status: 410, error: "SMS reply poll expired before refresh" };
+  }
+  const sender = await loadSender(session.senderId);
+  if (!sender) return { ok: false, status: 404, error: "SMSGate sender is no longer available" };
+  const config = providerConfig(sender);
+  session.state = "waiting";
+  session.refreshRequestedAt = new Date().toISOString();
+  await saveSession(session);
+  const refreshed = await refreshSmsgateInbox({
+    providerConfig: config,
+    from: session.from,
+    to: session.to,
+    webhookDelivery: "Individual",
+  });
+  session.diagnostics.refreshStatus = refreshed.status;
+  if (!refreshed.ok) {
+    session.state = "failed";
+    session.failureReason = refreshed.failureReason || "SMSGate inbox refresh failed";
+  }
+  await saveSession(session);
+  if (!refreshed.ok) return { ok: false, status: 502, error: session.failureReason };
+  return { ok: true, status: 202, session };
+}
+
 function safeDate(value: unknown) {
   const time = new Date(stringValue(value)).getTime();
   return Number.isFinite(time) ? time : 0;
@@ -189,6 +220,13 @@ export async function POST(request: NextRequest) {
   if (input.action === "close") {
     const result = await closePoll(stringValue(input.pollId));
     return NextResponse.json(result.ok ? { ok: true } : { error: result.error }, { status: result.status });
+  }
+  if (input.action === "refresh") {
+    const result = await refreshPoll(stringValue(input.pollId));
+    return NextResponse.json(
+      result.ok ? { pollId: result.session?.pollId, state: result.session?.state } : { error: result.error },
+      { status: result.status }
+    );
   }
 
   const sender = await loadSender(stringValue(input.senderId));
@@ -275,34 +313,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: session.failureReason }, { status: 502 });
   }
   session.webhookId = webhookId;
-  // Cloud registrations are asynchronous and must reach the Android device
-  // before an inbox refresh can emit its export callbacks.
-  await new Promise((resolve) => setTimeout(resolve, 30_000));
+  // Cloud registrations are asynchronous. The operator deliberately waits
+  // before invoking the separate refresh action so the device can sync it.
+  await new Promise((resolve) => setTimeout(resolve, 5_000));
   const registeredWebhooks = await listSmsgateWebhooks(config);
   session.diagnostics.webhookListedAfterRegistration = Boolean(
     registeredWebhooks.ok
     && Array.isArray(registeredWebhooks.value)
     && registeredWebhooks.value.some((webhook) => webhook.id === webhookId)
   );
-  session.state = "waiting";
-  session.refreshRequestedAt = new Date().toISOString();
   await saveSession(session);
-
-  const refreshed = await refreshSmsgateInbox({
-    providerConfig: config,
-    from: session.from,
-    to: session.to,
-    webhookDelivery: "Individual",
-  });
-  session.diagnostics.refreshStatus = refreshed.status;
-  await saveSession(session);
-  if (!refreshed.ok) {
-    await deleteSmsgateWebhook(config, webhookId);
-    session.state = "failed";
-    session.failureReason = refreshed.failureReason || "SMSGate inbox refresh failed";
-    await saveSession(session);
-    return NextResponse.json({ error: session.failureReason }, { status: 502 });
-  }
 
   return NextResponse.json({ pollId, state: session.state, from: session.from, to: session.to, expiresAt: session.expiresAt }, { status: 202 });
 }
