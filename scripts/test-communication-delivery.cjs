@@ -256,7 +256,7 @@ function loadCommunicationDeliveryModule(fetchProxy) {
   assert.equal((await delivery.registerSmsgateWebhook({
     providerConfig: gatewayConfig,
     url: "https://example.com/hook",
-    event: "sms:batch:received",
+    event: "sms:received",
   })).value.id, "hook-1");
   assert.equal((await delivery.refreshSmsgateInbox({
     providerConfig: gatewayConfig,
@@ -266,10 +266,10 @@ function loadCommunicationDeliveryModule(fetchProxy) {
   assert.equal((await delivery.deleteSmsgateWebhook(gatewayConfig, "hook-1")).ok, true);
   const registerBody = JSON.parse(smsgateCalls[4].init.body);
   assert.equal(registerBody.deviceId, "device-1");
-  assert.equal(registerBody.event, "sms:batch:received");
+  assert.equal(registerBody.event, "sms:received");
   const refreshBody = JSON.parse(smsgateCalls[5].init.body);
   assert.deepEqual(refreshBody.messageTypes, ["SMS"]);
-  assert.equal(refreshBody.webhookDelivery, "Batch");
+  assert.equal(refreshBody.webhookDelivery, "Individual");
   assert.equal(smsgateCalls[6].url, "https://api.sms-gate.app/3rdparty/v1/webhooks/hook-1");
 
   console.log("communication delivery tests passed");

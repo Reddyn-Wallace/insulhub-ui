@@ -537,7 +537,7 @@ export async function getSmsgateSettings(providerConfig?: Record<string, string>
 export async function registerSmsgateWebhook(input: {
   providerConfig?: Record<string, string>;
   url: string;
-  event: "sms:batch:received";
+  event: "sms:received" | "sms:batch:received";
 }): Promise<SmsgateApiResult<SmsgateWebhook>> {
   const body: Record<string, unknown> = { url: input.url, event: input.event };
   const deviceId = input.providerConfig?.smsgateDeviceId || process.env.SMSGATE_DEVICE_ID?.trim();
@@ -562,12 +562,13 @@ export async function refreshSmsgateInbox(input: {
   providerConfig?: Record<string, string>;
   from: string;
   to: string;
+  webhookDelivery?: "Individual" | "Batch";
 }): Promise<SmsgateApiResult<undefined>> {
   const body: Record<string, unknown> = {
     since: input.from,
     until: input.to,
     messageTypes: ["SMS"],
-    webhookDelivery: "Batch",
+    webhookDelivery: input.webhookDelivery || "Individual",
   };
   const deviceId = input.providerConfig?.smsgateDeviceId || process.env.SMSGATE_DEVICE_ID?.trim();
   if (deviceId) body.deviceId = deviceId;

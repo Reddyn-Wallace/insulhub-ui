@@ -266,7 +266,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: cleanup.failureReason }, { status: 502 });
   }
   const callback = `${origin}/api/sms-replies/webhook?poll=${encodeURIComponent(pollId)}&token=${encodeURIComponent(token)}`;
-  const registered = await registerSmsgateWebhook({ providerConfig: config, url: callback, event: "sms:batch:received" });
+  const registered = await registerSmsgateWebhook({ providerConfig: config, url: callback, event: "sms:received" });
   const webhookId = stringValue(registered.value?.id);
   if (!registered.ok || !webhookId) {
     session.state = "failed";
@@ -288,7 +288,12 @@ export async function POST(request: NextRequest) {
   session.refreshRequestedAt = new Date().toISOString();
   await saveSession(session);
 
-  const refreshed = await refreshSmsgateInbox({ providerConfig: config, from: session.from, to: session.to });
+  const refreshed = await refreshSmsgateInbox({
+    providerConfig: config,
+    from: session.from,
+    to: session.to,
+    webhookDelivery: "Individual",
+  });
   session.diagnostics.refreshStatus = refreshed.status;
   await saveSession(session);
   if (!refreshed.ok) {
