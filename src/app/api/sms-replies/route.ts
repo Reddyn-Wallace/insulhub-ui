@@ -1,128 +1,293 @@
+import crypto from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { readSmsgateInbox } from "@/lib/communication-delivery";
+import {
+  deleteSmsgateWebhook,
+  listSmsgateWebhooks,
+  refreshSmsgateInbox,
+  registerSmsgateWebhook,
+} from "@/lib/communication-delivery";
 import { requireInsulhubAuth } from "@/lib/insulhub-auth";
 import { ensureOverlaySchema, overlaySql } from "@/lib/overlay-db";
+import { matchSmsReply, normalizeNzPhone } from "@/lib/sms-reply-matching";
+
+type PollSession = {
+  pollId: string;
+  tokenHash: string;
+  senderId: string;
+  senderLabel: string;
+  webhookId: string;
+  from: string;
+  to: string;
+  createdAt: string;
+  expiresAt: string;
+  refreshRequestedAt: string;
+  lastWebhookAt: string;
+  state: "starting" | "waiting" | "closed" | "failed";
+  failureReason?: string;
+};
 
 function stringValue(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 
-function normalizeNzPhone(value: string) {
-  const compact = value.replace(/[^\d+]/g, "");
-  if (compact.startsWith("+64")) return compact;
-  const digits = compact.replace(/\D/g, "");
-  if (digits.startsWith("0")) return `+64${digits.slice(1)}`;
-  if (digits.startsWith("64")) return `+${digits}`;
-  return compact;
-}
-
-function boundedNumber(value: string | null, fallback: number, min: number, max: number) {
+function boundedNumber(value: unknown, fallback: number, min: number, max: number) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, Math.min(max, Math.trunc(parsed)));
 }
 
-export async function GET(request: NextRequest) {
-  const unauthorized = await requireInsulhubAuth(request);
-  if (unauthorized) return unauthorized;
+function pollKey(pollId: string) {
+  return `sms_reply_poll:${pollId}`;
+}
 
-  await ensureOverlaySchema();
-  const senderId = request.nextUrl.searchParams.get("senderId")?.trim() || "";
-  const senderRows = senderId
+function messageKeyPrefix(pollId: string) {
+  return `sms_reply_poll_message:${pollId}:`;
+}
+
+function parseSession(value: unknown): PollSession | null {
+  try {
+    const parsed = JSON.parse(stringValue(value));
+    return parsed && typeof parsed === "object" ? parsed as PollSession : null;
+  } catch {
+    return null;
+  }
+}
+
+async function loadSession(pollId: string) {
+  const rows = await overlaySql`SELECT value FROM overlay_settings WHERE key = ${pollKey(pollId)} LIMIT 1`;
+  return parseSession(rows[0]?.value);
+}
+
+async function saveSession(session: PollSession) {
+  await overlaySql`
+    INSERT INTO overlay_settings (key, value, updated_at)
+    VALUES (${pollKey(session.pollId)}, ${JSON.stringify(session)}, now())
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+  `;
+}
+
+async function loadSender(senderId = "") {
+  const rows = senderId
     ? await overlaySql`
         SELECT id, label, provider_config
         FROM communication_senders
-        WHERE id = ${senderId}
-          AND channel = 'sms'
-          AND provider = 'smsgate'
-          AND is_active = true
+        WHERE id = ${senderId} AND channel = 'sms' AND provider = 'smsgate' AND is_active = true
         LIMIT 1
       `
     : await overlaySql`
         SELECT id, label, provider_config
         FROM communication_senders
-        WHERE channel = 'sms'
-          AND provider = 'smsgate'
-          AND is_active = true
-          AND connection_status = 'connected'
+        WHERE channel = 'sms' AND provider = 'smsgate' AND is_active = true AND connection_status = 'connected'
         ORDER BY is_default DESC, updated_at DESC
         LIMIT 1
       `;
-  const sender = senderRows[0];
-  if (!sender) {
-    return NextResponse.json({ error: "No connected SMSGate sender is configured" }, { status: 404 });
-  }
+  return rows[0] || null;
+}
 
-  const hours = boundedNumber(request.nextUrl.searchParams.get("hours"), 72, 1, 24 * 31);
-  const limit = boundedNumber(request.nextUrl.searchParams.get("limit"), 100, 1, 500);
-  const to = new Date();
-  const from = new Date(to.getTime() - hours * 60 * 60_000);
-  const providerConfig = sender.provider_config && typeof sender.provider_config === "object"
+function providerConfig(sender: Record<string, unknown>) {
+  return sender.provider_config && typeof sender.provider_config === "object"
     ? sender.provider_config as Record<string, string>
     : {};
-  const inbox = await readSmsgateInbox({
-    providerConfig,
-    from: from.toISOString(),
-    to: to.toISOString(),
-    limit,
-  });
-  if (!inbox.ok) {
-    return NextResponse.json({
-      error: inbox.failureReason || "Could not read SMSGate inbox",
-      code: inbox.unsupportedInCloudMode ? "SMSGATE_CLOUD_EXPORT_REQUIRED" : "SMSGATE_INBOX_FAILED",
-    }, { status: inbox.unsupportedInCloudMode ? 501 : 502 });
+}
+
+async function removeStaleInsulhubPollWebhooks(config: Record<string, string>, origin: string) {
+  const listed = await listSmsgateWebhooks(config);
+  if (!listed.ok || !Array.isArray(listed.value)) {
+    return { ok: false, failureReason: listed.failureReason || "Could not inspect existing SMSGate webhooks" };
+  }
+  const prefix = `${origin}/api/sms-replies/webhook?poll=`;
+  for (const webhook of listed.value) {
+    if (!webhook.url?.startsWith(prefix) || !webhook.id) continue;
+    const webhookPollId = new URL(webhook.url).searchParams.get("poll") || "";
+    const session = webhookPollId ? await loadSession(webhookPollId) : null;
+    const stale = !session
+      || session.state === "closed"
+      || session.state === "failed"
+      || safeDate(session.expiresAt) <= Date.now();
+    if (stale) {
+      const removed = await deleteSmsgateWebhook(config, webhook.id);
+      if (!removed.ok && removed.status !== 404) {
+        return { ok: false, failureReason: removed.failureReason || "Could not remove an earlier temporary SMSGate webhook" };
+      }
+      if (webhookPollId) {
+        await overlaySql`
+          DELETE FROM overlay_settings
+          WHERE key = ${pollKey(webhookPollId)} OR key LIKE ${`${messageKeyPrefix(webhookPollId)}%`}
+        `;
+      }
+    }
+  }
+  return { ok: true };
+}
+
+async function closePoll(pollId: string) {
+  const session = await loadSession(pollId);
+  if (!session) return { ok: false, status: 404, error: "SMS reply poll was not found" };
+  session.state = "closed";
+  await saveSession(session);
+  const sender = await loadSender(session.senderId);
+  let removalError = "";
+  if (sender && session.webhookId) {
+    const removed = await deleteSmsgateWebhook(providerConfig(sender), session.webhookId);
+    if (!removed.ok && removed.status !== 404) {
+      removalError = removed.failureReason || "Could not remove temporary SMSGate webhook";
+    }
+  }
+  await overlaySql`
+    DELETE FROM overlay_settings
+    WHERE key = ${pollKey(pollId)} OR key LIKE ${`${messageKeyPrefix(pollId)}%`}
+  `;
+  if (removalError) return { ok: false, status: 502, error: removalError };
+  return { ok: true, status: 200, session };
+}
+
+function safeDate(value: unknown) {
+  const time = new Date(stringValue(value)).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+export async function POST(request: NextRequest) {
+  const unauthorized = await requireInsulhubAuth(request);
+  if (unauthorized) return unauthorized;
+  await ensureOverlaySchema();
+
+  const input = await request.json().catch(() => ({})) as Record<string, unknown>;
+  if (input.action === "close") {
+    const result = await closePoll(stringValue(input.pollId));
+    return NextResponse.json(result.ok ? { ok: true } : { error: result.error }, { status: result.status });
   }
 
-  const phones = [...new Set(inbox.messages.map((message) => normalizeNzPhone(message.sender)).filter(Boolean))];
-  const matchRows = phones.length
-    ? await overlaySql`
-        SELECT DISTINCT ON (cr.destination)
-          cr.destination,
-          cr.insulhub_job_id,
-          cr.job_number,
-          cr.contact_name,
-          cr.address,
-          cr.sent_at,
-          c.id AS campaign_id,
-          c.name AS campaign_name
-        FROM campaign_recipients cr
-        JOIN campaigns c ON c.id = cr.campaign_id
-        WHERE c.channel = 'sms'
-          AND cr.status = 'sent'
-          AND cr.destination = ANY(${phones}::text[])
-        ORDER BY cr.destination, cr.sent_at DESC NULLS LAST
-      `
-    : [];
-  const matchByPhone = new Map(matchRows.map((row) => [normalizeNzPhone(stringValue(row.destination)), row]));
-
-  const replies = inbox.messages
-    .map((message) => {
-      const normalizedSender = normalizeNzPhone(message.sender);
-      const match = matchByPhone.get(normalizedSender);
-      return {
-        ...message,
-        normalizedSender,
-        match: match ? {
-          jobId: stringValue(match.insulhub_job_id),
-          jobNumber: Number(match.job_number) || null,
-          contactName: stringValue(match.contact_name),
-          address: stringValue(match.address),
-          campaignId: stringValue(match.campaign_id),
-          campaignName: stringValue(match.campaign_name),
-          campaignSmsSentAt: match.sent_at,
-        } : null,
-      };
-    })
-    .sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime());
-
-  return NextResponse.json({
-    polledAt: to.toISOString(),
+  const sender = await loadSender(stringValue(input.senderId));
+  if (!sender) return NextResponse.json({ error: "No connected SMSGate sender is configured" }, { status: 404 });
+  const config = providerConfig(sender);
+  const hours = boundedNumber(input.hours, 72, 1, 24 * 31);
+  const to = new Date();
+  const from = new Date(to.getTime() - hours * 60 * 60_000);
+  const pollId = crypto.randomUUID();
+  const token = crypto.randomBytes(32).toString("base64url");
+  const session: PollSession = {
+    pollId,
+    tokenHash: crypto.createHash("sha256").update(token).digest("hex"),
+    senderId: stringValue(sender.id),
+    senderLabel: stringValue(sender.label),
+    webhookId: "",
     from: from.toISOString(),
     to: to.toISOString(),
-    sender: { id: stringValue(sender.id), label: stringValue(sender.label) },
+    createdAt: to.toISOString(),
+    expiresAt: new Date(to.getTime() + 10 * 60_000).toISOString(),
+    refreshRequestedAt: "",
+    lastWebhookAt: "",
+    state: "starting",
+  };
+  await saveSession(session);
+
+  const origin = new URL(process.env.INSULHUB_PUBLIC_URL?.trim() || "https://insulhub-ui.vercel.app").origin;
+  const cleanup = await removeStaleInsulhubPollWebhooks(config, origin);
+  if (!cleanup.ok) {
+    session.state = "failed";
+    session.failureReason = cleanup.failureReason;
+    await saveSession(session);
+    return NextResponse.json({ error: cleanup.failureReason }, { status: 502 });
+  }
+  const callback = `${origin}/api/sms-replies/webhook?poll=${encodeURIComponent(pollId)}&token=${encodeURIComponent(token)}`;
+  const registered = await registerSmsgateWebhook({ providerConfig: config, url: callback, event: "sms:batch:received" });
+  const webhookId = stringValue(registered.value?.id);
+  if (!registered.ok || !webhookId) {
+    session.state = "failed";
+    session.failureReason = registered.failureReason || "SMSGate did not return a webhook ID";
+    await saveSession(session);
+    return NextResponse.json({ error: session.failureReason }, { status: 502 });
+  }
+  session.webhookId = webhookId;
+  await new Promise((resolve) => setTimeout(resolve, 5_000));
+  session.state = "waiting";
+  session.refreshRequestedAt = new Date().toISOString();
+  await saveSession(session);
+
+  const refreshed = await refreshSmsgateInbox({ providerConfig: config, from: session.from, to: session.to });
+  if (!refreshed.ok) {
+    await deleteSmsgateWebhook(config, webhookId);
+    session.state = "failed";
+    session.failureReason = refreshed.failureReason || "SMSGate inbox refresh failed";
+    await saveSession(session);
+    return NextResponse.json({ error: session.failureReason }, { status: 502 });
+  }
+
+  return NextResponse.json({ pollId, state: session.state, from: session.from, to: session.to, expiresAt: session.expiresAt }, { status: 202 });
+}
+
+export async function GET(request: NextRequest) {
+  const unauthorized = await requireInsulhubAuth(request);
+  if (unauthorized) return unauthorized;
+  await ensureOverlaySchema();
+
+  const pollId = request.nextUrl.searchParams.get("pollId")?.trim() || "";
+  const session = await loadSession(pollId);
+  if (!session) return NextResponse.json({ error: "SMS reply poll was not found" }, { status: 404 });
+  const rows = await overlaySql`
+    SELECT value FROM overlay_settings
+    WHERE key LIKE ${`${messageKeyPrefix(pollId)}%`}
+    ORDER BY updated_at ASC
+  `;
+  const messages = rows.map((row) => {
+    try { return JSON.parse(stringValue(row.value)) as Record<string, unknown>; } catch { return null; }
+  }).filter((row): row is Record<string, unknown> => Boolean(row));
+  const phones = [...new Set(messages.map((message) => normalizeNzPhone(stringValue(message.sender))).filter(Boolean))];
+  const digits = phones.map((phone) => phone.replace(/\D/g, ""));
+  const candidates = digits.length ? await overlaySql`
+    SELECT cr.destination, cr.insulhub_job_id, cr.job_number, cr.contact_name, cr.address, cr.sent_at,
+      c.id AS campaign_id, c.name AS campaign_name
+    FROM campaign_recipients cr
+    JOIN campaigns c ON c.id = cr.campaign_id
+    WHERE c.channel = 'sms'
+      AND c.sender_id = ${session.senderId}
+      AND cr.status = 'sent'
+      AND (
+        CASE
+          WHEN regexp_replace(cr.destination, '[^0-9]', '', 'g') LIKE '0%'
+            THEN '64' || substring(regexp_replace(cr.destination, '[^0-9]', '', 'g') FROM 2)
+          ELSE regexp_replace(cr.destination, '[^0-9]', '', 'g')
+        END
+      ) = ANY(${digits}::text[])
+    ORDER BY cr.sent_at DESC NULLS LAST
+  ` : [];
+
+  const replies = messages.map((message) => {
+    const result = matchSmsReply(stringValue(message.sender), stringValue(message.receivedAt), candidates);
+    const formatMatch = (candidate: Record<string, unknown>) => ({
+      jobId: stringValue(candidate.insulhub_job_id),
+      jobNumber: Number(candidate.job_number) || null,
+      contactName: stringValue(candidate.contact_name),
+      address: stringValue(candidate.address),
+      campaignId: stringValue(candidate.campaign_id),
+      campaignName: stringValue(candidate.campaign_name),
+      campaignSmsSentAt: candidate.sent_at,
+    });
+    return {
+      id: stringValue(message.messageId || message.id),
+      sender: stringValue(message.sender),
+      normalizedSender: result.normalizedSender,
+      recipient: stringValue(message.recipient),
+      message: stringValue(message.message),
+      receivedAt: stringValue(message.receivedAt),
+      match: result.match ? formatMatch(result.match) : null,
+      ambiguous: result.ambiguous,
+      candidates: result.candidates.map(formatMatch),
+    };
+  }).sort((a, b) => safeDate(b.receivedAt) - safeDate(a.receivedAt));
+
+  const now = Date.now();
+  const exportAgeMs = now - safeDate(session.refreshRequestedAt || session.createdAt);
+  return NextResponse.json({
+    pollId,
+    state: session.state,
+    settled: session.state !== "waiting" || exportAgeMs >= 60_000,
+    from: session.from,
+    to: session.to,
     count: replies.length,
     matchedCount: replies.filter((reply) => reply.match).length,
-    unmatchedCount: replies.filter((reply) => !reply.match).length,
+    ambiguousCount: replies.filter((reply) => reply.ambiguous).length,
+    unmatchedCount: replies.filter((reply) => !reply.match && !reply.ambiguous).length,
     replies,
   });
 }

@@ -223,6 +223,43 @@ function loadCommunicationDeliveryModule(fetchProxy) {
   assert.equal(unsupportedInbox.ok, false);
   assert.equal(unsupportedInbox.unsupportedInCloudMode, true);
 
+  const smsgateCalls = [];
+  mockFetch = async (url, init = {}) => {
+    smsgateCalls.push({ url: String(url), init });
+    if (String(url).endsWith("/webhooks") && (init.method || "GET") === "GET") {
+      return { ok: true, status: 200, statusText: "OK", text: async () => JSON.stringify([]) };
+    }
+    if (String(url).endsWith("/webhooks") && init.method === "POST") {
+      return { ok: true, status: 201, statusText: "Created", text: async () => JSON.stringify({ id: "hook-1", url: "https://example.com/hook", event: "sms:batch:received" }) };
+    }
+    return { ok: true, status: init.method === "DELETE" ? 204 : 202, statusText: "OK", text: async () => "" };
+  };
+  const gatewayConfig = {
+    smsgateBaseUrl: "api.sms-gate.app:443",
+    smsgateUsername: "user",
+    smsgatePassword: "pass",
+    smsgateDeviceId: "device-1",
+  };
+  assert.equal((await delivery.listSmsgateWebhooks(gatewayConfig)).ok, true);
+  assert.equal((await delivery.registerSmsgateWebhook({
+    providerConfig: gatewayConfig,
+    url: "https://example.com/hook",
+    event: "sms:batch:received",
+  })).value.id, "hook-1");
+  assert.equal((await delivery.refreshSmsgateInbox({
+    providerConfig: gatewayConfig,
+    from: "2026-08-29T00:00:00Z",
+    to: "2026-08-30T23:59:59Z",
+  })).ok, true);
+  assert.equal((await delivery.deleteSmsgateWebhook(gatewayConfig, "hook-1")).ok, true);
+  const registerBody = JSON.parse(smsgateCalls[1].init.body);
+  assert.equal(registerBody.deviceId, "device-1");
+  assert.equal(registerBody.event, "sms:batch:received");
+  const refreshBody = JSON.parse(smsgateCalls[2].init.body);
+  assert.deepEqual(refreshBody.messageTypes, ["SMS"]);
+  assert.equal(refreshBody.webhookDelivery, "Batch");
+  assert.equal(smsgateCalls[3].url, "https://api.sms-gate.app/3rdparty/v1/webhooks/hook-1");
+
   console.log("communication delivery tests passed");
 })().catch((error) => {
   console.error(error);
