@@ -1,10 +1,29 @@
 type Provider = "stub" | "gmail" | "smsgate";
 
+const trustedEmailHtmlBrand = Symbol("trusted-email-html");
+const MAX_TRUSTED_EMAIL_HTML_BYTES = 96 * 1024;
+
+export type TrustedEmailHtml = {
+  readonly html: string;
+  readonly [trustedEmailHtmlBrand]: true;
+};
+
+/** Server-rendered email HTML only. The symbol brand cannot be supplied by JSON/request spreading. */
+export function createTrustedEmailHtml(html: string): TrustedEmailHtml {
+  if (!html || html.includes("\0") || Buffer.byteLength(html, "utf8") > MAX_TRUSTED_EMAIL_HTML_BYTES) {
+    throw new Error("Trusted email HTML is invalid");
+  }
+  return Object.freeze({ html, [trustedEmailHtmlBrand]: true as const });
+}
+
 export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 export const GMAIL_SETTINGS_SCOPE = "https://www.googleapis.com/auth/gmail.settings.basic";
 export const GMAIL_OAUTH_SCOPE = `${GMAIL_SEND_SCOPE} ${GMAIL_SETTINGS_SCOPE}`;
 
 export type DeliveryMessage = {
+  signal?: AbortSignal;
+  // Account emails must use the selected connection and prove its authorised From address.
+  strictGmailConnection?: boolean;
   channel: "email" | "sms";
   provider: Provider;
   from: string;
@@ -12,6 +31,7 @@ export type DeliveryMessage = {
   to: string;
   subject: string;
   body: string;
+  trustedHtml?: TrustedEmailHtml;
   providerConfig?: Record<string, string>;
   accessToken?: string;
   refreshToken?: string;
@@ -58,6 +78,22 @@ function headerValue(input: string) {
   return input.replace(/[\r\n]+/g, " ").trim();
 }
 
+function encodeMimeHeader(input: string) {
+  const clean = headerValue(input);
+  if (/^[\x20-\x7e]*$/.test(clean)) return clean;
+  const words: string[] = [];
+  let chunk = "";
+  for (const character of clean) {
+    const candidate = `${chunk}${character}`;
+    if (chunk && Buffer.byteLength(candidate, "utf8") > 42) {
+      words.push(`=?UTF-8?B?${Buffer.from(chunk, "utf8").toString("base64")}?=`);
+      chunk = character;
+    } else chunk = candidate;
+  }
+  if (chunk) words.push(`=?UTF-8?B?${Buffer.from(chunk, "utf8").toString("base64")}?=`);
+  return words.join("\r\n ");
+}
+
 function addressHeader(email: string, displayName?: string) {
   const address = headerValue(email);
   const name = headerValue(displayName || "");
@@ -102,15 +138,24 @@ function stripHtml(input: string) {
     .trim();
 }
 
+function base64MimeBody(input: string) {
+  return Buffer.from(input, "utf8").toString("base64").match(/.{1,76}/g)?.join("\r\n") ?? "";
+}
+
 function mimeMessage(input: DeliveryMessage) {
   const from = addressHeader(input.from, input.fromName);
   const to = headerValue(input.to);
-  const subject = headerValue(input.subject);
-  const signature = input.provider === "gmail" ? input.providerConfig?.gmailSignature?.trim() : "";
-  if (signature) {
-    const boundary = `insulhub-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const plainBody = appendEmailSignature(input.body, stripHtml(signature)).replace(/\r\n/g, "\n").replace(/\n/g, "\r\n");
-    const htmlBody = `${plainToHtml(input.body).replace(/(<br>)*$/g, "")}<br><br>${signature}`;
+  const subject = encodeMimeHeader(input.subject);
+  const signature = input.provider === "gmail" ? input.providerConfig?.gmailSignature?.trim() ?? "" : "";
+  const trustedHtml = input.trustedHtml;
+  if (trustedHtml !== undefined && trustedHtml[trustedEmailHtmlBrand] !== true) throw new Error("Trusted email HTML is invalid");
+  if (signature || trustedHtml) {
+    let boundary = "";
+    do boundary = `insulhub-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    while (input.body.includes(boundary) || trustedHtml?.html.includes(boundary) || signature.includes(boundary));
+    const plainBody = base64MimeBody(appendEmailSignature(input.body, stripHtml(signature)));
+    const baseHtml = trustedHtml?.html ?? plainToHtml(input.body).replace(/(<br>)*$/g, "");
+    const htmlBody = signature ? `${baseHtml}<br><br>${signature}` : baseHtml;
 
     return [
       `From: ${from}`,
@@ -121,14 +166,14 @@ function mimeMessage(input: DeliveryMessage) {
       "",
       `--${boundary}`,
       "Content-Type: text/plain; charset=UTF-8",
-      "Content-Transfer-Encoding: 8bit",
+      "Content-Transfer-Encoding: base64",
       "",
       plainBody,
       `--${boundary}`,
       "Content-Type: text/html; charset=UTF-8",
-      "Content-Transfer-Encoding: 8bit",
+      "Content-Transfer-Encoding: base64",
       "",
-      htmlBody,
+      base64MimeBody(htmlBody),
       `--${boundary}--`,
       "",
     ].join("\r\n");
@@ -187,11 +232,13 @@ function normalizeBaseUrl(raw: string) {
 async function refreshGmailToken(input: DeliveryMessage) {
   const clientId = process.env.GMAIL_CLIENT_ID?.trim() || process.env.GOOGLE_CLIENT_ID?.trim();
   const clientSecret = process.env.GMAIL_CLIENT_SECRET?.trim() || process.env.GOOGLE_CLIENT_SECRET?.trim();
-  const refreshToken = input.refreshToken || process.env.GMAIL_SEND_REFRESH_TOKEN?.trim();
+  const refreshToken = input.refreshToken || (input.strictGmailConnection ? undefined : process.env.GMAIL_SEND_REFRESH_TOKEN?.trim());
   if (!clientId || !clientSecret || !refreshToken) return null;
 
   const response = await fetch("https://oauth2.googleapis.com/token", {
+    ...(input.signal ? { signal: input.signal } : {}),
     method: "POST",
+    ...(input.strictGmailConnection ? { redirect: "error" as const } : {}),
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       client_id: clientId,
@@ -220,19 +267,33 @@ function tokenIsFresh(value?: string | null) {
 }
 
 async function sendGmail(input: DeliveryMessage): Promise<DeliveryResult> {
-  let token = input.accessToken || process.env.GMAIL_SEND_ACCESS_TOKEN?.trim() || "";
+  let token = input.accessToken || (input.strictGmailConnection ? "" : process.env.GMAIL_SEND_ACCESS_TOKEN?.trim()) || "";
   let refreshed: Awaited<ReturnType<typeof refreshGmailToken>> = null;
   if (!token || !tokenIsFresh(input.tokenExpiresAt)) {
     refreshed = await refreshGmailToken(input);
     if (refreshed) token = refreshed.accessToken;
+    else if (input.strictGmailConnection) throw new Error("Selected Gmail connection could not be refreshed");
   }
   if (!token) throw new Error("Connect Gmail before sending");
 
-  const userId = input.providerConfig?.gmailUserId || process.env.GMAIL_SEND_USER_ID?.trim() || "me";
+  const userId = input.strictGmailConnection ? "me" : input.providerConfig?.gmailUserId || process.env.GMAIL_SEND_USER_ID?.trim() || "me";
+  if (input.strictGmailConnection) {
+    const identity = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs/${encodeURIComponent(input.from.trim().toLowerCase())}`, {
+      headers: { authorization: `Bearer ${token}` }, signal: input.signal, redirect: "error",
+    });
+    const sendAs = await parseResponseBody(identity);
+    if (!identity.ok || typeof sendAs.sendAsEmail !== "string" ||
+        sendAs.sendAsEmail.toLowerCase() !== input.from.trim().toLowerCase() ||
+        !(sendAs.isPrimary === true || sendAs.verificationStatus === "accepted")) {
+      throw new Error("Selected Gmail connection is not authorised for the account sender");
+    }
+  }
   const raw = base64Url(mimeMessage(input));
 
   const response = await fetch(`https://gmail.googleapis.com/gmail/v1/users/${encodeURIComponent(userId)}/messages/send`, {
+    ...(input.signal ? { signal: input.signal } : {}),
     method: "POST",
+    ...(input.strictGmailConnection ? { redirect: "error" as const } : {}),
     headers: {
       "authorization": `Bearer ${token}`,
       "content-type": "application/json",

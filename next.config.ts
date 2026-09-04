@@ -9,6 +9,13 @@ const withPWA = withPWAInit({
 const nextConfig: NextConfig = {
   /* config options here */
   turbopack: {},
+  async headers() {
+    return ["/partner/set-password","/partner/forgot-password"].map(source=>({source,headers:[
+      {key:"Cache-Control",value:"private, no-store"},
+      {key:"Referrer-Policy",value:"no-referrer"},
+      {key:"X-Robots-Tag",value:"noindex, nofollow"},
+    ]}));
+  },
 };
 
 export default withPWA(nextConfig);

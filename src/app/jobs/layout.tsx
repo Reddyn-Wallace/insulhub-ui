@@ -26,7 +26,7 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
   const stage = searchParams.get("stage") || returnToStage || "LEAD";
   const isCalendarView = pathname === "/jobs/calendar";
   const isReportsView = pathname.startsWith("/jobs/reports");
-  const isSettingsView = pathname === "/jobs/settings";
+  const isSettingsView = pathname.startsWith("/jobs/settings");
   const isCampaignsView = pathname.startsWith("/jobs/campaigns");
   const isStageView = !isCalendarView && !isReportsView && !isSettingsView && !isCampaignsView;
   const isPrimaryStage = isStageView && (stage === "LEAD" || stage === "QUOTE");
@@ -242,13 +242,13 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
                   router.push("/jobs/settings");
                 }}
                 className={`w-full text-left px-4 py-2.5 text-sm font-medium transition-colors ${
-                  pathname === "/jobs/settings"
+                  pathname.startsWith("/jobs/settings")
                     ? "bg-orange-50 text-[#e85d04]"
                     : "text-gray-700 hover:bg-gray-50"
                 }`}
               >
                 Settings
-                {pathname === "/jobs/settings" && <span className="float-right text-[#e85d04]">✓</span>}
+                {pathname.startsWith("/jobs/settings") && <span className="float-right text-[#e85d04]">✓</span>}
               </button>
               <div className="my-1 border-t border-gray-100" />
               {OTHER_STAGES.map((s) => (

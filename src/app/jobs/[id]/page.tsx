@@ -9,6 +9,8 @@ import {
   UPDATE_JOB_QUOTE, ARCHIVE_JOB, UPDATE_CLIENT, SEND_EBA, ADD_FILES, REMOVE_FILE,
 } from "@/lib/mutations";
 import BottomSheet from "@/components/BottomSheet";
+import PartnerLinkedJobSync from "@/components/PartnerLinkedJobSync";
+import PartnerLinkedJobPanel from "@/components/PartnerLinkedJobPanel";
 import AddressAutocomplete from "@/components/AddressAutocomplete";
 import InstallPlanningForm, { DateTimeCalendarField, InstallPlanningActions } from "@/components/InstallPlanningForm";
 import { useAppDialog } from "@/components/AppDialog";
@@ -2444,6 +2446,7 @@ export default function JobDetailPage() {
   return (
     <div className="min-h-screen bg-gray-50 pb-10">
       {dialog}
+      <PartnerLinkedJobSync jobId={job._id} version={job.updatedAt} />
       {/* Header */}
       <div className="bg-[#1a3a4a] px-4 pb-4 pt-3">
         <button onClick={handleBack} className="mb-2 text-sm text-slate-300 transition-colors hover:text-white">← Back</button>
@@ -2497,6 +2500,7 @@ export default function JobDetailPage() {
         {error && <div className="bg-red-50 text-red-700 text-sm px-4 py-2 rounded-xl mb-3">{error}</div>}
         {notice && <div className={`text-sm px-4 py-2 rounded-xl mb-3 ${notice.type === "success" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{notice.text}</div>}
         {isArchived && <div className="bg-yellow-50 text-yellow-700 text-sm px-4 py-2 rounded-xl mb-3">⚠️ This job is archived</div>}
+        <PartnerLinkedJobPanel jobId={job._id} version={job.updatedAt} />
 
         {isPostQuoteStage && (
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-1 mb-3 flex gap-1">

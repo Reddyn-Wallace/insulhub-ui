@@ -1,0 +1,7 @@
+.credentials
+.git
+.next
+node_modules
+tmp
+coverage
+docs/design-reference/*.png

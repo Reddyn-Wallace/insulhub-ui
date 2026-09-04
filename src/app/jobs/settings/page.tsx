@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAppDialog } from "@/components/AppDialog";
+import PartnerSettings from "@/components/PartnerSettings";
 
 type ContactTemplate = {
   id: string;
@@ -74,7 +75,8 @@ export default function SettingsPage() {
   const { confirm, dialog } = useAppDialog();
   const [templates, setTemplates] = useState<ContactTemplate[]>([]);
   const [senders, setSenders] = useState<CommunicationSender[]>([]);
-  const [activeSection, setActiveSection] = useState<"templates" | "senders" | "communication-settings">("templates");
+  const [activeSection, setActiveSection] = useState<"templates" | "senders" | "communication-settings" | "partners">("templates");
+  const [sectionReady, setSectionReady] = useState(false);
   const [activeChannel, setActiveChannel] = useState<ContactTemplate["channel"]>("sms");
   const [senderChannel, setSenderChannel] = useState<CommunicationSender["channel"]>("email");
   const [senderLabel, setSenderLabel] = useState("");
@@ -110,6 +112,7 @@ export default function SettingsPage() {
     const requestedSection = params.get("section");
     if (requestedSection === "communications" || requestedSection === "senders") setActiveSection("senders");
     if (requestedSection === "communication-settings") setActiveSection("communication-settings");
+    if (requestedSection === "partners") setActiveSection("partners");
     const requestedChannel = params.get("channel");
     if (requestedChannel === "sms" || requestedChannel === "email" || requestedChannel === "calendar") {
       setActiveChannel(requestedChannel);
@@ -130,6 +133,7 @@ export default function SettingsPage() {
               : "Gmail connected.",
       });
     }
+    setSectionReady(true);
   }, []);
 
   const visibleTemplates = useMemo(
@@ -229,11 +233,11 @@ export default function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    loadTemplates();
-    loadSenders();
-    loadSenderStatus();
-    loadCommunicationSettings();
-  }, [loadCommunicationSettings, loadSenderStatus, loadSenders, loadTemplates]);
+    if (!sectionReady) return;
+    if (activeSection === "templates") void loadTemplates();
+    if (activeSection === "senders") { void loadSenders(); void loadSenderStatus(); }
+    if (activeSection === "communication-settings") void loadCommunicationSettings();
+  }, [sectionReady, activeSection, loadCommunicationSettings, loadSenderStatus, loadSenders, loadTemplates]);
 
   useEffect(() => {
     setSenderProvider(senderChannel === "email" ? "gmail" : "smsgate");
@@ -504,29 +508,30 @@ export default function SettingsPage() {
       <div className="mx-auto max-w-6xl px-4 py-5">
         <div className="mb-5">
           <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-          <p className="mt-1 text-sm text-gray-600">Manage templates, senders, and communication safety limits.</p>
+          <p className="mt-1 text-sm text-gray-600">Manage partners, templates and communications.</p>
         </div>
 
         <div className="grid gap-5 md:grid-cols-[180px_1fr]">
-          <aside className="md:border-r md:border-gray-200 md:pr-4">
+          <aside className="min-w-0 md:border-r md:border-gray-200 md:pr-4">
             <nav className="flex gap-2 overflow-x-auto md:block md:space-y-1 md:overflow-visible">
+              <button type="button" onClick={() => { setActiveSection("partners"); router.replace("/jobs/settings?section=partners"); }} className={`shrink-0 rounded-lg px-4 py-2.5 text-left text-sm font-semibold md:w-full ${activeSection === "partners" ? "bg-[#1a3a4a] text-white" : "bg-white text-gray-700 ring-1 ring-gray-200"}`}>Partners</button>
               <button
                 type="button"
-                onClick={() => setActiveSection("templates")}
+                onClick={() => { setActiveSection("templates"); router.replace("/jobs/settings?section=templates"); }}
                 className={`shrink-0 rounded-lg px-4 py-2.5 text-left text-sm font-semibold md:w-full ${activeSection === "templates" ? "bg-[#1a3a4a] text-white" : "bg-white text-gray-700 ring-1 ring-gray-200"}`}
               >
                 Templates
               </button>
               <button
                 type="button"
-                onClick={() => setActiveSection("senders")}
+                onClick={() => { setActiveSection("senders"); router.replace("/jobs/settings?section=senders"); }}
                 className={`shrink-0 rounded-lg px-4 py-2.5 text-left text-sm font-semibold md:w-full ${activeSection === "senders" ? "bg-[#1a3a4a] text-white" : "bg-white text-gray-700 ring-1 ring-gray-200"}`}
               >
                 Configure Senders
               </button>
               <button
                 type="button"
-                onClick={() => setActiveSection("communication-settings")}
+                onClick={() => { setActiveSection("communication-settings"); router.replace("/jobs/settings?section=communication-settings"); }}
                 className={`shrink-0 rounded-lg px-4 py-2.5 text-left text-sm font-semibold md:w-full ${activeSection === "communication-settings" ? "bg-[#1a3a4a] text-white" : "bg-white text-gray-700 ring-1 ring-gray-200"}`}
               >
                 Communication Settings
@@ -534,7 +539,7 @@ export default function SettingsPage() {
             </nav>
           </aside>
 
-          {activeSection === "templates" ? (
+          {!sectionReady ? <p role="status">Loading settings…</p> : activeSection === "partners" ? <PartnerSettings /> : activeSection === "templates" ? (
           <section className="min-w-0 rounded-lg border border-gray-200 bg-white">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 p-3">
               <div className="grid flex-1 grid-cols-3 gap-2 sm:max-w-md">

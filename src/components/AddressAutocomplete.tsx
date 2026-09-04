@@ -13,6 +13,11 @@ interface AddressAutocompleteProps {
     onSelectAddress: (details: AddressDetails) => void;
     placeholder?: string;
     className?: string;
+    id?: string;
+    disabled?: boolean;
+    maxLength?: number;
+    "aria-invalid"?: boolean;
+    "aria-describedby"?: string;
 }
 
 interface PhotonFeature {
@@ -36,11 +41,13 @@ export default function AddressAutocomplete({
     onSelectAddress,
     placeholder = "Search for an address...",
     className = "",
+    ...inputProps
 }: AddressAutocompleteProps) {
     const [query, setQuery] = useState(value || "");
     const [results, setResults] = useState<PhotonFeature[]>([]);
     const [isOpen, setIsOpen] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [searchRequested, setSearchRequested] = useState(false);
     const wrapperRef = useRef<HTMLDivElement>(null);
 
     // Sync internal query with external value if it changes externally
@@ -61,22 +68,25 @@ export default function AddressAutocomplete({
 
     // Debounced search
     useEffect(() => {
-        if (!query || query.length < 3) {
+        if (!searchRequested || inputProps.disabled || !query || query.length < 3) {
             setResults([]);
             setIsOpen(false);
+            setLoading(false);
             return;
         }
 
+        const controller = new AbortController();
         const timer = setTimeout(async () => {
             setLoading(true);
             try {
                 // filter for New Zealand to improve accuracy, remove `&lat...&lon...` to make it general, but photon allows location bounds
                 // For now, simple text search. We can append `&lat=-40.9006&lon=174.8860` for NZ bias or `&layer=house` for addresses
                 // Using komoot photon open-source geocoder
-                const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=12&lat=-41.2865&lon=174.7762`);
+                const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=12&lat=-41.2865&lon=174.7762`, { signal: controller.signal });
+                if (!res.ok) throw new Error("Address search unavailable");
                 const data = await res.json();
 
-                if (data && data.features) {
+                if (!controller.signal.aborted && data && data.features) {
                     const looksNz = (f: PhotonFeature) => {
                         const p = f.properties || {};
                         const country = (p.country || "").toLowerCase();
@@ -100,17 +110,19 @@ export default function AddressAutocomplete({
                     setIsOpen(nzPreferred.length > 0);
                 }
             } catch (err) {
-                console.error("Failed to fetch address:", err);
+                if (!controller.signal.aborted) { setResults([]); setIsOpen(false); }
+                void err;
             } finally {
-                setLoading(false);
+                if (!controller.signal.aborted) setLoading(false);
             }
         }, 500); // 500ms debounce
 
-        return () => clearTimeout(timer);
-    }, [query]);
+        return () => { clearTimeout(timer); controller.abort(); };
+    }, [query, searchRequested, inputProps.disabled]);
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const val = e.target.value;
+        setSearchRequested(true);
         setQuery(val);
         onChange(val); // Bubble up exact typing
     };
@@ -134,6 +146,8 @@ export default function AddressAutocomplete({
             postCode: p.postcode || "",
         };
 
+        setSearchRequested(false);
+        setLoading(false);
         setQuery(streetAddress || p.name || "");
         onChange(streetAddress || p.name || "");
         onSelectAddress(details);
@@ -143,7 +157,10 @@ export default function AddressAutocomplete({
     return (
         <div className="relative" ref={wrapperRef}>
             <input
+                {...inputProps}
+                autoComplete="off"
                 type="text"
+                onKeyDown={(event) => { if (event.key === "Escape") setIsOpen(false); }}
                 value={query}
                 onChange={handleInputChange}
                 onFocus={() => {
@@ -170,18 +187,17 @@ export default function AddressAutocomplete({
                         return (
                             <li
                                 key={i}
-                                onClick={() => handleSelect(r)}
                                 className="px-4 py-2 hover:bg-orange-50 cursor-pointer text-sm text-gray-700 border-b last:border-0 border-gray-100"
                             >
-                                {displayName}
-                                {p.country && <span className="text-xs text-gray-400 block">{p.country}</span>}
+                                <button type="button" onClick={() => handleSelect(r)} className="w-full text-left py-1">{displayName}
+                                {p.country && <span className="text-xs text-gray-400 block">{p.country}</span>}</button>
                             </li>
                         );
                     })}
                 </ul>
             )}
             {loading && (
-                <div className="absolute right-3 top-2.5">
+                <div role="status" aria-label="Searching addresses" className="absolute right-3 top-2.5">
                     <svg className="animate-spin h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>

@@ -6,6 +6,7 @@ import { PDFDocument, rgb } from "pdf-lib";
 import { gql } from "@/lib/graphql";
 import { AppDialog } from "@/components/AppDialog";
 import type { SitePlanDrawing, SitePlanDrawingDocument } from "@/lib/site-plan-drawings";
+import { clampSitePlanPoint as clampPoint, sitePlanDistance as distance, snapSitePlanEndpoint as snapToExistingEndpoints, snapSitePlanOrtho as snapOrtho } from "@/lib/site-plan-editor-geometry";
 
 type WallStyle = "solid" | "dotted";
 type WallColor = "slate" | "teal" | "blue" | "amber" | "red";
@@ -86,7 +87,6 @@ const GRID = {
 const CELLS_X = 18;
 const CELLS_Y = 17;
 const SNAP_STEP = 0.1;
-const ENDPOINT_SNAP_RADIUS = 0.32;
 const ORTHO_SNAP_THRESHOLD = 0.14;         // softened from ~15° back toward ~8°
 const ENDPOINT_DRAG_SNAP_RADIUS = 0.20;
 const ENDPOINT_DRAG_ORTHO_THRESHOLD = 0.035;  // ~2°
@@ -109,36 +109,11 @@ const TEXT_NOTE_MIN_FONT_SIZE = 0.32;
 const TEXT_NOTE_MAX_FONT_SIZE = 0.82;
 
 function snap(v: number) { return Math.round(v / SNAP_STEP) * SNAP_STEP; }
-function distance(a: Point, b: Point) { return Math.hypot(a.x - b.x, a.y - b.y); }
 function makeId() { return Math.random().toString(36).slice(2, 10); }
 function toWinAnsiSafe(text: string): string {
   return (text || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
-function clampPoint(p: Point): Point {
-  return { x: Math.max(0, Math.min(CELLS_X, p.x)), y: Math.max(0, Math.min(CELLS_Y, p.y)) };
-}
 function snapPoint(p: Point): Point { return { x: snap(p.x), y: snap(p.y) }; }
-function snapToExistingEndpoints(point: Point, walls: Wall[], excludeWallId?: string, radius: number = ENDPOINT_SNAP_RADIUS): Point {
-  let best: Point | null = null;
-  let bestD = Number.POSITIVE_INFINITY;
-  for (const w of walls) {
-    if (excludeWallId && w.id === excludeWallId) continue;
-    for (const pt of [w.start, w.end]) {
-      const d = distance(point, pt);
-      if (d < bestD) { bestD = d; best = pt; }
-    }
-  }
-  if (best && bestD <= radius) return { ...best };
-  return point;
-}
-function snapOrtho(start: Point, end: Point, threshold: number = ORTHO_SNAP_THRESHOLD): Point {
-  const dx = end.x - start.x;
-  const dy = end.y - start.y;
-  if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) return end;
-  if (Math.abs(dy) <= Math.abs(dx) * threshold) return { x: end.x, y: start.y };
-  if (Math.abs(dx) <= Math.abs(dy) * threshold) return { x: start.x, y: end.y };
-  return end;
-}
 function orthoKind(start: Point, end: Point, threshold: number = ORTHO_SNAP_THRESHOLD): "horizontal" | "vertical" | null {
   const dx = end.x - start.x;
   const dy = end.y - start.y;

@@ -14,7 +14,7 @@ export function tokenFromRequest(request: NextRequest) {
 
 export async function requireInsulhubAuth(request: NextRequest) {
   const token = tokenFromRequest(request);
-  if (!token) {
+  if (!token || token.length > 8192 || /[\r\n]/.test(token)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -38,6 +38,8 @@ export async function requireInsulhubAuth(request: NextRequest) {
           query: "query OverlayAuthCheck { users { results { _id } } }",
         }),
         cache: "no-store",
+        redirect: "error",
+        signal: AbortSignal.timeout(8000),
       });
 
       if (!response.ok) {
@@ -45,11 +47,12 @@ export async function requireInsulhubAuth(request: NextRequest) {
       }
 
       const json = await response.json();
-      if (json.errors?.length) {
+      if (json.errors?.length || !Array.isArray(json.data?.users?.results) || !json.data.users.results.every((user: unknown) => user && typeof user === "object" && typeof (user as { _id?: unknown })._id === "string" && Boolean((user as { _id: string })._id))) {
         authOkCache.delete(token);
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
       }
 
+      if (authOkCache.size >= 1000) authOkCache.clear();
       authOkCache.set(token, Date.now());
       return null;
     } catch {

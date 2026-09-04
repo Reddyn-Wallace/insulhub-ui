@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 type DialogTone = "default" | "danger" | "warning";
 type DialogMode = "confirm" | "alert";
@@ -25,6 +25,11 @@ interface DialogOptions {
   tone?: DialogTone;
 }
 
+export const APP_DIALOG_WARNING_CONFIRM_COLORS = {
+  background: "#c04e03",
+  foreground: "#ffffff",
+} as const;
+
 const toneStyles: Record<DialogTone, { icon: string; button: string; ring: string }> = {
   default: {
     icon: "bg-[#1a3a4a]/10 text-[#1a3a4a]",
@@ -38,8 +43,8 @@ const toneStyles: Record<DialogTone, { icon: string; button: string; ring: strin
   },
   warning: {
     icon: "bg-amber-50 text-amber-700",
-    button: "bg-amber-600 text-white hover:bg-amber-700",
-    ring: "focus:ring-amber-500/25",
+    button: "bg-[#c04e03] text-white hover:bg-[#963d02]",
+    ring: "focus:ring-[#c04e03] focus:ring-offset-2",
   },
 };
 
@@ -55,17 +60,31 @@ export function AppDialog({
   onCancel,
 }: AppDialogProps) {
   const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
+  const cancelButtonRef = useRef<HTMLButtonElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
+  const titleId = useId();
+  const descriptionId = useId();
   const styles = toneStyles[tone];
 
   useEffect(() => {
     if (!open) return;
+    restoreFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    const focusTimer = window.setTimeout(() => confirmButtonRef.current?.focus(), 0);
+    const focusTimer = window.setTimeout(() => (mode === "confirm" ? cancelButtonRef.current : confirmButtonRef.current)?.focus(), 0);
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
         onCancel?.();
+        return;
+      }
+      if (event.key === "Tab") {
+        const focusable = dialogRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
+        if (!focusable?.length) return;
+        const first = focusable[0]; const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
       }
     };
 
@@ -74,8 +93,10 @@ export function AppDialog({
       window.clearTimeout(focusTimer);
       window.removeEventListener("keydown", onKeyDown);
       document.body.style.overflow = previousOverflow;
+      restoreFocusRef.current?.focus();
+      restoreFocusRef.current = null;
     };
-  }, [onCancel, open]);
+  }, [mode, onCancel, open]);
 
   if (!open) return null;
 
@@ -88,10 +109,11 @@ export function AppDialog({
         onClick={onCancel}
       />
       <div
+        ref={dialogRef}
         role={mode === "alert" ? "alertdialog" : "dialog"}
         aria-modal="true"
-        aria-labelledby="app-dialog-title"
-        aria-describedby={description ? "app-dialog-description" : undefined}
+        aria-labelledby={titleId}
+        aria-describedby={description ? descriptionId : undefined}
         className="relative w-full max-w-[440px] overflow-hidden rounded-2xl border border-white/80 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.24)]"
       >
         <div className="p-5 sm:p-6">
@@ -104,11 +126,11 @@ export function AppDialog({
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <h2 id="app-dialog-title" className="text-base font-semibold leading-6 text-gray-950">
+              <h2 id={titleId} className="text-base font-semibold leading-6 text-gray-950">
                 {title}
               </h2>
               {description && (
-                <p id="app-dialog-description" className="mt-2 text-sm leading-6 text-gray-600">
+                <p id={descriptionId} className="mt-2 text-sm leading-6 text-gray-600">
                   {description}
                 </p>
               )}
@@ -118,9 +140,10 @@ export function AppDialog({
         <div className="flex flex-col-reverse gap-2 border-t border-gray-100 bg-gray-50/80 px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
           {mode === "confirm" && (
             <button
+              ref={cancelButtonRef}
               type="button"
               onClick={onCancel}
-              className="h-10 rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-4 focus:ring-gray-200"
+              className="min-h-11 rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-4 focus:ring-gray-200"
             >
               {cancelLabel}
             </button>
@@ -129,7 +152,7 @@ export function AppDialog({
             ref={confirmButtonRef}
             type="button"
             onClick={onConfirm}
-            className={`h-10 rounded-xl px-4 text-sm font-semibold shadow-sm focus:outline-none focus:ring-4 ${styles.button} ${styles.ring}`}
+            className={`min-h-11 rounded-xl px-4 text-sm font-semibold shadow-sm focus:outline-none focus:ring-4 ${styles.button} ${styles.ring}`}
           >
             {confirmLabel}
           </button>

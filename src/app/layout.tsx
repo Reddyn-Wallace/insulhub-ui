@@ -8,8 +8,6 @@ export const viewport: Viewport = {
   themeColor: "#f9fafb", // Match bg-gray-50
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false, // Prevents zooming on inputs for mobile native feel
   viewportFit: "cover",
 };
 

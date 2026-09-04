@@ -1,0 +1,1534 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { SitePlanDrawingDocument } from "@/lib/site-plan-drawings";
+import { clampSitePlanPoint as clampPoint, sitePlanDistance as distance, snapSitePlanEndpoint as snapToExistingEndpoints, snapSitePlanOrtho as snapOrtho } from "@/lib/site-plan-editor-geometry";
+
+type WallStyle = "solid" | "dotted";
+type WallColor = "slate" | "teal" | "blue" | "amber" | "red";
+type Point = { x: number; y: number };
+type Wall = { id: string; start: Point; end: Point; style: WallStyle; color?: WallColor; lengthOverride?: number | null };
+type WallSnapshot = { id: string; start: Point; end: Point };
+type TextNote = { id: string; text: string; x: number; y: number; fontSize: number; boxWidth?: number; boxHeight?: number };
+type TextMode = "idle" | "placing";
+type SnapGuide = { kind: "horizontal" | "vertical" | "endpoint"; point?: Point; lineValue?: number } | null;
+
+const WALL_COLOR_OPTIONS: Array<{ key: WallColor; label: string; stroke: string }> = [
+  { key: "slate", label: "Slate", stroke: "#1e293b" },
+  { key: "teal", label: "Teal", stroke: "#0f766e" },
+  { key: "blue", label: "Blue", stroke: "#2563eb" },
+  { key: "amber", label: "Amber", stroke: "#d97706" },
+  { key: "red", label: "Red", stroke: "#dc2626" },
+];
+const WALL_COLOR_STROKES: Record<WallColor, string> = Object.fromEntries(WALL_COLOR_OPTIONS.map((o) => [o.key, o.stroke])) as Record<WallColor, string>;
+const DEFAULT_WALL_COLOR: WallColor = "slate";
+const CELLS_X = 18;
+const CELLS_Y = 17;
+const SNAP_STEP = 0.1;
+const ORTHO_SNAP_THRESHOLD = 0.14;         // softened from ~15° back toward ~8°
+const ENDPOINT_DRAG_SNAP_RADIUS = 0.20;
+const ENDPOINT_DRAG_ORTHO_THRESHOLD = 0.035;  // ~2°
+const WALL_DRAG_ENDPOINT_SNAP_RADIUS = 0.3;
+const DRAG_DEAD_ZONE = 0.18;
+const ROTATE_SOFT_SNAP_DEG = 2.5;
+const ROTATE_RELEASE_SNAP_DEG = 3.0;
+const TEXT_NOTE_MIN_WIDTH = 0.8;
+const TEXT_NOTE_MAX_WIDTH = 10.5;
+const TEXT_NOTE_DEFAULT_WIDTH = 0.8;
+const TEXT_NOTE_GROW_BUFFER = 0.18;
+const TEXT_NOTE_FONT_FAMILY = 'Arial, Helvetica, sans-serif';
+const TEXT_NOTE_HEIGHT = 0.8;
+const TEXT_NOTE_LINE_HEIGHT = 1.2;
+const TEXT_NOTE_PADDING_X = 0.18;
+const TEXT_NOTE_PADDING_Y = 0.14;
+const TEXT_NOTE_HIT_PAD = 0.22;
+const TEXT_NOTE_DEFAULT_FONT_SIZE = 0.82;
+
+function snap(v: number) { return Math.round(v / SNAP_STEP) * SNAP_STEP; }
+function makeId() { return Math.random().toString(36).slice(2, 10); }
+function snapPoint(p: Point): Point { return { x: snap(p.x), y: snap(p.y) }; }
+function orthoKind(start: Point, end: Point, threshold: number = ORTHO_SNAP_THRESHOLD): "horizontal" | "vertical" | null {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) return null;
+  if (Math.abs(dy) <= Math.abs(dx) * threshold) return "horizontal";
+  if (Math.abs(dx) <= Math.abs(dy) * threshold) return "vertical";
+  return null;
+}
+function getTextNoteLines(text: string): string[] {
+  return (text || "").split("\n");
+}
+function clampTextNoteWidth(width?: number) {
+  return Math.max(TEXT_NOTE_MIN_WIDTH, Math.min(TEXT_NOTE_MAX_WIDTH, width ?? TEXT_NOTE_DEFAULT_WIDTH));
+}
+function getTextNoteMinHeight(fontSize: number) {
+  return Math.max(TEXT_NOTE_HEIGHT, fontSize * TEXT_NOTE_LINE_HEIGHT + TEXT_NOTE_PADDING_Y * 2);
+}
+function getTextNoteHeight(note: TextNote) {
+  return Math.max(getTextNoteMinHeight(note.fontSize), note.boxHeight ?? getTextNoteMinHeight(note.fontSize));
+}
+function getTextNoteLayout(note: TextNote, liveText: string) {
+  const text = liveText || "";
+  const lines = getTextNoteLines(text);
+  const width = clampTextNoteWidth(note.boxWidth);
+  const height = getTextNoteHeight(note);
+  const x = note.x - width / 2;
+  const y = note.y - height * 0.72;
+  return {
+    text,
+    lines,
+    width,
+    height,
+    x,
+    y,
+    textX: x + TEXT_NOTE_PADDING_X,
+    textY: y + TEXT_NOTE_PADDING_Y + note.fontSize,
+  };
+}
+function getTextNoteBox(note: TextNote, liveText: string) {
+  const layout = getTextNoteLayout(note, liveText);
+  return { width: layout.width, height: layout.height, x: layout.x, y: layout.y };
+}
+function measureCanvasTextWidth(text: string, fontSizePx: number): number {
+  if (typeof document === "undefined") return text.length * fontSizePx * 0.56;
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return text.length * fontSizePx * 0.56;
+  ctx.font = `${fontSizePx}px ${TEXT_NOTE_FONT_FAMILY}`;
+  return ctx.measureText(text || " ").width;
+}
+
+const JUNCTION_EPSILON = 0.012;
+function findLinkedEndpoints(pt: Point, excludeWallId: string, walls: Wall[]): { wallId: string; end: "start" | "end" }[] {
+  const results: { wallId: string; end: "start" | "end" }[] = [];
+  for (const w of walls) {
+    if (w.id === excludeWallId) continue;
+    if (distance(w.start, pt) < JUNCTION_EPSILON) results.push({ wallId: w.id, end: "start" });
+    if (distance(w.end, pt) < JUNCTION_EPSILON) results.push({ wallId: w.id, end: "end" });
+  }
+  return results;
+}
+
+/** Original InsulHub drawing interactions, with persistence supplied by the host. */
+export default function InsulHubDrawingCanvas({ value, onChange, disabled = false, label = "Floor plan drawing" }: {
+  value: SitePlanDrawingDocument;
+  onChange: (document: SitePlanDrawingDocument) => void;
+  disabled?: boolean;
+  label?: string;
+}) {
+  const [walls, setWalls] = useState<Wall[]>(value.walls);
+  const [textNotes, setTextNotes] = useState<TextNote[]>(value.textNotes);
+  const [history, setHistory] = useState<{ walls: Wall[]; textNotes: TextNote[] }[]>([]);
+  const [selectedWallId, setSelectedWallId] = useState<string | null>(null);
+  const [selectedWallIds, setSelectedWallIds] = useState<string[]>([]);
+  const [mode, setMode] = useState<"trace" | "single" | "select">("trace");
+  const [showDimensions, setShowDimensions] = useState(value.showDimensions);
+  const [wallColorPaletteOpen, setWallColorPaletteOpen] = useState(false);
+
+  const [drawStart, setDrawStart] = useState<Point | null>(null);
+  const [hoverPoint, setHoverPoint] = useState<Point | null>(null);
+  const [draggingWallId, setDraggingWallId] = useState<string | null>(null);
+  const [draggingTextId, setDraggingTextId] = useState<string | null>(null);
+  const [editingTextId, setEditingTextId] = useState<string | null>(null);
+  const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
+  const [textEditValue, setTextEditValue] = useState("");
+  const [textMode, setTextMode] = useState<TextMode>("idle");
+  const [draggingGroup, setDraggingGroup] = useState(false);
+  const textInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const [selectionStart, setSelectionStart] = useState<Point | null>(null);
+  const [selectionCurrent, setSelectionCurrent] = useState<Point | null>(null);
+  const [draggingEndpoint, setDraggingEndpoint] = useState<{ wallId: string; end: "start" | "end" } | null>(null);
+  const [dragStartPoint, setDragStartPoint] = useState<Point | null>(null);
+  const [dragSnapshot, setDragSnapshot] = useState<WallSnapshot[]>([]);
+  const [rotating, setRotating] = useState(false);
+  const [rotateOrigin, setRotateOrigin] = useState<Point | null>(null);
+  const [rotateStartAngle, setRotateStartAngle] = useState(0);
+  const [rotateSnapshot, setRotateSnapshot] = useState<WallSnapshot[]>([]);
+  const [rotateDeltaDeg, setRotateDeltaDeg] = useState(0);
+  const [activePointerType, setActivePointerType] = useState<"mouse" | "touch" | "pen">("mouse");
+  const [snapGuide, setSnapGuide] = useState<SnapGuide>(null);
+  const [, setLengthEditValue] = useState("");
+  const drawStartRef = useRef<Point | null>(null);
+  const modeRef = useRef<"trace" | "single" | "select">("trace");
+  const wallsRef = useRef<Wall[]>([]);
+
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const canvasAreaRef = useRef<HTMLDivElement>(null);
+  const [canvasBaseDims, setCanvasDims] = useState<{ w: number; h: number } | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [panning, setPanning] = useState(false);
+  const panStart = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
+  const canvasDims = useMemo(() => canvasBaseDims ? { w: canvasBaseDims.w * zoom, h: canvasBaseDims.h * zoom } : null, [canvasBaseDims, zoom]);
+  const dragActivatedRef = useRef(false);
+  const textDragOffsetRef = useRef<Point | null>(null);
+  const capturedPointerIdRef = useRef<number | null>(null);
+  const isEditingLengthRef = useRef(false);
+  const linkedEndpointsRef = useRef<{ wallId: string; end: "start" | "end" }[]>([]);
+  const dragAnchorRef = useRef<Point | null>(null);
+  const wallDragLinkedSnapshotRef = useRef<{ wallId: string; end: "start" | "end"; originalPos: Point }[]>([]);
+  const pendingDrawPlacementRef = useRef<{ pointerId: number; origin: Point; latest: Point } | null>(null);
+
+  useEffect(() => {
+    const el = canvasAreaRef.current;
+    if (!el) return;
+    const obs = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      const pad = 16; // p-2 = 8px each side
+      const aw = Math.max(0, width - pad);
+      const ah = Math.max(0, height - pad);
+      if (!aw || !ah) return;
+      const ratio = CELLS_X / CELLS_Y;
+      if (aw / ah > ratio) {
+        setCanvasDims({ w: Math.round(ah * ratio), h: Math.round(ah) });
+      } else {
+        setCanvasDims({ w: Math.round(aw), h: Math.round(aw / ratio) });
+      }
+    });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
+  const drawingDocument = useMemo<SitePlanDrawingDocument>(() => ({
+    schemaVersion: 1,
+    templateVersion: "site-plan-template-v2",
+    walls,
+    textNotes,
+    showDimensions,
+  }), [showDimensions, textNotes, walls]);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const lastDocument = useRef(JSON.stringify(value));
+  const pendingExternal = useRef<string | null>(null);
+  useEffect(() => {
+    const serialized = JSON.stringify(value);
+    if (serialized === lastDocument.current) return;
+    lastDocument.current = serialized;
+    pendingExternal.current = serialized;
+    setWalls(value.walls); setTextNotes(value.textNotes); setShowDimensions(value.showDimensions);
+    setHistory([]); setSelectedWallId(null); setSelectedWallIds([]);
+  }, [value]);
+  useEffect(() => {
+    const serialized = JSON.stringify(drawingDocument);
+    if (pendingExternal.current !== null) {
+      if (serialized !== pendingExternal.current) return;
+      pendingExternal.current = null;
+    }
+    if (disabled || serialized === lastDocument.current) return;
+    lastDocument.current = serialized;
+    onChangeRef.current(drawingDocument);
+  }, [drawingDocument, disabled]);
+
+  const selectedWall = useMemo(() => walls.find((w) => w.id === selectedWallId) || null, [walls, selectedWallId]);
+  const selectedWallLength = useMemo(() => {
+    if (!selectedWall) return null;
+    return wallLengthMeters(selectedWall);
+  }, [selectedWall]);
+  useEffect(() => {
+    drawStartRef.current = drawStart;
+  }, [drawStart]);
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
+  useEffect(() => {
+    wallsRef.current = walls;
+  }, [walls]);
+  useEffect(() => {
+    if (selectedWallLength === null) { setLengthEditValue(""); return; }
+    if (isEditingLengthRef.current) return;
+    setLengthEditValue(selectedWallLength.toFixed(1));
+  }, [selectedWallLength, selectedWallId]);
+
+  const activeSelectionIds = useMemo(
+    () => (selectedWallIds.length ? selectedWallIds : (selectedWallId ? [selectedWallId] : [])),
+    [selectedWallIds, selectedWallId]
+  );
+  const selectedWallColor = useMemo(() => {
+    const ids = activeSelectionIds;
+    if (!ids.length) return DEFAULT_WALL_COLOR;
+    const colors = ids.map((id) => walls.find((w) => w.id === id)?.color ?? DEFAULT_WALL_COLOR);
+    return colors.every((c) => c === colors[0]) ? colors[0] : DEFAULT_WALL_COLOR;
+  }, [activeSelectionIds, walls]);
+  const selectionBounds = useMemo(() => {
+    if (!activeSelectionIds.length) return null;
+    const sel = walls.filter((w) => activeSelectionIds.includes(w.id));
+    if (!sel.length) return null;
+    const pts = sel.flatMap((w) => [w.start, w.end]);
+    return {
+      minX: Math.min(...pts.map((p) => p.x)),
+      maxX: Math.max(...pts.map((p) => p.x)),
+      minY: Math.min(...pts.map((p) => p.y)),
+      maxY: Math.max(...pts.map((p) => p.y)),
+      cx: pts.reduce((a, p) => a + p.x, 0) / pts.length,
+      cy: pts.reduce((a, p) => a + p.y, 0) / pts.length,
+    };
+  }, [walls, activeSelectionIds]);
+
+  const junctionPoints = useMemo(() => {
+    const seen = new Set<string>();
+    const points: Point[] = [];
+    for (const w of walls) {
+      for (const pt of [w.start, w.end]) {
+        if (findLinkedEndpoints(pt, w.id, walls).length > 0) {
+          const key = `${pt.x.toFixed(3)},${pt.y.toFixed(3)}`;
+          if (!seen.has(key)) { seen.add(key); points.push(pt); }
+        }
+      }
+    }
+    return points;
+  }, [walls]);
+  const editingTextNote = useMemo(
+    () => (editingTextId ? textNotes.find((n) => n.id === editingTextId) ?? null : null),
+    [editingTextId, textNotes]
+  );
+
+  useEffect(() => {
+    if (editingTextId) {
+      requestAnimationFrame(() => {
+        textInputRef.current?.focus();
+        textInputRef.current?.select();
+      });
+    }
+  }, [editingTextId]);
+
+  const syncEditingTextBoxFromDom = useCallback(() => {
+    if (!editingTextNote || !canvasDims) return;
+    const textarea = textInputRef.current;
+    if (!textarea) return;
+    const toUnitsX = (px: number) => (px / canvasDims.w) * CELLS_X;
+    const pxX = (units: number) => (units / CELLS_X) * canvasDims.w;
+    const pxY = (units: number) => (units / CELLS_Y) * canvasDims.h;
+
+    const lines = getTextNoteLines(textarea.value);
+    const fontSizePx = pxY(editingTextNote.fontSize);
+    const measuredContentWidthPx = Math.max(...lines.map((line) => measureCanvasTextWidth(line, fontSizePx)));
+    const desiredWidthPx = measuredContentWidthPx + pxX(TEXT_NOTE_PADDING_X * 2 + TEXT_NOTE_GROW_BUFFER);
+    const minWidthUnits = textarea.value.trim() ? TEXT_NOTE_MIN_WIDTH : TEXT_NOTE_DEFAULT_WIDTH;
+    const nextWidthUnits = Number(Math.max(minWidthUnits, Math.min(TEXT_NOTE_MAX_WIDTH, toUnitsX(desiredWidthPx))).toFixed(3));
+    const lineCount = Math.max(1, lines.length);
+    const desiredHeightUnits = editingTextNote.fontSize * TEXT_NOTE_LINE_HEIGHT * lineCount + TEXT_NOTE_PADDING_Y * 2;
+    const nextHeightUnits = Number(Math.max(getTextNoteMinHeight(editingTextNote.fontSize), desiredHeightUnits).toFixed(3));
+    const currentWidthUnits = clampTextNoteWidth(editingTextNote.boxWidth);
+    const currentHeightUnits = getTextNoteHeight(editingTextNote);
+
+    if (Math.abs(nextWidthUnits - currentWidthUnits) < 0.001 && Math.abs(nextHeightUnits - currentHeightUnits) < 0.001) return;
+    setTextNotes((current) => current.map((note) => note.id === editingTextNote.id ? { ...note, boxWidth: nextWidthUnits, boxHeight: nextHeightUnits } : note));
+  }, [editingTextNote, canvasDims]);
+
+  useEffect(() => {
+    if (!editingTextId || !canvasDims) return;
+    const raf = requestAnimationFrame(() => syncEditingTextBoxFromDom());
+    return () => cancelAnimationFrame(raf);
+  }, [editingTextId, canvasDims, syncEditingTextBoxFromDom]);
+
+  const toGridPointRaw = useCallback((clientX: number, clientY: number): Point | null => {
+    const svg = svgRef.current;
+    if (!svg) return null;
+    const rect = svg.getBoundingClientRect();
+    const x = ((clientX - rect.left) / rect.width) * CELLS_X;
+    const y = ((clientY - rect.top) / rect.height) * CELLS_Y;
+    return clampPoint({ x, y });
+  }, []);
+
+  const toGridPointSnapped = useCallback((clientX: number, clientY: number): Point | null => {
+    const p = toGridPointRaw(clientX, clientY);
+    return p ? snapPoint(p) : null;
+  }, [toGridPointRaw]);
+
+  function findWallNear(p: Point): Wall | null {
+    let best: Wall | null = null;
+    let bestDist = 999;
+    for (const w of walls) {
+      const ax = w.start.x, ay = w.start.y, bx = w.end.x, by = w.end.y;
+      const l2 = (bx - ax) ** 2 + (by - ay) ** 2;
+      if (!l2) continue;
+      const t = Math.max(0, Math.min(1, ((p.x - ax) * (bx - ax) + (p.y - ay) * (by - ay)) / l2));
+      const proj = { x: ax + t * (bx - ax), y: ay + t * (by - ay) };
+      const d = distance(p, proj);
+      if (d < bestDist) { bestDist = d; best = w; }
+    }
+    return bestDist <= 0.6 ? best : null;
+  }
+
+  function findEndpointNearSelected(p: Point): { wallId: string; end: "start" | "end" } | null {
+    if (!selectedWallId) return null;
+    const w = walls.find((x) => x.id === selectedWallId);
+    if (!w) return null;
+    const ds = distance(p, w.start);
+    const de = distance(p, w.end);
+    if (Math.min(ds, de) > 0.5) return null;
+    return ds <= de ? { wallId: w.id, end: "start" } : { wallId: w.id, end: "end" };
+  }
+
+  function findRotateHandleNear(p: Point): boolean {
+    if (!selectionBounds) return false;
+    const hx = selectionBounds.cx;
+    const hy = selectionBounds.minY - 0.9;
+    const hitRadius = activePointerType === "touch" ? 0.85 : activePointerType === "pen" ? 0.65 : 0.45;
+    return distance(p, { x: hx, y: hy }) <= hitRadius;
+  }
+
+  function pushHistory() {
+    setHistory(prev => [...prev.slice(-50), { walls, textNotes }]);
+  }
+
+  function undo() {
+    if (!history.length) return;
+    const previous = history[history.length - 1];
+    setWalls(previous.walls);
+    setTextNotes(previous.textNotes);
+    setHistory(prev => prev.slice(0, -1));
+    setSelectedWallId(null);
+    setSelectedWallIds([]);
+    setEditingTextId(null);
+    setDrawStart(null);
+    setHoverPoint(null);
+  }
+
+  function closeShape() {
+    if (!drawStart || walls.length < 3) return;
+    const first = walls[0].start;
+    pushHistory();
+    if (distance(drawStart, first) >= 0.25) {
+      setWalls(prev => [...prev, { id: makeId(), start: drawStart, end: first, style: "solid" }]);
+    }
+    setDrawStart(null);
+    setHoverPoint(null);
+    setMode("select");
+  }
+
+  function addTextNote() {
+    setTextMode("placing");
+    setMode("select");
+    setEditingTextId(null);
+    setSelectedTextId(null);
+    setTextEditValue("");
+  }
+
+  function selectTextNote(noteId: string | null) {
+    setSelectedTextId(noteId);
+    if (noteId === null) {
+      setEditingTextId(null);
+      setTextEditValue("");
+    }
+  }
+
+  function startEditingTextNote(note: TextNote) {
+    setTextMode("idle");
+    setSelectedTextId(note.id);
+    setEditingTextId(note.id);
+    setTextEditValue(note.text);
+    if (note.boxWidth == null || note.boxHeight == null) {
+      updateTextNote(note.id, {
+        boxWidth: clampTextNoteWidth(note.boxWidth),
+        boxHeight: getTextNoteHeight(note),
+      });
+    }
+  }
+
+  function placeTextNote(at: Point) {
+    const note: TextNote = {
+      id: makeId(),
+      text: "",
+      x: at.x,
+      y: at.y,
+      fontSize: TEXT_NOTE_DEFAULT_FONT_SIZE,
+      boxWidth: TEXT_NOTE_DEFAULT_WIDTH,
+      boxHeight: getTextNoteMinHeight(TEXT_NOTE_DEFAULT_FONT_SIZE),
+    };
+    pushHistory();
+    setTextNotes((prev) => [...prev, note]);
+    setTextMode("idle");
+    setSelectedTextId(note.id);
+    setEditingTextId(note.id);
+    setTextEditValue("");
+  }
+
+  function updateTextNote(id: string, patch: Partial<TextNote>) {
+    setTextNotes((prev) => prev.map((n) => n.id === id ? { ...n, ...patch } : n));
+  }
+
+  function deleteTextNote(id: string) {
+    pushHistory();
+    setTextNotes((prev) => prev.filter((n) => n.id !== id));
+    if (editingTextId === id) setEditingTextId(null);
+    if (selectedTextId === id) setSelectedTextId(null);
+  }
+
+  function findTextHit(p: Point): TextNote | null {
+    for (let i = textNotes.length - 1; i >= 0; i -= 1) {
+      const note = textNotes[i];
+      const liveText = editingTextId === note.id ? textEditValue : note.text;
+      const box = getTextNoteBox(note, liveText);
+      const inX = p.x >= box.x - TEXT_NOTE_HIT_PAD && p.x <= box.x + box.width + TEXT_NOTE_HIT_PAD;
+      const inY = p.y >= box.y - TEXT_NOTE_HIT_PAD && p.y <= box.y + box.height + TEXT_NOTE_HIT_PAD;
+      if (inX && inY) return note;
+    }
+    return null;
+  }
+
+  function resolveDrawEndpoint(start: Point, rawPoint: Point) {
+    let endPoint = snapToExistingEndpoints(snapOrtho(start, rawPoint), walls);
+    if (mode === "trace" && walls.length >= 2) {
+      const first = walls[0]?.start;
+      if (first && distance(rawPoint, first) <= 0.6) endPoint = first;
+    }
+    return endPoint;
+  }
+
+  function commitDrawSegment(endPoint: Point) {
+    if (!drawStart) return;
+
+    if (distance(drawStart, endPoint) >= 0.25) {
+      pushHistory();
+      setWalls((prev) => [...prev, { id: makeId(), start: drawStart, end: endPoint, style: "solid", color: DEFAULT_WALL_COLOR }]);
+    }
+
+    if (mode === "single") {
+      setDrawStart(null);
+      setHoverPoint(null);
+      setMode("select");
+      return;
+    }
+
+    const first = walls[0]?.start;
+    if (first && distance(endPoint, first) <= 0.0001 && walls.length >= 2) {
+      setDrawStart(null);
+      setHoverPoint(null);
+      setMode("select");
+      return;
+    }
+
+    setDrawStart(endPoint);
+    setHoverPoint(endPoint);
+  }
+
+  function pointerDown(e: React.PointerEvent<SVGSVGElement>) {
+    if (disabled) return;
+    const pt = (e.pointerType === "touch" || e.pointerType === "pen") ? e.pointerType : "mouse";
+    setActivePointerType(pt);
+    const p = (mode === "trace" || mode === "single")
+      ? toGridPointSnapped(e.clientX, e.clientY)
+      : toGridPointRaw(e.clientX, e.clientY);
+    if (!p) return;
+    setSnapGuide(null);
+
+    if (mode === "trace" || mode === "single") {
+      if (!drawStart) {
+        const snappedStart = { x: Math.round(p.x), y: Math.round(p.y) };
+        setDrawStart(snappedStart);
+        setHoverPoint(snappedStart);
+        return;
+      }
+
+      if (pt === "pen" || pt === "touch") {
+        pendingDrawPlacementRef.current = { pointerId: e.pointerId, origin: p, latest: p };
+        setHoverPoint(resolveDrawEndpoint(drawStart, p));
+        svgRef.current?.setPointerCapture(e.pointerId);
+        capturedPointerIdRef.current = e.pointerId;
+        return;
+      }
+
+      commitDrawSegment(resolveDrawEndpoint(drawStart, p));
+      return;
+    }
+
+    if (textMode === "placing") {
+      placeTextNote(snapPoint(p));
+      return;
+    }
+
+    const textHit = findTextHit(p);
+    if (textHit) {
+      setSelectedWallId(null);
+      setSelectedWallIds([]);
+      setTextMode("idle");
+      if (editingTextId === textHit.id) return;
+      if (selectedTextId === textHit.id) {
+        pushHistory();
+        setDraggingTextId(textHit.id);
+        setDragStartPoint(p);
+        textDragOffsetRef.current = { x: p.x - textHit.x, y: p.y - textHit.y };
+        dragActivatedRef.current = false;
+        svgRef.current?.setPointerCapture(e.pointerId);
+        capturedPointerIdRef.current = e.pointerId;
+        return;
+      }
+      selectTextNote(textHit.id);
+      return;
+    }
+
+    if (editingTextId) {
+      setEditingTextId(null);
+    }
+    setSelectedTextId(null);
+
+    if (activeSelectionIds.length > 0 && findRotateHandleNear(p) && selectionBounds) {
+      pushHistory();
+      const snap = walls
+        .filter((w) => activeSelectionIds.includes(w.id))
+        .map((w) => ({ id: w.id, start: { ...w.start }, end: { ...w.end } }));
+      setRotating(true);
+      setRotateOrigin({ x: selectionBounds.cx, y: selectionBounds.cy });
+      setRotateStartAngle(Math.atan2(p.y - selectionBounds.cy, p.x - selectionBounds.cx));
+      setRotateSnapshot(snap);
+      setRotateDeltaDeg(0);
+      svgRef.current?.setPointerCapture(e.pointerId);
+      capturedPointerIdRef.current = e.pointerId;
+      return;
+    }
+
+    const endpoint = findEndpointNearSelected(p);
+    if (endpoint) {
+      pushHistory();
+      setSelectedWallId(endpoint.wallId);
+      setDraggingEndpoint(endpoint);
+      dragActivatedRef.current = true;
+      const ew = walls.find(x => x.id === endpoint.wallId);
+      if (ew) {
+        const origPt = endpoint.end === "start" ? ew.start : ew.end;
+        linkedEndpointsRef.current = findLinkedEndpoints(origPt, endpoint.wallId, walls);
+        dragAnchorRef.current = endpoint.end === "start" ? { ...ew.end } : { ...ew.start };
+      }
+      svgRef.current?.setPointerCapture(e.pointerId);
+      capturedPointerIdRef.current = e.pointerId;
+      return;
+    }
+
+    const hit = findWallNear(p);
+    if (hit) {
+      const alreadySelected = activeSelectionIds.includes(hit.id);
+      const moveIds = alreadySelected ? activeSelectionIds : [hit.id];
+      if (!alreadySelected) setSelectedWallIds([hit.id]);
+      setSelectedWallId(hit.id);
+      setEditingTextId(null);
+      setSelectedTextId(null);
+      setDragStartPoint(p);
+      setDragSnapshot(
+        walls
+          .filter((w) => moveIds.includes(w.id))
+          .map((w) => ({ id: w.id, start: { ...w.start }, end: { ...w.end } }))
+      );
+      // Build linked-endpoint snapshot for non-dragged walls connected to dragged walls
+      const moveIdSet = new Set(moveIds);
+      const wdLinked: { wallId: string; end: "start" | "end"; originalPos: Point }[] = [];
+      const seenKey = new Set<string>();
+      for (const mw of walls.filter(w => moveIds.includes(w.id))) {
+        for (const { pt } of [{ pt: mw.start }, { pt: mw.end }]) {
+          for (const neighbor of findLinkedEndpoints(pt, mw.id, walls)) {
+            if (!moveIdSet.has(neighbor.wallId)) {
+              const key = `${neighbor.wallId}:${neighbor.end}`;
+              if (!seenKey.has(key)) {
+                seenKey.add(key);
+                const nw = walls.find(w => w.id === neighbor.wallId);
+                if (nw) {
+                  const origPos = neighbor.end === "start" ? { ...nw.start } : { ...nw.end };
+                  wdLinked.push({ wallId: neighbor.wallId, end: neighbor.end, originalPos: origPos });
+                }
+              }
+            }
+          }
+        }
+      }
+      wallDragLinkedSnapshotRef.current = wdLinked;
+      pushHistory();
+      dragActivatedRef.current = false;
+      svgRef.current?.setPointerCapture(e.pointerId);
+      capturedPointerIdRef.current = e.pointerId;
+      if (moveIds.length > 1) {
+        setDraggingGroup(true);
+      } else {
+        setDraggingWallId(hit.id);
+      }
+      return;
+    }
+
+    setSelectionStart(p);
+    setSelectionCurrent(p);
+    setSelectedWallId(null);
+    setSelectedWallIds([]);
+    setEditingTextId(null);
+    setSelectedTextId(null);
+  }
+
+  function updateDrawPreview(clientX: number, clientY: number) {
+    const modeNow = modeRef.current;
+    if (modeNow !== "trace" && modeNow !== "single") return;
+    const p = toGridPointSnapped(clientX, clientY);
+    if (!p) return;
+    setSnapGuide(null);
+    const start = drawStartRef.current;
+    const snapped = snapPoint(p);
+
+    if (start) {
+      const kind = orthoKind(start, snapped);
+      const ortho = snapOrtho(start, snapped);
+      const endpointSnapped = snapToExistingEndpoints(ortho, wallsRef.current);
+      setHoverPoint(endpointSnapped);
+      if (endpointSnapped.x !== ortho.x || endpointSnapped.y !== ortho.y) {
+        setSnapGuide({ kind: "endpoint", point: endpointSnapped });
+      } else if (kind === "horizontal") {
+        setSnapGuide({ kind: "horizontal", lineValue: start.y });
+      } else if (kind === "vertical") {
+        setSnapGuide({ kind: "vertical", lineValue: start.x });
+      } else {
+        setSnapGuide(null);
+      }
+    } else {
+      setHoverPoint(snapped);
+      setSnapGuide(null);
+    }
+  }
+
+  function pointerMove(e: React.PointerEvent<SVGSVGElement>) {
+    if (disabled) return;
+    const p = (mode === "trace" || mode === "single")
+      ? toGridPointSnapped(e.clientX, e.clientY)
+      : toGridPointRaw(e.clientX, e.clientY);
+    if (!p) return;
+
+    if (mode === "trace" || mode === "single") {
+      const pending = pendingDrawPlacementRef.current;
+      if (pending && pending.pointerId === e.pointerId) {
+        pending.latest = p;
+      }
+      updateDrawPreview(e.clientX, e.clientY);
+      return;
+    }
+
+    setSnapGuide(null);
+
+    if (rotating && rotateOrigin && rotateSnapshot.length) {
+      const currentAngle = Math.atan2(p.y - rotateOrigin.y, p.x - rotateOrigin.x);
+      let delta = currentAngle - rotateStartAngle;
+      let deg = (delta * 180) / Math.PI;
+      const nearest = Math.round(deg / 90) * 90;
+      if (Math.abs(deg - nearest) <= ROTATE_SOFT_SNAP_DEG) {
+        deg = nearest;
+        delta = (deg * Math.PI) / 180;
+      }
+      setRotateDeltaDeg(deg);
+      setWalls((prev) => prev.map((w) => {
+        const src = rotateSnapshot.find((x) => x.id === w.id);
+        if (!src) return w;
+        const rot = (pt: Point) => {
+          const dx = pt.x - rotateOrigin.x;
+          const dy = pt.y - rotateOrigin.y;
+          return clampPoint({
+            x: rotateOrigin.x + dx * Math.cos(delta) - dy * Math.sin(delta),
+            y: rotateOrigin.y + dx * Math.sin(delta) + dy * Math.cos(delta),
+          });
+        };
+        return { ...w, start: rot(src.start), end: rot(src.end) };
+      }));
+      return;
+    }
+
+    if (draggingTextId) {
+      if (!dragActivatedRef.current) {
+        if (distance(p, dragStartPoint ?? p) < DRAG_DEAD_ZONE) return;
+        dragActivatedRef.current = true;
+      }
+      const offset = textDragOffsetRef.current ?? { x: 0, y: 0 };
+      const nextCenter = clampPoint({ x: p.x - offset.x, y: p.y - offset.y });
+      setTextNotes((prev) => prev.map((n) => n.id === draggingTextId ? { ...n, x: nextCenter.x, y: nextCenter.y } : n));
+      return;
+    }
+
+    if (draggingEndpoint) {
+      const anchor = dragAnchorRef.current ?? (() => {
+        const fw = walls.find(x => x.id === draggingEndpoint.wallId);
+        return fw ? (draggingEndpoint.end === "start" ? fw.end : fw.start) : null;
+      })();
+      if (!anchor) return;
+      let candidate = snapPoint(p);
+      const kind = orthoKind(anchor, candidate, ENDPOINT_DRAG_ORTHO_THRESHOLD);
+      candidate = snapOrtho(anchor, candidate, ENDPOINT_DRAG_ORTHO_THRESHOLD);
+      // Exclude dragged wall and its linked siblings from endpoint snap targets
+      const snapWalls = walls.filter(w =>
+        w.id !== draggingEndpoint.wallId &&
+        !linkedEndpointsRef.current.some(l => l.wallId === w.id)
+      );
+      const newPt = clampPoint(snapToExistingEndpoints(candidate, snapWalls, undefined, ENDPOINT_DRAG_SNAP_RADIUS));
+      if (newPt.x !== candidate.x || newPt.y !== candidate.y) {
+        setSnapGuide({ kind: "endpoint", point: newPt });
+      } else if (kind === "horizontal") {
+        setSnapGuide({ kind: "horizontal", lineValue: anchor.y });
+      } else if (kind === "vertical") {
+        setSnapGuide({ kind: "vertical", lineValue: anchor.x });
+      } else {
+        setSnapGuide(null);
+      }
+      setWalls((prev) => prev.map((w) => {
+        if (w.id === draggingEndpoint.wallId) {
+          if (draggingEndpoint.end === "start") return { ...w, start: newPt, lengthOverride: null };
+          return { ...w, end: newPt, lengthOverride: null };
+        }
+        const link = linkedEndpointsRef.current.find(l => l.wallId === w.id);
+        if (link) return link.end === "start" ? { ...w, start: newPt } : { ...w, end: newPt };
+        return w;
+      }));
+      return;
+    }
+
+    if (selectionStart) {
+      setSelectionCurrent(p);
+      return;
+    }
+
+    if ((draggingGroup || draggingWallId) && dragStartPoint && dragSnapshot.length) {
+      if (!dragActivatedRef.current) {
+        if (distance(p, dragStartPoint) < DRAG_DEAD_ZONE) return;
+        dragActivatedRef.current = true;
+      }
+      let dx = snap(p.x - dragStartPoint.x);
+      let dy = snap(p.y - dragStartPoint.y);
+      if (!draggingGroup && dragSnapshot.length === 1) {
+        const src = dragSnapshot[0];
+        const candidateStart = { x: src.start.x + dx, y: src.start.y + dy };
+        const candidateEnd = { x: src.end.x + dx, y: src.end.y + dy };
+        let bestD = WALL_DRAG_ENDPOINT_SNAP_RADIUS;
+        let bestDelta: Point | null = null;
+        for (const w of walls) {
+          if (w.id === src.id) continue;
+          if (wallDragLinkedSnapshotRef.current.some(l => l.wallId === w.id)) continue;
+          for (const their of [w.start, w.end]) {
+            for (const mine of [candidateStart, candidateEnd]) {
+              const d = distance(mine, their);
+              if (d < bestD) { bestD = d; bestDelta = { x: their.x - mine.x, y: their.y - mine.y }; }
+            }
+          }
+        }
+        if (bestDelta) { dx += bestDelta.x; dy += bestDelta.y; }
+      }
+      setWalls((prev) => prev.map((w) => {
+        const src = dragSnapshot.find((x) => x.id === w.id);
+        if (src) {
+          return {
+            ...w,
+            start: clampPoint({ x: src.start.x + dx, y: src.start.y + dy }),
+            end: clampPoint({ x: src.end.x + dx, y: src.end.y + dy }),
+          };
+        }
+        const links = wallDragLinkedSnapshotRef.current.filter(l => l.wallId === w.id);
+        if (links.length > 0) {
+          let updated = { ...w, lengthOverride: null };
+          for (const link of links) {
+            const newPos = clampPoint({ x: link.originalPos.x + dx, y: link.originalPos.y + dy });
+            if (link.end === "start") updated = { ...updated, start: newPos };
+            else updated = { ...updated, end: newPos };
+          }
+          return updated;
+        }
+        return w;
+      }));
+      return;
+    }
+  }
+
+  useEffect(() => {
+    const handleHoverLikeEvent = (e: Event) => {
+      if (disabled) return;
+      const evt = e as MouseEvent | PointerEvent;
+      if (typeof evt.clientX !== "number" || typeof evt.clientY !== "number") return;
+      updateDrawPreview(evt.clientX, evt.clientY);
+    };
+
+    const targets: EventTarget[] = [window, document];
+    const eventNames = ["pointermove", "pointerrawupdate", "mousemove", "pointerover", "mouseover", "pointerenter", "mouseenter"];
+
+    for (const target of targets) {
+      for (const eventName of eventNames) {
+        target.addEventListener(eventName, handleHoverLikeEvent, { passive: true, capture: true });
+      }
+    }
+
+    return () => {
+      for (const target of targets) {
+        for (const eventName of eventNames) {
+          target.removeEventListener(eventName, handleHoverLikeEvent, true);
+        }
+      }
+    };
+    // Preview uses stable refs for the live drawing state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [disabled]);
+
+  function pointerUp(e?: React.PointerEvent<SVGSVGElement>) {
+    if (disabled) return;
+    if (e && (mode === "trace" || mode === "single")) {
+      const pending = pendingDrawPlacementRef.current;
+      const pt = (e.pointerType === "touch" || e.pointerType === "pen") ? e.pointerType : "mouse";
+      if (pending && pending.pointerId === e.pointerId && drawStart && (pt === "pen" || pt === "touch")) {
+        const rawPoint = toGridPointSnapped(e.clientX, e.clientY) ?? pending.latest;
+        pendingDrawPlacementRef.current = null;
+        commitDrawSegment(resolveDrawEndpoint(drawStart, rawPoint));
+      }
+    }
+
+    if (capturedPointerIdRef.current !== null && svgRef.current) {
+      try { svgRef.current.releasePointerCapture(capturedPointerIdRef.current); } catch {}
+      capturedPointerIdRef.current = null;
+    }
+    pendingDrawPlacementRef.current = null;
+    linkedEndpointsRef.current = [];
+    dragAnchorRef.current = null;
+    wallDragLinkedSnapshotRef.current = [];
+    textDragOffsetRef.current = null;
+    setDraggingWallId(null);
+    setDraggingTextId(null);
+    setDraggingEndpoint(null);
+    setDraggingGroup(false);
+    setDragStartPoint(null);
+    setDragSnapshot([]);
+
+    if (rotating) {
+      const nearest = Math.round(rotateDeltaDeg / 90) * 90;
+      if (Math.abs(rotateDeltaDeg - nearest) <= ROTATE_RELEASE_SNAP_DEG && rotateOrigin && rotateSnapshot.length) {
+        const rad = (nearest * Math.PI) / 180;
+        setWalls((prev) => prev.map((w) => {
+          const src = rotateSnapshot.find((x) => x.id === w.id);
+          if (!src) return w;
+          const rot = (pt: Point) => {
+            const dx = pt.x - rotateOrigin.x;
+            const dy = pt.y - rotateOrigin.y;
+            return clampPoint({
+              x: rotateOrigin.x + dx * Math.cos(rad) - dy * Math.sin(rad),
+              y: rotateOrigin.y + dx * Math.sin(rad) + dy * Math.cos(rad),
+            });
+          };
+          return { ...w, start: rot(src.start), end: rot(src.end) };
+        }));
+      }
+      setRotating(false);
+      setRotateSnapshot([]);
+      setRotateDeltaDeg(0);
+      return;
+    }
+
+    if (selectionStart && selectionCurrent) {
+      const minX = Math.min(selectionStart.x, selectionCurrent.x);
+      const maxX = Math.max(selectionStart.x, selectionCurrent.x);
+      const minY = Math.min(selectionStart.y, selectionCurrent.y);
+      const maxY = Math.max(selectionStart.y, selectionCurrent.y);
+      const ids = walls
+        .filter((w) => {
+          const pts = [w.start, w.end, { x: (w.start.x + w.end.x) / 2, y: (w.start.y + w.end.y) / 2 }];
+          return pts.some((pt) => pt.x >= minX && pt.x <= maxX && pt.y >= minY && pt.y <= maxY);
+        })
+        .map((w) => w.id);
+      setSelectedWallIds(ids);
+      setSelectedWallId(ids[0] || null);
+    }
+
+    setWalls((prev) => prev.map((w) => ({
+      ...w,
+      start: snapPoint(w.start),
+      end: snapPoint(w.end),
+    })));
+
+    setSelectionStart(null);
+    setSelectionCurrent(null);
+    setSnapGuide(null);
+  }
+
+  function removeSelectedWall() {
+    const ids = selectedWallIds.length ? selectedWallIds : (selectedWallId ? [selectedWallId] : []);
+    if (!ids.length) return;
+    pushHistory();
+    setWalls((prev) => prev.filter((w) => !ids.includes(w.id)));
+    setSelectedWallId(null);
+    setSelectedWallIds([]);
+  }
+
+  function wallLengthMeters(w: Wall) {
+    return w.lengthOverride ?? Number(distance(w.start, w.end).toFixed(2));
+  }
+
+  function applyLengthOverride(wallId: string, lengthMeters: number) {
+    pushHistory();
+    setWalls((prev) => {
+      const target = prev.find(w => w.id === wallId);
+      if (!target) return prev;
+      const dx = target.end.x - target.start.x;
+      const dy = target.end.y - target.start.y;
+      const current = Math.hypot(dx, dy);
+      if (current < 1e-6 || !Number.isFinite(lengthMeters) || lengthMeters <= 0) return prev;
+      const scale = lengthMeters / current;
+      const newEnd = clampPoint({ x: target.start.x + dx * scale, y: target.start.y + dy * scale });
+      const linked = findLinkedEndpoints(target.end, wallId, prev);
+      return prev.map(w => {
+        if (w.id === wallId) return { ...w, end: newEnd, lengthOverride: Number(lengthMeters.toFixed(2)) };
+        const link = linked.find(l => l.wallId === w.id);
+        if (link) return link.end === "start" ? { ...w, start: newEnd } : { ...w, end: newEnd };
+        return w;
+      });
+    });
+  }
+
+
+  return (
+    <div inert={disabled} aria-label={label} className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-gray-200 bg-[#eef0f3]">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-gray-200 bg-white px-3 py-1 text-xs text-gray-600">
+        <span>Drawing grid</span><div className="flex items-center gap-2"><button type="button" aria-pressed={panning} onClick={() => setPanning((value) => !value)} className={`min-h-11 rounded-lg px-3 font-semibold ${panning ? "bg-[#1a3a4a] text-white" : "bg-slate-100 text-[#1a3a4a]"}`}>Pan</button><label className="flex items-center gap-2">Zoom<select aria-label="Drawing zoom" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} className="min-h-11 rounded-lg border border-gray-200 bg-white px-2"><option value={1}>Fit</option><option value={1.5}>150%</option><option value={2}>200%</option><option value={3}>300%</option></select></label></div>
+      </div>
+      {/* Canvas area */}
+      <div ref={canvasAreaRef} className="flex-1 min-h-0 overflow-auto relative" style={{ touchAction: panning ? "pan-x pan-y" : "auto" }}
+        onPointerDown={(event) => { if (!panning || event.pointerType === "touch") return; const element = event.currentTarget; panStart.current = { x: event.clientX, y: event.clientY, left: element.scrollLeft, top: element.scrollTop }; element.setPointerCapture(event.pointerId); }}
+        onPointerMove={(event) => { const start = panStart.current; if (!start) return; event.currentTarget.scrollLeft = start.left - event.clientX + start.x; event.currentTarget.scrollTop = start.top - event.clientY + start.y; }}
+        onPointerUp={() => { panStart.current = null; }} onPointerCancel={() => { panStart.current = null; }}>
+        <div className="flex min-h-full min-w-full w-max items-center justify-center p-2">
+        {canvasDims && (
+        <div
+          className="relative rounded-xl shadow border border-gray-300 bg-white flex-shrink-0"
+          style={{
+            width: canvasDims.w,
+            height: canvasDims.h,
+            backgroundImage:
+              "linear-gradient(to right, #c8d0da 1px, transparent 1px), linear-gradient(to bottom, #c8d0da 1px, transparent 1px)",
+            backgroundSize: `calc(100%/${CELLS_X}) calc(100%/${CELLS_Y})`,
+            userSelect: "none",
+            touchAction: panning ? "pan-x pan-y" : "none",
+            cursor: panning ? "grab" : undefined,
+          }}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          {/* Floating selection toolbar */}
+          {selectionBounds && mode === "select" && (() => {
+            const aboveY = (selectionBounds.minY - 2.8) / CELLS_Y * 100;
+            const belowY = (selectionBounds.maxY + 1.2) / CELLS_Y * 100;
+            // Show above if there's enough room, otherwise below
+            const showAbove = aboveY > 18;
+            const centerPct = (selectionBounds.cx / CELLS_X) * 100;
+            return (
+            <div
+              className="absolute z-20 flex flex-col gap-1.5 bg-white/96 backdrop-blur-sm border border-gray-200 rounded-xl shadow-lg px-2.5 py-2"
+              style={{
+                left: `clamp(155px, ${centerPct}%, calc(100% - 155px))`,
+                top: showAbove ? `max(4px, ${aboveY}%)` : `min(calc(100% - 4px), ${belowY}%)`,
+                transform: showAbove ? "translate(-50%, -100%)" : "translate(-50%, 0%)",
+              }}
+            >
+              <div className="flex items-center gap-1.5 flex-wrap max-w-[280px]">
+                <button
+                  onClick={() => {
+                    const ids = activeSelectionIds;
+                    setWalls((prev) => prev.map((w) => ids.includes(w.id) ? { ...w, style: "solid" } : w));
+                  }}
+                  className="px-3 h-8 rounded-lg text-xs font-medium bg-gray-100 active:bg-gray-200"
+                >Solid</button>
+                <button
+                  onClick={() => {
+                    const ids = activeSelectionIds;
+                    setWalls((prev) => prev.map((w) => ids.includes(w.id) ? { ...w, style: "dotted" } : w));
+                  }}
+                  className="px-3 h-8 rounded-lg text-xs font-medium bg-gray-100 active:bg-gray-200"
+                >Dotted</button>
+                <button
+                  onClick={() => setWallColorPaletteOpen((open) => !open)}
+                  className="px-3 h-8 rounded-lg text-xs font-medium text-white border border-black/10 active:opacity-90"
+                  style={{ backgroundColor: WALL_COLOR_STROKES[selectedWallColor] }}
+                  title="Change wall color"
+                >
+                  Color
+                </button>
+                {wallColorPaletteOpen && WALL_COLOR_OPTIONS.map((opt) => {
+                  const selected = activeSelectionIds.length > 0 && activeSelectionIds.every((id) => (walls.find((w) => w.id === id)?.color ?? DEFAULT_WALL_COLOR) === opt.key);
+                  return (
+                    <button
+                      key={opt.key}
+                      onClick={() => {
+                        const ids = activeSelectionIds;
+                        setWalls((prev) => prev.map((w) => ids.includes(w.id) ? { ...w, color: opt.key } : w));
+                        setWallColorPaletteOpen(false);
+                      }}
+                      className={`px-3 h-8 rounded-lg text-xs font-medium border ${selected ? "border-gray-400 ring-2 ring-gray-300" : "border-gray-200"} active:opacity-90`}
+                      style={{ backgroundColor: opt.stroke, color: "white" }}
+                      title={opt.label}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+                {selectedWall && selectedWallId && (() => {
+                  const lStart = findLinkedEndpoints(selectedWall.start, selectedWallId, walls);
+                  const lEnd = findLinkedEndpoints(selectedWall.end, selectedWallId, walls);
+                  if (!lStart.length && !lEnd.length) return null;
+                  return (
+                    <button
+                      onClick={() => {
+                        pushHistory();
+                        setWalls(prev => {
+                          const w = prev.find(x => x.id === selectedWallId);
+                          if (!w) return prev;
+                          const dx = w.end.x - w.start.x;
+                          const dy = w.end.y - w.start.y;
+                          const len = Math.hypot(dx, dy) || 1;
+                          // Nudge perpendicular to wall to break coincidence
+                          const nx = (-dy / len) * 0.08;
+                          const ny = (dx / len) * 0.08;
+                          return prev.map(x => x.id !== selectedWallId ? x : {
+                            ...x,
+                            start: lStart.length ? clampPoint({ x: x.start.x + nx, y: x.start.y + ny }) : x.start,
+                            end: lEnd.length ? clampPoint({ x: x.end.x + nx, y: x.end.y + ny }) : x.end,
+                          });
+                        });
+                      }}
+                      className="px-3 h-8 rounded-lg text-xs font-medium bg-orange-50 text-orange-600 active:bg-orange-100"
+                    >Break</button>
+                  );
+                })()}
+                <div className="w-px h-5 bg-gray-200 flex-shrink-0" />
+                <button
+                  onClick={removeSelectedWall}
+                  className="px-3 h-8 rounded-lg text-xs font-medium bg-red-50 text-red-600 active:bg-red-100"
+                >Delete</button>
+              </div>
+              {selectedWall && selectedWallId && (
+                <div className="flex items-center gap-1 pt-1 border-t border-gray-100">
+                  <span className="text-xs font-medium text-gray-500 flex-shrink-0 w-10 text-center">{wallLengthMeters(selectedWall).toFixed(1)}m</span>
+                  {([-0.5, -0.1, 0.1, 0.5] as const).map((delta) => (
+                    <button
+                      key={delta}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => {
+                        if (!selectedWallId) return;
+                        const current = wallLengthMeters(walls.find(w => w.id === selectedWallId)!);
+                        const next = Math.max(0.1, Math.round((current + delta) * 10) / 10);
+                        applyLengthOverride(selectedWallId, next);
+                      }}
+                      className="flex-1 h-8 rounded-lg text-xs font-medium bg-gray-100 text-gray-700 active:bg-gray-200"
+                    >
+                      {delta > 0 ? `+${delta}` : delta}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            );
+          })()}
+
+          {mode === "select" && selectedTextId && (() => {
+            const selectedText = textNotes.find((n) => n.id === selectedTextId);
+            if (!selectedText) return null;
+            const box = getTextNoteBox(selectedText, editingTextId === selectedText.id ? textEditValue : selectedText.text);
+            const aboveY = ((box.y - 1.3) / CELLS_Y) * 100;
+            const belowY = ((box.y + box.height + 0.35) / CELLS_Y) * 100;
+            const centerPct = ((box.x + box.width / 2) / CELLS_X) * 100;
+            const showAbove = aboveY > 12;
+            return (
+              <div
+                className="absolute z-20 flex items-center gap-1.5 bg-white/96 backdrop-blur-sm border border-gray-200 rounded-xl shadow-lg px-2 py-2"
+                style={{
+                  left: `clamp(140px, ${centerPct}%, calc(100% - 140px))`,
+                  top: showAbove ? `max(4px, ${aboveY}%)` : `min(calc(100% - 4px), ${belowY}%)`,
+                  transform: showAbove ? "translate(-50%, -100%)" : "translate(-50%, 0%)",
+                }}
+              >
+                <button
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => startEditingTextNote(selectedText)}
+                  className="px-3 h-8 rounded-lg text-xs font-medium bg-blue-50 text-blue-700 active:bg-blue-100"
+                >Edit</button>
+                <button
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => deleteTextNote(selectedText.id)}
+                  className="px-3 h-8 rounded-lg text-xs font-medium bg-red-50 text-red-600 active:bg-red-100"
+                >Delete</button>
+              </div>
+            );
+          })()}
+
+          {/* SVG drawing canvas */}
+          <svg
+            role="img"
+            aria-label={label}
+            ref={svgRef}
+            viewBox={`0 0 ${CELLS_X} ${CELLS_Y}`}
+            style={{ pointerEvents: panning ? "none" : undefined }}
+            className="w-full h-full touch-none"
+            onPointerDown={pointerDown}
+            onPointerMove={pointerMove}
+            onPointerEnter={(e) => updateDrawPreview(e.clientX, e.clientY)}
+            onPointerOver={(e) => updateDrawPreview(e.clientX, e.clientY)}
+            onMouseMove={(e) => updateDrawPreview(e.clientX, e.clientY)}
+            onMouseEnter={(e) => updateDrawPreview(e.clientX, e.clientY)}
+            onPointerUp={pointerUp}
+            onPointerLeave={() => {
+              // In draw modes, keep the last preview alive so pen hover can resume cleanly after lifting.
+              if (capturedPointerIdRef.current === null) {
+                if (drawStartRef.current && (modeRef.current === "trace" || modeRef.current === "single")) {
+                  setSnapGuide(null);
+                  return;
+                }
+                setHoverPoint(null);
+                setSnapGuide(null);
+              }
+            }}
+            onContextMenu={(e) => e.preventDefault()}
+          >
+            {/* Walls */}
+            {walls.map((w) => {
+              const midX = (w.start.x + w.end.x) / 2;
+              const midY = (w.start.y + w.end.y) / 2;
+              const isSelected = selectedWallIds.includes(w.id) || w.id === selectedWallId;
+              const labelText = `${wallLengthMeters(w).toFixed(1)}m`;
+              const labelW = labelText.length * 0.21 + 0.14;
+              return (
+                <g key={w.id}>
+                  <line
+                    x1={w.start.x} y1={w.start.y}
+                    x2={w.end.x} y2={w.end.y}
+                    stroke={WALL_COLOR_STROKES[w.color ?? DEFAULT_WALL_COLOR] ?? WALL_COLOR_STROKES[DEFAULT_WALL_COLOR]}
+                    strokeWidth={isSelected ? 0.16 : 0.12}
+                    strokeDasharray={w.style === "dotted" ? "0.35 0.24" : undefined}
+                    strokeLinecap="round"
+                  />
+                  {showDimensions && (
+                    <>
+                      <rect
+                        x={midX - labelW / 2}
+                        y={midY - 0.46}
+                        width={labelW}
+                        height={0.37}
+                        fill="white"
+                        rx={0.05}
+                        opacity={0.92}
+                      />
+                      <text
+                        x={midX}
+                        y={midY - 0.15}
+                        fontSize={0.31}
+                        fill={isSelected ? "#0f766e" : "#475569"}
+                        textAnchor="middle"
+                      >
+                        {labelText}
+                      </text>
+                    </>
+                  )}
+                  {isSelected && (
+                    <>
+                      <circle cx={w.start.x} cy={w.start.y} r={0.14} fill="#0f766e" />
+                      <circle cx={w.end.x} cy={w.end.y} r={0.14} fill="#0f766e" />
+                    </>
+                  )}
+                </g>
+              );
+            })}
+
+            {/* Junction dots — where 2+ walls share an endpoint */}
+            {junctionPoints.map((pt, i) => (
+              <circle key={`j${i}`} cx={pt.x} cy={pt.y} r={0.13} fill="#0f766e" opacity={0.75} />
+            ))}
+
+            {/* Text annotations */}
+            {textNotes.map((note) => {
+              const isEditing = editingTextId === note.id;
+              const isSelected = selectedTextId === note.id;
+              const liveLabel = isEditing ? textEditValue : note.text;
+              const layout = getTextNoteLayout(note, liveLabel);
+              return (
+                <g key={note.id}>
+                  <rect
+                    x={layout.x}
+                    y={layout.y}
+                    width={layout.width}
+                    height={layout.height}
+                    fill={isEditing ? "#eff6ff" : isSelected ? "#fef3c7" : "#fff7ed"}
+                    stroke={isEditing ? "#2563eb" : isSelected ? "#d97706" : "#f59e0b"}
+                    strokeWidth={isSelected ? 0.08 : 0.06}
+                    rx={0.12}
+                  />
+                  {!isEditing && (
+                    <text
+                      x={layout.textX}
+                      y={layout.textY}
+                      fontSize={note.fontSize}
+                      fontFamily={TEXT_NOTE_FONT_FAMILY}
+                      fill="#1f2937"
+                      textAnchor="start"
+                      direction="ltr"
+                      unicodeBidi="normal"
+                      style={{ cursor: isSelected ? "grab" : "pointer", pointerEvents: "none", whiteSpace: "pre" }}
+                    >
+                      {layout.lines.map((line, index) => (
+                        <tspan
+                          key={`${note.id}-${index}`}
+                          x={layout.textX}
+                          dy={index === 0 ? 0 : note.fontSize * TEXT_NOTE_LINE_HEIGHT}
+                        >
+                          {line || " "}
+                        </tspan>
+                      ))}
+                    </text>
+                  )}
+                </g>
+              );
+            })}
+
+            {/* Draw start dot */}
+            {drawStart && (mode === "trace" || mode === "single") && (
+              <circle cx={drawStart.x} cy={drawStart.y} r={0.18} fill="#0f766e" />
+            )}
+
+            {/* Preview line */}
+            {drawStart && hoverPoint && (mode === "trace" || mode === "single") && (
+              <line
+                x1={drawStart.x} y1={drawStart.y}
+                x2={hoverPoint.x} y2={hoverPoint.y}
+                stroke="#0f766e"
+                strokeWidth={0.1}
+                strokeDasharray="0.22 0.18"
+                strokeLinecap="round"
+              />
+            )}
+
+            {/* Preview length label */}
+            {drawStart && hoverPoint && (mode === "trace" || mode === "single") && (() => {
+              const d = distance(drawStart, hoverPoint);
+              if (d < 0.3) return null;
+              const midX = (drawStart.x + hoverPoint.x) / 2;
+              const midY = (drawStart.y + hoverPoint.y) / 2;
+              const labelText = `${d.toFixed(1)}m`;
+              const lw = labelText.length * 0.22 + 0.2;
+              return (
+                <>
+                  <rect x={midX - lw / 2} y={midY - 0.48} width={lw} height={0.38} fill="#0f766e" rx={0.07} />
+                  <text x={midX} y={midY - 0.16} fontSize={0.29} fill="white" textAnchor="middle" fontWeight="600">
+                    {labelText}
+                  </text>
+                </>
+              );
+            })()}
+
+            {/* Snap guides */}
+            {snapGuide?.kind === "horizontal" && snapGuide.lineValue != null && (
+              <line x1={0} y1={snapGuide.lineValue} x2={CELLS_X} y2={snapGuide.lineValue} stroke="rgba(20,184,166,0.55)" strokeDasharray="0.2 0.18" strokeWidth={0.07} />
+            )}
+            {snapGuide?.kind === "vertical" && snapGuide.lineValue != null && (
+              <line x1={snapGuide.lineValue} y1={0} x2={snapGuide.lineValue} y2={CELLS_Y} stroke="rgba(20,184,166,0.55)" strokeDasharray="0.2 0.18" strokeWidth={0.07} />
+            )}
+            {snapGuide?.kind === "endpoint" && snapGuide.point && (
+              <circle cx={snapGuide.point.x} cy={snapGuide.point.y} r={0.22} fill="rgba(20,184,166,0.15)" stroke="#14b8a6" strokeWidth={0.09} />
+            )}
+
+            {/* Drag selection box */}
+            {selectionStart && selectionCurrent && (
+              <rect
+                x={Math.min(selectionStart.x, selectionCurrent.x)}
+                y={Math.min(selectionStart.y, selectionCurrent.y)}
+                width={Math.abs(selectionCurrent.x - selectionStart.x)}
+                height={Math.abs(selectionCurrent.y - selectionStart.y)}
+                fill="rgba(15,118,110,0.08)"
+                stroke="#0f766e"
+                strokeDasharray="0.25 0.2"
+                strokeWidth={0.07}
+              />
+            )}
+
+            {/* Selection bounds + rotate handle */}
+            {selectionBounds && (
+              <>
+                <rect
+                  x={selectionBounds.minX - 0.12}
+                  y={selectionBounds.minY - 0.12}
+                  width={selectionBounds.maxX - selectionBounds.minX + 0.24}
+                  height={selectionBounds.maxY - selectionBounds.minY + 0.24}
+                  fill="none"
+                  stroke="rgba(15,118,110,0.5)"
+                  strokeDasharray="0.3 0.22"
+                  strokeWidth={0.07}
+                  rx={0.1}
+                />
+                <line
+                  x1={selectionBounds.cx}
+                  y1={selectionBounds.minY - 0.12}
+                  x2={selectionBounds.cx}
+                  y2={selectionBounds.minY - 0.9}
+                  stroke="#0f766e"
+                  strokeWidth={0.07}
+                />
+                <circle
+                  cx={selectionBounds.cx}
+                  cy={selectionBounds.minY - 0.9}
+                  r={0.3}
+                  fill="white"
+                  stroke="#0f766e"
+                  strokeWidth={0.08}
+                />
+                <text
+                  x={selectionBounds.cx - 0.14}
+                  y={selectionBounds.minY - 0.78}
+                  fontSize={0.32}
+                  fill="#0f766e"
+                >⟲</text>
+              </>
+            )}
+
+            {/* Rotation crosshair + angle */}
+            {rotating && rotateOrigin && (
+              <>
+                <line x1={0} y1={rotateOrigin.y} x2={CELLS_X} y2={rotateOrigin.y} stroke="rgba(14,116,144,0.3)" strokeDasharray="0.28 0.2" strokeWidth={0.06} />
+                <line x1={rotateOrigin.x} y1={0} x2={rotateOrigin.x} y2={CELLS_Y} stroke="rgba(14,116,144,0.3)" strokeDasharray="0.28 0.2" strokeWidth={0.06} />
+                <text x={rotateOrigin.x + 0.3} y={rotateOrigin.y - 0.3} fontSize={0.38} fill="#0f766e">
+                  {rotateDeltaDeg.toFixed(0)}°
+                </text>
+              </>
+            )}
+          </svg>
+          {canvasDims && editingTextNote && (() => {
+            const layout = getTextNoteLayout(editingTextNote, textEditValue);
+            const pxX = (units: number) => (units / CELLS_X) * canvasDims.w;
+            const pxY = (units: number) => (units / CELLS_Y) * canvasDims.h;
+            return (
+              <div
+                className="absolute pointer-events-none"
+                style={{
+                  left: `${pxX(layout.x)}px`,
+                  top: `${pxY(layout.y)}px`,
+                  width: `${pxX(layout.width)}px`,
+                  height: `${pxY(layout.height)}px`,
+                }}
+              >
+                <textarea
+                  ref={textInputRef as React.RefObject<HTMLTextAreaElement>}
+                  value={textEditValue}
+                  dir="ltr"
+                  wrap="off"
+                  spellCheck={false}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setTextEditValue(v);
+                    updateTextNote(editingTextNote.id, { text: v });
+                    requestAnimationFrame(() => syncEditingTextBoxFromDom());
+                  }}
+                  onBlur={() => {
+                    syncEditingTextBoxFromDom();
+                    setEditingTextId(null);
+                  }}
+                  className="pointer-events-auto w-full h-full text-gray-900 outline-none resize-none overflow-hidden rounded-[inherit]"
+                  style={{
+                    fontSize: `${pxY(editingTextNote.fontSize)}px`,
+                    fontFamily: TEXT_NOTE_FONT_FAMILY,
+                    lineHeight: TEXT_NOTE_LINE_HEIGHT,
+                    padding: `${pxY(TEXT_NOTE_PADDING_Y)}px ${pxX(TEXT_NOTE_PADDING_X)}px`,
+                    background: "transparent",
+                    border: "none",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+            );
+          })()}
+        </div>
+        )}
+        </div>
+      </div>
+
+      {/* Bottom toolbar */}
+      <div
+        hidden={disabled}
+        className="flex items-center gap-2 overflow-x-auto px-3 bg-white border-t border-gray-200 z-30 flex-shrink-0"
+        style={{ height: 64 }}
+      >
+        {/* Mode segmented control */}
+        <div className="flex rounded-xl overflow-hidden border border-gray-200 flex-shrink-0">
+          <button
+            onClick={() => { setMode("trace"); setDrawStart(null); setHoverPoint(null); }}
+            className={`px-4 h-10 text-sm font-medium transition-colors ${mode === "trace" ? "bg-[#1a3a4a] text-white" : "bg-white text-gray-600 active:bg-gray-50"}`}
+          >
+            Outline
+          </button>
+          <button
+            onClick={() => { setMode("select"); setDrawStart(null); setHoverPoint(null); }}
+            className={`px-4 h-10 text-sm font-medium border-l border-gray-200 transition-colors ${mode === "select" ? "bg-[#1a3a4a] text-white" : "bg-white text-gray-600 active:bg-gray-50"}`}
+          >
+            Edit
+          </button>
+        </div>
+
+        {/* Contextual drawing actions */}
+        {mode === "trace" && drawStart && (
+          <>
+            {walls.length >= 3 && (
+              <button
+                onClick={closeShape}
+                className="h-10 px-4 rounded-xl text-sm font-medium bg-teal-600 text-white flex-shrink-0 active:bg-teal-700"
+              >
+                Close
+              </button>
+            )}
+            <button
+              onClick={() => { setDrawStart(null); setHoverPoint(null); setMode("select"); }}
+              className="h-10 px-4 rounded-xl text-sm font-medium bg-gray-200 text-gray-700 flex-shrink-0 active:bg-gray-300"
+            >
+              Finish
+            </button>
+          </>
+        )}
+        {mode === "select" && (
+          <>
+            <button
+              onClick={() => { setMode("single"); setDrawStart(null); setHoverPoint(null); }}
+              className="h-10 px-4 rounded-xl text-sm font-medium bg-gray-100 text-gray-700 flex-shrink-0 active:bg-gray-200"
+            >
+              + Wall
+            </button>
+            <button
+              onClick={addTextNote}
+              className={`h-10 px-4 rounded-xl text-sm font-medium flex-shrink-0 ${textMode === "placing" ? "bg-amber-600 text-white" : "bg-amber-100 text-amber-800 active:bg-amber-200"}`}
+            >
+              {textMode === "placing" ? "Tap to place" : "+ Text"}
+            </button>
+          </>
+        )}
+
+        <div className="flex-1" />
+
+        {textMode === "placing" && (
+          <span className="text-xs text-amber-700 font-medium">Tap anywhere on the plan to place text</span>
+        )}
+
+        {/* Undo */}
+        <button
+          onClick={undo}
+          disabled={!history.length}
+          className="h-10 w-10 rounded-xl flex items-center justify-center bg-gray-100 text-gray-700 disabled:opacity-30 flex-shrink-0 active:bg-gray-200 text-base"
+          title="Undo"
+          aria-label="Undo"
+        >
+          ↩
+        </button>
+
+        {/* Labels toggle */}
+        <button
+          aria-label={`Labels ${showDimensions ? "ON" : "OFF"}`}
+          onClick={() => setShowDimensions((v) => !v)}
+          className="h-10 px-3 rounded-xl text-sm font-medium flex-shrink-0 bg-gray-100 flex items-center gap-1.5 active:bg-gray-200"
+        >
+          <span className="text-gray-700">Labels</span>
+          <span className={`text-xs font-bold ${showDimensions ? "text-[#e85d04]" : "text-gray-400"}`}>
+            {showDimensions ? "ON" : "OFF"}
+          </span>
+        </button>
+
+        {/* Clear */}
+        <button
+          onClick={() => {
+            if (!walls.length) return;
+            pushHistory();
+            setWalls([]);
+            setTextNotes([]);
+            setSelectedWallId(null);
+            setSelectedWallIds([]);
+            setEditingTextId(null);
+            setDrawStart(null);
+            setHoverPoint(null);
+          }}
+          className="h-10 px-3 rounded-xl text-sm font-medium bg-gray-100 text-gray-400 flex-shrink-0 active:bg-gray-200"
+        >
+          Clear
+        </button>
+      </div>
+    </div>
+  );
+}

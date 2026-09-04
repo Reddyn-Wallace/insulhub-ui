@@ -40,10 +40,31 @@ describe("site plan drawing documents", () => {
     expect(parseSitePlanDocument({ ...EMPTY_SITE_PLAN_DOCUMENT, schemaVersion: 2 })).toBeNull();
     expect(parseSitePlanDocument({ ...EMPTY_SITE_PLAN_DOCUMENT, walls: [{ id: "broken" }] })).toBeNull();
     expect(parseSitePlanDocument({ ...EMPTY_SITE_PLAN_DOCUMENT, showDimensions: "yes" })).toBeNull();
+    expect(parseSitePlanDocument({ ...EMPTY_SITE_PLAN_DOCUMENT, extra: true })).toBeNull();
+    expect(parseSitePlanDocument({ ...EMPTY_SITE_PLAN_DOCUMENT, walls: [{ id: "wall", start: { x: 1, y: 1 }, end: { x: 1, y: 1 }, style: "solid" }] })).toBeNull();
+  });
+
+  it("normalizes Unicode and line endings while rejecting unsafe controls and duplicate IDs", () => {
+    const note = { id: "note-1", text: "Ma\u0304ori\r\nline", x: 1, y: 1, fontSize: 0.82 };
+    expect(parseSitePlanDocument({ ...EMPTY_SITE_PLAN_DOCUMENT, textNotes: [note] })?.textNotes[0].text).toBe("Māori\nline");
+    expect(parseSitePlanDocument({ ...EMPTY_SITE_PLAN_DOCUMENT, textNotes: [{ ...note, text: "bad\u0001" }] })).toBeNull();
+    expect(parseSitePlanDocument({ ...EMPTY_SITE_PLAN_DOCUMENT, textNotes: [note, note] })).toBeNull();
+  });
+
+  it("enforces geometry, count and numeric bounds", () => {
+    const wall = { id: "wall", start: { x: 0, y: 0 }, end: { x: 18, y: 17 }, style: "solid" as const };
+    expect(parseSitePlanDocument({ ...EMPTY_SITE_PLAN_DOCUMENT, walls: [wall] })).not.toBeNull();
+    expect(parseSitePlanDocument({ ...EMPTY_SITE_PLAN_DOCUMENT, walls: [{ ...wall, end: { x: 18.01, y: 17 } }] })).toBeNull();
+    expect(parseSitePlanDocument({ ...EMPTY_SITE_PLAN_DOCUMENT, walls: Array.from({ length: 501 }, (_, index) => ({ ...wall, id: `w-${index}` })) })).toBeNull();
   });
 
   it("normalizes drawing names", () => {
     expect(cleanSitePlanDrawingName("  Upper   floor  ")).toBe("Upper floor");
+    const supplementaryBoundary = `${"a".repeat(119)}😀tail`;
+    const truncated = cleanSitePlanDrawingName(supplementaryBoundary);
+    expect([...truncated]).toHaveLength(120);
+    expect(truncated.endsWith("😀")).toBe(true);
+    expect(truncated).not.toContain("\ufffd");
     expect(cleanSitePlanDrawingName(null)).toBe("");
   });
 });

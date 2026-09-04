@@ -135,9 +135,12 @@ function loadCommunicationDeliveryModule(fetchProxy) {
   assert.match(rawMime, /From: "Reddyn Wallace" <reddyn@insulmax\.co\.nz>/);
   assert.match(rawMime, /Content-Type: multipart\/alternative/);
   assert.match(rawMime, /Content-Type: text\/plain; charset=UTF-8/);
-  assert.match(rawMime, /Reddyn Wallace\r\ninsulmax\.co\.nz/);
+  const mimeParts = [...rawMime.matchAll(/Content-Transfer-Encoding: base64\r\n\r\n([A-Za-z0-9+/=\r\n]+?)(?=\r\n--)/g)]
+    .map((match) => Buffer.from(match[1].replace(/\r\n/g, ""), "base64").toString("utf8"));
+  assert.match(mimeParts[0], /Reddyn Wallace\ninsulmax\.co\.nz/);
   assert.match(rawMime, /Content-Type: text\/html; charset=UTF-8/);
-  assert.match(rawMime, /<div style="color:#f36c21"><b>Reddyn Wallace<\/b><br><a href="https:\/\/insulmax\.co\.nz">insulmax\.co\.nz<\/a><\/div>/);
+  assert.match(mimeParts[1], /<div style="color:#f36c21"><b>Reddyn Wallace<\/b><br><a href="https:\/\/insulmax\.co\.nz">insulmax\.co\.nz<\/a><\/div>/);
+  assert.ok(Math.max(...rawMime.split("\r\n").map((line) => Buffer.byteLength(line, "utf8"))) <= 998);
 
   let smsgateUrl = "";
   let smsgateBody;
