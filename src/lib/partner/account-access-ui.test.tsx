@@ -21,6 +21,7 @@ async function users(rows = [active, pending, disabled]) {
   await screen.findByText(rows[0].name);
 }
 function creation() {
+  fireEvent.click(screen.getByRole("button", { name: "Add user" }));
   fireEvent.change(screen.getByLabelText("User name"), { target: { value: "New Person" } });
   fireEvent.change(screen.getByLabelText("User email"), { target: { value: "NEW@example.test" } });
 }
@@ -37,7 +38,7 @@ describe("Partner account management in normal Settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send invitation" }));
     await screen.findByText("Invitation email sent.");
     expect(mocks.request).toHaveBeenCalledWith("/api/settings/partners/company-1/users/invite", "POST", { name: "New Person", email: "new@example.test", role:"SALES" });
-    expect(screen.getByLabelText("User name")).toHaveProperty("value", "");
+    await waitFor(() => expect(screen.queryByLabelText("User name")).toBeNull());
   });
   it("retains manual initial-password creation with password validation", async () => {
     await users(); creation();
@@ -51,7 +52,7 @@ describe("Partner account management in normal Settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create user" }));
     await screen.findByText("User created. Share their password securely.");
     expect(mocks.request).toHaveBeenCalledWith("/api/settings/partners/company-1/users", "POST", { name: "New Person", email: "new@example.test", initialPassword: password, role:"SALES" });
-    expect(screen.getByLabelText("Initial password")).toHaveProperty("value", "");
+    await waitFor(() => expect(screen.queryByLabelText("Initial password")).toBeNull());
   });
   it("shows delivery failures honestly and refreshes the pending user without claiming sent", async () => {
     await users(); creation();
@@ -111,8 +112,10 @@ describe("Partner account management in normal Settings", () => {
   });
   it("cancelling override performs no write and disabled users have no account actions", async () => {
     await users();
+    expect(screen.queryByText(disabled.name)).toBeNull();
+    fireEvent.change(screen.getByLabelText("Show users"), {target:{value:"all"}});
     const disabledRow = screen.getByText(disabled.name).closest("li")!;
-    expect(within(disabledRow).getByRole("button", {name:"Reactivate"})).toBeTruthy();
+    expect(within(disabledRow).getByRole("button", {name:"Unarchive"})).toBeTruthy();
     expect(within(disabledRow).queryByRole("button", {name:"Send password reset"})).toBeNull();
     fireEvent.click(screen.getAllByRole("button", { name: "Set password" })[0]);
     fireEvent.change(screen.getByLabelText("New password"), { target: { value: password } });

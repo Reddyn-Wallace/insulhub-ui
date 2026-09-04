@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { EMPTY_LEAD_DRAFT } from "./draft";
-import { PartnerOpsRepository, PartnerRepository, type InternalPrincipal, type PartnerPrincipal } from "./repository";
+import { partnerJobView, PartnerOpsRepository, PartnerRepository, type InternalPrincipal, type PartnerPrincipal } from "./repository";
 import { createPartnerTestDatabase } from "./test-db";
 import { setQuoteProductEnabled } from "./quote";
 
@@ -18,6 +18,29 @@ async function fixture() {
 }
 
 describe("company-scoped partner repositories", () => {
+  it("returns the recorded submission date and preserves timestamps on reads", async () => {
+    const {pool,a,aSubmitted}=await fixture();
+    const repository=new PartnerRepository(pool);
+    const principal:PartnerPrincipal={userId:"a1",companyId:a,principalType:"PARTNER"};
+    await pool.query("UPDATE partner_jobs SET submission_started_at=$2,submitted_at=$2,updated_at=$3 WHERE id=$1",[aSubmitted,"2026-09-01T00:00:00.000Z","2026-09-02T00:00:00.000Z"]);
+    const job=await repository.getJob(principal,aSubmitted);
+    expect(partnerJobView(job!)).toMatchObject({submittedAt:"2026-09-01T00:00:00.000Z",updatedAt:"2026-09-02T00:00:00.000Z"});
+    expect((await repository.getJob(principal,aSubmitted))?.updatedAt).toBe(job!.updatedAt);
+    await pool.end();
+  });
+
+  it("exposes stored final references and supports searching them", async () => {
+    const { pool, a, aSubmitted } = await fixture();
+    const repository = new PartnerRepository(pool);
+    const principal: PartnerPrincipal = { userId: "a1", companyId: a, principalType: "PARTNER" };
+    await pool.query("UPDATE partner_jobs SET final_quote_number=$2,legacy_job_number=$3 WHERE id=$1", [aSubmitted, "NW-1234", 1234]);
+    const job = await repository.getJob(principal, aSubmitted);
+    expect(partnerJobView(job!)).toMatchObject({ finalQuoteNumber: "NW-1234", legacyJobNumber: 1234, clientReference: "a-submitted" });
+    expect((await repository.listJobs(principal, { search: "nw-1234" })).map(job => job.id)).toEqual([aSubmitted]);
+    expect((await repository.listJobs(principal, { search: "1234" })).map(job => job.id)).toEqual([aSubmitted]);
+    await pool.end();
+  });
+
   it("enforces zero fees on create/update and old drafts without rewriting historical submitted jobs",async()=>{
     const {pool,a,aJob,aSubmitted}=await fixture();const repository=new PartnerRepository(pool);
     const principal:PartnerPrincipal={userId:"a1",companyId:a,principalType:"PARTNER"};

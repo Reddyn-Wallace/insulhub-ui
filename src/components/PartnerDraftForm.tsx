@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import {partnerJobReference} from "@/lib/partner/job-reference";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -356,7 +357,7 @@ export default function PartnerDraftForm({ initialJob: providedJob, initialQuote
     const target = errorTarget(path, draft.quote.extras.length);
     return target?.id === targetId && target.id !== fieldId(path);
   }).map(([path, detail]) => <span key={path} id={errorId(path)} className="block text-xs text-red-700">{detail}</span>);
-  const title = initialJob ? `${readOnly ? "Job" : "Edit"} ${initialJob.clientReference}` : "New quote / lead";
+  const title = initialJob ? readOnly ? partnerJobReference(initialJob) : `Edit ${initialJob.clientReference}` : "New quote / lead";
 
   return <div className="mx-auto max-w-5xl">
     <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

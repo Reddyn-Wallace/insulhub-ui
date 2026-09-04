@@ -49,7 +49,7 @@ describe("partner-facing Auckland dates", () => {
 
     const container = document.createElement("div");
     container.innerHTML = serverMarkup;
-    expect(container.textContent).toContain("Updated 30 Aug 2026");
+    expect(container.textContent).toContain("Last updated 30 Aug 2026");
     const normalizedServerMarkup = container.innerHTML;
     document.body.append(container);
     process.env.TZ = "America/Los_Angeles";
@@ -60,7 +60,7 @@ describe("partner-facing Auckland dates", () => {
     });
 
     expect(container.innerHTML).toBe(normalizedServerMarkup);
-    expect(container.textContent).toContain("Updated 30 Aug 2026");
+    expect(container.textContent).toContain("Last updated 30 Aug 2026");
     expect(hydrationErrors).not.toHaveBeenCalled();
     await act(async () => root?.unmount());
   });

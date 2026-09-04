@@ -27,6 +27,8 @@ export interface PartnerJobRecord extends LeadDraftFields {
   id: string;
   companyId: string;
   clientReference: string;
+  finalQuoteNumber?: string | null;
+  legacyJobNumber?: number | null;
   submissionState: PartnerSubmissionState;
   revision: number;
   trackingFacts: PartnerTrackingFact[];
@@ -34,6 +36,7 @@ export interface PartnerJobRecord extends LeadDraftFields {
   quote: QuoteDraft;
   quoteCalculation: QuoteCalculation;
   createdAt: string;
+  submittedAt?: string | null;
   updatedAt: string;
 }
 
@@ -42,20 +45,22 @@ export type PartnerJobView = Omit<PartnerJobRecord, "companyId">;
 export function partnerJobView(job: PartnerJobRecord): PartnerJobView {
   return {
     id: job.id, clientReference: job.clientReference, submissionState: job.submissionState,
+    finalQuoteNumber: job.finalQuoteNumber ?? null, legacyJobNumber: job.legacyJobNumber ?? null,
     customerName: job.customerName, customerMobile: job.customerMobile,
     customerEmail: job.customerEmail, siteAddress: job.siteAddress, leadSources: job.leadSources,
     notes: job.notes, revision: job.revision, trackingFacts: job.trackingFacts, linkedStatus: job.linkedStatus ?? null,
     quote: job.quote, quoteCalculation: job.quoteCalculation,
-    createdAt: job.createdAt, updatedAt: job.updatedAt,
+    createdAt: job.createdAt, submittedAt: job.submittedAt ?? null, updatedAt: job.updatedAt,
   };
 }
 
 type JobRow = {
   id: string; company_id: string; client_reference: string; submission_state: PartnerSubmissionState;
+  final_quote_number: string | null; legacy_job_number: number | string | null;
   customer_name: string;
   customer_mobile: string; customer_email: string; site_address: LeadDraftFields["siteAddress"];
   lead_sources: LeadDraftFields["leadSources"]; notes: string; revision: number;
-  fact_type: PartnerTrackingFact | null; created_at: Date | string; updated_at: Date | string;
+  fact_type: PartnerTrackingFact | null; submitted_at: Date | string | null; created_at: Date | string; updated_at: Date | string;
   quote_data: QuoteDraft | null; quote_defaults_snapshot: QuoteDefaultsSnapshot | null;
   quote_default_wall_rate_cents: number | null; quote_default_ceiling_rate_cents: number | null;
   quote_default_deposit_basis_points: number; quote_default_consent_fee_cents: number;
@@ -91,11 +96,12 @@ function jobsFromRows(rows: JobRow[]): PartnerJobRecord[] {
       job = {
         id: row.id, companyId: row.company_id, clientReference: row.client_reference,
         submissionState: row.submission_state,
+        finalQuoteNumber: row.final_quote_number ?? null, legacyJobNumber: row.legacy_job_number == null ? null : Number(row.legacy_job_number),
         customerName: row.customer_name, customerMobile: row.customer_mobile, customerEmail: row.customer_email,
         siteAddress: row.site_address ?? { street: "", suburb: "", city: "", postcode: "" },
         leadSources: row.lead_sources ?? [], notes: row.notes, revision: row.revision, trackingFacts: [],
         quote, quoteCalculation: calculateQuote(quote),
-        createdAt: iso(row.created_at), updatedAt: iso(row.updated_at),
+        createdAt: iso(row.created_at), submittedAt: row.submitted_at ? iso(row.submitted_at) : null, updatedAt: iso(row.updated_at),
         linkedStatus: row.link_checked_at ? { checkedAt: iso(row.link_checked_at), ebaCompleted: row.link_eba_completed,
           installDate: row.link_install_date, jobCompleted: row.link_job_completed } : null,
       };
@@ -107,9 +113,9 @@ function jobsFromRows(rows: JobRow[]): PartnerJobRecord[] {
 }
 
 const JOB_SELECT = `SELECT j.id, j.company_id, j.client_reference, j.submission_state,
-  j.customer_name, j.customer_mobile, j.customer_email,
+  j.final_quote_number, j.legacy_job_number, j.customer_name, j.customer_mobile, j.customer_email,
   j.site_address, j.lead_sources, j.notes, j.quote_data, j.quote_defaults_snapshot,
-  j.revision, j.created_at, j.updated_at, f.fact_type,
+  j.revision, j.created_at, j.submitted_at, j.updated_at, f.fact_type,
   l.checked_at AS link_checked_at, l.eba_completed AS link_eba_completed,
   to_char(l.install_date,'YYYY-MM-DD') AS link_install_date, l.job_completed AS link_job_completed,
   c.quote_default_wall_rate_cents, c.quote_default_ceiling_rate_cents,
@@ -178,7 +184,7 @@ export class PartnerRepository {
     const predicates = ["j.company_id = $1", "j.deleted_at IS NULL"];
     if (filters.search) {
       values.push(`%${filters.search.toLowerCase()}%`);
-      predicates.push(`(lower(j.customer_name) LIKE $${values.length} OR lower(j.client_reference) LIKE $${values.length})`);
+      predicates.push(`(lower(j.customer_name) LIKE $${values.length} OR lower(j.client_reference) LIKE $${values.length} OR lower(j.final_quote_number) LIKE $${values.length} OR CAST(j.legacy_job_number AS text) LIKE $${values.length})`);
     }
     if (filters.submissionState) {
       values.push(filters.submissionState);

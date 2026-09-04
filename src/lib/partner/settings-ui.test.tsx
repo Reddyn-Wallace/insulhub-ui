@@ -21,6 +21,7 @@ describe("Partners within normal InsulHub Settings",()=>{
     await screen.findByRole("heading",{name:"Test Partner"});
     await screen.findByDisplayValue("notify@example.test");
     expect(screen.getByRole("heading",{name:"Settings",level:1})).toBeTruthy();
+    expect(screen.getByText("Submission notifications").closest("details")).toHaveProperty("open",false);
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(fetcher).toHaveBeenCalledWith("/api/settings/partners",expect.objectContaining({headers:{"x-access-token":"normal-insulhub-test-token"}}));
     expect(fetcher).toHaveBeenCalledWith("/api/settings/partners/notifications",expect.objectContaining({headers:{"x-access-token":"normal-insulhub-test-token"}}));
@@ -33,7 +34,7 @@ describe("Partners within normal InsulHub Settings",()=>{
     const fetcher=vi.fn(async(url:string,init?:RequestInit)=>url.endsWith("/notifications")&&init?.method==="PUT"
       ?Response.json({settings:{recipientEmail:"new@example.test",revision:1,updatedAt:"2026-09-02T01:00:00.000Z"}})
       :Response.json(url.endsWith("/notifications")?{settings:{recipientEmail:"notify@example.test",revision:0,updatedAt:"2026-09-02T00:00:00.000Z"}}:{companies:[company]}));vi.stubGlobal("fetch",fetcher);
-    render(<SettingsPage/>);const input=await screen.findByDisplayValue("notify@example.test");
+    render(<SettingsPage/>);fireEvent.click(await screen.findByText("Submission notifications"));const input=await screen.findByDisplayValue("notify@example.test");
     expect(screen.getByText(/each email includes the customer name, property address and quote total/i)).toBeTruthy();fireEvent.change(input,{target:{value:"new@example.test"}});
     appDialog.confirm.mockResolvedValueOnce(false);fireEvent.click(screen.getByRole("button",{name:"Save email"}));await waitFor(()=>expect(appDialog.confirm).toHaveBeenCalledOnce());expect(fetcher.mock.calls.filter(([,init])=>init?.method==="PUT")).toHaveLength(0);
     appDialog.confirm.mockResolvedValueOnce(true);fireEvent.click(screen.getByRole("button",{name:"Save email"}));await screen.findByText("Submission notification email saved.");

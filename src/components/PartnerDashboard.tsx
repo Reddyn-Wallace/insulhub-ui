@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import {partnerJobReference as jobReference} from "@/lib/partner/job-reference";
 import PartnerDeleteDraftButton from "./PartnerDeleteDraftButton";
 import PartnerContactStatus from "./PartnerContactStatus";
 import { useDeferredValue, useMemo, useState } from "react";
@@ -23,10 +24,11 @@ const STATUS: Record<PartnerSubmissionState, { label: string; className: string 
   RECONCILIATION_REQUIRED: { label: "Contact Insulmax", className: "bg-amber-50 text-amber-900" },
 };
 
+
 export function filterPartnerJobs(jobs: PartnerJobView[], search: string, filter: "ALL" | PartnerSubmissionState | "NEEDS_ATTENTION"): PartnerJobView[] {
   const query = search.trim().toLowerCase();
   return jobs.filter((job) => {
-    const matchesSearch = !query || job.customerName.toLowerCase().includes(query) || job.clientReference.toLowerCase().includes(query);
+    const matchesSearch = !query || job.customerName.toLowerCase().includes(query) || job.clientReference.toLowerCase().includes(query) || jobReference(job).toLowerCase().includes(query) || String(job.legacyJobNumber ?? "").includes(query);
     const matchesFilter = filter === "ALL" || (filter === "NEEDS_ATTENTION" ? ["FAILED_RETRYABLE", "RECONCILIATION_REQUIRED"].includes(job.submissionState) : job.submissionState === filter);
     return matchesSearch && matchesFilter;
   });
@@ -42,7 +44,7 @@ function milestoneRows(job: PartnerJobView) {
 
 function JobMilestones({ job }: { job: PartnerJobView }) {
   return (
-    <ul className="flex flex-wrap gap-x-3 gap-y-1 text-xs" aria-label={`Milestones for ${job.clientReference}`}>
+    <ul className="flex flex-wrap gap-x-3 gap-y-1 text-xs" aria-label={`Milestones for ${jobReference(job)}`}>
       {milestoneRows(job).map((milestone) => (
         <li key={milestone.label} className="inline-flex items-center gap-1">
           <span className="font-medium text-gray-600">{milestone.label}</span>
@@ -59,15 +61,18 @@ function JobRow({ job, recoveryScope, onDeleted }: { job: PartnerJobView; recove
     <article className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm lg:flex-row lg:items-center lg:gap-6">
       <div className="flex min-w-0 flex-1 items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">{job.clientReference}</p>
+          <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">{jobReference(job)}</p>
           <h2 className="truncate text-base font-bold text-[#1a3a4a]">{job.customerName || "Customer details pending"}</h2>
-          <p className="mt-1 text-sm text-gray-600">{[job.siteAddress.suburb, job.siteAddress.city].filter(Boolean).join(", ") || "Site address pending"}</p>
+          <p className="mt-1 text-sm text-gray-600">{[job.siteAddress.street, job.siteAddress.suburb, job.siteAddress.city, job.siteAddress.postcode].map(part => part.trim()).filter(Boolean).join(", ") || "Site address pending"}</p>
         </div>
         {["FAILED_RETRYABLE", "RECONCILIATION_REQUIRED"].includes(job.submissionState) ? <PartnerContactStatus reference={job.clientReference} /> : <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${status.className}`}>{status.label}</span>}
       </div>
       <div className="lg:w-64 lg:shrink-0"><JobMilestones job={job} /></div>
       <div className="flex flex-wrap items-center gap-x-2 lg:w-64 lg:shrink-0">
-        <p className="mr-auto text-xs text-gray-500">{job.linkedStatus ? "Status checked" : "Updated"} {formatPartnerDate(job.linkedStatus?.checkedAt ?? job.updatedAt)}</p>
+        <div className="mr-auto text-xs leading-5 text-gray-500">
+          {job.submittedAt ? <p>Submitted <time dateTime={job.submittedAt}>{formatPartnerDate(job.submittedAt)}</time></p> : null}
+          <p>Last updated <time dateTime={job.updatedAt}>{formatPartnerDate(job.updatedAt)}</time></p>
+        </div>
         {job.submissionState === "DRAFT" && <PartnerDeleteDraftButton jobId={job.id} revision={job.revision} reference={job.clientReference} recoveryScope={recoveryScope} onDeleted={onDeleted} />}
         {job.submissionState === "DRAFT" ? <Link href={`/partner/jobs/${job.id}`} className="inline-flex min-h-11 items-center rounded-lg bg-[#1a3a4a] px-3 py-2 text-sm font-semibold text-white hover:bg-[#122b37] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e85d04] focus-visible:ring-offset-2">Edit draft</Link> : <Link href={`/partner/jobs/${job.id}`} className="inline-flex min-h-11 items-center rounded-lg border border-[#1a3a4a] px-3 py-2 text-sm font-semibold text-[#1a3a4a] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e85d04] focus-visible:ring-offset-2">View job</Link>}
       </div>

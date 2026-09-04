@@ -28,6 +28,35 @@ const job: PartnerJobView = {
 };
 
 describe("partner portal UI states", () => {
+  it("shows submission and saved update dates without using the status-check date", () => {
+    const submitted = {...job, submissionState:"SUBMITTED" as const, submittedAt:"2026-08-30T00:00:00.000Z", updatedAt:"2026-08-31T00:00:00.000Z", linkedStatus:{checkedAt:"2026-09-02T00:00:00.000Z",ebaCompleted:false,installDate:null,jobCompleted:false}};
+    const html = renderToStaticMarkup(<PartnerDashboard jobs={[submitted]} companyName="Northwind Insulation"/>);
+    expect(html).toContain('Submitted <time dateTime="2026-08-30T00:00:00.000Z"');
+    expect(html).toContain('Last updated <time dateTime="2026-08-31T00:00:00.000Z"');
+    expect(html).not.toContain("Status checked");
+    expect(html).not.toContain("2026-09-02");
+    const draft = renderToStaticMarkup(<PartnerDashboard jobs={[job]} companyName="Northwind Insulation"/>);
+    expect(draft).not.toContain("Submitted <time");
+    expect(draft).toContain("Last updated <time");
+  });
+
+  it("shows final submitted references, safe fallbacks, and full site addresses", () => {
+    const submitted = { ...job, clientReference: "DRAFT-260829A8", submissionState: "SUBMITTED" as const, finalQuoteNumber: "NW-1234", legacyJobNumber: 1234,
+      siteAddress: { street: "12 Example Road", suburb: "Brookfield", city: "Tauranga", postcode: "3110" } };
+    const render = (value: PartnerJobView) => renderToStaticMarkup(<PartnerDashboard jobs={[value]} companyName="Northwind Insulation" />);
+    expect(render(submitted)).toContain("NW-1234");
+    expect(render(submitted)).not.toContain("DRAFT-260829A8");
+    expect(render(submitted)).toContain("12 Example Road, Brookfield, Tauranga, 3110");
+    expect(render({ ...submitted, finalQuoteNumber: null })).toContain("Job 1234");
+    const missingReference = render({ ...submitted, finalQuoteNumber: null, legacyJobNumber: null });
+    expect(missingReference).toContain("Submitted job");
+    expect(missingReference).not.toContain("DRAFT-260829A8");
+    expect(render({ ...submitted, submissionState: "DRAFT", finalQuoteNumber: null, legacyJobNumber: null })).toContain("DRAFT-260829A8");
+    expect(filterPartnerJobs([submitted], "nw-1234", "ALL")).toEqual([submitted]);
+    expect(filterPartnerJobs([submitted], "1234", "ALL")).toEqual([submitted]);
+    expect(filterPartnerJobs([submitted], "draft-260829a8", "ALL")).toEqual([submitted]);
+  });
+
   it("filters dashboard jobs by customer, reference and attention state", () => {
     const attention = { ...job, id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", clientReference: "DEMO-ERR", customerName: "Another Person", submissionState: "FAILED_RETRYABLE" as const };
     expect(filterPartnerJobs([job, attention], "fictional", "ALL")).toEqual([job]);
@@ -49,7 +78,7 @@ describe("partner portal UI states", () => {
     const error = renderToStaticMarkup(<PartnerDashboard jobs={[]} companyName="Northwind Insulation" errorMessage="Try again later." />);
     expect(error).toContain("role=\"alert\"");
     expect(error).toContain("Jobs could not be loaded");
-    expect(renderToStaticMarkup(<PartnerDashboard jobs={[{ ...job, updatedAt: "not-a-timestamp" }]} companyName="Northwind Insulation" />)).toContain("Updated Date unavailable");
+    expect(renderToStaticMarkup(<PartnerDashboard jobs={[{ ...job, updatedAt: "not-a-timestamp" }]} companyName="Northwind Insulation" />)).toContain('Last updated <time dateTime="not-a-timestamp">Date unavailable</time>');
   });
 
   it("renders accessible permissive draft fields and save feedback affordances", () => {
