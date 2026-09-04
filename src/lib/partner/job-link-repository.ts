@@ -3,6 +3,8 @@ import type { PartnerSql } from "./db";
 import { JobLinkError, type JobLinkTarget, type LinkablePartnerJob } from "./job-link";
 import { PARTNER_SETTINGS_SERVICE_ID } from "./settings-service";
 
+// SQL link functions retain the legacy invoice field. The portal no longer
+// observes it, so send unknown rather than inventing an invoicing status.
 export class PartnerJobLinkRepository {
   constructor(private readonly sql: PartnerSql) {}
   private async call<T>(sql: string, args: unknown[]): Promise<T> {
@@ -23,17 +25,17 @@ export class PartnerJobLinkRepository {
   }
   commit(companyId: string, jobId: string, revision: number, target: JobLinkTarget) {
     const { checkedAt, ...status } = target.status;
-    return this.call<boolean>("SELECT public.partner_ops_job_link($1,$2,$3,$4,$5,$6,$7::jsonb,$8::timestamptz) result", [companyId, jobId, revision, target.id, target.jobNumber, JSON.stringify(status), checkedAt]);
+    return this.call<boolean>("SELECT public.partner_ops_job_link($1,$2,$3,$4,$5,$6,$7::jsonb,$8::timestamptz) result", [companyId, jobId, revision, target.id, target.jobNumber, JSON.stringify({ ...status, invoiceRecorded: null }), checkedAt]);
   }
   investigationRequired(companyId:string,jobId:string){
     return this.call<"NO_EFFECT_CONFIRMED"|"RETURNED_IDENTITY"|null>("SELECT public.partner_ops_job_link_investigation_required($1,$2,$3) result",[companyId,jobId]);
   }
   commitInvestigated(companyId:string,jobId:string,revision:number,target:JobLinkTarget){
     const {checkedAt,...status}=target.status;
-    return this.call<boolean>("SELECT public.partner_ops_job_link_investigated($1,$2,$3,$4,$5,$6,$7::jsonb,$8::timestamptz) result",[companyId,jobId,revision,target.id,target.jobNumber,JSON.stringify(status),checkedAt]);
+    return this.call<boolean>("SELECT public.partner_ops_job_link_investigated($1,$2,$3,$4,$5,$6,$7::jsonb,$8::timestamptz) result",[companyId,jobId,revision,target.id,target.jobNumber,JSON.stringify({ ...status, invoiceRecorded: null }),checkedAt]);
   }
   refresh(target: JobLinkTarget) {
     const { checkedAt, ...status } = target.status;
-    return this.call<boolean>("SELECT public.partner_ops_job_status($1,$2,$3::jsonb,$4::timestamptz) result", [target.id, JSON.stringify(status), checkedAt]);
+    return this.call<boolean>("SELECT public.partner_ops_job_status($1,$2,$3::jsonb,$4::timestamptz) result", [target.id, JSON.stringify({ ...status, invoiceRecorded: null }), checkedAt]);
   }
 }
