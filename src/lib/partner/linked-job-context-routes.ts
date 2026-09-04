@@ -1,3 +1,4 @@
+import { verifiedNoteAuthor } from "./note-author";
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { requireInsulhubAuth } from "@/lib/insulhub-auth";
@@ -64,7 +65,8 @@ export async function linkedJobContextRoute(request: Request, injected?: LinkedJ
     if (!id || !requestKey || !description || description.length > 1000) return json({ error: "Invalid update." }, 400);
     const link = await deps.links.lookup(id);
     if (!link) return json({ error: "Not found." }, 404);
-    await deps.repository.appendAmendment(actor, link.companyId, link.jobId, { description, requestKey });
+    const author = injected ? undefined : await verifiedNoteAuthor(canonical);
+    await deps.repository.appendAmendment(actor, link.companyId, link.jobId, { description, requestKey, ...author });
     return json(await loadContext(id, deps), 201);
   } catch (error) {
     const code = (error as { code?: string })?.code;

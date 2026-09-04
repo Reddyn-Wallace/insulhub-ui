@@ -1,3 +1,5 @@
+import PartnerUpdateTimeline from "@/components/PartnerUpdateTimeline";
+import { PartnerNoteRepository } from "@/lib/partner/note-repository";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import PartnerDraftForm from "@/components/PartnerDraftForm";
@@ -22,6 +24,7 @@ export default async function PartnerDraftPage({ params }: { params: Promise<{ j
   const job = await context.repository.getJob(context.principal, (await params).jobId);
   if (!job) notFound();
   const visibleJob = partnerJobView(job);
+  const updates = job.submissionState === "DRAFT" ? null : await new PartnerNoteRepository(getPartnerPool()).feed(context.principal, job.id);
   const floorPlans = await new PartnerSitePlanRepository(getPartnerPool()).list(context.principal, job.id);
   if (!floorPlans) notFound();
   let submissionStatus:PartnerSubmissionView|null=null;
@@ -30,6 +33,7 @@ export default async function PartnerDraftPage({ params }: { params: Promise<{ j
     <PartnerShell viewer={context.viewer} demoMode={partnerDemoModeEnabled()} recoveryScope={context.recoveryScope}>
       {job.submissionState === "DRAFT" ? <PartnerDraftForm key={visibleJob.id} initialJob={visibleJob} initialFloorPlans={floorPlanCollectionClientView(floorPlans)} recoveryScope={context.recoveryScope} /> : <div className="mx-auto max-w-5xl space-y-6">
         {submissionStatus && submissionStatus.state !== "DRAFT" ? <PartnerSubmissionStatusPanel backgroundOnly jobId={job.id} initialStatus={submissionStatus} demoMode={partnerDemoModeEnabled()} /> : null}
+        {updates ? <PartnerUpdateTimeline jobId={job.id} feed={updates} /> : null}
         <PartnerDraftForm readOnly key={visibleJob.id} initialJob={visibleJob} initialFloorPlans={floorPlanCollectionClientView(floorPlans)} recoveryScope={context.recoveryScope} />
       </div>}
     </PartnerShell>

@@ -5,6 +5,7 @@ export type PartnerVisibleAmendment = {
   sequence: number;
   description: string;
   createdAt: string;
+  authorName?: string;
 };
 
 export type NeutralPartnerTracking = {
@@ -42,7 +43,7 @@ export function neutralPartnerTracking(value: unknown): NeutralPartnerTracking |
   const amendments = Array.isArray(value.amendments) ? value.amendments.flatMap((item) => {
     if (!record(item) || !Number.isSafeInteger(item.sequence) || Number(item.sequence) < 1 || typeof item.description !== "string") return [];
     const description = item.description.trim(), createdAt = iso(item.createdAt);
-    return description && description.length <= 1000 && createdAt ? [{ sequence: Number(item.sequence), description, createdAt }] : [];
+    return description && description.length <= 1000 && createdAt ? [{ sequence: Number(item.sequence), description, createdAt, ...(typeof item.authorName === "string" && item.authorName.trim() && item.authorName.length <= 200 ? { authorName: item.authorName.trim() } : {}) }] : [];
   }) : [];
   return { id: value.id, clientReference: value.clientReference, milestones, amendments };
 }

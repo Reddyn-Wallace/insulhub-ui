@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import {partnerJobReference as jobReference} from "@/lib/partner/job-reference";
+import PartnerUnreadUpdates, { usePartnerUnreadUpdates } from "./PartnerUnreadUpdates";
 import PartnerDeleteDraftButton from "./PartnerDeleteDraftButton";
 import PartnerContactStatus from "./PartnerContactStatus";
 import { useDeferredValue, useMemo, useState } from "react";
@@ -55,7 +56,7 @@ function JobMilestones({ job }: { job: PartnerJobView }) {
   );
 }
 
-function JobRow({ job, recoveryScope, onDeleted }: { job: PartnerJobView; recoveryScope: string; onDeleted: () => void }) {
+function JobRow({ job, recoveryScope, onDeleted, unread }: { job: PartnerJobView; recoveryScope: string; onDeleted: () => void; unread: boolean }) {
   const status = STATUS[job.submissionState];
   return (
     <article className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm lg:flex-row lg:items-center lg:gap-6">
@@ -64,6 +65,7 @@ function JobRow({ job, recoveryScope, onDeleted }: { job: PartnerJobView; recove
           <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">{jobReference(job)}</p>
           <h2 className="truncate text-base font-bold text-[#1a3a4a]">{job.customerName || "Customer details pending"}</h2>
           <p className="mt-1 text-sm text-gray-600">{[job.siteAddress.street, job.siteAddress.suburb, job.siteAddress.city, job.siteAddress.postcode].map(part => part.trim()).filter(Boolean).join(", ") || "Site address pending"}</p>
+          {unread ? <PartnerUnreadUpdates /> : null}
         </div>
         {["FAILED_RETRYABLE", "RECONCILIATION_REQUIRED"].includes(job.submissionState) ? <PartnerContactStatus reference={job.clientReference} /> : <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${status.className}`}>{status.label}</span>}
       </div>
@@ -81,6 +83,7 @@ function JobRow({ job, recoveryScope, onDeleted }: { job: PartnerJobView; recove
 }
 
 export default function PartnerDashboard({ jobs, companyName, errorMessage = "", recoveryScope = "", submitted = false }: { submitted?: boolean; jobs: PartnerJobView[]; companyName: string; errorMessage?: string; recoveryScope?: string }) {
+  const unread = usePartnerUnreadUpdates();
   const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
   const remainingJobs = useMemo(() => jobs.filter(job => !deletedIds.has(job.id)), [jobs, deletedIds]);
   const [search, setSearch] = useState("");
@@ -110,7 +113,7 @@ export default function PartnerDashboard({ jobs, companyName, errorMessage = "",
 
       <p className="sr-only" role="status" aria-live="polite">Showing {visibleJobs.length} of {remainingJobs.length} jobs.</p>
       <section className="mt-5" aria-label="Company jobs">
-        {visibleJobs.length ? <div className="flex flex-col gap-2">{visibleJobs.map((job) => <JobRow key={job.id} job={job} recoveryScope={recoveryScope} onDeleted={() => setDeletedIds(previous => new Set([...previous, job.id]))} />)}</div> : <div className="rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-12 text-center"><h2 className="text-lg font-bold text-[#1a3a4a]">{remainingJobs.length ? "No jobs match these filters" : "No partner jobs yet"}</h2><p className="mt-2 text-sm text-gray-600">{remainingJobs.length ? "Clear the search or choose another status." : "Start a permissive lead draft and add details as they become available."}</p>{remainingJobs.length ? <button type="button" onClick={() => { setSearch(""); setFilter("ALL"); }} className="mt-4 rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-[#1a3a4a]">Clear filters</button> : <Link href="/partner/jobs/new" className="mt-4 inline-flex rounded-lg bg-[#c04e03] px-4 py-2 text-sm font-semibold text-white">New quote / lead</Link>}</div>}
+        {visibleJobs.length ? <div className="flex flex-col gap-2">{visibleJobs.map((job) => <JobRow key={job.id} job={job} unread={unread.has(job.id)} recoveryScope={recoveryScope} onDeleted={() => setDeletedIds(previous => new Set([...previous, job.id]))} />)}</div> : <div className="rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-12 text-center"><h2 className="text-lg font-bold text-[#1a3a4a]">{remainingJobs.length ? "No jobs match these filters" : "No partner jobs yet"}</h2><p className="mt-2 text-sm text-gray-600">{remainingJobs.length ? "Clear the search or choose another status." : "Start a permissive lead draft and add details as they become available."}</p>{remainingJobs.length ? <button type="button" onClick={() => { setSearch(""); setFilter("ALL"); }} className="mt-4 rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-[#1a3a4a]">Clear filters</button> : <Link href="/partner/jobs/new" className="mt-4 inline-flex rounded-lg bg-[#c04e03] px-4 py-2 text-sm font-semibold text-white">New quote / lead</Link>}</div>}
       </section>
     </div>
   );

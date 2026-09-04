@@ -9,8 +9,11 @@ import {
   UPDATE_JOB_QUOTE, ARCHIVE_JOB, UPDATE_CLIENT, SEND_EBA, ADD_FILES, REMOVE_FILE,
 } from "@/lib/mutations";
 import BottomSheet from "@/components/BottomSheet";
+import PartnerNoteComposer from "@/components/PartnerNoteComposer";
+import PartnerSharedNotes from "@/components/PartnerSharedNotes";
+import { settingsRequest } from "@/lib/partner/settings-client";
+import type { NeutralPartnerTracking } from "@/lib/partner/neutral-tracking";
 import PartnerLinkedJobSync from "@/components/PartnerLinkedJobSync";
-import PartnerLinkedJobPanel from "@/components/PartnerLinkedJobPanel";
 import AddressAutocomplete from "@/components/AddressAutocomplete";
 import InstallPlanningForm, { DateTimeCalendarField, InstallPlanningActions } from "@/components/InstallPlanningForm";
 import { useAppDialog } from "@/components/AppDialog";
@@ -436,7 +439,18 @@ export default function JobDetailPage() {
   const [detailTab, setDetailTab] = useState<"job" | "quote">("quote");
 
   // Note form
-  const [noteText, setNoteText] = useState("");
+  const [noteContext, setNoteContext] = useState<{linked: false} | {linked: true; companyName: string; tracking: NeutralPartnerTracking} | null>(null);
+  useEffect(() => {
+    let active = true;
+    setNoteContext(null);
+    void settingsRequest<{linked:false}|{linked:true;companyName:string;tracking:NeutralPartnerTracking}>(`/api/settings/partners/job-context?legacyId=${encodeURIComponent(String(id))}`).then(context=>{if(active)setNoteContext(context);}).catch(()=>{});
+    return()=>{active=false;};
+  }, [id]);
+  async function postPartnerNote(description: string, requestKey: string) {
+    const context = await settingsRequest<{linked:false}|{linked:true;companyName:string;tracking:NeutralPartnerTracking}>("/api/settings/partners/job-context","POST",{legacyId:id,description,requestKey});
+    setNoteContext(context);
+  }
+  const sharedNotes = noteContext?.linked ? noteContext.tracking.amendments.map(note=>({...note,authorName:note.authorName||"InsulHub team"})) : [];
   const [fullNoteText, setFullNoteText] = useState("");
   const [deadNoteText, setDeadNoteText] = useState("");
 
@@ -1080,18 +1094,19 @@ export default function JobDetailPage() {
     });
   }
 
-  async function saveNotesFast(nextNotes: string, onError?: () => void) {
+  async function saveNotesFast(nextNotes: string, onError?: () => void, keepOpen = false) {
     const previousJob = job;
     setSaving(true);
     setError("");
     setJobNotes(nextNotes);
-    closeSheet();
+    if (!keepOpen) closeSheet();
 
     try {
       const result = await gql<{ updateJob: Pick<Job, "_id" | "notes"> }>(UPDATE_JOB_NOTES, {
         input: { _id: id, notes: nextNotes },
       });
       setJobNotes(result.updateJob.notes || "");
+      return true;
     } catch (err) {
       setJob(previousJob);
       if (previousJob && typeof window !== "undefined") {
@@ -1099,20 +1114,10 @@ export default function JobDetailPage() {
       }
       onError?.();
       setError(err instanceof Error ? err.message : "Could not save notes");
+      return false;
     } finally {
       setSaving(false);
     }
-  }
-
-  async function saveNote() {
-    if (!noteText.trim()) return;
-    const submittedText = noteText;
-    const combined = appendNote(job?.notes, noteText);
-    setNoteText("");
-    await saveNotesFast(combined, () => {
-      setNoteText(submittedText);
-      openSheet("addNote");
-    });
   }
 
   async function toggleCouncilApprovalNA(nextValue: boolean) {
@@ -2500,7 +2505,6 @@ export default function JobDetailPage() {
         {error && <div className="bg-red-50 text-red-700 text-sm px-4 py-2 rounded-xl mb-3">{error}</div>}
         {notice && <div className={`text-sm px-4 py-2 rounded-xl mb-3 ${notice.type === "success" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{notice.text}</div>}
         {isArchived && <div className="bg-yellow-50 text-yellow-700 text-sm px-4 py-2 rounded-xl mb-3">⚠️ This job is archived</div>}
-        <PartnerLinkedJobPanel jobId={job._id} version={job.updatedAt} />
 
         {isPostQuoteStage && (
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-1 mb-3 flex gap-1">
@@ -2805,6 +2809,7 @@ export default function JobDetailPage() {
               ) : installPlanningSummaryLines.length > 0 ? null : (
                 <p className="text-sm text-gray-400">No notes yet</p>
               )}
+              <PartnerSharedNotes updates={sharedNotes} />
             </Section>
 
             <div className="mt-1">
@@ -3168,6 +3173,7 @@ export default function JobDetailPage() {
           ) : installPlanningSummaryLines.length > 0 ? null : (
             <p className="text-sm text-gray-400">No notes yet</p>
           )}
+          <PartnerSharedNotes updates={sharedNotes} />
         </Section>
 
           </>
@@ -3326,18 +3332,10 @@ export default function JobDetailPage() {
       </BottomSheet>
 
       {/* Add note */}
-      <BottomSheet open={sheet === "addNote"} onClose={closeSheet} title="Add Note">
-        <textarea
-          value={noteText}
-          onChange={(e) => setNoteText(e.target.value)}
-          placeholder="Type your note..."
-          rows={5}
-          className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04] resize-none mb-4"
-        />
-        <button onClick={saveNote} disabled={saving || !noteText.trim()}
-          className="w-full bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
-          {saving ? "Saving..." : "Add Note"}
-        </button>
+      <BottomSheet open={sheet === "addNote"} onClose={closeSheet} title="Add note">
+        <PartnerNoteComposer partnerName={noteContext?.linked ? noteContext.companyName : undefined}
+          onInternalSave={text => saveNotesFast(appendNote(job?.notes, text), undefined, true)}
+          onPartnerSave={postPartnerNote} onDone={closeSheet} />
       </BottomSheet>
 
       {/* Dead confirmation */}

@@ -14,7 +14,7 @@ export type JobLinkDependencies = {
   origins: ReadonlySet<string>; secret: string;
   verify: (request: NextRequest) => Promise<Response | null>;
   repository: Pick<PartnerJobLinkRepository, "list" | "lookup" | "commit" | "refresh" | "investigationRequired" | "commitInvestigated">;
-  reader: (token: string) => { read: (identifier: string) => Promise<JobLinkTarget> };
+  reader: (token: string) => { read: (identifier: string, options?: {allowArchived?: boolean}) => Promise<JobLinkTarget> };
 };
 const json = (body: unknown, status = 200) => withPartnerNoStore(NextResponse.json(body, { status }));
 export async function partnerJobLinkRoute(request: Request, companyId?: string, jobId?: string, injected?: JobLinkDependencies) {
@@ -43,7 +43,7 @@ export async function partnerJobLinkRoute(request: Request, companyId?: string, 
       const legacyId = body.legacyId.toLowerCase();
       if (!await repo.lookup(legacyId)) return json({ linked: false });
       const observedAt = new Date().toISOString();
-      const target = await reader.read(legacyId);
+      const target = await reader.read(legacyId, {allowArchived:true});
       target.status.checkedAt = observedAt;
       await repo.refresh(target);
       return json({ linked: true, checkedAt: observedAt });
@@ -55,7 +55,7 @@ export async function partnerJobLinkRoute(request: Request, companyId?: string, 
     if (body.action === "refresh") {
       if (!job.linkedStatus || !job.legacyId || Object.keys(body).length !== 1) throw new JobLinkError("CONFLICT", 409);
       const observedAt = new Date().toISOString();
-      const target = await reader.read(job.legacyId);
+      const target = await reader.read(job.legacyId, {allowArchived:true});
       target.status.checkedAt = observedAt;
       await repo.refresh(target);
       return json({ ok: true });

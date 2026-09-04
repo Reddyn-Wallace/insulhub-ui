@@ -46,6 +46,7 @@ function testableUpMigration(): string {
     .replace(/DO \$\$[\s\S]*?END \$\$;/g, "")
     .replace(/SET LOCAL ROLE partner_(?:submission_owner|ops_owner);\s*/g, "")
     .replace(/RESET ROLE;\s*/g, "")
+    .replace(/ALTER TABLE public\.partner_note_reads (?:OWNER TO partner_ops_owner|ENABLE ROW LEVEL SECURITY);/g, "")
     .replace(/ALTER FUNCTION (?:public\.)?partner_[^;]+;/g, "")
     .replace(/DROP FUNCTION (?:public\.)?partner_[^;]+;/g, "")
     .replace(/(?:GRANT|REVOKE) [^;]+;/g, "")
