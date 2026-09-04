@@ -11,10 +11,10 @@ const field = (v: unknown, max = 300): string => {
   if (typeof v !== "string" || v.length > max || /[\u0000-\u001f]/.test(v)) throw new JobLinkError("UNAVAILABLE", 503);
   return v.trim();
 };
-export function parseLinkedJob(value: unknown, checkedAt = new Date().toISOString()): JobLinkTarget {
+export function parseLinkedJob(value: unknown, checkedAt = new Date().toISOString(), allowArchived = false): JobLinkTarget {
   const job = object(value);
   if (!job) throw new JobLinkError("NOT_FOUND", 404);
-  if (typeof job._id !== "string" || !/^[a-f0-9]{24}$/i.test(job._id) || !Number.isSafeInteger(job.jobNumber) || Number(job.jobNumber) <= 0 || job.archivedAt) throw new JobLinkError("UNAVAILABLE", 503);
+  if (typeof job._id !== "string" || !/^[a-f0-9]{24}$/i.test(job._id) || !Number.isSafeInteger(job.jobNumber) || Number(job.jobNumber) <= 0 || (job.archivedAt && !allowArchived)) throw new JobLinkError("UNAVAILABLE", 503);
   const contact = object(object(job.client)?.contactDetails);
   if (!contact) throw new JobLinkError("UNAVAILABLE", 503);
   const customerName = field(contact.name);
@@ -45,7 +45,7 @@ export class LegacyJobStatusReader {
       return body.data as Record<string, unknown>;
     } catch { throw new JobLinkError("UNAVAILABLE", 503); }
   }
-  async read(identifier: string): Promise<JobLinkTarget> {
+  async read(identifier: string, options: {allowArchived?: boolean} = {}): Promise<JobLinkTarget> {
     const parsed = parseJobIdentifier(identifier);
     let id: string;
     if ("id" in parsed) id = parsed.id;
@@ -67,7 +67,7 @@ export class LegacyJobStatusReader {
       if (matches.length !== 1) throw new JobLinkError("NOT_FOUND", 404);
       id = matches[0];
     }
-    const result = parseLinkedJob((await this.query(DETAILS, { id })).job);
+    const result = parseLinkedJob((await this.query(DETAILS, { id })).job, undefined, options.allowArchived === true);
     if (result.id !== id || ("number" in parsed && result.jobNumber !== parsed.number)) throw new JobLinkError("UNAVAILABLE", 503);
     return result;
   }

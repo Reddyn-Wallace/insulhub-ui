@@ -38,6 +38,12 @@ describe("read-only legacy linking adapter", () => {
     send.mockResolvedValue(Response.json({ data: { job: { ...raw(), _id: "b".repeat(24) } } }));
     await expect(new LegacyJobStatusReader("fixture-token", send).read(id)).rejects.toThrow();
   });
+  it("refreshes an already-linked archived job while refusing it as a new link target", async () => {
+    const send=vi.fn<typeof fetch>(async()=>Response.json({data:{job:{...raw(),archivedAt:"2026-09-05T00:00:00Z",ebaForm:{complete:true}}}}));
+    const reader=new LegacyJobStatusReader("fixture-token",send);
+    await expect(reader.read(id)).rejects.toThrow();
+    await expect(reader.read(id,{allowArchived:true})).resolves.toMatchObject({id,status:{ebaCompleted:true}});
+  });
   it("searches exact job number, refuses ambiguous or truncated results and sanitizes upstream failures", async () => {
     const send = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({ data: { jobs: { total: 2, results: [{ _id: id, jobNumber: 1234 }, { _id: "b".repeat(24), jobNumber: 12345 }] } } })).mockResolvedValueOnce(Response.json({ data: { job: raw() } }));
     expect((await new LegacyJobStatusReader("fixture-token", send).read("1234")).id).toBe(id);
@@ -104,6 +110,7 @@ describe("normal Settings link routes", () => {
     expect(await (await partnerJobLinkRoute(req({ legacyId: id }), undefined, undefined, deps)).json()).toEqual({ linked: false });
     expect(read).not.toHaveBeenCalled();
     expect((await partnerJobLinkRoute(req({ legacyId: id }), undefined, undefined, deps)).status).toBe(200);
+    expect(read).toHaveBeenCalledWith(id, {allowArchived:true});
     expect(deps.repository.refresh).toHaveBeenCalledWith(expect.objectContaining({ id, status: expect.objectContaining({ ebaCompleted: false }) }));
     expect(JSON.stringify(vi.mocked(deps.repository.refresh).mock.calls)).not.toContain("fixture-token");
   });
