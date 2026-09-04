@@ -189,6 +189,7 @@ export async function assertPartnerRuntimeRole(sql:PartnerSql,env:NodeJS.Process
       (p.proname='partner_consume_submission_rate_limit' AND oidvectortypes(p.proargtypes)='uuid, text, text, integer, integer') OR
       (p.proname='partner_submission_request_id' AND oidvectortypes(p.proargtypes)='uuid, uuid') OR
       (p.proname='partner_partner_tracking_projection' AND oidvectortypes(p.proargtypes)='text, uuid, uuid') OR
+      (p.proname='partner_note_feed' AND oidvectortypes(p.proargtypes)='text, uuid, uuid, integer') OR
       p.oid IN (to_regprocedure('public.partner_access_rate_limit(text,integer)'),to_regprocedure('public.partner_access_request_reset(text,text)'),to_regprocedure('public.partner_access_complete(text,text)'),to_regprocedure('public.partner_access_email_result(text,boolean)')))) AS can_unapproved_definers`,[migrationRole]);
   const row=result.rows[0];
   const unsafe=!row||row.current_user!==expected||!row.runtime_group_member||!row.can_artifact_select||row.can_artifact_insert||row.can_artifact_update||row.can_artifact_delete||row.can_artifact_truncate||row.can_drawing_delete||!row.can_drawing_data_insert||!row.can_drawing_data_update||row.can_drawing_pointer_update||row.can_job_protected_update||row.artifact_owner_member||row.submission_owner_member||row.worker_member||row.migration_member||!row.can_artifact_functions||row.can_submission_tables||!row.can_submission_runtime_functions||row.can_submission_worker_functions||row.can_unapproved_definers;
