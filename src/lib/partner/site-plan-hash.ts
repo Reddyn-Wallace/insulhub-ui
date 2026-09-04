@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { SitePlanDrawingDocument } from "../site-plan-drawings";
 
-export const PARTNER_SITE_PLAN_RENDERER_VERSION = "partner-site-plan-renderer-v1";
+export const PARTNER_SITE_PLAN_RENDERER_VERSION = "partner-site-plan-renderer-v2";
 export const PARTNER_SITE_PLAN_TEMPLATE_SHA256 = "b82dc68276806628e2574a6a51a6299d1a23df56f4ba8a5a4a06226d3ebd904b";
 export const PARTNER_SITE_PLAN_FONT_SHA256 = "478c558ea716033cd60c03438f628dfa75694dcf6b5f6d505a2f05fd2b4f3823";
 

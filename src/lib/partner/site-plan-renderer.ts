@@ -70,7 +70,7 @@ export async function renderPartnerSitePlanPdf(input: SitePlanRenderInput): Prom
   const page = pdf.getPage(0); const size = page.getSize();
   if (Math.abs(size.width - EXPECTED_PAGE.width) > 0.001 || Math.abs(size.height - EXPECTED_PAGE.height) > 0.001) throw new Error("Locked site plan template page size does not match");
   const supportedCodePoints = new Set(fontkit.create(fontBytes).characterSet);
-  for (const value of [input.drawingName, sitePlanAddressLine(input.siteAddress), ...input.document.textNotes.map((note) => note.text)]) {
+  for (const value of [sitePlanAddressLine(input.siteAddress), ...input.document.textNotes.map((note) => note.text)]) {
     for (const character of value) if (character !== "\n" && !supportedCodePoints.has(character.codePointAt(0)!)) throw new Error("Site plan contains a glyph that the bundled Noto Sans font does not support");
   }
   pdf.registerFontkit(fontkit); const font = await pdf.embedFont(fontBytes, { subset: true });
@@ -79,8 +79,8 @@ export async function renderPartnerSitePlanPdf(input: SitePlanRenderInput): Prom
   for (let column = 0; column <= 18; column += 1) { const x = PARTNER_SITE_PLAN_GRID.left + column / 18 * PARTNER_SITE_PLAN_GRID.width; page.drawLine({ start: { x, y: PARTNER_SITE_PLAN_GRID.bottom }, end: { x, y: PARTNER_SITE_PLAN_GRID.top }, thickness: column === 0 || column === 18 ? 0.9 : 0.45, color: rgb(0.72, 0.72, 0.72) }); }
   for (let row = 0; row <= 17; row += 1) { const y = PARTNER_SITE_PLAN_GRID.bottom + row / 17 * PARTNER_SITE_PLAN_GRID.height; page.drawLine({ start: { x: PARTNER_SITE_PLAN_GRID.left, y }, end: { x: PARTNER_SITE_PLAN_GRID.right, y }, thickness: row === 0 || row === 17 ? 0.9 : 0.45, color: rgb(0.72, 0.72, 0.72) }); }
   input.document.walls.forEach((wall) => drawWall(page, font, wall, input.document.showDimensions)); input.document.textNotes.forEach((note) => drawNote(page, font, note));
-  const address = sitePlanAddressLine(input.siteAddress); const heading = [input.drawingName, address].filter(Boolean).join(" — ");
-  if (heading) { let headingSize=9; while(headingSize>7&&font.widthOfTextAtSize(heading,headingSize)>540)headingSize-=0.5; if(font.widthOfTextAtSize(heading,headingSize)>540)throw new Error("Floor plan name and site address are too long to fit the locked PDF template"); page.drawText(heading,{x:145,y:953,size:headingSize,font,color:rgb(0,0,0),maxWidth:540}); }
+  const heading = sitePlanAddressLine(input.siteAddress);
+  if (heading) { let headingSize=9; while(headingSize>7&&font.widthOfTextAtSize(heading,headingSize)>540)headingSize-=0.5; if(font.widthOfTextAtSize(heading,headingSize)>540)throw new Error("Site address is too long to fit the locked PDF template"); page.drawText(heading,{x:145,y:953,size:headingSize,font,color:rgb(0,0,0),maxWidth:540}); }
   const bytes = Buffer.from(await pdf.save({ useObjectStreams: false, addDefaultPage: false, updateFieldAppearances: false }));
   if (bytes.byteLength < 1 || bytes.byteLength > 5 * 1024 * 1024) throw new Error("Generated site plan PDF is outside the allowed size");
   return { bytes, contentSha256: createHash("sha256").update(bytes).digest("hex") };
