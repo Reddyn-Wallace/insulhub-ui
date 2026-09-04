@@ -50,7 +50,7 @@ export function parseSettlement(value: unknown, model: BillingModel): Settlement
   return { revision: value.revision, grossCents, commissionCents, status: status as SettlementInput["status"], ...(settledAt ? { settledAt } : {}) };
 }
 
-export type AmendmentInput = { description: string; contractDeltaCents?: number; requestKey?: string };
+export type AmendmentInput = { description: string; contractDeltaCents?: number; requestKey?: string; authorName?: string; legacyActorId?: string };
 export function parseAmendment(value: unknown): AmendmentInput | null {
   if (!record(value) || !exact(value, ["version", "description", "contractDeltaCents"]) || value.version !== 1) return null;
   const description = text(value.description, 1, 1000), delta = value.contractDeltaCents;

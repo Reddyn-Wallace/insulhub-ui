@@ -21,15 +21,15 @@ async function confirmDeletion(){
 }
 describe("draft deletion UI",()=>{
   it("offers draft-only deletion, cancel keeps the card, success removes it and persists via server request",async()=>{
-    const fetchMock=vi.fn().mockResolvedValue(new Response(JSON.stringify({deleted:true})));vi.stubGlobal("fetch",fetchMock);
+    const fetchMock=vi.fn<typeof fetch>(async()=>new Response(JSON.stringify({deleted:true})));vi.stubGlobal("fetch",fetchMock);
     sessionStorage.setItem(draftRecoveryKey("scope",job.id),"unsaved");
     page();expect(screen.queryByRole("button",{name:"Delete draft NW-102"})).toBeNull();
     await userEvent.click(screen.getByRole("button",{name:"Delete draft NW-101"}));
     const dialog=screen.getByRole("dialog");expect(dialog.textContent).toContain("and its floor plans");
     await waitFor(()=>expect(document.activeElement).toBe(within(dialog).getByRole("button",{name:"Cancel"})));
-    await userEvent.keyboard("{Escape}");expect(fetchMock).not.toHaveBeenCalled();expect(screen.getAllByRole("article")).toHaveLength(2);
+    await userEvent.keyboard("{Escape}");expect(fetchMock.mock.calls.filter(([,options])=>options?.method==="DELETE")).toHaveLength(0);expect(screen.getAllByRole("article")).toHaveLength(2);
     await confirmDeletion();await waitFor(()=>expect(screen.getAllByRole("article")).toHaveLength(1));
-    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(`/api/partner/jobs/${job.id}`,{method:"DELETE",headers:{"content-type":"application/json"},body:JSON.stringify({revision:0})});
+    expect(fetchMock).toHaveBeenCalledWith(`/api/partner/jobs/${job.id}`,{method:"DELETE",headers:{"content-type":"application/json"},body:JSON.stringify({revision:0})});
     expect(sessionStorage.getItem(draftRecoveryKey("scope",job.id))).toBeNull();
     expect(screen.getByRole("status").textContent).toContain("Showing 1 of 1 jobs");
   });

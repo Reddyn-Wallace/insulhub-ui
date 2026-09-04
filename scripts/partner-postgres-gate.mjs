@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { probePartnerNoteUpdates } from "./partner-note-updates-postgres-probes.mjs";
 import { probePartnerCompanyAccess, probePartnerCompanyAccessLockOrder } from "./partner-company-access-postgres-probes.mjs";
 import { createHash, randomUUID } from "node:crypto";
 import { Pool } from "pg";
@@ -233,6 +234,7 @@ try {
   await assertSitePlanCompanyLock(pool,true);
   // Prove an immutable v1 submission created before migration 020 remains
   // claimable and byte-for-byte identical after the neutral v2 cutover.
+  assertGate((await migratePartnerOne(pool, "down")).version === "023_partner_note_updates", "Expected partner notes rollback");
   assertGate((await migratePartnerOne(pool, "down")).version === "022_partner_company_access", "Expected company access rollback");
   assertGate((await migratePartnerOne(pool, "down")).version === "021_partner_immediate_submission", "Expected immediate submission rollback before v1 compatibility probe");
   assertGate((await migratePartnerOne(pool, "down")).version === "020_partner_neutral_submission_v2", "Expected temporary neutral rollback for v1 compatibility probe");
@@ -256,6 +258,8 @@ try {
     assertGate((await migratePartnerOne(pool,"up")).version==="020_partner_neutral_submission_v2","Expected neutral migration to reapply for v1 compatibility probe");
     assertGate((await migratePartnerOne(pool,"up")).version==="021_partner_immediate_submission","Expected immediate submission migration to reapply for v1 compatibility probe");
   assertGate((await migratePartnerOne(pool, "up")).version === "022_partner_company_access", "Expected company access reapply");
+  assertGate((await migratePartnerOne(pool, "up")).version === "023_partner_note_updates", "Expected partner notes reapply");
+  await probePartnerNoteUpdates(pool);
     const after=(await historicalClient.query("SELECT schema_version,canonical_document,snapshot_sha256 FROM partner_submission_snapshots WHERE id=$1",[historicalV1.snapshotId])).rows[0];
     assertGate(JSON.stringify(after)===JSON.stringify(before),"Migration 020 must not rewrite historical schema-v1 terms or hashes");
     await historicalClient.query("BEGIN");await historicalClient.query("SET LOCAL ROLE partner_submission_worker");
@@ -290,6 +294,7 @@ try {
     for(const table of ["partner_submission_snapshots","partner_submission_plan_manifest","partner_audit_events","partner_jobs","partner_site_plan_drawings","partner_site_plan_pdf_artifacts"])await resetClient.query(`ALTER TABLE public.${table} ENABLE TRIGGER USER`);
     await resetClient.query("COMMIT");
   }finally{await resetClient.query("ROLLBACK").catch(()=>{});resetClient.release();}
+  assertGate((await migratePartnerOne(pool, "down")).version === "023_partner_note_updates", "Expected partner notes rollback");
   assertGate((await migratePartnerOne(pool, "down")).version === "022_partner_company_access", "Expected company access rollback");
   assertGate((await migratePartnerOne(pool, "down")).version === "021_partner_immediate_submission", "Expected immediate submission rollback before legacy probes");
   assertGate((await migratePartnerOne(pool, "down")).version === "020_partner_neutral_submission_v2", "Expected neutral submission rollback before legacy probes");
@@ -539,6 +544,8 @@ try {
   assertGate((await migratePartnerOne(pool, "up")).version === "020_partner_neutral_submission_v2", "Expected neutral submission reapply before full rollback");
   assertGate((await migratePartnerOne(pool, "up")).version === "021_partner_immediate_submission", "Expected immediate submission reapply before full rollback");
   assertGate((await migratePartnerOne(pool, "up")).version === "022_partner_company_access", "Expected company access reapply");
+  assertGate((await migratePartnerOne(pool, "up")).version === "023_partner_note_updates", "Expected partner notes reapply");
+  await probePartnerNoteUpdates(pool);
   await assertSitePlanCompanyLock(pool,true);
   await probePartnerAccountAccess(pool);
   await probePartnerSettingsService(pool);
@@ -555,7 +562,7 @@ try {
   const down = await migratePartnerAll(pool, "down");
   if (!down.changed || down.versions.length !== firstUp.versions.length) throw new Error("Migration gate expected every version to roll down");
   const partnerTables = [
-    "partner_notification_settings", "partner_account_links", "partner_access_rate_limits", "partner_legacy_create_dispatches", "partner_companies", "partner_users", "partner_sessions", "partner_accounts", "partner_verifications",
+    "partner_note_reads", "partner_notification_settings", "partner_account_links", "partner_access_rate_limits", "partner_legacy_create_dispatches", "partner_companies", "partner_users", "partner_sessions", "partner_accounts", "partner_verifications",
     "partner_auth_rate_limits", "partner_jobs", "partner_site_plan_drawings", "partner_submission_attempts",
     "partner_tracking_facts", "partner_job_settlements", "partner_job_amendments", "partner_outbox_events", "partner_audit_events",
     "partner_site_plan_pdf_artifacts", "partner_site_plan_rate_limits", "partner_site_plan_d1_legacy_backup", "partner_job_invoices",
@@ -581,6 +588,7 @@ try {
   await probePartnerJobLinks(pool, seedReadySubmission);
   await probePartnerLiveTransfer(pool,seedReadySubmission);
   await assertSitePlanCompanyLock(pool,true);
+  assertGate((await migratePartnerOne(pool, "down")).version === "023_partner_note_updates", "Expected partner notes rollback");
   assertGate((await migratePartnerOne(pool, "down")).version === "022_partner_company_access", "Expected company access rollback");
   assertGate((await migratePartnerOne(pool, "down")).version === "021_partner_immediate_submission", "Expected immediate submission rollback");
   assertGate((await migratePartnerOne(pool, "down")).version === "020_partner_neutral_submission_v2", "Expected neutral submission rollback");
@@ -810,6 +818,8 @@ try {
   assertGate((await migratePartnerOne(pool,"up")).version==="020_partner_neutral_submission_v2","Expected neutral submission reapply after notification probes");
   assertGate((await migratePartnerOne(pool,"up")).version==="021_partner_immediate_submission","Expected immediate submission reapply after notification probes");
   assertGate((await migratePartnerOne(pool, "up")).version === "022_partner_company_access", "Expected company access reapply");
+  assertGate((await migratePartnerOne(pool, "up")).version === "023_partner_note_updates", "Expected partner notes reapply");
+  await probePartnerNoteUpdates(pool);
   await assertImmediateSubmissionRoleCatalog(pool);
   await assertSitePlanCompanyLock(pool,true);
   await probePartnerAccountAccess(pool);
