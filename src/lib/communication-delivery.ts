@@ -60,6 +60,52 @@ export type GmailSignatureResult = DeliveryResult & {
   signatureEmail?: string;
 };
 
+export type SmsgateInboxMessage = {
+  id: string;
+  type: string;
+  sender: string;
+  recipient: string;
+  simNumber: number | null;
+  message: string;
+  receivedAt: string;
+};
+
+export type SmsgateInboxResult = {
+  ok: boolean;
+  messages: SmsgateInboxMessage[];
+  failureReason?: string;
+  unsupportedInCloudMode?: boolean;
+};
+
+export type SmsgateWebhook = {
+  id: string;
+  url: string;
+  event: string;
+  deviceId: string;
+};
+
+export type SmsgateDevice = {
+  id: string;
+  name: string;
+  lastSeen: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SmsgateLogEntry = {
+  createdAt: string;
+  module: string;
+  priority: string;
+  message: string;
+};
+
+export type SmsgateApiResult<T> = {
+  ok: boolean;
+  status: number;
+  value?: T;
+  failureReason?: string;
+};
+
 function requiredEnv(name: string) {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`${name} is required`);
@@ -414,6 +460,185 @@ function normalizeSmsPhoneNumber(value: string) {
   if (digits.startsWith("0")) return `+64${digits.slice(1)}`;
   if (digits.startsWith("64")) return `+${digits}`;
   return compact;
+}
+
+export async function readSmsgateInbox(input: {
+  providerConfig?: Record<string, string>;
+  from: string;
+  to: string;
+  limit?: number;
+}): Promise<SmsgateInboxResult> {
+  try {
+    const baseUrl = normalizeBaseUrl(input.providerConfig?.smsgateBaseUrl || requiredEnv("SMSGATE_BASE_URL"));
+    const limit = Math.max(1, Math.min(500, Math.trunc(input.limit || 100)));
+    const query = new URLSearchParams({
+      type: "SMS",
+      limit: String(limit),
+      offset: "0",
+      from: input.from,
+      to: input.to,
+    });
+    const deviceId = input.providerConfig?.smsgateDeviceId || process.env.SMSGATE_DEVICE_ID?.trim();
+    if (deviceId) query.set("deviceId", deviceId);
+
+    const response = await fetch(`${baseUrl}/inbox?${query.toString()}`, {
+      headers: {
+        ...smsgateAuthHeaders(input.providerConfig),
+        "content-type": "application/json",
+      },
+      cache: "no-store",
+    });
+    const text = await response.text();
+    let body: unknown = [];
+    try {
+      body = text ? JSON.parse(text) : [];
+    } catch {
+      body = { message: text };
+    }
+    if (!response.ok) {
+      const record = body && typeof body === "object" && !Array.isArray(body)
+        ? body as Record<string, unknown>
+        : {};
+      return {
+        ok: false,
+        messages: [],
+        failureReason: responseErrorMessage(record, response.statusText || `SMSGate inbox request failed (${response.status})`),
+        unsupportedInCloudMode: response.status === 501,
+      };
+    }
+    if (!Array.isArray(body)) {
+      return { ok: false, messages: [], failureReason: "SMSGate returned an unexpected inbox response" };
+    }
+
+    const messages = body.map((row): SmsgateInboxMessage | null => {
+      if (!row || typeof row !== "object") return null;
+      const value = row as Record<string, unknown>;
+      const sender = stringValue(value.sender || value.phoneNumber);
+      const message = stringValue(value.contentPreview || value.message);
+      const receivedAt = stringValue(value.createdAt || value.receivedAt);
+      if (!sender || !receivedAt) return null;
+      return {
+        id: stringValue(value.id || value.messageId),
+        type: stringValue(value.type) || "SMS",
+        sender,
+        recipient: stringValue(value.recipient),
+        simNumber: typeof value.simNumber === "number" ? value.simNumber : null,
+        message,
+        receivedAt,
+      };
+    }).filter((message): message is SmsgateInboxMessage => Boolean(message));
+
+    return { ok: true, messages };
+  } catch (error) {
+    return { ok: false, messages: [], failureReason: friendlyNetworkError(error, "Could not read SMSGate inbox") };
+  }
+}
+
+async function smsgateJsonRequest<T>(input: {
+  providerConfig?: Record<string, string>;
+  path: string;
+  method?: "GET" | "POST" | "DELETE";
+  body?: Record<string, unknown>;
+}): Promise<SmsgateApiResult<T>> {
+  try {
+    const baseUrl = normalizeBaseUrl(input.providerConfig?.smsgateBaseUrl || requiredEnv("SMSGATE_BASE_URL"));
+    const response = await fetch(`${baseUrl}${input.path}`, {
+      method: input.method || "GET",
+      headers: {
+        ...smsgateAuthHeaders(input.providerConfig),
+        "content-type": "application/json",
+      },
+      body: input.body ? JSON.stringify(input.body) : undefined,
+      cache: "no-store",
+    });
+    const text = await response.text();
+    let value: unknown;
+    try {
+      value = text ? JSON.parse(text) : undefined;
+    } catch {
+      value = text ? { message: text } : undefined;
+    }
+    if (!response.ok) {
+      const record = value && typeof value === "object" && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : {};
+      return {
+        ok: false,
+        status: response.status,
+        failureReason: responseErrorMessage(record, response.statusText || `SMSGate request failed (${response.status})`),
+      };
+    }
+    return { ok: true, status: response.status, value: value as T };
+  } catch (error) {
+    return { ok: false, status: 0, failureReason: friendlyNetworkError(error, "Could not reach SMSGate") };
+  }
+}
+
+export async function listSmsgateWebhooks(providerConfig?: Record<string, string>) {
+  return smsgateJsonRequest<SmsgateWebhook[]>({ providerConfig, path: "/webhooks" });
+}
+
+export async function listSmsgateDevices(providerConfig?: Record<string, string>) {
+  return smsgateJsonRequest<SmsgateDevice[]>({ providerConfig, path: "/devices" });
+}
+
+export async function getSmsgateLogs(input: {
+  providerConfig?: Record<string, string>;
+  from: string;
+  to: string;
+}) {
+  const params = new URLSearchParams({ from: input.from, to: input.to });
+  return smsgateJsonRequest<SmsgateLogEntry[]>({ providerConfig: input.providerConfig, path: `/logs?${params}` });
+}
+
+export async function getSmsgateSettings(providerConfig?: Record<string, string>) {
+  return smsgateJsonRequest<Record<string, unknown>>({ providerConfig, path: "/settings" });
+}
+
+export async function registerSmsgateWebhook(input: {
+  providerConfig?: Record<string, string>;
+  url: string;
+  event: "sms:received" | "sms:batch:received";
+}): Promise<SmsgateApiResult<SmsgateWebhook>> {
+  const body: Record<string, unknown> = { url: input.url, event: input.event };
+  const deviceId = input.providerConfig?.smsgateDeviceId || process.env.SMSGATE_DEVICE_ID?.trim();
+  if (deviceId) body.deviceId = deviceId;
+  return smsgateJsonRequest<SmsgateWebhook>({
+    providerConfig: input.providerConfig,
+    path: "/webhooks",
+    method: "POST",
+    body,
+  });
+}
+
+export async function deleteSmsgateWebhook(providerConfig: Record<string, string> | undefined, id: string) {
+  return smsgateJsonRequest<undefined>({
+    providerConfig,
+    path: `/webhooks/${encodeURIComponent(id)}`,
+    method: "DELETE",
+  });
+}
+
+export async function refreshSmsgateInbox(input: {
+  providerConfig?: Record<string, string>;
+  from: string;
+  to: string;
+  webhookDelivery?: "Individual" | "Batch";
+}): Promise<SmsgateApiResult<undefined>> {
+  const body: Record<string, unknown> = {
+    since: input.from,
+    until: input.to,
+    messageTypes: ["SMS"],
+    webhookDelivery: input.webhookDelivery || "Individual",
+  };
+  const deviceId = input.providerConfig?.smsgateDeviceId || process.env.SMSGATE_DEVICE_ID?.trim();
+  if (deviceId) body.deviceId = deviceId;
+  return smsgateJsonRequest<undefined>({
+    providerConfig: input.providerConfig,
+    path: "/inbox/refresh",
+    method: "POST",
+    body,
+  });
 }
 
 async function sendSmsgate(input: DeliveryMessage): Promise<DeliveryResult> {

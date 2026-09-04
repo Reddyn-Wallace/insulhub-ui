@@ -45,6 +45,7 @@ function loadCommunicationDeliveryModule(fetchProxy) {
     Number,
     process: { env: {} },
     URL,
+    URLSearchParams,
     fetch: (...args) => fetchProxy(...args),
   });
   const script = new vm.Script(output, { filename });
@@ -169,6 +170,110 @@ function loadCommunicationDeliveryModule(fetchProxy) {
   assert.deepEqual(smsgateBody.phoneNumbers, ["+64271234567"]);
   assert.equal(smsgateBody.textMessage.text, "SMS test");
   assert.equal(smsgateAuth, `Basic ${Buffer.from("user:pass", "utf8").toString("base64")}`);
+
+  mockFetch = async (url, init) => {
+    const parsed = new URL(String(url));
+    assert.equal(`${parsed.origin}${parsed.pathname}`, "https://api.sms-gate.app/3rdparty/v1/inbox");
+    assert.equal(parsed.searchParams.get("type"), "SMS");
+    assert.equal(parsed.searchParams.get("limit"), "25");
+    assert.equal(parsed.searchParams.get("deviceId"), "device-1");
+    assert.equal(init.headers.authorization, `Basic ${Buffer.from("user:pass", "utf8").toString("base64")}`);
+    return {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      text: async () => JSON.stringify([{
+        id: "reply-1",
+        type: "SMS",
+        sender: "+64271234567",
+        recipient: "+64210000000",
+        simNumber: 1,
+        contentPreview: "Yes please",
+        createdAt: "2026-08-30T08:15:00Z",
+      }]),
+    };
+  };
+  const inbox = await delivery.readSmsgateInbox({
+    providerConfig: {
+      smsgateBaseUrl: "api.sms-gate.app:443",
+      smsgateUsername: "user",
+      smsgatePassword: "pass",
+      smsgateDeviceId: "device-1",
+    },
+    from: "2026-08-29T00:00:00Z",
+    to: "2026-08-30T23:59:59Z",
+    limit: 25,
+  });
+  assert.equal(inbox.ok, true);
+  assert.equal(inbox.messages.length, 1);
+  assert.equal(inbox.messages[0].message, "Yes please");
+
+  mockFetch = async () => ({
+    ok: false,
+    status: 501,
+    statusText: "Not Implemented",
+    text: async () => JSON.stringify({ message: "Inbox listing is not available in cloud mode" }),
+  });
+  const unsupportedInbox = await delivery.readSmsgateInbox({
+    providerConfig: {
+      smsgateBaseUrl: "api.sms-gate.app:443",
+      smsgateUsername: "user",
+      smsgatePassword: "pass",
+    },
+    from: "2026-08-29T00:00:00Z",
+    to: "2026-08-30T23:59:59Z",
+  });
+  assert.equal(unsupportedInbox.ok, false);
+  assert.equal(unsupportedInbox.unsupportedInCloudMode, true);
+
+  const smsgateCalls = [];
+  mockFetch = async (url, init = {}) => {
+    smsgateCalls.push({ url: String(url), init });
+    if (String(url).endsWith("/devices") && (init.method || "GET") === "GET") {
+      return { ok: true, status: 200, statusText: "OK", text: async () => JSON.stringify([{ id: "device-1", name: "Phone", lastSeen: "2026-08-30T20:00:00Z" }]) };
+    }
+    if (String(url).endsWith("/webhooks") && (init.method || "GET") === "GET") {
+      return { ok: true, status: 200, statusText: "OK", text: async () => JSON.stringify([]) };
+    }
+    if (String(url).endsWith("/webhooks") && init.method === "POST") {
+      return { ok: true, status: 201, statusText: "Created", text: async () => JSON.stringify({ id: "hook-1", url: "https://example.com/hook", event: "sms:batch:received" }) };
+    }
+    return { ok: true, status: init.method === "DELETE" ? 204 : 202, statusText: "OK", text: async () => "" };
+  };
+  const gatewayConfig = {
+    smsgateBaseUrl: "api.sms-gate.app:443",
+    smsgateUsername: "user",
+    smsgatePassword: "pass",
+    smsgateDeviceId: "device-1",
+  };
+  const devices = await delivery.listSmsgateDevices(gatewayConfig);
+  assert.equal(devices.ok, true);
+  assert.equal(devices.value[0].id, "device-1");
+  assert.equal((await delivery.getSmsgateSettings(gatewayConfig)).ok, true);
+  assert.equal((await delivery.getSmsgateLogs({
+    providerConfig: gatewayConfig,
+    from: "2026-08-30T19:00:00Z",
+    to: "2026-08-30T20:00:00Z",
+  })).ok, true);
+  assert.equal((await delivery.listSmsgateWebhooks(gatewayConfig)).ok, true);
+  assert.equal((await delivery.registerSmsgateWebhook({
+    providerConfig: gatewayConfig,
+    url: "https://example.com/hook",
+    event: "sms:received",
+  })).value.id, "hook-1");
+  assert.equal((await delivery.refreshSmsgateInbox({
+    providerConfig: gatewayConfig,
+    from: "2026-08-29T00:00:00Z",
+    to: "2026-08-30T23:59:59Z",
+  })).ok, true);
+  assert.equal((await delivery.deleteSmsgateWebhook(gatewayConfig, "hook-1")).ok, true);
+  const registerBody = JSON.parse(smsgateCalls[4].init.body);
+  assert.equal(registerBody.deviceId, "device-1");
+  assert.equal(registerBody.event, "sms:received");
+  const refreshBody = JSON.parse(smsgateCalls[5].init.body);
+  assert.deepEqual(refreshBody.messageTypes, ["SMS"]);
+  assert.equal(refreshBody.webhookDelivery, "Individual");
+  assert.equal(smsgateCalls[6].url, "https://api.sms-gate.app/3rdparty/v1/webhooks/hook-1");
 
   console.log("communication delivery tests passed");
 })().catch((error) => {

@@ -10,6 +10,7 @@
     "prod-smoke:sales-report": "node scripts/prod-smoke-sales-report.cjs",
     "test:cloudflare": "vitest run --config cloudflare/vitest.config.mjs",
     "test:site-plan-drawings": "vitest run src/lib/site-plan-drawings.test.ts",
+    "test:sms-replies": "vitest run src/lib/sms-reply-matching.test.ts",
     "cloudflare:check": "wrangler deploy --dry-run --config cloudflare/wrangler.jsonc",
     "test:communications": "node scripts/test-communication-settings.cjs && node scripts/test-communication-delivery.cjs && node scripts/test-communication-merge-fields.cjs",
     "test:partner": "vitest run src/lib/partner",
@@ -18,7 +19,7 @@
     "partner:live-test-once": "node --conditions=react-server --import tsx scripts/partner-live-test-once.ts",
     "partner:notification-test-once": "node --conditions=react-server --import tsx scripts/partner-notification-test-once.ts",
     "partner:provision": "node scripts/partner-provision.mjs",
-    "test": "npm run test:site-plan-drawings && npm run test:partner && npm run test:communications && npm run test:cloudflare"
+    "test": "npm run test:site-plan-drawings && npm run test:sms-replies && npm run test:partner && npm run test:communications && npm run test:cloudflare"
   },
   "dependencies": {
     "@ducanh2912/next-pwa": "^10.2.9",
