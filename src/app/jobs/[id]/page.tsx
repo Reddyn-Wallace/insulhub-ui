@@ -8,7 +8,8 @@ import {
   UPDATE_JOB_LEAD, UPDATE_JOB_NOTES,
   UPDATE_JOB_QUOTE, ARCHIVE_JOB, UPDATE_CLIENT, SEND_EBA, ADD_FILES, REMOVE_FILE,
 } from "@/lib/mutations";
-import JobSmsComposer from "@/components/JobSmsComposer";
+import JobSmsComposer, { type JobSmsMessage } from "@/components/JobSmsComposer";
+import { useJobSmsStatus, smsNeedsStatusCheck } from "@/lib/use-job-sms-status";
 import { smsStatusLabel } from "@/lib/job-sms";
 import BottomSheet from "@/components/BottomSheet";
 import PartnerNoteComposer from "@/components/PartnerNoteComposer";
@@ -502,7 +503,7 @@ export default function JobDetailPage() {
   const quoteEmailEditorRef = useRef<HTMLDivElement | null>(null);
   const [quoteSentAt, setQuoteSentAt] = useState<string | null>(null);
   const [ebaSentAt, setEbaSentAt] = useState<string | null>(null);
-  const [checkingCrmSms, setCheckingCrmSms] = useState(false);
+  const [latestCrmSms, setLatestCrmSms] = useState<JobSmsMessage | null>(null);
   const [contactTemplates, setContactTemplates] = useState<ContactTemplate[]>([]);
   const [loadingContactTemplates, setLoadingContactTemplates] = useState(false);
   const [contactTemplateMode, setContactTemplateMode] = useState<"sms" | "email">("sms");
@@ -608,7 +609,7 @@ export default function JobDetailPage() {
       if (!res.ok) throw new Error(json?.error || "Failed to load sent communications");
       setCampaignCommunications(json.communications || []);
     } catch {
-      setCampaignCommunications([]);
+      // Preserve confirmed history if a refresh temporarily fails.
     } finally {
       setLoadingCampaignCommunications(false);
     }
@@ -859,18 +860,16 @@ export default function JobDetailPage() {
     if (!contactTemplates.length) loadContactTemplates();
   }
 
-  async function checkHistoricalSms() {
-    if (!selectedCampaignCommunication || checkingCrmSms) return;
-    setCheckingCrmSms(true);
-    try {
-      const response = await fetch(`/api/jobs/${id}/sms`, { method: "POST", headers: { "content-type": "application/json", "x-access-token": getToken() || "" }, body: JSON.stringify({ id: selectedCampaignCommunication.id, action: "check" }) });
-      const data = await response.json();
-      if (!response.ok) throw Error(data.error || "Could not check message status.");
-      setSelectedCampaignCommunication(current => current && current.id === data.message.id ? { ...current, status: data.message.status, failureReason: data.message.failureReason } : current);
-      await loadCampaignCommunications();
-    } catch (error) { setToast({ type: "error", text: error instanceof Error ? error.message : "Could not check status." }); }
-    finally { setCheckingCrmSms(false); }
-  }
+  useEffect(() => { setLatestCrmSms(null); }, [id]);
+
+  useJobSmsStatus(id, [...campaignCommunications.filter(item => item.source === "crm_sms"), ...(
+    latestCrmSms && !campaignCommunications.some(item => item.id === latestCrmSms.id)
+      ? [latestCrmSms] : []
+  )], update => {
+    setCampaignCommunications(current => current.map(item => item.id === update.id ? { ...item, status: update.status as CampaignCommunication["status"], failureReason: update.failureReason || "" } : item));
+    setSelectedCampaignCommunication(current => current?.id === update.id ? { ...current, status: update.status as CampaignCommunication["status"], failureReason: update.failureReason || "" } : current);
+    setLatestCrmSms(current => current?.id === update.id ? { ...current, status: update.status, failureReason: update.failureReason || "" } : current);
+  });
 
   async function copyCustomerEmail() {
     const email = c?.email?.trim();
@@ -2542,10 +2541,17 @@ export default function JobDetailPage() {
         {/* Quick contact */}
         <div className="flex gap-2 mb-3">
           {phone && <a href={`tel:${phone}`} className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl text-center text-sm">📞 Call</a>}
-          <JobSmsComposer key={id} jobId={id} phone={phone || ""} contactName={contactName} templates={contactTemplates.filter(template => template.channel === "sms").map(template => ({ id: template.id, title: template.title, body: applyTemplateFields(template.body, templateFields) }))} onRecorded={loadCampaignCommunications} />
+          <JobSmsComposer key={id} jobId={id} phone={phone || ""} contactName={contactName} templates={contactTemplates.filter(template => template.channel === "sms").map(template => ({ id: template.id, title: template.title, body: applyTemplateFields(template.body, templateFields) }))} statusUpdates={campaignCommunications} onRecorded={message => { if (message) setLatestCrmSms(message); void loadCampaignCommunications(); }} />
           {phone && <button type="button" onClick={() => openContactTemplates("sms")} className="flex-1 bg-teal-700 text-white font-semibold py-3 rounded-xl text-center text-sm">💬 Text</button>}
           {c?.email && <button type="button" onClick={() => openContactTemplates("email")} className="flex-1 bg-[#1a3a4a] text-white font-semibold py-3 rounded-xl text-center text-sm">✉️ Email</button>}
         </div>
+
+        {latestCrmSms && <div role="status" className="mb-3 rounded-xl border bg-gray-50 p-3 text-sm">
+          <strong>SMS: {smsStatusLabel(latestCrmSms.status)}</strong>
+          <p>{latestCrmSms.destination}</p>
+          {smsNeedsStatusCheck(latestCrmSms.status) && <p className="text-gray-600">Status updates automatically while this job is open.</p>}
+          {latestCrmSms.failureReason && <p className="text-red-700">{latestCrmSms.failureReason}</p>}
+        </div>}
 
         {activeDetailTab === "job" ? (
           <>
@@ -3335,11 +3341,7 @@ export default function JobDetailPage() {
               </div>
             )}
 
-            {selectedCampaignCommunication.source === "crm_sms" && (
-              <button type="button" disabled={checkingCrmSms} onClick={() => void checkHistoricalSms()} className="w-full rounded-xl border border-teal-700 py-3 font-semibold text-teal-800 disabled:opacity-40">
-                {checkingCrmSms ? "Checking…" : "Check message status"}
-              </button>
-            )}
+            {selectedCampaignCommunication.source === "crm_sms" && smsNeedsStatusCheck(selectedCampaignCommunication.status) && <p className="text-sm text-gray-500">Status updates automatically while this job is open.</p>}
 
             {selectedCampaignCommunication.source === "campaign" && (
               <button

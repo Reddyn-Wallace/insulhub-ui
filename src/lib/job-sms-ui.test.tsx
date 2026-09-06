@@ -19,18 +19,18 @@ describe("job SMS composer", () => {
     await open(); fireEvent.change(screen.getByLabelText("Template"), { target: { value: "template" } });
     fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Hello Customer, edited" } });
     const send = screen.getByRole("button", { name: "Send SMS" }); fireEvent.click(send); fireEvent.click(send);
-    await screen.findByText("Accepted by SMS service"); expect(posts).toBe(1); expect(sent.body).toBe("Hello Customer, edited");
+    await waitFor(() => expect(screen.queryByLabelText("Message")).toBeNull()); expect(posts).toBe(1); expect(sent.body).toBe("Hello Customer, edited");
   });
   it("unlocks a safe preclaim rejection so a contact correction can be made", async () => {
     vi.stubGlobal("fetch", async (_url: string, init?: RequestInit) => init?.method === "POST" ? Response.json({ error: "Refresh the job", safeToEdit: true }, { status: 409 }) : Response.json(initial));
     await open(); fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Hi" } }); fireEvent.click(screen.getByRole("button", { name: "Send SMS" }));
     await screen.findByRole("alert"); expect(screen.getByLabelText("Message")).toHaveProperty("disabled", false); expect(sessionStorage.getItem("job-sms-attempt:job")).toBeNull();
   });
-  it("keeps uncertain attempts locked after remount and offers status checks", async () => {
+  it("keeps uncertain attempts locked after remount and waits for automatic status updates", async () => {
     sessionStorage.setItem("job-sms-attempt:job", JSON.stringify({ id: "attempt", senderId, body: "Original", destination: "0211234567", templateTitle: "" }));
     vi.stubGlobal("fetch", async () => Response.json({ ...initial, message: { id: "attempt", status: "unknown" } }));
     await open(); expect(screen.getByLabelText("Message")).toHaveProperty("value", "Original"); expect(screen.getByLabelText("Message")).toHaveProperty("disabled", true);
-    expect(screen.getByRole("button", { name: "Check message status" })).toBeTruthy(); expect(screen.queryByRole("button", { name: "Compose another message" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Check message status" })).toBeNull(); expect(screen.queryByRole("button", { name: "Compose another message" })).toBeNull();
   });
   it("does not expose new sending when disabled", async () => {
     const fetcher = vi.fn(async () => Response.json({ ...initial, enabled: false })); vi.stubGlobal("fetch", fetcher);
