@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import JobEmailComposer from "@/components/JobEmailComposer";
 const props = { jobId: "job", email: "customer@example.com", contactName: "Customer", templates: [{ id: "template", title: "Booking", subject: "Booking details", body: "Hello Customer" }], onRecorded: vi.fn() };
-const initial = { senders: [{ id: "sender", label: "Staff", senderValue: "staff@example.com", signatureHtml: "<b>Staff signature</b>" }], message: null };
+const initial = { enabled: true, senders: [{ id: "sender", label: "Staff", senderValue: "staff@example.com", signatureHtml: "<b>Staff signature</b>" }], message: null };
 beforeEach(() => { vi.stubGlobal("localStorage", { getItem: () => "test" }); sessionStorage.clear(); vi.clearAllMocks(); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 async function open() { render(<JobEmailComposer {...props} />); fireEvent.click(await screen.findByRole("button", { name: "Send email from CRM" })); }
@@ -45,4 +45,10 @@ it("closes immediately during a delayed send and reopens only for a real failure
   expect(props.onRecorded).toHaveBeenCalledWith(expect.objectContaining({ status: "sending", body: "Hi" }));
   await act(async () => finish(Response.json({ message: { id: "attempt", status: "failed", failureReason: "Account disconnected" } })));
   expect(await screen.findByText("Account disconnected")).toBeTruthy();
+});
+it("hides CRM email when disabled, even with a saved attempt", async () => {
+  sessionStorage.setItem("job-email-attempt:job", JSON.stringify({ id: "attempt", subject: "Original", body: "Original" }));
+  vi.stubGlobal("fetch", async () => Response.json({ ...initial, enabled: false }));
+  await act(async () => { render(<JobEmailComposer {...props} />); });
+  expect(screen.queryByRole("button", { name: "Send email from CRM" })).toBeNull();
 });

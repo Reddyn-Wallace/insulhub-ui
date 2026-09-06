@@ -10,6 +10,7 @@ export default function JobEmailComposer({ jobId, email, contactName, templates,
   jobId: string; email: string; contactName: string; templates: { id: string; title: string; subject: string; body: string }[]; onRecorded: (message?: JobEmailMessage) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [enabled, setEnabled] = useState(false);
   const [ready, setReady] = useState(false);
   const [senders, setSenders] = useState<Sender[]>([]);
   const [senderId, setSenderId] = useState("");
@@ -34,7 +35,7 @@ export default function JobEmailComposer({ jobId, email, contactName, templates,
       .then(async response => {
         const data = await response.json(); if (!response.ok) throw Error(data.error);
         if (!active) return;
-        setSenders(data.senders); if (!saved) setSenderId(data.senders[0]?.id || "");
+        setEnabled(data.enabled === true); setSenders(data.senders); if (!saved) setSenderId(data.senders[0]?.id || "");
         if (saved && data.message) { setMessage(data.message); recorded.current(data.message); }
       }).catch(() => { if (active) setError("Could not load email accounts or confirm the previous send. Refresh the page to try again."); })
       .finally(() => { if (active) setReady(true); });
@@ -87,6 +88,7 @@ export default function JobEmailComposer({ jobId, email, contactName, templates,
     if (!senders.some(item => item.id === senderId)) setSenderId(senders[0]?.id || "");
   }
   const sender = senders.find(item => item.id === senderId);
+  if (!enabled) return null;
   return <>
     <button type="button" disabled={!ready || busy} onClick={() => { if (message?.status === "sent") newMessage(); setOpen(true); }} className="rounded-xl border border-[#1a3a4a] px-3 py-3 text-sm font-semibold text-[#1a3a4a] disabled:opacity-40">Send email from CRM</button>
     <BottomSheet open={open} onClose={() => { if (!busy) setOpen(false); }} title="Send email from CRM">

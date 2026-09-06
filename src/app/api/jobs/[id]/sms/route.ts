@@ -1,3 +1,4 @@
+import { crmJobMessagingEnabled } from "@/lib/job-messaging-settings";
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { jobSmsIdentity } from "@/lib/job-sms-access";
@@ -13,15 +14,11 @@ function publicMessage(row: Record<string, unknown>) {
     status: row.status === "sending" && Date.now() - new Date(String(row.created_at)).getTime() > 60000 ? "unknown" : row.status,
     failureReason: row.failure_reason, createdAt: row.created_at };
 }
-async function enabled() {
-  const rows = await overlaySql`SELECT value FROM overlay_settings WHERE key = 'job_sms_enabled'`;
-  return rows[0]?.value === "true";
-}
 export async function GET(request: NextRequest, context: Context) {
   try {
     const { id } = await context.params;
-    await jobSmsIdentity(request, id);
-    const available = await enabled();
+    const { me } = await jobSmsIdentity(request, id);
+    const available = await crmJobMessagingEnabled(me._id);
     const attempt = request.nextUrl.searchParams.get("attempt");
     if (attempt && !uuid.test(attempt)) return NextResponse.json({ error: "Invalid message reference." }, { status: 400 });
     const rows = attempt ? await overlaySql`SELECT * FROM job_sms_messages WHERE id=${attempt} AND insulhub_job_id=${id}` : [];
@@ -55,7 +52,7 @@ export async function POST(request: NextRequest, context: Context) {
         if (row.request_hash !== hash) return NextResponse.json({ error: "This send attempt already has different content. Check its status before composing another message." }, { status: 409 });
         return NextResponse.json({ message: publicMessage(row) });
       }
-      if (!await enabled()) return NextResponse.json({ error: "CRM SMS is disabled. Manual SMS remains available." }, { status: 403 });
+      if (!await crmJobMessagingEnabled(me._id)) return NextResponse.json({ error: "CRM SMS is disabled. Manual SMS remains available." }, { status: 403 });
       const contact = job?.client?.contactDetails;
       let canonical;
       try { canonical = validateSmsInput({ body: message.body, destination: contact?.phoneMobile || contact?.phoneSecondary }); }

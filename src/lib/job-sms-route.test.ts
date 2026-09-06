@@ -20,7 +20,7 @@ beforeEach(() => {
   mocks.sql.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join("?");
     if (text.includes("SELECT * FROM job_sms_messages")) return rows;
-    if (text.includes("SELECT value FROM overlay_settings")) return [{ value: String(available) }];
+    if (text.includes("SELECT key,value FROM overlay_settings")) return [{ key: "job_sms_enabled", value: String(available) }];
     if (text.includes("SELECT * FROM communication_senders")) return [{ label: "Business", sender_value: "021", provider_config: {} }];
     if (text.includes("INSERT INTO job_sms_messages")) {
       if (rows.length) return [];
@@ -64,4 +64,9 @@ describe("job SMS route", () => {
     expect((await PATCH(request({ enabled: true }))).status).toBe(401);
     expect(mocks.sql).not.toHaveBeenCalled();
   });
+});
+it("blocks SMS for other accounts in testing mode", async () => {
+  const original = mocks.sql.getMockImplementation()!;
+  mocks.sql.mockImplementation((parts: TemplateStringsArray, ...values: unknown[]) => parts.join("").includes("SELECT key,value") ? [{ key: "job_sms_enabled", value: "true" }, { key: "job_crm_test_user", value: JSON.stringify({ userId: "someone-else", name: "Tester" }) }] : original(parts, ...values));
+  expect((await POST(request(input), context)).status).toBe(403); expect(mocks.deliver).not.toHaveBeenCalled();
 });

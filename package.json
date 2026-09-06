@@ -23,7 +23,7 @@
     "test:job-sms": "vitest run src/lib/job-sms*.test.*",
     "test:job-sms-browser": "node scripts/job-sms-browser-smoke.cjs",
     "job-sms:migrate": "node scripts/job-sms-migrate.mjs",
-    "test:job-email": "vitest run src/lib/job-email*.test.* src/lib/job-communication-history.test.ts",
+    "test:job-email": "vitest run src/lib/job-email*.test.* src/lib/job-communication-history.test.ts src/lib/job-messaging-settings*.test.*",
     "job-email:migrate": "node scripts/job-email-migrate.mjs"
   },
   "dependencies": {

@@ -48,3 +48,10 @@ it("closes SMS immediately while delivery is still pending", async () => {
   await act(async () => finish(Response.json({ message: { id: "attempt", status: "accepted" } })));
   expect(screen.queryByLabelText("Message")).toBeNull();
 });
+
+it("hides disabled CRM SMS even when a saved attempt exists", async () => {
+  sessionStorage.setItem("job-sms-attempt:job", JSON.stringify({ id: "attempt", senderId, body: "Saved", destination: props.phone }));
+  vi.stubGlobal("fetch", async () => Response.json({ ...initial, enabled: false }));
+  await act(async () => { render(<JobSmsComposer {...props} />); });
+  expect(screen.queryByRole("button", { name: "Send SMS from CRM" })).toBeNull();
+});

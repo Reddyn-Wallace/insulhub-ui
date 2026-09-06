@@ -63,7 +63,7 @@ export default function JobSmsComposer({ jobId, phone, contactName, templates, o
   function newMessage() {
     sessionStorage.removeItem(storageKey); setAttempt(null); setMessage(null); if (message?.status !== "failed") { setBody(""); setTemplateId(""); } setError(""); onRecorded();
   }
-  if (!enabled && !attempt) return null;
+  if (!enabled) return null;
   const settled = message && ["accepted", "sent", "delivered", "failed"].includes(message.status);
   return <>
     <button type="button" disabled={busy} onClick={() => { if (message && ["accepted", "sent", "delivered"].includes(message.status)) newMessage(); setOpen(true); }} className="rounded-xl border border-teal-700 px-3 py-3 text-sm font-semibold text-teal-800">Send SMS from CRM</button>

@@ -10,7 +10,7 @@ const assert = require('node:assert/strict');
     for (const width of [390, 1280]) {
       const context = await browser.newContext({viewport:{width,height:900}});
       const page = await context.newPage(); page.setDefaultTimeout(12000); const errors=[]; page.on('pageerror',error=>errors.push(error.message));
-      const id='abcdefabcdefabcdefabcdef'; let sends=0; let message=null; let uncertain=false; let releaseHistory; let firstHistory=true;
+      const id='abcdefabcdefabcdefabcdef'; let sends=0; let message=null; let uncertain=false; let crmEnabled=true; let releaseHistory; let firstHistory=true;
       const job={_id:id,jobNumber:99999,stage:'LEAD',lead:{leadStatus:'NEW'},client:{contactDetails:{name:'SMS Test Contact',phoneMobile:'0211234567',email:'test@example.test',streetAddress:'Test Street'}},notes:''};
       await context.addInitScript(()=>{ if(window!==window.top)return; localStorage.setItem('token','simulation-only');localStorage.setItem('me',JSON.stringify({_id:'staff',firstname:'Test',lastname:'Staff',role:'ADMIN'})); });
       await page.route('**/*',async route=>{
@@ -20,10 +20,10 @@ const assert = require('node:assert/strict');
         if(url.origin!==base)return route.abort();
         if(url.pathname==='/sw.js')return route.abort();
         if(!url.pathname.startsWith('/api/'))return route.continue();
-        if(url.pathname.endsWith('/sms'))return json({enabled:true,senders:[],message:null});
+        if(url.pathname.endsWith('/sms'))return json({enabled:crmEnabled,senders:[],message:null});
         if(url.pathname.endsWith('/email')) {
           if(req.method()==='POST') {const data=req.postDataJSON(); sends++;await new Promise(resolve=>setTimeout(resolve,600));message={...data,status:uncertain?'unknown':'sent',senderLabel:'Business Gmail',senderValue:'staff@example.test',actorName:'Test Staff',renderedBody:data.body+'\n\nStaff signature',renderedHtml:data.body+'<br><br><b>Staff signature</b>',failureReason:uncertain?'Check Gmail Sent folder.':'',createdAt:new Date().toISOString()};return json({message});}
-          return json({senders:[{id:'22222222-2222-4222-8222-222222222222',label:'Business Gmail',senderValue:'staff@example.test',signatureHtml:'<b>Staff signature</b>'}],message});
+          return json({enabled:crmEnabled,senders:[{id:'22222222-2222-4222-8222-222222222222',label:'Business Gmail',senderValue:'staff@example.test',signatureHtml:'<b>Staff signature</b>'}],message});
         }
         if(url.pathname.endsWith('/campaign-communications') && firstHistory) { firstHistory=false; await new Promise(resolve=>{releaseHistory=resolve;}); return json({communications:[]}); }
         if(url.pathname.endsWith('/campaign-communications'))return json({communications:message?[{...message,source:'crm_email',channel:'email',renderedSubject:message.subject,sentAt:message.createdAt}]:[]});
@@ -76,6 +76,14 @@ const assert = require('node:assert/strict');
       assert.equal(await page.getByRole('textbox',{name:'Message',exact:true}).inputValue(),'Uncertain body');
       assert.equal(await page.getByRole('textbox',{name:'Message',exact:true}).isDisabled(),true);
       assert.equal(sends,2,'Unknown attempt was not resent');
+      crmEnabled=false;
+      const availability = page.waitForResponse(response=>response.url().includes('/email?attempt='));
+      await page.reload(); await availability;
+      await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+      assert.equal(await page.getByRole('button',{name:'Send email from CRM',exact:true}).count(),0);
+      assert.equal(await page.getByRole('button',{name:'Send SMS from CRM',exact:true}).count(),0);
+      assert.equal(await page.getByRole('button',{name:'✉️ Email',exact:true}).count(),1);
+      assert.equal(await page.getByRole('button',{name:'💬 Text',exact:true}).count(),1);
       console.log(`${width}px: manual contact links, single editor, saved signature, immediate close, exact send, saved history, fresh compose and uncertain reload protection passed`);
       await context.close();
     }

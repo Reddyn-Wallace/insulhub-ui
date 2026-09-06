@@ -1,6 +1,6 @@
 # Job email — stage two
 
-Adds “Send email from CRM” beside the manual Email option on a job. Uses active, connected Gmail accounts from campaign Senders, templates and their saved Gmail signatures. No additional setting is required. Manual Text/Email and CRM SMS remain available.
+Adds “Send email from CRM” beside the manual Email option on a job. Uses active, connected Gmail accounts from campaign Senders, templates and their saved Gmail signatures. The existing CRM messaging switch controls both job SMS and email. The master switch uses `job_sms_enabled`; optional `job_crm_test_user` limits sending to one authenticated account. Both options are hidden and new sends are blocked when off. Account-only testing can be selected while off, then enabled. Existing saved attempts can still be read without being resent. Manual Text/Email and CRM SMS remain available.
 
 The server verifies job access, the authenticated staff member and the current contact email. It inserts an immutable attempt before contacting Gmail. A unique attempt ID prevents duplicate submission across clicks, concurrent requests and recovery. The selected connection must authorise the From address; no fallback account is used.
 
