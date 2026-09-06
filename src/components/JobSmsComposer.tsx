@@ -4,7 +4,7 @@ import BottomSheet from "./BottomSheet";
 import { smsStatusLabel } from "@/lib/job-sms";
 
 type Sender = { id: string; label: string; senderValue: string };
-export type JobSmsMessage = { id: string; body: string; destination: string; senderLabel: string; actorName: string; status: string; failureReason: string };
+export type JobSmsMessage = { id: string; body: string; destination: string; senderLabel: string; actorName: string; status: string; failureReason: string; createdAt?: string; templateTitle?: string };
 type Attempt = { id: string; senderId: string; body: string; destination: string; templateTitle: string };
 export default function JobSmsComposer({ jobId, phone, contactName, templates, onRecorded, statusUpdates = [] }: {
   jobId: string; phone: string; contactName: string; templates: { id: string; title: string; body: string }[]; onRecorded: (message?: JobSmsMessage) => void; statusUpdates?: { id: string; status: string; failureReason?: string | null }[];
@@ -47,15 +47,17 @@ export default function JobSmsComposer({ jobId, phone, contactName, templates, o
       const current = attempt || { id: crypto.randomUUID(), senderId, body, destination: phone, templateTitle: templates.find(template => template.id === templateId)?.title || "" };
       // Persist before submitting so a reload cannot silently create another send.
       sessionStorage.setItem(storageKey, JSON.stringify(current)); setAttempt(current);
+      setOpen(false);
+      onRecorded({ ...current, senderLabel: senders.find(sender => sender.id === current.senderId)?.label || "", actorName: "", status: "sending", failureReason: "", createdAt: new Date().toISOString() });
       const response = await fetch(endpoint, { method: "POST", headers: headers(), body: JSON.stringify(current) });
       const data = await response.json();
       if (!response.ok) {
         if ((data.safeToEdit === true || [400, 403].includes(response.status))) { setAttempt(null); sessionStorage.removeItem(storageKey); }
         throw Error(data.error || "Could not confirm the send. Check status before sending again.");
       }
-      setMessage(data.message); onRecorded(data.message);
-      if (["accepted", "sent", "delivered"].includes(data.message.status)) setOpen(false);
-    } catch (error) { onRecorded(); setError(error instanceof Error ? error.message : "Could not confirm the send. Check status before sending again."); }
+      setMessage(data.message); onRecorded({ ...data.message, templateTitle: current.templateTitle });
+      if (["failed", "unknown"].includes(data.message.status)) setOpen(true);
+    } catch (error) { setOpen(true); onRecorded(); setError(error instanceof Error ? error.message : "Could not confirm the send. Check status before sending again."); }
     finally { locked.current = false; setBusy(false); }
   }
   function newMessage() {
@@ -64,7 +66,7 @@ export default function JobSmsComposer({ jobId, phone, contactName, templates, o
   if (!enabled && !attempt) return null;
   const settled = message && ["accepted", "sent", "delivered", "failed"].includes(message.status);
   return <>
-    <button type="button" onClick={() => { if (message && ["accepted", "sent", "delivered"].includes(message.status)) newMessage(); setOpen(true); }} className="rounded-xl border border-teal-700 px-3 py-3 text-sm font-semibold text-teal-800">Send SMS from CRM</button>
+    <button type="button" disabled={busy} onClick={() => { if (message && ["accepted", "sent", "delivered"].includes(message.status)) newMessage(); setOpen(true); }} className="rounded-xl border border-teal-700 px-3 py-3 text-sm font-semibold text-teal-800">Send SMS from CRM</button>
     <BottomSheet open={open} onClose={() => { if (!busy) setOpen(false); }} title="Send SMS from CRM">
       <div className="space-y-4 text-left">
         <div className="rounded-xl bg-gray-50 p-3"><p className="font-semibold">{contactName}</p><p className="text-sm">{attempt?.destination || phone || "No mobile number — update the job contact first."}</p></div>
@@ -78,7 +80,7 @@ export default function JobSmsComposer({ jobId, phone, contactName, templates, o
         <label className="block text-sm font-semibold">Message<textarea rows={6} maxLength={1600} className="mt-1 w-full rounded-lg border p-3 font-normal" value={body} disabled={busy || !!attempt} onChange={event => setBody(event.target.value)} /></label>
         <p className="text-xs text-gray-500">{body.length}/1,600 characters. Long messages and some characters can use multiple SMS segments.</p>
         {message && <div role="status" className="rounded-lg bg-gray-50 p-3 text-sm"><strong>{smsStatusLabel(message.status)}</strong>{message.failureReason && <p className="mt-1">{message.failureReason}</p>}</div>}
-        {attempt && !settled && <p className="text-sm text-amber-800">This attempt is saved. Its status updates automatically while this job is open. Wait for confirmation before sending another text, including from your phone.</p>}
+        {attempt && !busy && (message?.status === "unknown" || !!error) && <p className="text-sm text-amber-800">This attempt is saved. Its status updates automatically while this job is open. Wait for confirmation before sending another text, including from your phone.</p>}
         {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
         {!attempt && <button type="button" disabled={busy || !enabled || !senderId || !phone || !body.trim()} onClick={() => void submit()} className="w-full rounded-xl bg-teal-700 p-3 font-semibold text-white disabled:opacity-40">{busy ? "Sending…" : "Send SMS"}</button>}
         {attempt && !message && <button type="button" disabled={busy || !enabled} onClick={() => void submit()} className="w-full rounded-xl border p-3 text-sm">Recover original send attempt</button>}

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import JobSmsComposer from "@/components/JobSmsComposer";
 const senderId = "22222222-2222-4222-8222-222222222222";
 const props = { jobId: "job", phone: "0211234567", contactName: "Customer", templates: [{ id: "template", title: "Booking", body: "Hello Customer" }], onRecorded: vi.fn() };
@@ -36,4 +36,15 @@ describe("job SMS composer", () => {
     const fetcher = vi.fn(async () => Response.json({ ...initial, enabled: false })); vi.stubGlobal("fetch", fetcher);
     render(<JobSmsComposer {...props} />); await waitFor(() => expect(fetcher).toHaveBeenCalled()); expect(screen.queryByRole("button")).toBeNull();
   });
+});
+
+it("closes SMS immediately while delivery is still pending", async () => {
+  let finish!: (response: Response) => void;
+  vi.stubGlobal("fetch", async (_url: string, init?: RequestInit) => init?.method === "POST" ? new Promise<Response>(resolve => { finish = resolve; }) : Response.json(initial));
+  await open(); fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Hi" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send SMS" }));
+  expect(screen.queryByLabelText("Message")).toBeNull();
+  expect(props.onRecorded).toHaveBeenCalledWith(expect.objectContaining({ status: "sending", body: "Hi" }));
+  await act(async () => finish(Response.json({ message: { id: "attempt", status: "accepted" } })));
+  expect(screen.queryByLabelText("Message")).toBeNull();
 });

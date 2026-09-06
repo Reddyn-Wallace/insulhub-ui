@@ -20,7 +20,7 @@ const assert = require('node:assert/strict');
         if(url.origin!==base)return route.abort();
         if(!url.pathname.startsWith('/api/'))return route.continue();
         if(url.pathname.endsWith('/sms')) {
-          if(req.method()==='POST') {const data=req.postDataJSON(); if(data.action==='check')message={...message,status:'sent'};else {sends++;message={...data,status:'accepted',senderLabel:'Business SMS',actorName:'Test Staff',failureReason:''};}return json({message});}
+          if(req.method()==='POST') {const data=req.postDataJSON(); if(data.action==='check')message={...message,status:'sent'};else {sends++;await new Promise(resolve=>setTimeout(resolve,600));message={...data,status:'accepted',senderLabel:'Business SMS',actorName:'Test Staff',failureReason:''};}return json({message});}
           return json({enabled:true,senders:[{id:'22222222-2222-4222-8222-222222222222',label:'Business SMS'}],message});
         }
         if(url.pathname.endsWith('/campaign-communications'))return json({communications:message?[{...message,source:'crm_sms',channel:'sms',renderedBody:message.body,renderedSubject:'',sentAt:new Date().toISOString()}]:[]});
@@ -40,10 +40,13 @@ const assert = require('node:assert/strict');
       await page.getByLabel('Template').selectOption('33333333-3333-4333-8333-333333333333');
       await page.getByRole('textbox',{name:'Message',exact:true}).fill('Exact test message');
       await page.getByRole('button',{name:'Send SMS',exact:true}).click();
-      await page.getByRole('textbox',{name:'Message',exact:true}).waitFor({state:'hidden'});
+      await page.getByRole('textbox',{name:'Message',exact:true}).waitFor({state:'hidden',timeout:500});
+      await page.getByRole('button').filter({hasText:'CRM SMS'}).getByText('Sending',{exact:true}).waitFor();
+      await page.getByRole('button').filter({hasText:'CRM SMS'}).getByText(/Accepted by SMS service|Sent/).waitFor();
       assert.equal(sends,1);assert.equal(message.body,'Exact test message');
       assert.equal(await page.getByRole('button',{name:'Check message status',exact:true}).count(),0);
-      await page.getByRole('status').getByText('SMS: Sent',{exact:true}).waitFor();
+      await page.getByRole('button').filter({hasText:'CRM SMS'}).getByText('Sent',{exact:true}).waitFor();
+      assert.equal(await page.getByText('SMS: Sent',{exact:true}).count(),0);
       await page.screenshot({path:`/tmp/insulhub-job-sms-${width}.png`,fullPage:true});
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth),false,'No horizontal overflow');
       assert.deepEqual(errors,[],'No browser exceptions');

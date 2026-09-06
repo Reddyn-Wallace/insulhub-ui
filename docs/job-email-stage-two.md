@@ -6,7 +6,7 @@ The server verifies job access, the authenticated staff member and the current c
 
 History retains staff identity, recipient, From address, subject, original body, rendered plain/HTML content including the signature, template title, timestamps, outcome, RFC Message-ID and Gmail message/thread identifiers. Sender deletion does not remove history. HTML previews are sandboxed with a restrictive content security policy.
 
-Confirmed acceptance closes the composer and shows Sent on the job. This is not a delivery/read receipt. Explicit rejection is Failed. Timeouts, ambiguous responses and interrupted persistence remain unconfirmed and never trigger automatic resend. A short read-only CRM lookup reconciles delayed responses. Staff must check Gmail’s Sent folder before clearing an uncertain attempt. Incoming replies and attachments are outside this stage.
+Pressing Send closes the composer immediately and shows Sending in Sent Communications, followed by the confirmed result. Only an actual failure or uncertain outcome reopens the composer. The editable message is shown once; the saved signature is added automatically and the full signed email can be viewed in history. This is not a delivery/read receipt. Explicit rejection is Failed. Timeouts, ambiguous responses and interrupted persistence remain unconfirmed and never trigger automatic resend. A short read-only CRM lookup reconciles delayed responses. Staff must check Gmail’s Sent folder before clearing an uncertain attempt. Incoming replies and attachments are outside this stage.
 
 ## Deployment and checks
 

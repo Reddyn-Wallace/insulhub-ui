@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import JobEmailComposer from "@/components/JobEmailComposer";
 const props = { jobId: "job", email: "customer@example.com", contactName: "Customer", templates: [{ id: "template", title: "Booking", subject: "Booking details", body: "Hello Customer" }], onRecorded: vi.fn() };
 const initial = { senders: [{ id: "sender", label: "Staff", senderValue: "staff@example.com", signatureHtml: "<b>Staff signature</b>" }], message: null };
@@ -16,7 +16,7 @@ it("sends edited subject and body once and closes on confirmation", async () => 
   await open(); fireEvent.change(screen.getByLabelText("Template"), { target: { value: "template" } });
   fireEvent.change(screen.getByLabelText("Subject"), { target: { value: "Edited booking" } });
   fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Exact edited message" } });
-  expect(screen.getByTitle("Email preview").getAttribute("sandbox")).toBe("");
+  expect(screen.queryByTitle("Email preview")).toBeNull();
   const send = screen.getByRole("button", { name: "Send email" }); fireEvent.click(send); fireEvent.click(send);
   await waitFor(() => expect(screen.queryByLabelText("Message")).toBeNull());
   expect(posts).toBe(1); expect(sent).toMatchObject({ subject: "Edited booking", body: "Exact edited message", destination: props.email, senderId: "sender" });
@@ -34,4 +34,15 @@ it("keeps safe rejections editable", async () => {
   await open(); fireEvent.change(screen.getByLabelText("Subject"), { target: { value: "Booking" } }); fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Hi" } }); fireEvent.click(screen.getByRole("button", { name: "Send email" }));
   await screen.findByRole("alert"); expect(screen.getByLabelText("Message")).toHaveProperty("disabled", false);
   expect(sessionStorage.getItem("job-email-attempt:job")).toBeNull();
+});
+
+it("closes immediately during a delayed send and reopens only for a real failure", async () => {
+  let finish!: (response: Response) => void;
+  vi.stubGlobal("fetch", async (_url: string, init?: RequestInit) => init?.method === "POST" ? new Promise<Response>(resolve => { finish = resolve; }) : Response.json(initial));
+  await open(); fireEvent.change(screen.getByLabelText("Subject"), { target: { value: "Booking" } }); fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Hi" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send email" }));
+  expect(screen.queryByLabelText("Message")).toBeNull();
+  expect(props.onRecorded).toHaveBeenCalledWith(expect.objectContaining({ status: "sending", body: "Hi" }));
+  await act(async () => finish(Response.json({ message: { id: "attempt", status: "failed", failureReason: "Account disconnected" } })));
+  expect(await screen.findByText("Account disconnected")).toBeTruthy();
 });
