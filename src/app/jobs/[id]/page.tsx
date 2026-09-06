@@ -8,6 +8,8 @@ import {
   UPDATE_JOB_LEAD, UPDATE_JOB_NOTES,
   UPDATE_JOB_QUOTE, ARCHIVE_JOB, UPDATE_CLIENT, SEND_EBA, ADD_FILES, REMOVE_FILE,
 } from "@/lib/mutations";
+import JobSmsComposer from "@/components/JobSmsComposer";
+import { smsStatusLabel } from "@/lib/job-sms";
 import BottomSheet from "@/components/BottomSheet";
 import PartnerNoteComposer from "@/components/PartnerNoteComposer";
 import PartnerSharedNotes from "@/components/PartnerSharedNotes";
@@ -102,7 +104,7 @@ type ContactTemplate = {
 
 type CampaignCommunication = {
   id: string;
-  source: "campaign" | "job";
+  source: "campaign" | "job" | "crm_sms";
   campaignId: string;
   campaignName: string;
   templateId: string;
@@ -112,7 +114,7 @@ type CampaignCommunication = {
   destination: string;
   contactName: string;
   jobNumber: number;
-  status: "sent" | "failed" | "skipped" | "launched";
+  status: "sent" | "failed" | "skipped" | "launched" | "sending" | "accepted" | "delivered" | "unknown";
   renderedSubject: string;
   renderedBody: string;
   sentAt?: string | null;
@@ -500,6 +502,7 @@ export default function JobDetailPage() {
   const quoteEmailEditorRef = useRef<HTMLDivElement | null>(null);
   const [quoteSentAt, setQuoteSentAt] = useState<string | null>(null);
   const [ebaSentAt, setEbaSentAt] = useState<string | null>(null);
+  const [checkingCrmSms, setCheckingCrmSms] = useState(false);
   const [contactTemplates, setContactTemplates] = useState<ContactTemplate[]>([]);
   const [loadingContactTemplates, setLoadingContactTemplates] = useState(false);
   const [contactTemplateMode, setContactTemplateMode] = useState<"sms" | "email">("sms");
@@ -854,6 +857,19 @@ export default function JobDetailPage() {
     setContactTemplateMode(channel);
     openSheet("contactTemplatePicker");
     if (!contactTemplates.length) loadContactTemplates();
+  }
+
+  async function checkHistoricalSms() {
+    if (!selectedCampaignCommunication || checkingCrmSms) return;
+    setCheckingCrmSms(true);
+    try {
+      const response = await fetch(`/api/jobs/${id}/sms`, { method: "POST", headers: { "content-type": "application/json", "x-access-token": getToken() || "" }, body: JSON.stringify({ id: selectedCampaignCommunication.id, action: "check" }) });
+      const data = await response.json();
+      if (!response.ok) throw Error(data.error || "Could not check message status.");
+      setSelectedCampaignCommunication(current => current && current.id === data.message.id ? { ...current, status: data.message.status, failureReason: data.message.failureReason } : current);
+      await loadCampaignCommunications();
+    } catch (error) { setToast({ type: "error", text: error instanceof Error ? error.message : "Could not check status." }); }
+    finally { setCheckingCrmSms(false); }
   }
 
   async function copyCustomerEmail() {
@@ -2526,6 +2542,7 @@ export default function JobDetailPage() {
         {/* Quick contact */}
         <div className="flex gap-2 mb-3">
           {phone && <a href={`tel:${phone}`} className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl text-center text-sm">📞 Call</a>}
+          <JobSmsComposer key={id} jobId={id} phone={phone || ""} contactName={contactName} templates={contactTemplates.filter(template => template.channel === "sms").map(template => ({ id: template.id, title: template.title, body: applyTemplateFields(template.body, templateFields) }))} onRecorded={loadCampaignCommunications} />
           {phone && <button type="button" onClick={() => openContactTemplates("sms")} className="flex-1 bg-teal-700 text-white font-semibold py-3 rounded-xl text-center text-sm">💬 Text</button>}
           {c?.email && <button type="button" onClick={() => openContactTemplates("email")} className="flex-1 bg-[#1a3a4a] text-white font-semibold py-3 rounded-xl text-center text-sm">✉️ Email</button>}
         </div>
@@ -2842,7 +2859,7 @@ export default function JobDetailPage() {
                         {communication.source === "campaign" ? communication.campaignName : communication.templateTitle || "No template"}
                       </div>
                       <div className="mt-1 text-xs text-gray-500">
-                        {communication.source === "campaign" ? "Campaign" : "From job"} • {communication.channel === "sms" ? "SMS" : "Email"} to {communication.destination}
+                        {communication.source === "campaign" ? "Campaign" : communication.source === "crm_sms" ? "CRM SMS" : "From job"} • {communication.channel === "sms" ? "SMS" : "Email"} to {communication.destination}
                       </div>
                       <div className="mt-1 text-xs text-gray-400">{fmtDateTime(communication.sentAt)}</div>
                     </div>
@@ -2855,7 +2872,7 @@ export default function JobDetailPage() {
                             ? "bg-blue-50 text-blue-700"
                             : "bg-gray-100 text-gray-700"
                     }`}>
-                      {communication.status}
+                      {communication.source === "crm_sms" ? smsStatusLabel(communication.status) : communication.status === "launched" ? `Opened in ${communication.channel === "sms" ? "SMS" : "email"} app` : communication.status}
                     </span>
                   </div>
                 </button>
@@ -3290,14 +3307,14 @@ export default function JobDetailPage() {
                   : selectedCampaignCommunication.templateTitle || "No template"}
               </div>
               <div className="mt-1 text-xs text-gray-500">
-                {selectedCampaignCommunication.channel === "sms" ? "SMS" : "Email"} {selectedCampaignCommunication.source === "campaign" ? "sent" : "launched"} {fmtDateTime(selectedCampaignCommunication.sentAt)}
+                {selectedCampaignCommunication.channel === "sms" ? "SMS" : "Email"} {selectedCampaignCommunication.source === "crm_sms" ? "recorded" : selectedCampaignCommunication.source === "campaign" ? "sent" : "opened in app"} {fmtDateTime(selectedCampaignCommunication.sentAt)}
               </div>
             </div>
 
             <div className="grid grid-cols-1 gap-2 text-sm">
               <InfoRow label="Sender" value={selectedCampaignCommunication.senderLabel} />
               <InfoRow label="Recipient" value={selectedCampaignCommunication.destination} />
-              <InfoRow label="Status" value={selectedCampaignCommunication.status} />
+              <InfoRow label="Status" value={selectedCampaignCommunication.source === "crm_sms" ? smsStatusLabel(selectedCampaignCommunication.status) : selectedCampaignCommunication.status} />
             </div>
 
             {selectedCampaignCommunication.channel === "email" && (
@@ -3316,6 +3333,12 @@ export default function JobDetailPage() {
               <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                 {selectedCampaignCommunication.failureReason}
               </div>
+            )}
+
+            {selectedCampaignCommunication.source === "crm_sms" && (
+              <button type="button" disabled={checkingCrmSms} onClick={() => void checkHistoricalSms()} className="w-full rounded-xl border border-teal-700 py-3 font-semibold text-teal-800 disabled:opacity-40">
+                {checkingCrmSms ? "Checking…" : "Check message status"}
+              </button>
             )}
 
             {selectedCampaignCommunication.source === "campaign" && (

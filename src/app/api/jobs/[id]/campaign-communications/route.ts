@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { jobSmsIdentity } from "@/lib/job-sms-access";
 import { requireInsulhubAuth } from "@/lib/insulhub-auth";
 import { ensureOverlaySchema, overlaySql } from "@/lib/overlay-db";
 
@@ -53,6 +54,7 @@ export async function GET(
 
     await ensureOverlaySchema();
     const { id } = await params;
+    await jobSmsIdentity(request, id);
 
     const rows = await overlaySql`
       WITH campaign_logs AS (
@@ -106,6 +108,12 @@ export async function GET(
         SELECT * FROM campaign_logs
         UNION ALL
         SELECT * FROM job_logs
+        UNION ALL
+        SELECT id, 'crm_sms' AS source, NULL::uuid, '', NULL::uuid, template_title,
+          'sms', sender_label || ' · ' || actor_name, destination, contact_name, job_number,
+          CASE WHEN status = 'sending' AND created_at < now() - interval '60 seconds' THEN 'unknown' ELSE status END,
+          '', body, created_at, NULL::timestamptz, failure_reason
+        FROM job_sms_messages WHERE insulhub_job_id = ${id}
       ) combined
       ORDER BY COALESCE(sent_at, launched_at) DESC NULLS LAST
     `;

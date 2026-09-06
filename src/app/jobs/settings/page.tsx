@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAppDialog } from "@/components/AppDialog";
+import JobSmsSettings from "@/components/JobSmsSettings";
 import PartnerSettings from "@/components/PartnerSettings";
 
 type ContactTemplate = {
@@ -923,6 +924,7 @@ export default function SettingsPage() {
             </div>
 
             <div className="space-y-4 p-4">
+              <JobSmsSettings />
               <div className="rounded-lg border border-gray-200 p-4">
                 <label className="flex items-center gap-2 text-sm font-semibold text-gray-900">
                   <input

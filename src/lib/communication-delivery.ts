@@ -260,7 +260,7 @@ function responseErrorMessage(body: Record<string, unknown>, fallback: string) {
   return fallback;
 }
 
-function normalizeBaseUrl(raw: string) {
+export function normalizeBaseUrl(raw: string) {
   const value = raw.trim().replace(/\/+$/, "");
   if (!value) return value;
   const withProtocol = /^https?:\/\//i.test(value)
@@ -440,12 +440,12 @@ export async function fetchGmailSignature(input: ConnectionTestInput, senderEmai
   }
 }
 
-function smsgateAuthHeaders(config?: Record<string, string>) {
-  const token = config?.smsgateAuthToken || process.env.SMSGATE_AUTH_TOKEN?.trim();
+export function smsgateAuthHeaders(config?: Record<string, string>, strict = false) {
+  const token = config?.smsgateAuthToken || (!strict ? process.env.SMSGATE_AUTH_TOKEN?.trim() : undefined);
   if (token) return { authorization: `Bearer ${token}` };
 
-  const username = config?.smsgateUsername || process.env.SMSGATE_USERNAME?.trim();
-  const password = config?.smsgatePassword || process.env.SMSGATE_PASSWORD?.trim();
+  const username = config?.smsgateUsername || (!strict ? process.env.SMSGATE_USERNAME?.trim() : undefined);
+  const password = config?.smsgatePassword || (!strict ? process.env.SMSGATE_PASSWORD?.trim() : undefined);
   if (username && password) {
     return { authorization: `Basic ${Buffer.from(`${username}:${password}`, "utf8").toString("base64")}` };
   }
