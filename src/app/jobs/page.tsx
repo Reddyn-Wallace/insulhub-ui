@@ -232,7 +232,7 @@ function JobsPageContent() {
   }
 
   // Sync state with URL changes (back/forward or tab click)
-  // Only dependent on initStage to prevent toggle-back loops
+  // Preserve the open source picker while its selections update the URL.
   useEffect(() => {
     setActiveStage(initStage);
     setSubTab(initSubTab);
@@ -240,7 +240,6 @@ function JobsPageContent() {
     setLeadSourceFilters(initLeadSourceFilters);
     setPage(0);
     setGlobalCounts(null);
-    setLeadSourceMenuOpen(false);
 
     // If we have cached data for this stage and we're not searching, use it immediately
     const inMemCached = cacheRef.current[initStage];
@@ -267,6 +266,10 @@ function JobsPageContent() {
     searchMode,
     readStageCache,
   ]); // Depend on searchMode too to ensure we clear/show correctly
+
+  useEffect(() => {
+    setLeadSourceMenuOpen(false);
+  }, [initStage, initSubTab]);
 
   useEffect(() => {
     if (!filtersOpen) setLeadSourceMenuOpen(false);
@@ -832,6 +835,8 @@ function JobsPageContent() {
                 <button
                   type="button"
                   onClick={() => setLeadSourceMenuOpen((open) => !open)}
+                  aria-expanded={leadSourceMenuOpen}
+                  aria-controls="lead-source-options"
                   className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left text-sm transition-colors ${
                     leadSourceMenuOpen
                       ? "border-[#e85d04] bg-orange-50 text-gray-800"
@@ -846,7 +851,7 @@ function JobsPageContent() {
                   <span className="text-xs font-semibold text-gray-400">{leadSourceMenuOpen ? "Close" : "Select"}</span>
                 </button>
                 {leadSourceMenuOpen && (
-                  <div className="absolute left-0 right-0 top-full z-20 mt-2 rounded-xl border border-gray-200 bg-white p-2 shadow-lg">
+                  <div id="lead-source-options" className="absolute left-0 right-0 top-full z-20 mt-2 rounded-xl border border-gray-200 bg-white p-2 shadow-lg">
                     <div className="max-h-60 overflow-y-auto pr-1">
                       <div className="grid gap-1">
                         {LEAD_SOURCE_OPTIONS.map((source) => {
@@ -856,6 +861,7 @@ function JobsPageContent() {
                             <button
                               key={source}
                               type="button"
+                              aria-pressed={active}
                               onClick={() => updateLeadSourceFilters(toggleMultiSelectValue(leadSourceFilters, key))}
                               className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
                                 active
@@ -871,6 +877,10 @@ function JobsPageContent() {
                           );
                         })}
                       </div>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between border-t border-gray-100 pt-2">
+                      <button type="button" onClick={() => updateLeadSourceFilters([])} disabled={leadSourceFilters.length === 0} className="rounded-lg px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40">Clear sources</button>
+                      <button type="button" onClick={() => setLeadSourceMenuOpen(false)} className="rounded-lg bg-[#e85d04] px-4 py-2 text-xs font-semibold text-white">Done</button>
                     </div>
                   </div>
                 )}
