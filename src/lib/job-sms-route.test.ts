@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { NextRequest } from "next/server";
-const mocks = vi.hoisted(() => ({ sql: vi.fn(), identity: vi.fn(), deliver: vi.fn(), check: vi.fn() }));
+import { NextRequest, NextResponse } from "next/server";
+const mocks = vi.hoisted(() => ({ sql: vi.fn(), identity: vi.fn(), deliver: vi.fn(), check: vi.fn(), auth: vi.fn() }));
+vi.mock("@/lib/insulhub-auth", () => ({ requireInsulhubAuth: mocks.auth }));
 vi.mock("@/lib/overlay-db", () => ({ overlaySql: mocks.sql }));
 vi.mock("@/lib/job-sms-access", () => ({ jobSmsIdentity: mocks.identity }));
 vi.mock("@/lib/job-sms-delivery", () => ({ deliverJobSms: mocks.deliver, checkJobSms: mocks.check }));
 import { POST } from "@/app/api/jobs/[id]/sms/route";
-import { PATCH } from "@/app/api/job-sms-settings/route";
+import { GET, PATCH } from "@/app/api/job-sms-settings/route";
 const job = "abcdefabcdefabcdefabcdef";
 const input = { id: "11111111-1111-4111-8111-111111111111", senderId: "22222222-2222-4222-8222-222222222222", destination: "0211234567", body: "Hi" };
 const context = { params: Promise.resolve({ id: job }) };
@@ -13,7 +14,7 @@ const request = (body: unknown) => new NextRequest(`http://localhost/api/jobs/${
 let rows: Record<string, unknown>[];
 let available: boolean;
 beforeEach(() => {
-  vi.resetAllMocks(); rows = []; available = true;
+  vi.resetAllMocks(); mocks.auth.mockResolvedValue(null); rows = []; available = true;
   mocks.identity.mockResolvedValue({ me: { _id: "staff", firstname: "Sam", lastname: "Smith", role: "ADMIN" }, job: { _id: job, jobNumber: 42, client: { contactDetails: { phoneMobile: "0211234567", name: "Customer" } } } });
   mocks.deliver.mockResolvedValue({ status: "accepted", failureReason: "" });
   mocks.sql.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -50,7 +51,17 @@ describe("job SMS route", () => {
   it("never submits when job access cannot be verified", async () => {
     mocks.identity.mockRejectedValue(Error("Unauthorized")); await POST(request(input), context); expect(mocks.sql).not.toHaveBeenCalled(); expect(mocks.deliver).not.toHaveBeenCalled();
   });
-  it("restricts enabling the feature to administrators", async () => {
-    mocks.identity.mockResolvedValue({ me: { role: "SALES" } }); expect((await PATCH(request({ enabled: true }))).status).toBe(403); expect(mocks.sql).not.toHaveBeenCalled();
+  it("allows campaign-settings users to load and change CRM SMS availability without an ADMIN role", async () => {
+    mocks.identity.mockResolvedValue({ me: { role: "SALES" } });
+    expect(await (await GET(request({}))).json()).toMatchObject({ canManage: true });
+    expect((await PATCH(request({ enabled: true }))).status).toBe(200);
+    expect(mocks.auth).toHaveBeenCalledTimes(2);
+    expect(mocks.identity).not.toHaveBeenCalled();
+  });
+  it("rejects unauthenticated settings reads and writes before touching the database", async () => {
+    mocks.auth.mockImplementation(async () => NextResponse.json({ error: "Unauthorized" }, { status: 401 }));
+    expect((await GET(request({}))).status).toBe(401);
+    expect((await PATCH(request({ enabled: true }))).status).toBe(401);
+    expect(mocks.sql).not.toHaveBeenCalled();
   });
 });

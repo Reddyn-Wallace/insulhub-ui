@@ -4,7 +4,7 @@ Manual Text and Email remain available. CRM SMS is an additional action, disable
 
 ## Production review
 
-1. In Jobs → Settings → Communication Settings, an administrator can enable **CRM SMS sending** under **SMS from jobs**. This saves immediately and does not change campaign limits.
+1. In Jobs → Settings → Communication Settings, users with access to the existing campaign settings can enable **CRM SMS sending** under **SMS from jobs**. This saves immediately and does not change campaign limits.
 2. Open a designated test job whose contact number is your test phone. Choose **Send SMS from CRM**, select a connected SMS Gateway sender, select/edit a template or write a blank message, then send.
 3. Verify the received number and exact text. Open communication history to inspect the saved sender/staff member, body, recipient and status. **Accepted by SMS service** does not mean delivered.
 4. Use **Check message status** in the composer or the historical record. Reload the page: the latest attempt is retained in that browser tab and is not submitted again.

@@ -25,7 +25,7 @@ export default function JobSmsSettings() {
     <h3 className="font-semibold text-gray-900">SMS from jobs</h3>
     <p className="mt-1 text-sm text-gray-600">Allow staff to send SMS through a connected account from a job. Manual SMS and email remain available. Replies are not automatically captured.</p>
     <label className="mt-3 flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={enabled} disabled={!ready || !canManage || busy} onChange={toggle} />Enable CRM SMS sending</label>
-    {ready && !canManage && <p className="mt-2 text-xs text-gray-500">Only an administrator can change this setting.</p>}
+    {ready && !canManage && <p className="mt-2 text-xs text-gray-500">Your account cannot manage communication settings.</p>}
     {error && <p role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
   </div>;
 }
