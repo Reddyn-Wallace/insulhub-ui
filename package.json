@@ -19,10 +19,12 @@
     "partner:live-test-once": "node --conditions=react-server --import tsx scripts/partner-live-test-once.ts",
     "partner:notification-test-once": "node --conditions=react-server --import tsx scripts/partner-notification-test-once.ts",
     "partner:provision": "node scripts/partner-provision.mjs",
-    "test": "npm run test:site-plan-drawings && npm run test:sms-replies && npm run test:partner && npm run test:job-sms && npm run test:communications && npm run test:cloudflare",
+    "test": "npm run test:site-plan-drawings && npm run test:sms-replies && npm run test:partner && npm run test:job-sms && npm run test:communications && npm run test:cloudflare && npm run test:job-email",
     "test:job-sms": "vitest run src/lib/job-sms*.test.*",
     "test:job-sms-browser": "node scripts/job-sms-browser-smoke.cjs",
-    "job-sms:migrate": "node scripts/job-sms-migrate.mjs"
+    "job-sms:migrate": "node scripts/job-sms-migrate.mjs",
+    "test:job-email": "vitest run src/lib/job-email*.test.*",
+    "job-email:migrate": "node scripts/job-email-migrate.mjs"
   },
   "dependencies": {
     "@ducanh2912/next-pwa": "^10.2.9",

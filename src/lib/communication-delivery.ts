@@ -22,6 +22,7 @@ export const GMAIL_OAUTH_SCOPE = `${GMAIL_SEND_SCOPE} ${GMAIL_SETTINGS_SCOPE}`;
 
 export type DeliveryMessage = {
   signal?: AbortSignal;
+  messageId?: string;
   // Account emails must use the selected connection and prove its authorised From address.
   strictGmailConnection?: boolean;
   channel: "email" | "sms";
@@ -41,6 +42,9 @@ export type DeliveryMessage = {
 export type DeliveryResult = {
   ok: boolean;
   providerMessageId?: string;
+  providerThreadId?: string;
+  uncertain?: boolean;
+  failureCode?: "gmail_connection";
   failureReason?: string;
   accessToken?: string;
   refreshToken?: string;
@@ -188,7 +192,17 @@ function base64MimeBody(input: string) {
   return Buffer.from(input, "utf8").toString("base64").match(/.{1,76}/g)?.join("\r\n") ?? "";
 }
 
+export function emailContent(body: string, signature = "") {
+  const clean = signature.trim();
+  return {
+    plainBody: appendEmailSignature(body, stripHtml(clean)),
+    htmlBody: plainToHtml(body).replace(/(<br>)*$/g, "") + (clean ? `<br><br>${clean}` : ""),
+  };
+}
+
 function mimeMessage(input: DeliveryMessage) {
+  if (input.messageId && !/^<[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+>$/.test(input.messageId)) throw Error("Invalid message identifier");
+  const messageHeaders = input.messageId ? [`Message-ID: ${input.messageId}`] : [];
   const from = addressHeader(input.from, input.fromName);
   const to = headerValue(input.to);
   const subject = encodeMimeHeader(input.subject);
@@ -199,7 +213,7 @@ function mimeMessage(input: DeliveryMessage) {
     let boundary = "";
     do boundary = `insulhub-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     while (input.body.includes(boundary) || trustedHtml?.html.includes(boundary) || signature.includes(boundary));
-    const plainBody = base64MimeBody(appendEmailSignature(input.body, stripHtml(signature)));
+    const plainBody = base64MimeBody(emailContent(input.body, signature).plainBody);
     const baseHtml = trustedHtml?.html ?? plainToHtml(input.body).replace(/(<br>)*$/g, "");
     const htmlBody = signature ? `${baseHtml}<br><br>${signature}` : baseHtml;
 
@@ -207,6 +221,7 @@ function mimeMessage(input: DeliveryMessage) {
       `From: ${from}`,
       `To: ${to}`,
       `Subject: ${subject}`,
+      ...messageHeaders,
       "MIME-Version: 1.0",
       `Content-Type: multipart/alternative; boundary="${boundary}"`,
       "",
@@ -231,6 +246,7 @@ function mimeMessage(input: DeliveryMessage) {
     `From: ${from}`,
     `To: ${to}`,
     `Subject: ${subject}`,
+    ...messageHeaders,
     "MIME-Version: 1.0",
     "Content-Type: text/plain; charset=UTF-8",
     "Content-Transfer-Encoding: 8bit",
@@ -312,29 +328,37 @@ function tokenIsFresh(value?: string | null) {
   return Number.isFinite(time) && time > Date.now() + 60_000;
 }
 
+export class GmailPreflightError extends Error {}
+
 async function sendGmail(input: DeliveryMessage): Promise<DeliveryResult> {
   let token = input.accessToken || (input.strictGmailConnection ? "" : process.env.GMAIL_SEND_ACCESS_TOKEN?.trim()) || "";
   let refreshed: Awaited<ReturnType<typeof refreshGmailToken>> = null;
-  if (!token || !tokenIsFresh(input.tokenExpiresAt)) {
-    refreshed = await refreshGmailToken(input);
-    if (refreshed) token = refreshed.accessToken;
-    else if (input.strictGmailConnection) throw new Error("Selected Gmail connection could not be refreshed");
-  }
-  if (!token) throw new Error("Connect Gmail before sending");
-
-  const userId = input.strictGmailConnection ? "me" : input.providerConfig?.gmailUserId || process.env.GMAIL_SEND_USER_ID?.trim() || "me";
-  if (input.strictGmailConnection) {
-    const identity = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs/${encodeURIComponent(input.from.trim().toLowerCase())}`, {
-      headers: { authorization: `Bearer ${token}` }, signal: input.signal, redirect: "error",
-    });
-    const sendAs = await parseResponseBody(identity);
-    if (!identity.ok || typeof sendAs.sendAsEmail !== "string" ||
-        sendAs.sendAsEmail.toLowerCase() !== input.from.trim().toLowerCase() ||
-        !(sendAs.isPrimary === true || sendAs.verificationStatus === "accepted")) {
-      throw new Error("Selected Gmail connection is not authorised for the account sender");
+  let userId = "me";
+  let raw = "";
+  try {
+    if (!token || !tokenIsFresh(input.tokenExpiresAt)) {
+      refreshed = await refreshGmailToken(input);
+      if (refreshed) token = refreshed.accessToken;
+      else if (input.strictGmailConnection) throw new Error("Selected Gmail connection could not be refreshed");
     }
+    if (!token) throw new Error("Connect Gmail before sending");
+
+    userId = input.strictGmailConnection ? "me" : input.providerConfig?.gmailUserId || process.env.GMAIL_SEND_USER_ID?.trim() || "me";
+    if (input.strictGmailConnection) {
+      const identity = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs/${encodeURIComponent(input.from.trim().toLowerCase())}`, {
+        headers: { authorization: `Bearer ${token}` }, signal: input.signal, redirect: "error",
+      });
+      const sendAs = await parseResponseBody(identity);
+      if (!identity.ok || typeof sendAs.sendAsEmail !== "string" ||
+          sendAs.sendAsEmail.toLowerCase() !== input.from.trim().toLowerCase() ||
+          !(sendAs.isPrimary === true || sendAs.verificationStatus === "accepted")) {
+        throw new Error("Selected Gmail connection is not authorised for the account sender");
+      }
+    }
+    raw = base64Url(mimeMessage(input));
+  } catch (error) {
+    throw new GmailPreflightError(error instanceof Error ? error.message : "Could not verify Gmail connection");
   }
-  const raw = base64Url(mimeMessage(input));
 
   const response = await fetch(`https://gmail.googleapis.com/gmail/v1/users/${encodeURIComponent(userId)}/messages/send`, {
     ...(input.signal ? { signal: input.signal } : {}),
@@ -351,11 +375,13 @@ async function sendGmail(input: DeliveryMessage): Promise<DeliveryResult> {
     return {
       ok: false,
       failureReason: responseErrorMessage(body, response.statusText),
+      uncertain: response.status >= 500 || response.status === 408,
     };
   }
 
   return {
     ok: true,
+    providerThreadId: typeof body.threadId === "string" ? body.threadId : undefined,
     providerMessageId: typeof body.id === "string" ? body.id : undefined,
     accessToken: refreshed?.accessToken,
     refreshToken: refreshed?.refreshToken,

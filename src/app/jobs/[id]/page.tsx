@@ -10,6 +10,9 @@ import {
 } from "@/lib/mutations";
 import JobSmsComposer, { type JobSmsMessage } from "@/components/JobSmsComposer";
 import { useJobSmsStatus, smsNeedsStatusCheck } from "@/lib/use-job-sms-status";
+import JobEmailComposer from "@/components/JobEmailComposer";
+import EmailPreview from "@/components/EmailPreview";
+import { emailStatusLabel, type JobEmailMessage } from "@/lib/job-email";
 import { smsStatusLabel } from "@/lib/job-sms";
 import BottomSheet from "@/components/BottomSheet";
 import PartnerNoteComposer from "@/components/PartnerNoteComposer";
@@ -105,7 +108,7 @@ type ContactTemplate = {
 
 type CampaignCommunication = {
   id: string;
-  source: "campaign" | "job" | "crm_sms";
+  source: "campaign" | "job" | "crm_sms" | "crm_email";
   campaignId: string;
   campaignName: string;
   templateId: string;
@@ -118,6 +121,7 @@ type CampaignCommunication = {
   status: "sent" | "failed" | "skipped" | "launched" | "sending" | "accepted" | "delivered" | "unknown";
   renderedSubject: string;
   renderedBody: string;
+  renderedHtml?: string;
   sentAt?: string | null;
   failureReason: string;
 };
@@ -503,6 +507,7 @@ export default function JobDetailPage() {
   const quoteEmailEditorRef = useRef<HTMLDivElement | null>(null);
   const [quoteSentAt, setQuoteSentAt] = useState<string | null>(null);
   const [ebaSentAt, setEbaSentAt] = useState<string | null>(null);
+  const [latestCrmEmail, setLatestCrmEmail] = useState<JobEmailMessage | null>(null);
   const [latestCrmSms, setLatestCrmSms] = useState<JobSmsMessage | null>(null);
   const [contactTemplates, setContactTemplates] = useState<ContactTemplate[]>([]);
   const [loadingContactTemplates, setLoadingContactTemplates] = useState(false);
@@ -860,7 +865,7 @@ export default function JobDetailPage() {
     if (!contactTemplates.length) loadContactTemplates();
   }
 
-  useEffect(() => { setLatestCrmSms(null); }, [id]);
+  useEffect(() => { setLatestCrmSms(null); setLatestCrmEmail(null); }, [id]);
 
   useJobSmsStatus(id, [...campaignCommunications.filter(item => item.source === "crm_sms"), ...(
     latestCrmSms && !campaignCommunications.some(item => item.id === latestCrmSms.id)
@@ -2539,12 +2544,20 @@ export default function JobDetailPage() {
         )}
 
         {/* Quick contact */}
-        <div className="flex gap-2 mb-3">
+        <div className="flex flex-wrap gap-2 mb-3">
           {phone && <a href={`tel:${phone}`} className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl text-center text-sm">📞 Call</a>}
           <JobSmsComposer key={id} jobId={id} phone={phone || ""} contactName={contactName} templates={contactTemplates.filter(template => template.channel === "sms").map(template => ({ id: template.id, title: template.title, body: applyTemplateFields(template.body, templateFields) }))} statusUpdates={campaignCommunications} onRecorded={message => { if (message) setLatestCrmSms(message); void loadCampaignCommunications(); }} />
           {phone && <button type="button" onClick={() => openContactTemplates("sms")} className="flex-1 bg-teal-700 text-white font-semibold py-3 rounded-xl text-center text-sm">💬 Text</button>}
+          <JobEmailComposer key={`email-${id}`} jobId={id} email={c?.email || ""} contactName={contactName} templates={contactTemplates.filter(template => template.channel === "email").map(template => ({ id: template.id, title: template.title, subject: applyTemplateFields(template.subject, templateFields), body: applyTemplateFields(template.body, templateFields) }))} onRecorded={message => { if (message) setLatestCrmEmail(message); void loadCampaignCommunications(); }} />
           {c?.email && <button type="button" onClick={() => openContactTemplates("email")} className="flex-1 bg-[#1a3a4a] text-white font-semibold py-3 rounded-xl text-center text-sm">✉️ Email</button>}
         </div>
+
+        {latestCrmEmail && <div role="status" className="mb-3 rounded-xl border bg-gray-50 p-3 text-sm">
+          <strong>Email: {emailStatusLabel(latestCrmEmail.status)}</strong>
+          <p className="break-all">{latestCrmEmail.destination}</p>
+          {latestCrmEmail.status === "sent" && <p className="text-gray-600">Accepted by Gmail. Delivery and read receipts are not tracked.</p>}
+          {latestCrmEmail.failureReason && <p className="text-red-700">{latestCrmEmail.failureReason}</p>}
+        </div>}
 
         {latestCrmSms && <div role="status" className="mb-3 rounded-xl border bg-gray-50 p-3 text-sm">
           <strong>SMS: {smsStatusLabel(latestCrmSms.status)}</strong>
@@ -2865,7 +2878,7 @@ export default function JobDetailPage() {
                         {communication.source === "campaign" ? communication.campaignName : communication.templateTitle || "No template"}
                       </div>
                       <div className="mt-1 text-xs text-gray-500">
-                        {communication.source === "campaign" ? "Campaign" : communication.source === "crm_sms" ? "CRM SMS" : "From job"} • {communication.channel === "sms" ? "SMS" : "Email"} to {communication.destination}
+                        {communication.source === "campaign" ? "Campaign" : communication.source === "crm_sms" ? "CRM SMS" : communication.source === "crm_email" ? "CRM email" : "From job"} • {communication.channel === "sms" ? "SMS" : "Email"} to {communication.destination}
                       </div>
                       <div className="mt-1 text-xs text-gray-400">{fmtDateTime(communication.sentAt)}</div>
                     </div>
@@ -2878,7 +2891,7 @@ export default function JobDetailPage() {
                             ? "bg-blue-50 text-blue-700"
                             : "bg-gray-100 text-gray-700"
                     }`}>
-                      {communication.source === "crm_sms" ? smsStatusLabel(communication.status) : communication.status === "launched" ? `Opened in ${communication.channel === "sms" ? "SMS" : "email"} app` : communication.status}
+                      {communication.source === "crm_sms" ? smsStatusLabel(communication.status) : communication.source === "crm_email" ? emailStatusLabel(communication.status) : communication.status === "launched" ? `Opened in ${communication.channel === "sms" ? "SMS" : "email"} app` : communication.status}
                     </span>
                   </div>
                 </button>
@@ -3313,14 +3326,14 @@ export default function JobDetailPage() {
                   : selectedCampaignCommunication.templateTitle || "No template"}
               </div>
               <div className="mt-1 text-xs text-gray-500">
-                {selectedCampaignCommunication.channel === "sms" ? "SMS" : "Email"} {selectedCampaignCommunication.source === "crm_sms" ? "recorded" : selectedCampaignCommunication.source === "campaign" ? "sent" : "opened in app"} {fmtDateTime(selectedCampaignCommunication.sentAt)}
+                {selectedCampaignCommunication.channel === "sms" ? "SMS" : "Email"} {["crm_sms", "crm_email"].includes(selectedCampaignCommunication.source) ? "recorded" : selectedCampaignCommunication.source === "campaign" ? "sent" : "opened in app"} {fmtDateTime(selectedCampaignCommunication.sentAt)}
               </div>
             </div>
 
             <div className="grid grid-cols-1 gap-2 text-sm">
               <InfoRow label="Sender" value={selectedCampaignCommunication.senderLabel} />
               <InfoRow label="Recipient" value={selectedCampaignCommunication.destination} />
-              <InfoRow label="Status" value={selectedCampaignCommunication.source === "crm_sms" ? smsStatusLabel(selectedCampaignCommunication.status) : selectedCampaignCommunication.status} />
+              <InfoRow label="Status" value={selectedCampaignCommunication.source === "crm_sms" ? smsStatusLabel(selectedCampaignCommunication.status) : selectedCampaignCommunication.source === "crm_email" ? emailStatusLabel(selectedCampaignCommunication.status) : selectedCampaignCommunication.status} />
             </div>
 
             {selectedCampaignCommunication.channel === "email" && (
@@ -3332,7 +3345,7 @@ export default function JobDetailPage() {
 
             <div className="rounded-xl border border-gray-200 bg-white px-3 py-3">
               <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Body</div>
-              <div className="mt-2 whitespace-pre-wrap text-sm text-gray-800">{selectedCampaignCommunication.renderedBody || "(No body captured)"}</div>
+              {selectedCampaignCommunication.source === "crm_email" && selectedCampaignCommunication.renderedHtml ? <EmailPreview html={selectedCampaignCommunication.renderedHtml} /> : <div className="mt-2 whitespace-pre-wrap text-sm text-gray-800">{selectedCampaignCommunication.renderedBody || "(No body captured)"}</div>}
             </div>
 
             {selectedCampaignCommunication.failureReason && (

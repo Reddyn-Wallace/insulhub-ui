@@ -38,6 +38,7 @@ function toCommunication(row: Record<string, unknown>) {
     status: stringValue(row.status),
     renderedSubject: stringValue(row.rendered_subject),
     renderedBody: stringValue(row.rendered_body),
+    renderedHtml: stringValue(row.rendered_html),
     sentAt: row.sent_at || row.launched_at,
     launchedAt: row.launched_at,
     failureReason: stringValue(row.failure_reason),
@@ -105,15 +106,21 @@ export async function GET(
       )
       SELECT *
       FROM (
-        SELECT * FROM campaign_logs
+        SELECT *, '' AS rendered_html FROM campaign_logs
         UNION ALL
-        SELECT * FROM job_logs
+        SELECT *, '' AS rendered_html FROM job_logs
         UNION ALL
         SELECT id, 'crm_sms' AS source, NULL::uuid, '', NULL::uuid, template_title,
           'sms', sender_label || ' · ' || actor_name, destination, contact_name, job_number,
           CASE WHEN status = 'sending' AND created_at < now() - interval '60 seconds' THEN 'unknown' ELSE status END,
-          '', body, created_at, NULL::timestamptz, failure_reason
+          '', body, created_at, NULL::timestamptz, failure_reason, ''
         FROM job_sms_messages WHERE insulhub_job_id = ${id}
+        UNION ALL
+        SELECT id, 'crm_email' AS source, NULL::uuid, '', NULL::uuid, template_title,
+          'email', sender_label || ' (' || sender_value || ') · ' || actor_name, destination, contact_name, job_number,
+          CASE WHEN status = 'sending' AND created_at < now() - interval '60 seconds' THEN 'unknown' ELSE status END,
+          subject, rendered_body, created_at, NULL::timestamptz, failure_reason, rendered_html
+        FROM job_email_messages WHERE insulhub_job_id = ${id}
       ) combined
       ORDER BY COALESCE(sent_at, launched_at) DESC NULLS LAST
     `;
