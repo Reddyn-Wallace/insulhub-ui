@@ -38,18 +38,28 @@ const assert = require('node:assert/strict');
   await expect(page.getByRole('button',{name:'💬 Text',exact:true})).toBeDisabled();
   await page.getByRole('button',{name:'Try again'}).click();
   const section=page.getByRole('region',{name:'Job communications'});await expect(section).toBeVisible();
-  await expect(section.getByRole('list',{name:'CRM-sent messages'})).toHaveCount(0);
-  await section.getByRole('button',{name:'Show communications'}).click();
+  await expect(section.getByRole('list',{name:'CRM-sent messages'}).getByRole('listitem')).toHaveCount(1);
+  await section.screenshot({path:`/tmp/insulhub-job-communications-latest-${width}.png`});
+  await section.getByRole('button',{name:'Show all communications'}).click();
   await expect(section.getByRole('list',{name:'CRM-sent messages'}).getByRole('listitem')).toHaveCount(3);
   await expect(section.getByRole('status').filter({hasText:'Delivered'})).toBeVisible();assert.ok(checks>0);
   await expect(section.getByText(/Messages sent from the CRM/)).toHaveCount(0);
   await expect(section.getByRole('button',{name:/^All /})).toHaveCount(0);
-  await page.getByRole('button',{name:'💬 Text',exact:true}).click();
-  await expect(page.getByRole('heading',{name:'Send SMS from CRM',exact:true})).toBeVisible();
-  await page.getByRole('button',{name:'×',exact:true}).click();
-  await page.getByRole('button',{name:'✉️ Email',exact:true}).click();
-  await expect(page.getByRole('heading',{name:'Send email from CRM',exact:true})).toBeVisible();
-  await page.getByRole('button',{name:'×',exact:true}).click();
+  for (const [trigger,title,heading,scheme] of [['💬 Text','No SMS account connected','Choose Text Template','sms:'],['✉️ Email','No email account connected','Choose Email Template','mailto:']]) {
+    await page.getByRole('button',{name:trigger,exact:true}).click();
+    const dialog=page.getByRole('dialog',{name:title});await expect(dialog).toBeVisible();
+    await expect(page.getByLabel('Message',{exact:true})).toHaveCount(0);
+    await expect(dialog.getByRole('button',{name:'Connect an account'})).toBeVisible();
+    await dialog.screenshot({path:`/tmp/insulhub-no-account-${scheme.slice(0,-1)}-${width}.png`});
+    await page.keyboard.press('Escape');await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole('heading',{name:heading,exact:true})).toHaveCount(0);
+    await page.getByRole('button',{name:trigger,exact:true}).click();
+    await page.getByRole('button',{name:'Use Legacy Comms',exact:true}).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole('heading',{name:heading,exact:true})).toBeVisible();
+    assert.ok((await page.getByRole('link',{name:'No template'}).getAttribute('href')).startsWith(scheme));
+    await page.getByRole('button',{name:'×',exact:true}).click();
+  }
   for (const [choice,heading,scheme] of [['Text in SMS app','Choose Text Template','sms:'],['Email in mail app','Choose Email Template','mailto:']]) {
     await page.getByRole('button',{name:'Legacy Comms',exact:true}).click();
     await page.getByRole('button',{name:choice,exact:true}).click();
@@ -67,6 +77,14 @@ const assert = require('node:assert/strict');
   await expect(page.getByRole('button',{name:'💬 Text',exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'✉️ Email',exact:true})).toBeVisible();
   await expect(page.getByRole('button',{name:'Legacy Comms',exact:true})).toHaveCount(0);
   await page.getByRole('button',{name:'💬 Text',exact:true}).click();await expect(page.getByRole('heading',{name:'Choose Text Template'})).toBeVisible();await page.getByRole('button',{name:'×',exact:true}).click();
+  enabled=true;
+  for (const [trigger,channel] of [['💬 Text','sms'],['✉️ Email','email']]) {
+    await page.goto(`${base}/jobs/${id}`);
+    await page.getByRole('button',{name:trigger,exact:true}).click();
+    await page.getByRole('button',{name:'Connect an account',exact:true}).click();
+    await expect(page).toHaveURL(`${base}/jobs/settings?section=senders&channel=${channel}`);
+    await expect(page.getByRole('heading',{name:channel === 'sms' ? 'Add SMS sender' : 'Add Email sender',exact:true})).toBeVisible();
+  }
   assert.deepEqual(errors,[]);console.log(`${width}px: saved history, original signature, compact history/search, automatic SMS status, primary CRM actions, legacy app choices and flag-off manual actions passed; no sends`);
   await context.close();
  }} finally {await browser.close();}

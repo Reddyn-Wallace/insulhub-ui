@@ -71,3 +71,28 @@ it("keeps the primary Text action available after an account-loading failure and
   fireEvent.click(screen.getByRole('button',{name:'Reload sending accounts'}));
   await waitFor(()=>expect(screen.queryByRole('button',{name:'Reload sending accounts'})).toBeNull());
 });
+
+it("offers account setup or legacy sending without opening an unusable composer", async () => {
+  vi.stubGlobal("fetch", async () => Response.json({ enabled: true, senders: [], message: null }));
+  let legacyOpened = false;
+  render(<JobSmsComposer {...props} onLegacy={() => { legacyOpened = true; }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Send SMS from CRM" }));
+  expect(screen.getByRole("dialog", { name: "No SMS account connected" })).toBeTruthy();
+  expect(screen.queryByLabelText("Message")).toBeNull();
+  expect(screen.getByRole("button", { name: "Connect an account" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
+  expect(legacyOpened).toBe(false);
+  expect(screen.queryByRole("dialog")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Send SMS from CRM" }));
+  fireEvent.click(screen.getByRole("button", { name: "Use Legacy Comms" }));
+  expect(legacyOpened).toBe(true);
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+it("keeps an unresolved send available when its account is disconnected", async () => {
+  sessionStorage.setItem("job-sms-attempt:job", JSON.stringify({ id: "pending", senderId: "old", destination: "customer", body: "Original", subject: "Original subject", templateTitle: "" }));
+  vi.stubGlobal("fetch", async () => Response.json({ enabled: true, senders: [], message: null }));
+  await open();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.getByLabelText("Message")).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "Recover original send attempt" })).toBeTruthy();
+});

@@ -8,17 +8,20 @@ const records = [
  { id:'manual',source:'job',channel:'email',renderedSubject:'Manual draft',renderedBody:'Not a confirmed send',destination:'customer@example.com',status:'launched',sentAt:'2026-09-07T03:00:00Z' },
 ] as const;
 afterEach(cleanup);
-function showHistory() { fireEvent.click(screen.getByRole('button', { name: 'Show communications' })); }
-it('starts compact, keeps the latest status visible, and opens all saved messages without channel controls',()=>{
- const many=Array.from({length:8},(_,i)=>({...records[1],id:String(i)}));
+function showHistory() { fireEvent.click(screen.getByRole('button', { name: 'Show all communications' })); }
+it('shows only the newest message by default and expands older messages',()=>{
+ const many=[...records, ...Array.from({length:6},(_,i)=>({...records[0],id:String(i)}))];
  render(<JobCommunications messages={many} />);
- expect(screen.queryByRole('list',{name:'CRM-sent messages'})).toBeNull();
+ expect(within(screen.getByRole('list',{name:'CRM-sent messages'})).getAllByRole('listitem')).toHaveLength(1);
+ expect(screen.getByText('We will arrive at nine')).toBeTruthy();
+ expect(screen.queryByText('Booking confirmation')).toBeNull();
  expect(screen.getByRole('status').textContent).toContain('Pending');
  expect(screen.queryByText(/Messages sent from the CRM/)).toBeNull();
  showHistory();expect(within(screen.getByRole('list',{name:'CRM-sent messages'})).getAllByRole('listitem')).toHaveLength(8);
  expect(screen.queryByRole('button',{name:/^All /})).toBeNull();
- fireEvent.click(screen.getByRole('button',{name:'Hide communications'}));
+ fireEvent.click(screen.getByRole('button',{name:'Show latest only'}));
  expect(screen.queryByRole('searchbox')).toBeNull();
+ expect(within(screen.getByRole('list',{name:'CRM-sent messages'})).getAllByRole('listitem')).toHaveLength(1);
 });
 it('shows CRM records newest first and distinguishes manual app launches',()=>{
  render(<JobCommunications messages={[...records]} />); showHistory();
@@ -40,17 +43,30 @@ it('expands an email into its saved HTML once, with original sender and staff me
  expect(screen.queryByText('Saved email and signature')).toBeNull();
 });
 it('keeps an expanded SMS open while its status updates and shows failures',()=>{
- const {rerender}=render(<JobCommunications messages={[records[1]]} />); showHistory();
+ const {rerender}=render(<JobCommunications messages={[records[1]]} />);
  fireEvent.click(screen.getByRole('button',{name:/We will arrive/}));
  rerender(<JobCommunications messages={[{...records[1],status:'failed',failureReason:'Phone offline'}]} />);
  expect(screen.getByRole('button',{name:/We will arrive/}).getAttribute('aria-expanded')).toBe('true');expect(screen.getByText('Phone offline')).toBeTruthy();expect(screen.getAllByText('Failed').length).toBeGreaterThan(0);
 });
 it('retains saved records during a refresh failure and offers retry',()=>{
- render(<JobCommunications messages={[records[1]]} error="Could not refresh history" onRetry={()=>{}} />); showHistory();
+ render(<JobCommunications messages={[records[1]]} error="Could not refresh history" onRetry={()=>{}} />);
  expect(screen.getByRole('alert').textContent).toContain('Could not refresh history');expect(screen.getByText('We will arrive at nine')).toBeTruthy();expect(screen.getByRole('button',{name:'Try again'})).toBeTruthy();
 });
 it('does not imply the original campaign address is known when it was never saved',()=>{
- render(<JobCommunications messages={[{...records[0],source:'campaign',senderValue:'',senderName:'Office'}]} />); showHistory();
+ render(<JobCommunications messages={[{...records[0],source:'campaign',senderValue:'',senderName:'Office'}]} />);
  fireEvent.click(screen.getByRole('button',{name:/Booking confirmation/}));
  expect(screen.getByText(/Sending address wasn’t saved/)).toBeTruthy();
+});
+
+it('keeps the latest visible after collapsing a search that excluded it',()=>{
+ render(<JobCommunications messages={[...records]} />); showHistory();
+ fireEvent.change(screen.getByRole('searchbox'),{target:{value:'Andrew Potter'}});
+ fireEvent.click(screen.getByRole('button',{name:'Show latest only'}));
+ expect(screen.getByText('We will arrive at nine')).toBeTruthy();
+ expect(screen.queryByText('Booking confirmation')).toBeNull();
+});
+it('shows an empty history without a redundant expansion control',()=>{
+ render(<JobCommunications messages={[]} />);
+ expect(screen.getByText('No CRM messages recorded yet.')).toBeTruthy();
+ expect(screen.queryByRole('button',{name:'Show all communications'})).toBeNull();
 });

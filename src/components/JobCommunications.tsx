@@ -79,25 +79,23 @@ export default function JobCommunications({ messages, loading = false, error = "
     .sort((a, b) => timestamp(b.sentAt) - timestamp(a.sentAt));
   const matches = (message: JobCommunicationRecord) => [message.renderedSubject, message.renderedBody, message.destination, message.senderName, message.senderValue, message.actorName, message.templateTitle, message.campaignName]
     .filter(Boolean).join(" ").toLowerCase().includes(search.trim().toLowerCase());
-  const visible = sent.filter(matches);
+  const visible = expanded ? sent.filter(matches) : sent.slice(0, 1);
   const manual = messages.filter(message => message.source === "job" && matches(message)).sort((a, b) => timestamp(b.sentAt) - timestamp(a.sentAt));
   return <section aria-label="Job communications" aria-busy={loading} className="mb-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
     <header className="px-4 py-3 sm:px-5">
-      <h2><button type="button" aria-label={expanded ? "Hide communications" : "Show communications"} aria-expanded={expanded} aria-controls={listId} onClick={() => setExpanded(!expanded)} className="flex w-full flex-wrap items-center gap-2 text-left">
-        <span className="text-base font-bold text-[#1a3a4a]">Communications</span>
+      <div className="flex items-center gap-2"><h2 className="text-base font-bold text-[#1a3a4a]">Communications</h2>
         <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">{loading && !messages.length ? "Loading…" : sent.length}</span>
-        {!expanded && sent[0] && <span role="status" className="ml-auto text-xs font-medium text-slate-500">Latest: {statusLabel(sent[0])}</span>}
-        <span className={`${expanded || !sent.length ? "ml-auto" : ""} text-slate-400 transition-transform ${expanded ? "rotate-180" : ""}`} aria-hidden="true">⌄</span>
-      </button></h2>
+      </div>
     </header>
     {error && <div role="alert" className="mx-3 mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{error} {onRetry && <button type="button" onClick={onRetry} className="font-semibold underline">Try again</button>}</div>}
-    {expanded && <div id={listId} className="space-y-3 border-t border-slate-100 bg-slate-50/60 p-3 sm:p-4">
-      <label htmlFor={searchId} className="sr-only">Search communications</label>
-      <input id={searchId} type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search messages…" className="w-full min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400"/>
+    <div id={listId} className="space-y-3 border-t border-slate-100 bg-slate-50/60 p-3 sm:p-4">
+      {expanded && <><label htmlFor={searchId} className="sr-only">Search communications</label>
+      <input id={searchId} type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search messages…" className="w-full min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400"/></>}
       {loading && !messages.length ? <p className="py-8 text-center text-sm text-slate-500">Loading communications…</p>
         : visible.length ? <ul aria-label="CRM-sent messages" className="space-y-3">{visible.map(message => <MessageCard key={message.id} message={message}/>)}</ul>
         : !error && <p className="py-8 text-center text-sm text-slate-500">{sent.length ? "No messages match your search." : "No CRM messages recorded yet."}</p>}
-      {manual.length > 0 && <details className="rounded-xl border border-slate-200 bg-white p-3 text-sm"><summary className="cursor-pointer font-medium text-slate-600">Opened in another app · {manual.length}</summary><p className="my-3 text-xs text-slate-500">These records show a draft was opened in your email or SMS app. They do not confirm it was sent.</p><ul aria-label="Manual app history" className="space-y-2">{manual.map(message => <MessageCard key={message.id} message={message}/>)}</ul></details>}
-    </div>}
+      {expanded && manual.length > 0 && <details className="rounded-xl border border-slate-200 bg-white p-3 text-sm"><summary className="cursor-pointer font-medium text-slate-600">Opened in another app · {manual.length}</summary><p className="my-3 text-xs text-slate-500">These records show a draft was opened in your email or SMS app. They do not confirm it was sent.</p><ul aria-label="Manual app history" className="space-y-2">{manual.map(message => <MessageCard key={message.id} message={message}/>)}</ul></details>}
+      {(sent.length > 1 || messages.some(message => message.source === "job")) && <button type="button" aria-expanded={expanded} aria-controls={listId} onClick={() => setExpanded(!expanded)} className="w-full rounded-lg py-2 text-sm font-semibold text-[#1a3a4a]">{expanded ? "Show latest only" : "Show all communications"}</button>}
+    </div>
   </section>;
 }

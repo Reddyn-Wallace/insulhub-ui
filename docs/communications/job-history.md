@@ -2,7 +2,7 @@
 
 The job page displays the new Communications section when the existing CRM messaging controls allow the authenticated account. Otherwise it retains Sent Communications. The settings are not automatically enabled by this deployment.
 
-The new section shows existing CRM SMS, CRM email and campaign records newest first, inside a collapsed-by-default section with search and expandable messages. Opening the section displays every message across both channels. The compact header keeps the latest status visible; the explanatory introduction and channel filter tabs are removed. Email displays the original saved HTML including its signature in the existing sandboxed preview; it does not regenerate a signature from the current connection. Sender name, address/number and staff member come from the saved message snapshot. Older campaigns lack a separate original sender-address snapshot and disclose this limitation. No current connection is substituted for historical sender data.
+The new section shows existing CRM SMS, CRM email and campaign records newest first, with the newest message card visible by default. Show all communications displays older messages across both channels, search and manual app history. Show latest only returns to the newest card, regardless of the current search. The latest card keeps its status visible; the explanatory introduction and channel filter tabs are removed. Email displays the original saved HTML including its signature in the existing sandboxed preview; it does not regenerate a signature from the current connection. Sender name, address/number and staff member come from the saved message snapshot. Older campaigns lack a separate original sender-address snapshot and disclose this limitation. No current connection is substituted for historical sender data.
 
 Manual app launches remain available in an expandable, explicitly unconfirmed history. CRM message counts exclude those launches. Failure and unknown statuses remain visible. Initial load errors and refresh errors offer retry without discarding loaded records or claiming history is empty.
 
@@ -19,8 +19,12 @@ The existing SMS status hook updates the record in place without resending or co
 
 ## Production acceptance
 
-In Settings → Communication Settings, select **Test only with my account** before **Enable CRM SMS and email**. Refresh a job with saved CRM messages. Expand SMS and email records, check original content/signature and sender details, open and collapse the section, try search and both Legacy Comms options, and confirm other accounts still see the existing layout. Turning CRM messaging off restores the old layout without removing any records.
+In Settings → Communication Settings, select **Test only with my account** before **Enable CRM SMS and email**. Refresh a job with saved CRM messages. Expand SMS and email records, check original content/signature and sender details, show all messages and return to the latest, try search and both Legacy Comms options, and confirm other accounts still see the existing layout. Turning CRM messaging off restores the old layout without removing any records.
 
 ## Contact controls polish verification
 
-The production build, full test suite, and targeted composer/history tests passed. Mocked browser checks at 390px and 1280px cover collapsed history, automatic status updates, primary CRM actions, both Legacy Comms template/app flows, unknown availability and flag-off manual actions. No real messages were sent. Independent review found no remaining blockers.
+The production build, full test suite, and targeted composer/history tests passed. Mocked browser checks at 390px and 1280px cover latest-message history, automatic status updates, primary CRM actions, both Legacy Comms template/app flows, unknown availability and flag-off manual actions. No real messages were sent. Independent review found no remaining blockers.
+
+When a user has no connected sending account, Text or Email opens a modal offering Connect an account (the matching Configure Senders tab in Settings) or Use Legacy Comms (the original channel template picker). Dismissing the modal does not launch either action. Account-load failures remain retryable and unresolved send attempts retain their recovery screen.
+
+Latest-message and account-prompt verification: all 772 tests and the production build passed. Local mocked browser checks at 390px and 1280px verified both connection links reach the matching Settings tab, both legacy choices open their existing template picker, Escape dismisses without choosing either path, and the latest card is visible by default. No messages were sent.

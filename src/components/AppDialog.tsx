@@ -15,6 +15,7 @@ interface AppDialogProps {
   mode?: DialogMode;
   onConfirm: () => void;
   onCancel?: () => void;
+  onDismiss?: () => void;
 }
 
 interface DialogOptions {
@@ -58,6 +59,7 @@ export function AppDialog({
   mode = "confirm",
   onConfirm,
   onCancel,
+  onDismiss,
 }: AppDialogProps) {
   const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
   const cancelButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -76,7 +78,7 @@ export function AppDialog({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onCancel?.();
+        (onDismiss || onCancel)?.();
         return;
       }
       if (event.key === "Tab") {
@@ -96,7 +98,7 @@ export function AppDialog({
       restoreFocusRef.current?.focus();
       restoreFocusRef.current = null;
     };
-  }, [mode, onCancel, open]);
+  }, [mode, onCancel, onDismiss, open]);
 
   if (!open) return null;
 
@@ -106,7 +108,7 @@ export function AppDialog({
         type="button"
         aria-label="Close dialog"
         className="absolute inset-0 cursor-default bg-slate-950/45 backdrop-blur-sm"
-        onClick={onCancel}
+        onClick={onDismiss || onCancel}
       />
       <div
         ref={dialogRef}

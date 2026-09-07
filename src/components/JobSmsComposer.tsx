@@ -1,12 +1,14 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import BottomSheet from "./BottomSheet";
+import NoSendingAccountDialog from "./NoSendingAccountDialog";
 import { smsStatusLabel } from "@/lib/job-sms";
 
 type Sender = { id: string; label: string; senderValue: string };
 export type JobSmsMessage = { id: string; body: string; destination: string; senderLabel: string; senderValue?: string; actorName: string; status: string; failureReason: string; createdAt?: string; templateTitle?: string };
 type Attempt = { id: string; senderId: string; body: string; destination: string; templateTitle: string };
-export default function JobSmsComposer({ jobId, phone, contactName, templates, onRecorded, statusUpdates = [], triggerStyle = "default", onAvailabilityChange }: {
+export default function JobSmsComposer({ jobId, phone, contactName, templates, onRecorded, statusUpdates = [], triggerStyle = "default", onAvailabilityChange, onLegacy }: {
+  onLegacy?: () => void;
   onAvailabilityChange?: (enabled: boolean) => void;
   triggerStyle?: "default" | "primary" | "hidden";
   jobId: string; phone: string; contactName: string; templates: { id: string; title: string; body: string }[]; onRecorded: (message?: JobSmsMessage) => void; statusUpdates?: { id: string; status: string; failureReason?: string | null }[];
@@ -79,16 +81,18 @@ export default function JobSmsComposer({ jobId, phone, contactName, templates, o
   }
   if (!enabled && triggerStyle !== "primary") return null;
   const settled = message && ["accepted", "sent", "delivered", "failed"].includes(message.status);
+  const needsConnection = ready && enabled && !loadFailed && !attempt && !senders.length;
   return <>
     {triggerStyle !== "hidden" && <button type="button" disabled={!ready || busy} onClick={() => { if (message && ["accepted", "sent", "delivered"].includes(message.status)) newMessage(); setOpen(true); }} className={triggerStyle === "primary" ? "flex-1 bg-teal-700 text-white font-semibold py-3 rounded-xl text-center text-sm disabled:opacity-40" : "rounded-xl border border-teal-700 px-3 py-3 text-sm font-semibold text-teal-800"}>{triggerStyle === "primary" ? "💬 Text" : "Send SMS from CRM"}</button>}
-    <BottomSheet open={open} onClose={() => { if (!busy) setOpen(false); }} title="Send SMS from CRM">
+    <NoSendingAccountDialog open={open && needsConnection} channel="sms" onClose={() => setOpen(false)} onLegacy={onLegacy} />
+    <BottomSheet open={open && !needsConnection} onClose={() => { if (!busy) setOpen(false); }} title="Send SMS from CRM">
       <div className="space-y-4 text-left">
         <div className="rounded-xl bg-gray-50 p-3"><p className="font-semibold">{contactName}</p><p className="text-sm">{attempt?.destination || phone || "No mobile number — update the job contact first."}</p></div>
-        <p className="text-sm text-gray-600">Sends through your connected SMS account. Replies are not automatically captured yet. The job’s manual Text and Email buttons remain available.</p>
+        <p className="text-sm text-gray-600">Sends through your connected SMS account. Replies are not automatically captured yet. Use Legacy Comms to open your SMS or email app.</p>
         {!enabled && <p className="text-sm text-amber-800">CRM SMS sending is currently disabled. Saved message status can still be checked.</p>}
         {!attempt ? <>
           <label className="block text-sm font-semibold">Sending account<select className="mt-1 w-full rounded-lg border p-3" value={senderId} onChange={event => setSenderId(event.target.value)} disabled={busy}><option value="">Choose a connected sender</option>{senders.map(sender => <option key={sender.id} value={sender.id}>{sender.label}</option>)}</select></label>
-          {!senders.length && <p className="text-sm text-amber-800">No connected SMS sender is available. Check Senders in Settings or use manual Text.</p>}
+          {!senders.length && <p className="text-sm text-amber-800">No connected SMS sender is available. Connect your SMS account under Senders in Settings, or use Legacy Comms to open your SMS app.</p>}
           <label className="block text-sm font-semibold">Template<select className="mt-1 w-full rounded-lg border p-3" value={templateId} disabled={busy} onChange={event => { setTemplateId(event.target.value); setBody(templates.find(template => template.id === event.target.value)?.body || ""); }}><option value="">Blank message</option>{templates.map(template => <option key={template.id} value={template.id}>{template.title}</option>)}</select></label>
         </> : <p className="text-sm">Sender: {message?.senderLabel || senders.find(sender => sender.id === attempt.senderId)?.label || "Saved sending account"}{message?.actorName ? ` · ${message.actorName}` : ""}</p>}
         <label className="block text-sm font-semibold">Message<textarea rows={6} maxLength={1600} className="mt-1 w-full rounded-lg border p-3 font-normal" value={body} disabled={busy || !!attempt} onChange={event => setBody(event.target.value)} /></label>

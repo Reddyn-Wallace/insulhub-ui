@@ -1,12 +1,14 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import BottomSheet from "./BottomSheet";
+import NoSendingAccountDialog from "./NoSendingAccountDialog";
 import { emailStatusLabel, type JobEmailMessage } from "@/lib/job-email";
 
 type Sender = { id: string; label: string; senderValue: string; signatureHtml: string };
 type Attempt = { id: string; senderId: string; destination: string; subject: string; body: string; templateTitle: string };
 const headers = () => ({ "content-type": "application/json", "x-access-token": localStorage.getItem("token") || "" });
-export default function JobEmailComposer({ jobId, email, contactName, templates, onRecorded, triggerStyle = "default", onAvailabilityChange }: {
+export default function JobEmailComposer({ jobId, email, contactName, templates, onRecorded, triggerStyle = "default", onAvailabilityChange, onLegacy }: {
+  onLegacy?: () => void;
   onAvailabilityChange?: (enabled: boolean) => void;
   triggerStyle?: "default" | "primary" | "hidden";
   jobId: string; email: string; contactName: string; templates: { id: string; title: string; subject: string; body: string }[]; onRecorded: (message?: JobEmailMessage) => void;
@@ -97,15 +99,17 @@ export default function JobEmailComposer({ jobId, email, contactName, templates,
   }
   const sender = senders.find(item => item.id === senderId);
   if (!enabled && triggerStyle !== "primary") return null;
+  const needsConnection = ready && enabled && !loadFailed && !attempt && !senders.length;
   return <>
     {triggerStyle !== "hidden" && <button type="button" disabled={!ready || busy} onClick={() => { if (message?.status === "sent") newMessage(); setOpen(true); }} className={triggerStyle === "primary" ? "flex-1 bg-[#1a3a4a] text-white font-semibold py-3 rounded-xl text-center text-sm disabled:opacity-40" : "rounded-xl border border-[#1a3a4a] px-3 py-3 text-sm font-semibold text-[#1a3a4a] disabled:opacity-40"}>{triggerStyle === "primary" ? "✉️ Email" : "Send email from CRM"}</button>}
-    <BottomSheet open={open} onClose={() => { if (!busy) setOpen(false); }} title="Send email from CRM">
+    <NoSendingAccountDialog open={open && needsConnection} channel="email" onClose={() => setOpen(false)} onLegacy={onLegacy} />
+    <BottomSheet open={open && !needsConnection} onClose={() => { if (!busy) setOpen(false); }} title="Send email from CRM">
       <div className="space-y-4 text-left">
         <div className="rounded-xl bg-gray-50 p-3"><p className="font-semibold">{contactName}</p><p className="break-all text-sm">{attempt?.destination || email || "No email address — update the job contact first."}</p></div>
         <p className="text-sm text-gray-600">Uses your connected Gmail account and saved signature. Replies are not captured in the CRM yet.</p>
         {!attempt ? <>
           <label className="block text-sm font-semibold">Sending account<select className="mt-1 w-full rounded-lg border p-3" value={senderId} onChange={event => setSenderId(event.target.value)} disabled={busy}><option value="">Choose a connected account</option>{senders.map(item => <option key={item.id} value={item.id}>{item.label} — {item.senderValue}</option>)}</select></label>
-          {!senders.length && <p className="text-sm text-amber-800">No connected email account is available. Connect Gmail under Senders in Settings, or use the manual Email option.</p>}
+          {!senders.length && <p className="text-sm text-amber-800">No connected email account is available. Connect Gmail under Senders in Settings, or use Legacy Comms to open your email app.</p>}
           <label className="block text-sm font-semibold">Template<select className="mt-1 w-full rounded-lg border p-3" value={templateId} disabled={busy} onChange={event => { const template = templates.find(item => item.id === event.target.value); setTemplateId(event.target.value); setSubject(template?.subject || ""); setBody(template?.body || ""); }}><option value="">Blank email</option>{templates.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
         </> : <p className="break-words text-sm">Sender: {message?.senderValue || sender?.senderValue || "Saved sending account"}</p>}
         <label className="block text-sm font-semibold">Subject<input className="mt-1 w-full rounded-lg border p-3 font-normal" value={subject} maxLength={200} disabled={busy || !!attempt} onChange={event => setSubject(event.target.value)} /></label>
