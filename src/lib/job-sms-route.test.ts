@@ -42,8 +42,8 @@ describe("job SMS route", () => {
     expect((await POST(request({ ...input, body: "Different" }), context)).status).toBe(409);
     expect(mocks.deliver).toHaveBeenCalledTimes(1);
   });
-  it("blocks sending while disabled", async () => {
-    available = false; expect((await POST(request(input), context)).status).toBe(403); expect(mocks.deliver).not.toHaveBeenCalled();
+  it("sends even when the retired rollout switch was disabled", async () => {
+    available = false; expect((await POST(request(input), context)).status).toBe(200); expect(rows[0].status).toBe("accepted");
   });
   it("rejects stale or substituted recipient numbers", async () => {
     expect((await POST(request({ ...input, destination: "0217654321" }), context)).status).toBe(409); expect(mocks.deliver).not.toHaveBeenCalled();
@@ -51,10 +51,10 @@ describe("job SMS route", () => {
   it("never submits when job access cannot be verified", async () => {
     mocks.identity.mockRejectedValue(Error("Unauthorized")); await POST(request(input), context); expect(mocks.sql).not.toHaveBeenCalled(); expect(mocks.deliver).not.toHaveBeenCalled();
   });
-  it("allows campaign-settings users to load and change CRM SMS availability without an ADMIN role", async () => {
+  it("reports universal availability but rejects obsolete setting changes", async () => {
     mocks.identity.mockResolvedValue({ me: { role: "SALES" } });
-    expect(await (await GET(request({}))).json()).toMatchObject({ canManage: true });
-    expect((await PATCH(request({ enabled: true }))).status).toBe(200);
+    expect(await (await GET(request({}))).json()).toMatchObject({ enabled: true, canManage: false });
+    expect((await PATCH(request({ enabled: true }))).status).toBe(410);
     expect(mocks.auth).toHaveBeenCalledTimes(2);
     expect(mocks.identity).not.toHaveBeenCalled();
   });
@@ -65,10 +65,10 @@ describe("job SMS route", () => {
     expect(mocks.sql).not.toHaveBeenCalled();
   });
 });
-it("blocks SMS for other accounts in testing mode", async () => {
+it("allows SMS for colleagues regardless of the retired tester restriction", async () => {
   const original = mocks.sql.getMockImplementation()!;
   mocks.sql.mockImplementation((parts: TemplateStringsArray, ...values: unknown[]) => parts.join("").includes("SELECT key,value") ? [{ key: "job_sms_enabled", value: "true" }, { key: "job_crm_test_user", value: JSON.stringify({ userId: "someone-else", name: "Tester" }) }] : original(parts, ...values));
-  expect((await POST(request(input), context)).status).toBe(403); expect(mocks.deliver).not.toHaveBeenCalled();
+  expect((await POST(request(input), context)).status).toBe(200); expect(rows[0].status).toBe("accepted");
 });
 
 it.each(["another-person", null])("blocks sending from a connection owned by %s", async owner => {

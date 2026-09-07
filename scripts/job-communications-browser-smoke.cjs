@@ -73,10 +73,12 @@ const assert = require('node:assert/strict');
   await section.getByRole('searchbox').fill('Andrew Potter');await expect(section.getByText('A warmer home this winter')).toBeVisible();await expect(section.getByText('Your installation is confirmed')).toHaveCount(0);
   await section.getByRole('searchbox').fill('not present');await expect(section.getByText('No messages match your search.')).toBeVisible();
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'No horizontal overflow');
-  enabled=false;await page.reload();await expect(page.getByRole('heading',{name:'Sent Communications'})).toBeVisible();await expect(page.getByRole('region',{name:'Job communications'})).toHaveCount(0);
-  await expect(page.getByRole('button',{name:'💬 Text',exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'✉️ Email',exact:true})).toBeVisible();
-  await expect(page.getByRole('button',{name:'Legacy Comms',exact:true})).toHaveCount(0);
-  await page.getByRole('button',{name:'💬 Text',exact:true}).click();await expect(page.getByRole('heading',{name:'Choose Text Template'})).toBeVisible();await page.getByRole('button',{name:'×',exact:true}).click();
+  enabled=false;await page.reload();
+  await expect(page.getByRole('region',{name:'Job communications'})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Legacy Comms',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'💬 Text',exact:true}).click();
+  await expect(page.getByRole('dialog',{name:'No SMS account connected'})).toBeVisible();
+  await page.keyboard.press('Escape');
   enabled=true;
   for (const [trigger,channel] of [['💬 Text','sms'],['✉️ Email','email']]) {
     await page.goto(`${base}/jobs/${id}`);
@@ -85,7 +87,11 @@ const assert = require('node:assert/strict');
     await expect(page).toHaveURL(`${base}/jobs/settings?section=senders&channel=${channel}`);
     await expect(page.getByRole('heading',{name:channel === 'sms' ? 'Add SMS sender' : 'Add Email sender',exact:true})).toBeVisible();
   }
-  assert.deepEqual(errors,[]);console.log(`${width}px: saved history, original signature, compact history/search, automatic SMS status, primary CRM actions, legacy app choices and flag-off manual actions passed; no sends`);
+  await page.goto(`${base}/jobs/settings?section=communication-settings`);
+  await expect(page.getByRole('heading',{name:'Communication Settings',exact:true})).toBeVisible();
+  await expect(page.getByRole('checkbox',{name:'Enable CRM SMS and email',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('checkbox',{name:'Test only with my account',exact:true})).toHaveCount(0);
+  assert.deepEqual(errors,[]);console.log(`${width}px: saved history, original signature, compact history/search, automatic SMS status, primary CRM actions, legacy app choices and universal availability and removed rollout controls passed; no sends`);
   await context.close();
  }} finally {await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

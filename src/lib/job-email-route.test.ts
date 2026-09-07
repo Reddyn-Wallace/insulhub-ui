@@ -70,15 +70,15 @@ it("records a rejected Gmail connection as failed, with reconnect guidance", asy
   const response = await POST(request(input), context);
   expect(await response.json()).toMatchObject({ message: { status: "failed", failureReason: expect.stringContaining("Reconnect") } });
 });
-it("blocks a direct email send when CRM messaging is off", async () => {
+it("sends email without a saved rollout setting", async () => {
   const original = mocks.sql.getMockImplementation()!;
   mocks.sql.mockImplementation((parts: TemplateStringsArray, ...values: unknown[]) => parts.join("").includes("SELECT key,value") ? [] : original(parts, ...values));
-  expect((await POST(request(input), context)).status).toBe(403); expect(mocks.deliver).not.toHaveBeenCalled();
+  expect((await POST(request(input), context)).status).toBe(200); expect(rows[0].status).toBe("sent");
 });
-it("blocks email for another account when testing is restricted", async () => {
+it("allows email regardless of the retired tester restriction", async () => {
   const original = mocks.sql.getMockImplementation()!;
   mocks.sql.mockImplementation((parts: TemplateStringsArray, ...values: unknown[]) => parts.join("").includes("SELECT key,value") ? [{ key: "job_sms_enabled", value: "true" }, { key: "job_crm_test_user", value: JSON.stringify({ userId: "someone-else", name: "Tester" }) }] : original(parts, ...values));
-  expect((await POST(request(input), context)).status).toBe(403); expect(mocks.deliver).not.toHaveBeenCalled();
+  expect((await POST(request(input), context)).status).toBe(200); expect(rows[0].status).toBe("sent");
 });
 
 it.each(["another-person", null])("blocks sending from a connection owned by %s", async owner => {

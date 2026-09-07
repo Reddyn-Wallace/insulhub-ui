@@ -18,13 +18,13 @@ it('returns structured sender snapshots and saved HTML without credentials',asyn
  expect(body.communications[0]).toMatchObject({senderName:'Original connection',senderValue:'original@example.com',actorName:'Andrew',renderedHtml:'<b>Saved signature</b>'});
  expect(JSON.stringify(body)).not.toContain('must-not-leak');
 });
-it('enables the new interface only for the configured tester',async()=>{
+it('enables the new interface for colleagues as well as the former tester',async()=>{
  expect((await(await GET(request(),context)).json()).crmMessagingEnabled).toBe(true);
  m.identity.mockResolvedValue({me:{_id:'colleague'}});
- const body=await(await GET(request(),context)).json();expect(body.crmMessagingEnabled).toBe(false);expect(body.communications).toHaveLength(1);
+ const body=await(await GET(request(),context)).json();expect(body.crmMessagingEnabled).toBe(true);expect(body.communications).toHaveLength(1);
 });
-it('keeps existing history readable while messaging is off',async()=>{
- settings=[];const body=await(await GET(request(),context)).json();expect(body.crmMessagingEnabled).toBe(false);expect(body.communications).toHaveLength(1);
+it('enables history without stored rollout settings',async()=>{
+ settings=[];const body=await(await GET(request(),context)).json();expect(body.crmMessagingEnabled).toBe(true);expect(body.communications).toHaveLength(1);
 });
 it('checks canonical job access before reading communication records',async()=>{
  m.identity.mockRejectedValue(Error('Job not found'));await GET(request(),context);expect(m.sql).not.toHaveBeenCalled();

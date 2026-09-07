@@ -1,4 +1,3 @@
-import { crmJobMessagingEnabled } from "@/lib/job-messaging-settings";
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { jobSmsIdentity } from "@/lib/job-sms-access";
@@ -18,12 +17,11 @@ export async function GET(request: NextRequest, context: Context) {
   try {
     const { id } = await context.params;
     const { me } = await jobSmsIdentity(request, id);
-    const available = await crmJobMessagingEnabled(me._id);
     const attempt = request.nextUrl.searchParams.get("attempt");
     if (attempt && !uuid.test(attempt)) return NextResponse.json({ error: "Invalid message reference." }, { status: 400 });
     const rows = attempt ? await overlaySql`SELECT * FROM job_sms_messages WHERE id=${attempt} AND insulhub_job_id=${id}` : [];
-    const senders = available ? await overlaySql`SELECT id,label,sender_value AS "senderValue" FROM communication_senders WHERE owner_user_id=${me._id} AND channel='sms' AND provider='smsgate' AND is_active=true AND connection_status='connected' ORDER BY is_default DESC,label` : [];
-    return NextResponse.json({ enabled: available, senders, message: rows[0] ? publicMessage(rows[0]) : null });
+    const senders = await overlaySql`SELECT id,label,sender_value AS "senderValue" FROM communication_senders WHERE owner_user_id=${me._id} AND channel='sms' AND provider='smsgate' AND is_active=true AND connection_status='connected' ORDER BY is_default DESC,label`;
+    return NextResponse.json({ enabled: true, senders, message: rows[0] ? publicMessage(rows[0]) : null });
   } catch { return NextResponse.json({ error: "Could not load CRM SMS. Check your connection and job access." }, { status: 503 }); }
 }
 export async function POST(request: NextRequest, context: Context) {
@@ -52,7 +50,6 @@ export async function POST(request: NextRequest, context: Context) {
         if (row.request_hash !== hash) return NextResponse.json({ error: "This send attempt already has different content. Check its status before composing another message." }, { status: 409 });
         return NextResponse.json({ message: publicMessage(row) });
       }
-      if (!await crmJobMessagingEnabled(me._id)) return NextResponse.json({ error: "CRM SMS is disabled. Manual SMS remains available." }, { status: 403 });
       const contact = job?.client?.contactDetails;
       let canonical;
       try { canonical = validateSmsInput({ body: message.body, destination: contact?.phoneMobile || contact?.phoneSecondary }); }

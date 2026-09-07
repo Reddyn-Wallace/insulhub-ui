@@ -1,4 +1,3 @@
-import { crmJobMessagingEnabled } from "@/lib/job-messaging-settings";
 import { NextRequest, NextResponse } from "next/server";
 import { jobSmsIdentity } from "@/lib/job-sms-access";
 import { requireInsulhubAuth } from "@/lib/insulhub-auth";
@@ -59,8 +58,7 @@ export async function GET(
 
     await ensureOverlaySchema();
     const { id } = await params;
-    const { me } = await jobSmsIdentity(request, id);
-    const crmMessagingEnabled = await crmJobMessagingEnabled(me._id);
+    await jobSmsIdentity(request, id);
 
     const rows = await overlaySql`
       WITH campaign_logs AS (
@@ -136,7 +134,7 @@ export async function GET(
       ORDER BY COALESCE(sent_at, launched_at) DESC NULLS LAST
     `;
 
-    return NextResponse.json({ communications: rows.map(toCommunication), crmMessagingEnabled });
+    return NextResponse.json({ communications: rows.map(toCommunication), crmMessagingEnabled: true });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to load campaign communications" },

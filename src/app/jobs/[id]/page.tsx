@@ -9,13 +9,11 @@ import {
   UPDATE_JOB_QUOTE, ARCHIVE_JOB, UPDATE_CLIENT, SEND_EBA, ADD_FILES, REMOVE_FILE,
 } from "@/lib/mutations";
 import JobSmsComposer, { type JobSmsMessage } from "@/components/JobSmsComposer";
-import { useJobSmsStatus, smsNeedsStatusCheck } from "@/lib/use-job-sms-status";
+import { useJobSmsStatus } from "@/lib/use-job-sms-status";
 import JobCommunications from "@/components/JobCommunications";
 import JobEmailComposer from "@/components/JobEmailComposer";
-import EmailPreview from "@/components/EmailPreview";
-import { emailStatusLabel, type JobEmailMessage } from "@/lib/job-email";
+import { type JobEmailMessage } from "@/lib/job-email";
 import { mergeJobCommunicationHistory } from "@/lib/job-communication-history";
-import { smsStatusLabel } from "@/lib/job-sms";
 import BottomSheet from "@/components/BottomSheet";
 import PartnerNoteComposer from "@/components/PartnerNoteComposer";
 import PartnerSharedNotes from "@/components/PartnerSharedNotes";
@@ -519,13 +517,10 @@ export default function JobDetailPage() {
   const communicationJobId = useRef(id);
   communicationJobId.current = id;
   const communicationRequest = useRef(0);
-  const [crmHistoryAccess, setCrmHistoryAccess] = useState({ jobId: "", enabled: false });
   const [communicationHistoryError, setCommunicationHistoryError] = useState("");
   const communicationUpdates = useRef(new Map<string, number>());
   const [campaignCommunications, setCampaignCommunications] = useState<CampaignCommunication[]>([]);
   const [loadingCampaignCommunications, setLoadingCampaignCommunications] = useState(false);
-  const [selectedCampaignCommunication, setSelectedCampaignCommunication] = useState<CampaignCommunication | null>(null);
-  const [showAllCampaignCommunications, setShowAllCampaignCommunications] = useState(false);
   const fetchInstallPlanning = useCallback(async (jobId: string) => {
     const token = getToken();
     if (!token) return null;
@@ -625,7 +620,6 @@ export default function JobDetailPage() {
       const json = await res.json();
       if (communicationJobId.current !== id || requestId !== communicationRequest.current) return;
       if (!res.ok) throw new Error(json?.error || "Failed to load sent communications");
-      setCrmHistoryAccess({ jobId: id, enabled: json.crmMessagingEnabled === true });
       setCommunicationHistoryError("");
       const changedIds = new Set([...communicationUpdates.current].filter(([, revision]) => revision > startedAtRevision).map(([messageId]) => messageId));
       setCampaignCommunications(current => mergeJobCommunicationHistory(json.communications || [], current, changedIds));
@@ -884,7 +878,6 @@ export default function JobDetailPage() {
   useJobSmsStatus(id, campaignCommunications.filter(item => item.source === "crm_sms"), update => {
     communicationUpdates.current.set(update.id, ++communicationRevision.current);
     setCampaignCommunications(current => current.map(item => item.id === update.id ? { ...item, status: update.status as CampaignCommunication["status"], failureReason: update.failureReason || "" } : item));
-    setSelectedCampaignCommunication(current => current?.id === update.id ? { ...current, status: update.status as CampaignCommunication["status"], failureReason: update.failureReason || "" } : current);
   });
 
   function recordCrmCommunication(channel: "email" | "sms", message?: JobEmailMessage | JobSmsMessage) {
@@ -901,7 +894,6 @@ export default function JobDetailPage() {
       renderedHtml: email?.renderedHtml, sentAt: message.createdAt || current?.sentAt || new Date().toISOString(), failureReason: message.failureReason || "",
     });
     setCampaignCommunications(current => current.some(item => item.id === message.id) ? current.map(item => item.id === message.id ? update(item) : item) : [update(), ...current]);
-    setSelectedCampaignCommunication(current => current?.id === message.id ? update(current) : current);
   }
 
   async function copyCustomerEmail() {
@@ -2184,11 +2176,7 @@ export default function JobDetailPage() {
   const isPostQuoteStage = ["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"].includes(job.stage);
   const isQuoteInfoStage = ["QUOTE", "SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"].includes(job.stage);
   const activeDetailTab = isPostQuoteStage ? detailTab : "quote";
-  const crmMessagingKnown = crmHistoryAccess.jobId === id;
-  const crmMessagingActive = crmHistoryAccess.jobId === id && crmHistoryAccess.enabled;
-  const visibleCampaignCommunications = showAllCampaignCommunications
-    ? campaignCommunications
-    : campaignCommunications.slice(0, 1);
+
   const installDateDisplay = fmtDateTime(job.installation?.installDate) || "Not set";
   const managerAdjustmentNumber = Number(managerAdjustment);
   const managerAdjustmentValid = managerAdjustment.trim() === "" || Number.isFinite(managerAdjustmentNumber);
@@ -2576,68 +2564,12 @@ export default function JobDetailPage() {
         {/* Quick contact */}
         <div className="flex flex-wrap gap-2 mb-3">
           {phone && <a href={`tel:${phone}`} className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl text-center text-sm">📞 Call</a>}
-          <JobSmsComposer onLegacy={() => openContactTemplates("sms")} key={id} onAvailabilityChange={enabled => setCrmHistoryAccess({ jobId: id, enabled })} triggerStyle={crmMessagingActive && phone ? "primary" : "hidden"} jobId={id} phone={phone || ""} contactName={contactName} templates={contactTemplates.filter(template => template.channel === "sms").map(template => ({ id: template.id, title: template.title, body: applyTemplateFields(template.body, templateFields) }))} statusUpdates={campaignCommunications} onRecorded={message => recordCrmCommunication("sms", message)} />
-          {!crmMessagingActive && phone && <button disabled={!crmMessagingKnown} type="button" onClick={() => openContactTemplates("sms")} className="flex-1 bg-teal-700 text-white font-semibold py-3 rounded-xl text-center text-sm">💬 Text</button>}
-          <JobEmailComposer onLegacy={() => openContactTemplates("email")} key={`email-${id}`} onAvailabilityChange={enabled => setCrmHistoryAccess({ jobId: id, enabled })} triggerStyle={crmMessagingActive && c?.email ? "primary" : "hidden"} jobId={id} email={c?.email || ""} contactName={contactName} templates={contactTemplates.filter(template => template.channel === "email").map(template => ({ id: template.id, title: template.title, subject: applyTemplateFields(template.subject, templateFields), body: applyTemplateFields(template.body, templateFields) }))} onRecorded={message => recordCrmCommunication("email", message)} />
-          {!crmMessagingActive && c?.email && <button disabled={!crmMessagingKnown} type="button" onClick={() => openContactTemplates("email")} className="flex-1 bg-[#1a3a4a] text-white font-semibold py-3 rounded-xl text-center text-sm">✉️ Email</button>}
-          {(!crmMessagingKnown || crmMessagingActive) && (phone || c?.email) && <button type="button" onClick={() => openSheet("legacyComms")} className="rounded-xl border border-gray-200 px-3 py-3 text-sm font-semibold text-gray-600">Legacy Comms</button>}
+          <JobSmsComposer onLegacy={() => openContactTemplates("sms")} key={id} triggerStyle={phone ? "primary" : "hidden"} jobId={id} phone={phone || ""} contactName={contactName} templates={contactTemplates.filter(template => template.channel === "sms").map(template => ({ id: template.id, title: template.title, body: applyTemplateFields(template.body, templateFields) }))} statusUpdates={campaignCommunications} onRecorded={message => recordCrmCommunication("sms", message)} />
+          <JobEmailComposer onLegacy={() => openContactTemplates("email")} key={`email-${id}`} triggerStyle={c?.email ? "primary" : "hidden"} jobId={id} email={c?.email || ""} contactName={contactName} templates={contactTemplates.filter(template => template.channel === "email").map(template => ({ id: template.id, title: template.title, subject: applyTemplateFields(template.subject, templateFields), body: applyTemplateFields(template.body, templateFields) }))} onRecorded={message => recordCrmCommunication("email", message)} />
+          {(phone || c?.email) && <button type="button" onClick={() => openSheet("legacyComms")} className="rounded-xl border border-gray-200 px-3 py-3 text-sm font-semibold text-gray-600">Legacy Comms</button>}
         </div>
 
-        {crmMessagingActive ? (
-          <JobCommunications key={id} messages={campaignCommunications} loading={loadingCampaignCommunications} error={communicationHistoryError} onRetry={() => void loadCampaignCommunications()} />
-        ) : <Section title="Sent Communications">
-          {communicationHistoryError && <div role="alert" className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{communicationHistoryError} <button type="button" onClick={() => void loadCampaignCommunications()} className="font-semibold underline">Try again</button></div>}
-          {loadingCampaignCommunications && !campaignCommunications.length ? (
-            <p className="text-sm text-gray-400">Loading sent communications...</p>
-          ) : campaignCommunications.length ? (
-            <div className="space-y-2">
-              {visibleCampaignCommunications.map((communication) => (
-                <button
-                  key={communication.id}
-                  type="button"
-                  onClick={() => setSelectedCampaignCommunication(communication)}
-                  className="w-full rounded-xl border border-gray-100 bg-white px-3 py-3 text-left hover:bg-gray-50"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-gray-900">
-                        {communication.source === "campaign" ? communication.campaignName : communication.templateTitle || communication.renderedSubject || "No template"}
-                      </div>
-                      <div className="mt-1 text-xs text-gray-500">
-                        {communication.source === "campaign" ? "Campaign" : communication.source === "crm_sms" ? "CRM SMS" : communication.source === "crm_email" ? "CRM email" : "From job"} • {communication.channel === "sms" ? "SMS" : "Email"} to {communication.destination}
-                      </div>
-                      <div className="mt-1 text-xs text-gray-400">{fmtDateTime(communication.sentAt)}</div>
-                    </div>
-                    <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold ${
-                      communication.status === "sent"
-                        ? "bg-emerald-50 text-emerald-700"
-                        : communication.status === "failed"
-                          ? "bg-red-50 text-red-700"
-                          : communication.status === "launched"
-                            ? "bg-blue-50 text-blue-700"
-                            : "bg-gray-100 text-gray-700"
-                    }`}>
-                      {communication.source === "crm_sms" ? smsStatusLabel(communication.status) : communication.source === "crm_email" ? emailStatusLabel(communication.status) : communication.status === "launched" ? `Opened in ${communication.channel === "sms" ? "SMS" : "email"} app` : communication.status}
-                    </span>
-                  </div>
-                </button>
-              ))}
-              {campaignCommunications.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => setShowAllCampaignCommunications((value) => !value)}
-                  className="text-xs font-semibold text-[#e85d04]"
-                >
-                  {showAllCampaignCommunications
-                    ? "Show most recent only"
-                    : `View ${campaignCommunications.length - 1} more communication${campaignCommunications.length - 1 === 1 ? "" : "s"}`}
-                </button>
-              )}
-            </div>
-          ) : !communicationHistoryError && (
-            <p className="text-sm text-gray-400">No communications recorded for this job yet.</p>
-          )}
-        </Section>}
+        <JobCommunications key={id} messages={campaignCommunications} loading={loadingCampaignCommunications} error={communicationHistoryError} onRetry={() => void loadCampaignCommunications()} />
 
         {activeDetailTab === "job" ? (
           <>
@@ -3336,66 +3268,6 @@ export default function JobDetailPage() {
             <span className="text-base leading-none">›</span>
           </a>
         </div>
-      </BottomSheet>
-
-      <BottomSheet
-        open={!!selectedCampaignCommunication}
-        onClose={() => setSelectedCampaignCommunication(null)}
-        title="Sent Communication"
-      >
-        {selectedCampaignCommunication && (
-          <div className="space-y-4">
-            <div className="rounded-xl bg-gray-50 px-3 py-2.5">
-              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                {selectedCampaignCommunication.source === "campaign" ? "Campaign" : "Job communication"}
-              </div>
-              <div className="mt-0.5 text-sm font-semibold text-gray-900">
-                {selectedCampaignCommunication.source === "campaign"
-                  ? selectedCampaignCommunication.campaignName
-                  : selectedCampaignCommunication.templateTitle || "No template"}
-              </div>
-              <div className="mt-1 text-xs text-gray-500">
-                {selectedCampaignCommunication.channel === "sms" ? "SMS" : "Email"} {["crm_sms", "crm_email"].includes(selectedCampaignCommunication.source) ? "recorded" : selectedCampaignCommunication.source === "campaign" ? "sent" : "opened in app"} {fmtDateTime(selectedCampaignCommunication.sentAt)}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-2 text-sm">
-              <InfoRow label="Sender" value={selectedCampaignCommunication.senderLabel} />
-              <InfoRow label="Recipient" value={selectedCampaignCommunication.destination} />
-              <InfoRow label="Status" value={selectedCampaignCommunication.source === "crm_sms" ? smsStatusLabel(selectedCampaignCommunication.status) : selectedCampaignCommunication.source === "crm_email" ? emailStatusLabel(selectedCampaignCommunication.status) : selectedCampaignCommunication.status} />
-            </div>
-
-            {selectedCampaignCommunication.channel === "email" && (
-              <div className="rounded-xl border border-gray-200 bg-white px-3 py-3">
-                <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Subject</div>
-                <div className="mt-1 text-sm font-semibold text-gray-900">{selectedCampaignCommunication.renderedSubject || "(No subject)"}</div>
-              </div>
-            )}
-
-            <div className="rounded-xl border border-gray-200 bg-white px-3 py-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Body</div>
-              {selectedCampaignCommunication.source === "crm_email" && selectedCampaignCommunication.renderedHtml ? <EmailPreview html={selectedCampaignCommunication.renderedHtml} /> : <div className="mt-2 whitespace-pre-wrap text-sm text-gray-800">{selectedCampaignCommunication.renderedBody || "(No body captured)"}</div>}
-            </div>
-
-            {selectedCampaignCommunication.failureReason && (
-              <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                {selectedCampaignCommunication.failureReason}
-              </div>
-            )}
-
-            {selectedCampaignCommunication.source === "crm_sms" && smsNeedsStatusCheck(selectedCampaignCommunication.status) && <p className="text-sm text-gray-500">Status updates automatically while this job is open.</p>}
-
-            {selectedCampaignCommunication.source === "campaign" && (
-              <button
-                type="button"
-                onClick={() => router.push(`/jobs/campaigns/${selectedCampaignCommunication.campaignId}`)}
-                className="w-full rounded-xl bg-[#1a3a4a] py-3 text-sm font-semibold text-white"
-              >
-                Open Campaign
-              </button>
-            )}
-          </div>
-        )}
       </BottomSheet>
 
       {/* Add note */}

@@ -6,7 +6,7 @@ const props = { jobId: "job", email: "customer@example.com", contactName: "Custo
 const initial = { enabled: true, senders: [{ id: "sender", label: "Staff", senderValue: "staff@example.com", signatureHtml: "<b>Staff signature</b>" }], message: null };
 beforeEach(() => { vi.stubGlobal("localStorage", { getItem: () => "test" }); sessionStorage.clear(); vi.clearAllMocks(); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
-async function open() { render(<JobEmailComposer {...props} />); fireEvent.click(await screen.findByRole("button", { name: "Send email from CRM" })); }
+async function open() { render(<JobEmailComposer {...props} />); await waitFor(() => expect(screen.getByRole("button", { name: "Send email from CRM" })).toHaveProperty("disabled", false)); fireEvent.click(screen.getByRole("button", { name: "Send email from CRM" })); }
 it("sends edited subject and body once and closes on confirmation", async () => {
   let posts = 0; let sent: Record<string, unknown> = {};
   vi.stubGlobal("fetch", async (_url: string, init?: RequestInit) => {
@@ -46,16 +46,17 @@ it("closes immediately during a delayed send and reopens only for a real failure
   await act(async () => finish(Response.json({ message: { id: "attempt", status: "failed", failureReason: "Account disconnected" } })));
   expect(await screen.findByText("Account disconnected")).toBeTruthy();
 });
-it("hides CRM email when disabled, even with a saved attempt", async () => {
+it("keeps saved email attempts accessible regardless of retired availability", async () => {
   sessionStorage.setItem("job-email-attempt:job", JSON.stringify({ id: "attempt", subject: "Original", body: "Original" }));
   vi.stubGlobal("fetch", async () => Response.json({ ...initial, enabled: false }));
   await act(async () => { render(<JobEmailComposer {...props} />); });
-  expect(screen.queryByRole("button", { name: "Send email from CRM" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Send email from CRM" }));
+  expect(screen.getByLabelText("Message")).toHaveProperty("value", "Original");
 });
 it("uses the primary Email action to open the CRM composer", async () => {
   vi.stubGlobal("fetch", async () => Response.json(initial));
   render(<JobEmailComposer {...props} triggerStyle="primary" />);
-  fireEvent.click(await screen.findByRole("button", { name: "✉️ Email" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "✉️ Email" })).toHaveProperty("disabled", false)); fireEvent.click(screen.getByRole("button", { name: "✉️ Email" }));
   expect(screen.getByLabelText("Subject")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Send email from CRM" })).toBeNull();
 });
@@ -73,7 +74,7 @@ it("offers account setup or legacy sending without opening an unusable composer"
   vi.stubGlobal("fetch", async () => Response.json({ enabled: true, senders: [], message: null }));
   let legacyOpened = false;
   render(<JobEmailComposer {...props} onLegacy={() => { legacyOpened = true; }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "Send email from CRM" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Send email from CRM" })).toHaveProperty("disabled", false)); fireEvent.click(screen.getByRole("button", { name: "Send email from CRM" }));
   expect(screen.getByRole("dialog", { name: "No email account connected" })).toBeTruthy();
   expect(screen.queryByLabelText("Message")).toBeNull();
   expect(screen.getByRole("button", { name: "Connect an account" })).toBeTruthy();

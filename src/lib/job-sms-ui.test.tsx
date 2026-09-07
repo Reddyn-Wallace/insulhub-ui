@@ -7,7 +7,7 @@ const props = { jobId: "job", phone: "0211234567", contactName: "Customer", temp
 const initial = { enabled: true, senders: [{ id: senderId, label: "Business" }], message: null };
 beforeEach(() => { vi.stubGlobal("localStorage", { getItem: () => "test" }); sessionStorage.clear(); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
-async function open() { render(<JobSmsComposer {...props} />); fireEvent.click(await screen.findByRole("button", { name: "Send SMS from CRM" })); }
+async function open() { render(<JobSmsComposer {...props} />); await waitFor(() => expect(screen.getByRole("button", { name: "Send SMS from CRM" })).toHaveProperty("disabled", false)); fireEvent.click(screen.getByRole("button", { name: "Send SMS from CRM" })); }
 describe("job SMS composer", () => {
   it("edits a template and preserves the exact request while preventing repeat clicks", async () => {
     let posts = 0; let sent: Record<string, unknown> = {};
@@ -32,9 +32,9 @@ describe("job SMS composer", () => {
     await open(); expect(screen.getByLabelText("Message")).toHaveProperty("value", "Original"); expect(screen.getByLabelText("Message")).toHaveProperty("disabled", true);
     expect(screen.queryByRole("button", { name: "Check message status" })).toBeNull(); expect(screen.queryByRole("button", { name: "Compose another message" })).toBeNull();
   });
-  it("does not expose new sending when disabled", async () => {
-    const fetcher = vi.fn(async () => Response.json({ ...initial, enabled: false })); vi.stubGlobal("fetch", fetcher);
-    render(<JobSmsComposer {...props} />); await waitFor(() => expect(fetcher).toHaveBeenCalled()); expect(screen.queryByRole("button")).toBeNull();
+  it("opens CRM sending regardless of a retired availability response", async () => {
+    vi.stubGlobal("fetch", async () => Response.json({ ...initial, enabled: false }));
+    await open(); expect(screen.getByLabelText("Message")).toBeTruthy();
   });
 });
 
@@ -49,16 +49,17 @@ it("closes SMS immediately while delivery is still pending", async () => {
   expect(screen.queryByLabelText("Message")).toBeNull();
 });
 
-it("hides disabled CRM SMS even when a saved attempt exists", async () => {
+it("keeps saved SMS attempts accessible regardless of retired availability", async () => {
   sessionStorage.setItem("job-sms-attempt:job", JSON.stringify({ id: "attempt", senderId, body: "Saved", destination: props.phone }));
   vi.stubGlobal("fetch", async () => Response.json({ ...initial, enabled: false }));
   await act(async () => { render(<JobSmsComposer {...props} />); });
-  expect(screen.queryByRole("button", { name: "Send SMS from CRM" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Send SMS from CRM" }));
+  expect(screen.getByLabelText("Message")).toHaveProperty("value", "Saved");
 });
 it("uses the primary Text action to open the CRM composer without sending", async () => {
   const fetcher = vi.fn(async () => Response.json(initial)); vi.stubGlobal("fetch", fetcher);
   render(<JobSmsComposer {...props} triggerStyle="primary" />);
-  fireEvent.click(await screen.findByRole("button", { name: "💬 Text" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "💬 Text" })).toHaveProperty("disabled", false)); fireEvent.click(screen.getByRole("button", { name: "💬 Text" }));
   expect(screen.getByLabelText("Message")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Send SMS from CRM" })).toBeNull();
 });
@@ -76,7 +77,7 @@ it("offers account setup or legacy sending without opening an unusable composer"
   vi.stubGlobal("fetch", async () => Response.json({ enabled: true, senders: [], message: null }));
   let legacyOpened = false;
   render(<JobSmsComposer {...props} onLegacy={() => { legacyOpened = true; }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "Send SMS from CRM" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Send SMS from CRM" })).toHaveProperty("disabled", false)); fireEvent.click(screen.getByRole("button", { name: "Send SMS from CRM" }));
   expect(screen.getByRole("dialog", { name: "No SMS account connected" })).toBeTruthy();
   expect(screen.queryByLabelText("Message")).toBeNull();
   expect(screen.getByRole("button", { name: "Connect an account" })).toBeTruthy();
