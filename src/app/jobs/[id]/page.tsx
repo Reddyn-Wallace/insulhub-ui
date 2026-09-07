@@ -10,6 +10,7 @@ import {
 } from "@/lib/mutations";
 import JobSmsComposer, { type JobSmsMessage } from "@/components/JobSmsComposer";
 import { useJobSmsStatus, smsNeedsStatusCheck } from "@/lib/use-job-sms-status";
+import JobCommunications from "@/components/JobCommunications";
 import JobEmailComposer from "@/components/JobEmailComposer";
 import EmailPreview from "@/components/EmailPreview";
 import { emailStatusLabel, type JobEmailMessage } from "@/lib/job-email";
@@ -116,6 +117,9 @@ type CampaignCommunication = {
   templateTitle: string;
   channel: "email" | "sms";
   senderLabel: string;
+  senderName?: string;
+  senderValue?: string;
+  actorName?: string;
   destination: string;
   contactName: string;
   jobNumber: number;
@@ -512,6 +516,11 @@ export default function JobDetailPage() {
   const [loadingContactTemplates, setLoadingContactTemplates] = useState(false);
   const [contactTemplateMode, setContactTemplateMode] = useState<"sms" | "email">("sms");
   const communicationRevision = useRef(0);
+  const communicationJobId = useRef(id);
+  communicationJobId.current = id;
+  const communicationRequest = useRef(0);
+  const [crmHistoryAccess, setCrmHistoryAccess] = useState({ jobId: "", enabled: false });
+  const [communicationHistoryError, setCommunicationHistoryError] = useState("");
   const communicationUpdates = useRef(new Map<string, number>());
   const [campaignCommunications, setCampaignCommunications] = useState<CampaignCommunication[]>([]);
   const [loadingCampaignCommunications, setLoadingCampaignCommunications] = useState(false);
@@ -606,6 +615,7 @@ export default function JobDetailPage() {
     const token = getToken();
     if (!token) return;
 
+    const requestId = ++communicationRequest.current;
     const startedAtRevision = communicationRevision.current;
     setLoadingCampaignCommunications(true);
     try {
@@ -613,13 +623,16 @@ export default function JobDetailPage() {
         headers: { "x-access-token": token },
       });
       const json = await res.json();
+      if (communicationJobId.current !== id || requestId !== communicationRequest.current) return;
       if (!res.ok) throw new Error(json?.error || "Failed to load sent communications");
+      setCrmHistoryAccess({ jobId: id, enabled: json.crmMessagingEnabled === true });
+      setCommunicationHistoryError("");
       const changedIds = new Set([...communicationUpdates.current].filter(([, revision]) => revision > startedAtRevision).map(([messageId]) => messageId));
       setCampaignCommunications(current => mergeJobCommunicationHistory(json.communications || [], current, changedIds));
     } catch {
-      // Preserve confirmed history if a refresh temporarily fails.
+      if (communicationJobId.current === id && requestId === communicationRequest.current) setCommunicationHistoryError("Could not load communications. Please try again.");
     } finally {
-      setLoadingCampaignCommunications(false);
+      if (communicationJobId.current === id && requestId === communicationRequest.current) setLoadingCampaignCommunications(false);
     }
   }, [id]);
 
@@ -881,7 +894,8 @@ export default function JobDetailPage() {
     const update = (current?: CampaignCommunication): CampaignCommunication => ({
       id: message.id, source: channel === "email" ? "crm_email" : "crm_sms", campaignId: "", campaignName: "", templateId: "",
       templateTitle: message.templateTitle || current?.templateTitle || "", channel,
-      senderLabel: [message.senderLabel, email?.senderValue, message.actorName].filter(Boolean).join(" · "),
+      senderLabel: [message.senderLabel, message.senderValue, message.actorName].filter(Boolean).join(" · "),
+      senderName: message.senderLabel || current?.senderName, senderValue: message.senderValue || current?.senderValue, actorName: message.actorName || current?.actorName,
       destination: message.destination, contactName: job?.client?.contactDetails?.name || "", jobNumber: job?.jobNumber || 0,
       status: message.status as CampaignCommunication["status"], renderedSubject: email?.subject || "", renderedBody: email?.renderedBody || message.body,
       renderedHtml: email?.renderedHtml, sentAt: message.createdAt || current?.sentAt || new Date().toISOString(), failureReason: message.failureReason || "",
@@ -2566,7 +2580,10 @@ export default function JobDetailPage() {
           {c?.email && <button type="button" onClick={() => openContactTemplates("email")} className="flex-1 bg-[#1a3a4a] text-white font-semibold py-3 rounded-xl text-center text-sm">✉️ Email</button>}
         </div>
 
-        <Section title="Sent Communications">
+        {crmHistoryAccess.jobId === id && crmHistoryAccess.enabled ? (
+          <JobCommunications key={id} messages={campaignCommunications} loading={loadingCampaignCommunications} error={communicationHistoryError} onRetry={() => void loadCampaignCommunications()} />
+        ) : <Section title="Sent Communications">
+          {communicationHistoryError && <div role="alert" className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{communicationHistoryError} <button type="button" onClick={() => void loadCampaignCommunications()} className="font-semibold underline">Try again</button></div>}
           {loadingCampaignCommunications && !campaignCommunications.length ? (
             <p className="text-sm text-gray-400">Loading sent communications...</p>
           ) : campaignCommunications.length ? (
@@ -2614,10 +2631,10 @@ export default function JobDetailPage() {
                 </button>
               )}
             </div>
-          ) : (
+          ) : !communicationHistoryError && (
             <p className="text-sm text-gray-400">No communications recorded for this job yet.</p>
           )}
-        </Section>
+        </Section>}
 
         {activeDetailTab === "job" ? (
           <>

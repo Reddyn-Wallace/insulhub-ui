@@ -1,3 +1,4 @@
+import { crmJobMessagingEnabled } from "@/lib/job-messaging-settings";
 import { NextRequest, NextResponse } from "next/server";
 import { jobSmsIdentity } from "@/lib/job-sms-access";
 import { requireInsulhubAuth } from "@/lib/insulhub-auth";
@@ -32,6 +33,9 @@ function toCommunication(row: Record<string, unknown>) {
     templateTitle: stringValue(row.template_title),
     channel: stringValue(row.channel),
     senderLabel: stringValue(row.sender_label),
+    senderName: stringValue(row.sender_name),
+    senderValue: stringValue(row.sender_value),
+    actorName: stringValue(row.actor_name),
     destination: stringValue(row.destination),
     contactName: stringValue(row.contact_name),
     jobNumber: numberValue(row.job_number),
@@ -55,7 +59,8 @@ export async function GET(
 
     await ensureOverlaySchema();
     const { id } = await params;
-    await jobSmsIdentity(request, id);
+    const { me } = await jobSmsIdentity(request, id);
+    const crmMessagingEnabled = await crmJobMessagingEnabled(me._id);
 
     const rows = await overlaySql`
       WITH campaign_logs AS (
@@ -74,9 +79,12 @@ export async function GET(
           cr.status,
           cr.rendered_subject,
           cr.rendered_body,
-          cr.sent_at,
+          COALESCE(cr.sent_at, cr.updated_at, cr.created_at) AS sent_at,
           NULL::timestamptz AS launched_at,
-          cr.failure_reason
+          cr.failure_reason,
+          c.sender_label AS sender_name,
+          '' AS sender_value,
+          c.sent_by AS actor_name
         FROM campaign_recipients cr
         JOIN campaigns c ON c.id = cr.campaign_id
         WHERE cr.insulhub_job_id = ${id}
@@ -100,7 +108,10 @@ export async function GET(
           jcl.rendered_body,
           NULL::timestamptz AS sent_at,
           jcl.launched_at,
-          '' AS failure_reason
+          '' AS failure_reason,
+          '' AS sender_name,
+          '' AS sender_value,
+          '' AS actor_name
         FROM job_communication_logs jcl
         WHERE jcl.insulhub_job_id = ${id}
       )
@@ -113,19 +124,19 @@ export async function GET(
         SELECT id, 'crm_sms' AS source, NULL::uuid, '', NULL::uuid, template_title,
           'sms', sender_label || ' · ' || actor_name, destination, contact_name, job_number,
           CASE WHEN status = 'sending' AND created_at < now() - interval '60 seconds' THEN 'unknown' ELSE status END,
-          '', body, created_at, NULL::timestamptz, failure_reason, ''
+          '', body, created_at, NULL::timestamptz, failure_reason, sender_label, sender_value, actor_name, ''
         FROM job_sms_messages WHERE insulhub_job_id = ${id}
         UNION ALL
         SELECT id, 'crm_email' AS source, NULL::uuid, '', NULL::uuid, template_title,
           'email', sender_label || ' (' || sender_value || ') · ' || actor_name, destination, contact_name, job_number,
           CASE WHEN status = 'sending' AND created_at < now() - interval '60 seconds' THEN 'unknown' ELSE status END,
-          subject, rendered_body, created_at, NULL::timestamptz, failure_reason, rendered_html
+          subject, rendered_body, created_at, NULL::timestamptz, failure_reason, sender_label, sender_value, actor_name, rendered_html
         FROM job_email_messages WHERE insulhub_job_id = ${id}
       ) combined
       ORDER BY COALESCE(sent_at, launched_at) DESC NULLS LAST
     `;
 
-    return NextResponse.json({ communications: rows.map(toCommunication) });
+    return NextResponse.json({ communications: rows.map(toCommunication), crmMessagingEnabled });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to load campaign communications" },

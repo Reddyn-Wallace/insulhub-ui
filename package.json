@@ -23,10 +23,11 @@
     "test:job-sms": "vitest run src/lib/job-sms*.test.*",
     "test:job-sms-browser": "node scripts/job-sms-browser-smoke.cjs",
     "job-sms:migrate": "node scripts/job-sms-migrate.mjs",
-    "test:job-email": "vitest run src/lib/job-email*.test.* src/lib/job-communication-history.test.ts src/lib/job-messaging-settings*.test.*",
+    "test:job-email": "vitest run src/lib/job-email*.test.* src/lib/job-communication*.test.* src/lib/job-messaging-settings*.test.*",
     "job-email:migrate": "node scripts/job-email-migrate.mjs",
     "test:sender-ownership": "vitest run src/lib/communication-sender-ownership.test.ts src/lib/communication-oauth*.test.ts src/lib/communication-owned-credentials.test.ts src/lib/campaign-sender-ownership.test.ts",
-    "communication-ownership:migrate": "node scripts/communication-ownership-migrate.mjs"
+    "communication-ownership:migrate": "node scripts/communication-ownership-migrate.mjs",
+    "test:job-communications-browser": "node scripts/job-communications-browser-smoke.cjs"
   },
   "dependencies": {
     "@ducanh2912/next-pwa": "^10.2.9",

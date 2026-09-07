@@ -10,7 +10,7 @@ export const maxDuration = 60;
 const uuid = /^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i;
 type Context = { params: Promise<{ id: string }> };
 function publicMessage(row: Record<string, unknown>) {
-  return { id: row.id, body: row.body, destination: row.destination, senderLabel: row.sender_label, actorName: row.actor_name,
+  return { id: row.id, body: row.body, destination: row.destination, senderLabel: row.sender_label, senderValue: row.sender_value, templateTitle: row.template_title, actorName: row.actor_name,
     status: row.status === "sending" && Date.now() - new Date(String(row.created_at)).getTime() > 60000 ? "unknown" : row.status,
     failureReason: row.failure_reason, createdAt: row.created_at };
 }

@@ -4,7 +4,7 @@ import BottomSheet from "./BottomSheet";
 import { smsStatusLabel } from "@/lib/job-sms";
 
 type Sender = { id: string; label: string; senderValue: string };
-export type JobSmsMessage = { id: string; body: string; destination: string; senderLabel: string; actorName: string; status: string; failureReason: string; createdAt?: string; templateTitle?: string };
+export type JobSmsMessage = { id: string; body: string; destination: string; senderLabel: string; senderValue?: string; actorName: string; status: string; failureReason: string; createdAt?: string; templateTitle?: string };
 type Attempt = { id: string; senderId: string; body: string; destination: string; templateTitle: string };
 export default function JobSmsComposer({ jobId, phone, contactName, templates, onRecorded, statusUpdates = [] }: {
   jobId: string; phone: string; contactName: string; templates: { id: string; title: string; body: string }[]; onRecorded: (message?: JobSmsMessage) => void; statusUpdates?: { id: string; status: string; failureReason?: string | null }[];
