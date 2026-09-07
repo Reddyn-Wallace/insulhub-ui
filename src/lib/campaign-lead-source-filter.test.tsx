@@ -10,7 +10,7 @@ vi.mock("@/lib/graphql", () => ({ gql: vi.fn(async () => ({ users: { results: []
 ] } })) }));
 import AudienceBuilder from "@/app/jobs/campaigns/[id]/audience-builder/page";
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
-it("combines lead source with status and applies the matching audience, including custom sources", async () => {
+it("combines lead source with status and applies the matching audience, using the same source options as the leads page", async () => {
   vi.stubGlobal("localStorage", { getItem: () => "test-token" });
   vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ campaign: { id: "campaign", name: "Test", channel: "email", status: "draft", recipientCount: 0 }, recipients: [] }) })));
   render(<AudienceBuilder />);
@@ -22,8 +22,9 @@ it("combines lead source with status and applies the matching audience, includin
   expect(screen.getByText("Matching customer")).toBeTruthy();
   expect(screen.queryByText("Quote customer")).toBeNull();
   expect(screen.queryByText("No source customer")).toBeNull();
-  fireEvent.change(source, { target: { value: "custom partner" } });
-  expect(screen.getByText("1 jobs match the current filters.")).toBeTruthy();
+  expect(Array.from((source as HTMLSelectElement).options, (option) => option.text)).toEqual([
+    "All lead sources", "Contact Form", "Social Media", "Phone Call", "Referral", "Homeshow",
+  ]);
   fireEvent.change(source, { target: { value: "" } });
   fireEvent.click(screen.getByRole("button", { name: "Apply Filters" }));
   expect(screen.getByText("No source customer")).toBeTruthy();

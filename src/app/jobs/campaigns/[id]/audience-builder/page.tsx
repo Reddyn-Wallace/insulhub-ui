@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { gql } from "@/lib/graphql";
 import { JOBS_QUERY, USERS_QUERY } from "@/lib/queries";
-import { LEAD_SOURCE_OPTIONS, canonicalLeadSourceLabel, normalizeLeadSourceValue } from "@/lib/lead-sources";
+import { LEAD_SOURCE_OPTIONS, normalizeLeadSourceValue } from "@/lib/lead-sources";
 
 type Campaign = {
   id: string;
@@ -277,15 +277,6 @@ export default function CampaignDetailPage() {
     return options;
   }, [jobs, users]);
 
-  const leadSourceOptions = useMemo(() => {
-    const options = new Map<string, string>();
-    for (const source of [...LEAD_SOURCE_OPTIONS, ...jobs.flatMap((job) => job.lead?.leadSource || [])]) {
-      const value = normalizeLeadSourceValue(source);
-      if (value && !options.has(value)) options.set(value, canonicalLeadSourceLabel(source));
-    }
-    return [...options].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
-  }, [jobs]);
-
   const filteredJobs = useMemo(() => (
     jobs.filter((job) => {
       if (statusFilter !== "ALL" && job.stage !== statusFilter) return false;
@@ -518,8 +509,8 @@ export default function CampaignDetailPage() {
                 className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900"
               >
                 <option value="">All lead sources</option>
-                {leadSourceOptions.map((source) => (
-                  <option key={source.value} value={source.value}>{source.label}</option>
+                {LEAD_SOURCE_OPTIONS.map((source) => (
+                  <option key={source} value={normalizeLeadSourceValue(source)}>{source}</option>
                 ))}
               </select>
             </label>
