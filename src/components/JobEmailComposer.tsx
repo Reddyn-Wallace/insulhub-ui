@@ -6,11 +6,17 @@ import { emailStatusLabel, type JobEmailMessage } from "@/lib/job-email";
 type Sender = { id: string; label: string; senderValue: string; signatureHtml: string };
 type Attempt = { id: string; senderId: string; destination: string; subject: string; body: string; templateTitle: string };
 const headers = () => ({ "content-type": "application/json", "x-access-token": localStorage.getItem("token") || "" });
-export default function JobEmailComposer({ jobId, email, contactName, templates, onRecorded }: {
+export default function JobEmailComposer({ jobId, email, contactName, templates, onRecorded, triggerStyle = "default", onAvailabilityChange }: {
+  onAvailabilityChange?: (enabled: boolean) => void;
+  triggerStyle?: "default" | "primary" | "hidden";
   jobId: string; email: string; contactName: string; templates: { id: string; title: string; subject: string; body: string }[]; onRecorded: (message?: JobEmailMessage) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [enabled, setEnabled] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadRevision, setLoadRevision] = useState(0);
+  const availability = useRef(onAvailabilityChange);
+  availability.current = onAvailabilityChange;
   const [ready, setReady] = useState(false);
   const [senders, setSenders] = useState<Sender[]>([]);
   const [senderId, setSenderId] = useState("");
@@ -28,6 +34,7 @@ export default function JobEmailComposer({ jobId, email, contactName, templates,
   const storageKey = `job-email-attempt:${jobId}`;
   useEffect(() => {
     let active = true;
+    setReady(false); setLoadFailed(false); setError("");
     let saved: Attempt | null = null;
     try { saved = JSON.parse(sessionStorage.getItem(storageKey) || "null"); } catch { /* No saved attempt. */ }
     if (saved) { setAttempt(saved); setSubject(saved.subject); setBody(saved.body); setSenderId(saved.senderId); }
@@ -35,12 +42,13 @@ export default function JobEmailComposer({ jobId, email, contactName, templates,
       .then(async response => {
         const data = await response.json(); if (!response.ok) throw Error(data.error);
         if (!active) return;
+        availability.current?.(data.enabled === true);
         setEnabled(data.enabled === true); setSenders(data.senders); if (!saved) setSenderId(data.senders[0]?.id || "");
         if (saved && data.message) { setMessage(data.message); recorded.current(data.message); }
-      }).catch(() => { if (active) setError("Could not load email accounts or confirm the previous send. Refresh the page to try again."); })
+      }).catch(() => { if (active) { setLoadFailed(true); setError("Could not load email accounts or confirm the previous send."); } })
       .finally(() => { if (active) setReady(true); });
     return () => { active = false; };
-  }, [endpoint, storageKey]);
+  }, [endpoint, storageKey, loadRevision]);
   useEffect(() => {
     if (!attempt || (message && message.status !== "sending")) return;
     let stopped = false; let running = false;
@@ -88,9 +96,9 @@ export default function JobEmailComposer({ jobId, email, contactName, templates,
     if (!senders.some(item => item.id === senderId)) setSenderId(senders[0]?.id || "");
   }
   const sender = senders.find(item => item.id === senderId);
-  if (!enabled) return null;
+  if (!enabled && triggerStyle !== "primary") return null;
   return <>
-    <button type="button" disabled={!ready || busy} onClick={() => { if (message?.status === "sent") newMessage(); setOpen(true); }} className="rounded-xl border border-[#1a3a4a] px-3 py-3 text-sm font-semibold text-[#1a3a4a] disabled:opacity-40">Send email from CRM</button>
+    {triggerStyle !== "hidden" && <button type="button" disabled={!ready || busy} onClick={() => { if (message?.status === "sent") newMessage(); setOpen(true); }} className={triggerStyle === "primary" ? "flex-1 bg-[#1a3a4a] text-white font-semibold py-3 rounded-xl text-center text-sm disabled:opacity-40" : "rounded-xl border border-[#1a3a4a] px-3 py-3 text-sm font-semibold text-[#1a3a4a] disabled:opacity-40"}>{triggerStyle === "primary" ? "✉️ Email" : "Send email from CRM"}</button>}
     <BottomSheet open={open} onClose={() => { if (!busy) setOpen(false); }} title="Send email from CRM">
       <div className="space-y-4 text-left">
         <div className="rounded-xl bg-gray-50 p-3"><p className="font-semibold">{contactName}</p><p className="break-all text-sm">{attempt?.destination || email || "No email address — update the job contact first."}</p></div>
@@ -104,6 +112,7 @@ export default function JobEmailComposer({ jobId, email, contactName, templates,
         <label className="block text-sm font-semibold">Message<textarea rows={8} maxLength={20000} className="mt-1 w-full rounded-lg border p-3 font-normal" value={body} disabled={busy || !!attempt} onChange={event => setBody(event.target.value)} /></label>
         {message && <div role="status" className="rounded-lg bg-gray-50 p-3 text-sm"><strong>{emailStatusLabel(message.status)}</strong>{message.failureReason && <p>{message.failureReason}</p>}</div>}
         {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+        {loadFailed && <button type="button" onClick={() => setLoadRevision(value => value + 1)} className="text-sm font-semibold underline">Reload sending accounts</button>}
         {attempt && !busy && (message?.status === "unknown" || !!error) && <p className="text-sm text-amber-800">This attempt is saved. Check the sending account’s Sent folder before composing another email. Refreshing this page will not resend it.</p>}
         {!attempt && <button type="button" disabled={busy || !senderId || !email || !subject.trim() || !body.trim()} onClick={() => void submit()} className="w-full rounded-xl bg-[#1a3a4a] p-3 font-semibold text-white disabled:opacity-40">{busy ? "Sending…" : "Send email"}</button>}
         {attempt && !message && <button type="button" disabled={busy} onClick={() => void submit()} className="w-full rounded-xl border p-3 text-sm">Recover original send attempt</button>}

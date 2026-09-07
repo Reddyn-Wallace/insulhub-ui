@@ -55,3 +55,19 @@ it("hides disabled CRM SMS even when a saved attempt exists", async () => {
   await act(async () => { render(<JobSmsComposer {...props} />); });
   expect(screen.queryByRole("button", { name: "Send SMS from CRM" })).toBeNull();
 });
+it("uses the primary Text action to open the CRM composer without sending", async () => {
+  const fetcher = vi.fn(async () => Response.json(initial)); vi.stubGlobal("fetch", fetcher);
+  render(<JobSmsComposer {...props} triggerStyle="primary" />);
+  fireEvent.click(await screen.findByRole("button", { name: "💬 Text" }));
+  expect(screen.getByLabelText("Message")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Send SMS from CRM" })).toBeNull();
+});
+it("keeps the primary Text action available after an account-loading failure and can retry", async () => {
+  let failed = true; vi.stubGlobal("fetch", async () => failed ? Response.json({error:"Unavailable"},{status:503}) : Response.json(initial));
+  render(<JobSmsComposer {...props} triggerStyle="primary" />);
+  const text = await screen.findByRole("button", {name:"💬 Text"});
+  await waitFor(()=>expect(text).toHaveProperty('disabled',false)); fireEvent.click(text);
+  expect(screen.getByRole('alert')).toBeTruthy(); failed=false;
+  fireEvent.click(screen.getByRole('button',{name:'Reload sending accounts'}));
+  await waitFor(()=>expect(screen.queryByRole('button',{name:'Reload sending accounts'})).toBeNull());
+});

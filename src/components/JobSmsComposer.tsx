@@ -6,11 +6,18 @@ import { smsStatusLabel } from "@/lib/job-sms";
 type Sender = { id: string; label: string; senderValue: string };
 export type JobSmsMessage = { id: string; body: string; destination: string; senderLabel: string; senderValue?: string; actorName: string; status: string; failureReason: string; createdAt?: string; templateTitle?: string };
 type Attempt = { id: string; senderId: string; body: string; destination: string; templateTitle: string };
-export default function JobSmsComposer({ jobId, phone, contactName, templates, onRecorded, statusUpdates = [] }: {
+export default function JobSmsComposer({ jobId, phone, contactName, templates, onRecorded, statusUpdates = [], triggerStyle = "default", onAvailabilityChange }: {
+  onAvailabilityChange?: (enabled: boolean) => void;
+  triggerStyle?: "default" | "primary" | "hidden";
   jobId: string; phone: string; contactName: string; templates: { id: string; title: string; body: string }[]; onRecorded: (message?: JobSmsMessage) => void; statusUpdates?: { id: string; status: string; failureReason?: string | null }[];
 }) {
   const [open, setOpen] = useState(false);
   const [enabled, setEnabled] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadRevision, setLoadRevision] = useState(0);
+  const availability = useRef(onAvailabilityChange);
+  availability.current = onAvailabilityChange;
   const [senders, setSenders] = useState<Sender[]>([]);
   const [senderId, setSenderId] = useState("");
   const [body, setBody] = useState("");
@@ -25,17 +32,24 @@ export default function JobSmsComposer({ jobId, phone, contactName, templates, o
   const headers = () => ({ "content-type": "application/json", "x-access-token": localStorage.getItem("token") || "" });
   useEffect(() => {
     let active = true;
+    setReady(false); setLoadFailed(false); setError("");
     let saved: Attempt | null = null;
     try { saved = JSON.parse(sessionStorage.getItem(storageKey) || "null"); } catch { /* no recoverable attempt */ }
     fetch(`${endpoint}${saved?.id ? `?attempt=${encodeURIComponent(saved.id)}` : ""}`, { headers: headers() })
       .then(async response => {
         const data = await response.json(); if (!response.ok) throw Error(data.error);
         if (!active) return;
+        availability.current?.(data.enabled === true);
         setEnabled(data.enabled); setSenders(data.senders); setSenderId(data.senders[0]?.id || "");
         if (saved) { setAttempt(saved); setBody(saved.body); setSenderId(saved.senderId); setMessage(data.message); }
-      }).catch(() => { if (active && saved) { setAttempt(saved); setBody(saved.body); setError("Could not confirm the previous send. Check status before sending again."); } });
+      }).catch(() => {
+        if (!active) return;
+        setLoadFailed(true);
+        if (saved) { setAttempt(saved); setBody(saved.body); }
+        setError("Could not load SMS accounts or confirm the previous send.");
+      }).finally(() => { if (active) setReady(true); });
     return () => { active = false; };
-  }, [endpoint, storageKey]);
+  }, [endpoint, storageKey, loadRevision]);
   useEffect(() => {
     const update = statusUpdates.find(item => item.id === attempt?.id);
     if (update) setMessage(current => current ? { ...current, status: update.status, failureReason: update.failureReason || "" } : current);
@@ -63,10 +77,10 @@ export default function JobSmsComposer({ jobId, phone, contactName, templates, o
   function newMessage() {
     sessionStorage.removeItem(storageKey); setAttempt(null); setMessage(null); if (message?.status !== "failed") { setBody(""); setTemplateId(""); } setError(""); onRecorded();
   }
-  if (!enabled) return null;
+  if (!enabled && triggerStyle !== "primary") return null;
   const settled = message && ["accepted", "sent", "delivered", "failed"].includes(message.status);
   return <>
-    <button type="button" disabled={busy} onClick={() => { if (message && ["accepted", "sent", "delivered"].includes(message.status)) newMessage(); setOpen(true); }} className="rounded-xl border border-teal-700 px-3 py-3 text-sm font-semibold text-teal-800">Send SMS from CRM</button>
+    {triggerStyle !== "hidden" && <button type="button" disabled={!ready || busy} onClick={() => { if (message && ["accepted", "sent", "delivered"].includes(message.status)) newMessage(); setOpen(true); }} className={triggerStyle === "primary" ? "flex-1 bg-teal-700 text-white font-semibold py-3 rounded-xl text-center text-sm disabled:opacity-40" : "rounded-xl border border-teal-700 px-3 py-3 text-sm font-semibold text-teal-800"}>{triggerStyle === "primary" ? "💬 Text" : "Send SMS from CRM"}</button>}
     <BottomSheet open={open} onClose={() => { if (!busy) setOpen(false); }} title="Send SMS from CRM">
       <div className="space-y-4 text-left">
         <div className="rounded-xl bg-gray-50 p-3"><p className="font-semibold">{contactName}</p><p className="text-sm">{attempt?.destination || phone || "No mobile number — update the job contact first."}</p></div>
@@ -82,6 +96,7 @@ export default function JobSmsComposer({ jobId, phone, contactName, templates, o
         {message && <div role="status" className="rounded-lg bg-gray-50 p-3 text-sm"><strong>{smsStatusLabel(message.status)}</strong>{message.failureReason && <p className="mt-1">{message.failureReason}</p>}</div>}
         {attempt && !busy && (message?.status === "unknown" || !!error) && <p className="text-sm text-amber-800">This attempt is saved. Its status updates automatically while this job is open. Wait for confirmation before sending another text, including from your phone.</p>}
         {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+        {loadFailed && <button type="button" onClick={() => setLoadRevision(value => value + 1)} className="text-sm font-semibold underline">Reload sending accounts</button>}
         {!attempt && <button type="button" disabled={busy || !enabled || !senderId || !phone || !body.trim()} onClick={() => void submit()} className="w-full rounded-xl bg-teal-700 p-3 font-semibold text-white disabled:opacity-40">{busy ? "Sending…" : "Send SMS"}</button>}
         {attempt && !message && <button type="button" disabled={busy || !enabled} onClick={() => void submit()} className="w-full rounded-xl border p-3 text-sm">Recover original send attempt</button>}
         {settled && <button type="button" disabled={busy || !enabled} onClick={newMessage} className="w-full rounded-xl border p-3 font-semibold">{message.status === "failed" ? "Compose a new attempt" : "Compose another message"}</button>}

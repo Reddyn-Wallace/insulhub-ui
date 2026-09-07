@@ -8,21 +8,31 @@ const records = [
  { id:'manual',source:'job',channel:'email',renderedSubject:'Manual draft',renderedBody:'Not a confirmed send',destination:'customer@example.com',status:'launched',sentAt:'2026-09-07T03:00:00Z' },
 ] as const;
 afterEach(cleanup);
+function showHistory() { fireEvent.click(screen.getByRole('button', { name: 'Show communications' })); }
+it('starts compact, keeps the latest status visible, and opens all saved messages without channel controls',()=>{
+ const many=Array.from({length:8},(_,i)=>({...records[1],id:String(i)}));
+ render(<JobCommunications messages={many} />);
+ expect(screen.queryByRole('list',{name:'CRM-sent messages'})).toBeNull();
+ expect(screen.getByRole('status').textContent).toContain('Pending');
+ expect(screen.queryByText(/Messages sent from the CRM/)).toBeNull();
+ showHistory();expect(within(screen.getByRole('list',{name:'CRM-sent messages'})).getAllByRole('listitem')).toHaveLength(8);
+ expect(screen.queryByRole('button',{name:/^All /})).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'Hide communications'}));
+ expect(screen.queryByRole('searchbox')).toBeNull();
+});
 it('shows CRM records newest first and distinguishes manual app launches',()=>{
- render(<JobCommunications messages={[...records]} />);
+ render(<JobCommunications messages={[...records]} />); showHistory();
  const list=screen.getByRole('list',{name:'CRM-sent messages'});
  const items=within(list).getAllByRole('listitem');expect(items[0].textContent).toContain('We will arrive at nine');expect(items[1].textContent).toContain('Booking confirmation');
  expect(within(list).queryByText('Manual draft')).toBeNull();expect(screen.getByText(/Opened in another app/)).toBeTruthy();
 });
-it('filters by channel and searches message contents and staff names',()=>{
- render(<JobCommunications messages={[...records]} />);
- fireEvent.click(screen.getByRole('button',{name:/^Email/}));
- expect(within(screen.getByRole('list',{name:'CRM-sent messages'})).queryByText('We will arrive at nine')).toBeNull();
+it('searches message contents and staff names',()=>{
+ render(<JobCommunications messages={[...records]} />); showHistory();
  fireEvent.change(screen.getByRole('searchbox'),{target:{value:'Andrew Potter'}});expect(screen.getByText('Booking confirmation')).toBeTruthy();
  fireEvent.change(screen.getByRole('searchbox'),{target:{value:'missing phrase'}});expect(screen.getByText(/No messages match/)).toBeTruthy();
 });
 it('expands an email into its saved HTML once, with original sender and staff metadata',()=>{
- render(<JobCommunications messages={[...records]} />);
+ render(<JobCommunications messages={[...records]} />); showHistory();
  expect(screen.queryByTitle('Email preview')).toBeNull();
  fireEvent.click(screen.getByRole('button',{name:/Booking confirmation/}));
  const frame=screen.getByTitle('Email preview');expect(frame.getAttribute('sandbox')).toBe('');expect(frame.getAttribute('srcdoc')).toContain('Original signature');
@@ -30,17 +40,17 @@ it('expands an email into its saved HTML once, with original sender and staff me
  expect(screen.queryByText('Saved email and signature')).toBeNull();
 });
 it('keeps an expanded SMS open while its status updates and shows failures',()=>{
- const {rerender}=render(<JobCommunications messages={[records[1]]} />);
+ const {rerender}=render(<JobCommunications messages={[records[1]]} />); showHistory();
  fireEvent.click(screen.getByRole('button',{name:/We will arrive/}));
  rerender(<JobCommunications messages={[{...records[1],status:'failed',failureReason:'Phone offline'}]} />);
  expect(screen.getByRole('button',{name:/We will arrive/}).getAttribute('aria-expanded')).toBe('true');expect(screen.getByText('Phone offline')).toBeTruthy();expect(screen.getAllByText('Failed').length).toBeGreaterThan(0);
 });
 it('retains saved records during a refresh failure and offers retry',()=>{
- render(<JobCommunications messages={[records[1]]} error="Could not refresh history" onRetry={()=>{}} />);
+ render(<JobCommunications messages={[records[1]]} error="Could not refresh history" onRetry={()=>{}} />); showHistory();
  expect(screen.getByRole('alert').textContent).toContain('Could not refresh history');expect(screen.getByText('We will arrive at nine')).toBeTruthy();expect(screen.getByRole('button',{name:'Try again'})).toBeTruthy();
 });
 it('does not imply the original campaign address is known when it was never saved',()=>{
- render(<JobCommunications messages={[{...records[0],source:'campaign',senderValue:'',senderName:'Office'}]} />);
+ render(<JobCommunications messages={[{...records[0],source:'campaign',senderValue:'',senderName:'Office'}]} />); showHistory();
  fireEvent.click(screen.getByRole('button',{name:/Booking confirmation/}));
  expect(screen.getByText(/Sending address wasn’t saved/)).toBeTruthy();
 });

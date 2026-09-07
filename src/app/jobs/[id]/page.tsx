@@ -2184,6 +2184,8 @@ export default function JobDetailPage() {
   const isPostQuoteStage = ["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"].includes(job.stage);
   const isQuoteInfoStage = ["QUOTE", "SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"].includes(job.stage);
   const activeDetailTab = isPostQuoteStage ? detailTab : "quote";
+  const crmMessagingKnown = crmHistoryAccess.jobId === id;
+  const crmMessagingActive = crmHistoryAccess.jobId === id && crmHistoryAccess.enabled;
   const visibleCampaignCommunications = showAllCampaignCommunications
     ? campaignCommunications
     : campaignCommunications.slice(0, 1);
@@ -2574,13 +2576,14 @@ export default function JobDetailPage() {
         {/* Quick contact */}
         <div className="flex flex-wrap gap-2 mb-3">
           {phone && <a href={`tel:${phone}`} className="flex-1 bg-[#e85d04] text-white font-semibold py-3 rounded-xl text-center text-sm">📞 Call</a>}
-          <JobSmsComposer key={id} jobId={id} phone={phone || ""} contactName={contactName} templates={contactTemplates.filter(template => template.channel === "sms").map(template => ({ id: template.id, title: template.title, body: applyTemplateFields(template.body, templateFields) }))} statusUpdates={campaignCommunications} onRecorded={message => recordCrmCommunication("sms", message)} />
-          {phone && <button type="button" onClick={() => openContactTemplates("sms")} className="flex-1 bg-teal-700 text-white font-semibold py-3 rounded-xl text-center text-sm">💬 Text</button>}
-          <JobEmailComposer key={`email-${id}`} jobId={id} email={c?.email || ""} contactName={contactName} templates={contactTemplates.filter(template => template.channel === "email").map(template => ({ id: template.id, title: template.title, subject: applyTemplateFields(template.subject, templateFields), body: applyTemplateFields(template.body, templateFields) }))} onRecorded={message => recordCrmCommunication("email", message)} />
-          {c?.email && <button type="button" onClick={() => openContactTemplates("email")} className="flex-1 bg-[#1a3a4a] text-white font-semibold py-3 rounded-xl text-center text-sm">✉️ Email</button>}
+          <JobSmsComposer key={id} onAvailabilityChange={enabled => setCrmHistoryAccess({ jobId: id, enabled })} triggerStyle={crmMessagingActive && phone ? "primary" : "hidden"} jobId={id} phone={phone || ""} contactName={contactName} templates={contactTemplates.filter(template => template.channel === "sms").map(template => ({ id: template.id, title: template.title, body: applyTemplateFields(template.body, templateFields) }))} statusUpdates={campaignCommunications} onRecorded={message => recordCrmCommunication("sms", message)} />
+          {!crmMessagingActive && phone && <button disabled={!crmMessagingKnown} type="button" onClick={() => openContactTemplates("sms")} className="flex-1 bg-teal-700 text-white font-semibold py-3 rounded-xl text-center text-sm">💬 Text</button>}
+          <JobEmailComposer key={`email-${id}`} onAvailabilityChange={enabled => setCrmHistoryAccess({ jobId: id, enabled })} triggerStyle={crmMessagingActive && c?.email ? "primary" : "hidden"} jobId={id} email={c?.email || ""} contactName={contactName} templates={contactTemplates.filter(template => template.channel === "email").map(template => ({ id: template.id, title: template.title, subject: applyTemplateFields(template.subject, templateFields), body: applyTemplateFields(template.body, templateFields) }))} onRecorded={message => recordCrmCommunication("email", message)} />
+          {!crmMessagingActive && c?.email && <button disabled={!crmMessagingKnown} type="button" onClick={() => openContactTemplates("email")} className="flex-1 bg-[#1a3a4a] text-white font-semibold py-3 rounded-xl text-center text-sm">✉️ Email</button>}
+          {(!crmMessagingKnown || crmMessagingActive) && (phone || c?.email) && <button type="button" onClick={() => openSheet("legacyComms")} className="rounded-xl border border-gray-200 px-3 py-3 text-sm font-semibold text-gray-600">Legacy Comms</button>}
         </div>
 
-        {crmHistoryAccess.jobId === id && crmHistoryAccess.enabled ? (
+        {crmMessagingActive ? (
           <JobCommunications key={id} messages={campaignCommunications} loading={loadingCampaignCommunications} error={communicationHistoryError} onRetry={() => void loadCampaignCommunications()} />
         ) : <Section title="Sent Communications">
           {communicationHistoryError && <div role="alert" className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{communicationHistoryError} <button type="button" onClick={() => void loadCampaignCommunications()} className="font-semibold underline">Try again</button></div>}
@@ -3257,6 +3260,13 @@ export default function JobDetailPage() {
           </div>
         </div>
       )}
+
+      <BottomSheet open={sheet === "legacyComms"} onClose={closeSheet} title="Legacy Comms">
+        <div className="space-y-3">
+          {phone && <button type="button" onClick={() => openContactTemplates("sms")} className="w-full rounded-xl bg-teal-700 p-3 text-sm font-semibold text-white">Text in SMS app</button>}
+          {c?.email && <button type="button" onClick={() => openContactTemplates("email")} className="w-full rounded-xl bg-[#1a3a4a] p-3 text-sm font-semibold text-white">Email in mail app</button>}
+        </div>
+      </BottomSheet>
 
       {/* Contact template picker */}
       <BottomSheet open={sheet === "contactTemplatePicker"} onClose={closeSheet} title={contactTemplateMode === "sms" ? "Choose Text Template" : "Choose Email Template"}>

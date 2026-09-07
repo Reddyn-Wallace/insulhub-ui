@@ -28,27 +28,46 @@ const assert = require('node:assert/strict');
    }
    if(url.pathname.endsWith('/campaign-communications') && historyFailures-- > 0)return route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Temporary outage'})});
    if(url.pathname.endsWith('/campaign-communications'))return json({communications:records(),crmMessagingEnabled:enabled});
-   if(url.pathname.endsWith('/sms')||url.pathname.endsWith('/email'))return json({enabled,senders:[],message:null});
+   if(url.pathname.endsWith('/sms')||url.pathname.endsWith('/email')){await new Promise(resolve=>setTimeout(resolve,1500));return json({enabled,senders:[],message:null});}
    if(url.pathname==='/api/contact-templates')return json({templates:[]});
    if(url.pathname==='/api/site-plan-drawings')return json({drawings:[]});
    return json({rows:[],planning:[],settings:{},senders:[]});
   });
   await page.goto(`${base}/jobs/${id}`);
   await expect(page.getByRole('alert').filter({hasText:/Could not/})).toContainText(/Could not/);
+  await expect(page.getByRole('button',{name:'💬 Text',exact:true})).toBeDisabled();
   await page.getByRole('button',{name:'Try again'}).click();
   const section=page.getByRole('region',{name:'Job communications'});await expect(section).toBeVisible();
+  await expect(section.getByRole('list',{name:'CRM-sent messages'})).toHaveCount(0);
+  await section.getByRole('button',{name:'Show communications'}).click();
   await expect(section.getByRole('list',{name:'CRM-sent messages'}).getByRole('listitem')).toHaveCount(3);
   await expect(section.getByRole('status').filter({hasText:'Delivered'})).toBeVisible();assert.ok(checks>0);
-  await section.getByRole('button',{name:/^Email/}).click();await expect(section.getByRole('list',{name:'CRM-sent messages'}).getByRole('listitem')).toHaveCount(2);
+  await expect(section.getByText(/Messages sent from the CRM/)).toHaveCount(0);
+  await expect(section.getByRole('button',{name:/^All /})).toHaveCount(0);
+  await page.getByRole('button',{name:'💬 Text',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Send SMS from CRM',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'×',exact:true}).click();
+  await page.getByRole('button',{name:'✉️ Email',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Send email from CRM',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'×',exact:true}).click();
+  for (const [choice,heading,scheme] of [['Text in SMS app','Choose Text Template','sms:'],['Email in mail app','Choose Email Template','mailto:']]) {
+    await page.getByRole('button',{name:'Legacy Comms',exact:true}).click();
+    await page.getByRole('button',{name:choice,exact:true}).click();
+    await expect(page.getByRole('heading',{name:heading,exact:true})).toBeVisible();
+    assert.ok((await page.getByRole('link',{name:'No template'}).getAttribute('href')).startsWith(scheme));
+    await page.getByRole('button',{name:'×',exact:true}).click();
+  }
   await section.getByRole('button',{name:/Your installation is confirmed/}).click();
   await expect(section.frameLocator('iframe').getByText('Insulmax · Wellington')).toBeVisible();
   await section.screenshot({path:`/tmp/insulhub-job-communications-${width}.png`});
   await section.getByRole('searchbox').fill('Andrew Potter');await expect(section.getByText('A warmer home this winter')).toBeVisible();await expect(section.getByText('Your installation is confirmed')).toHaveCount(0);
-  await section.getByRole('searchbox').fill('not present');await expect(section.getByText('No messages match your filters.')).toBeVisible();
+  await section.getByRole('searchbox').fill('not present');await expect(section.getByText('No messages match your search.')).toBeVisible();
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'No horizontal overflow');
   enabled=false;await page.reload();await expect(page.getByRole('heading',{name:'Sent Communications'})).toBeVisible();await expect(page.getByRole('region',{name:'Job communications'})).toHaveCount(0);
   await expect(page.getByRole('button',{name:'💬 Text',exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'✉️ Email',exact:true})).toBeVisible();
-  assert.deepEqual(errors,[]);console.log(`${width}px: saved history, original signature, filters/search, automatic SMS status, flag-off legacy UI and manual options passed; no sends`);
+  await expect(page.getByRole('button',{name:'Legacy Comms',exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'💬 Text',exact:true}).click();await expect(page.getByRole('heading',{name:'Choose Text Template'})).toBeVisible();await page.getByRole('button',{name:'×',exact:true}).click();
+  assert.deepEqual(errors,[]);console.log(`${width}px: saved history, original signature, compact history/search, automatic SMS status, primary CRM actions, legacy app choices and flag-off manual actions passed; no sends`);
   await context.close();
  }} finally {await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -52,3 +52,19 @@ it("hides CRM email when disabled, even with a saved attempt", async () => {
   await act(async () => { render(<JobEmailComposer {...props} />); });
   expect(screen.queryByRole("button", { name: "Send email from CRM" })).toBeNull();
 });
+it("uses the primary Email action to open the CRM composer", async () => {
+  vi.stubGlobal("fetch", async () => Response.json(initial));
+  render(<JobEmailComposer {...props} triggerStyle="primary" />);
+  fireEvent.click(await screen.findByRole("button", { name: "✉️ Email" }));
+  expect(screen.getByLabelText("Subject")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Send email from CRM" })).toBeNull();
+});
+it("keeps the primary Email action available after an account-loading failure and can retry", async () => {
+  let failed = true; vi.stubGlobal("fetch", async () => failed ? Response.json({error:"Unavailable"},{status:503}) : Response.json(initial));
+  render(<JobEmailComposer {...props} triggerStyle="primary" />);
+  const email = await screen.findByRole("button", {name:"✉️ Email"});
+  await waitFor(()=>expect(email).toHaveProperty('disabled',false)); fireEvent.click(email);
+  expect(screen.getByRole('alert')).toBeTruthy(); failed=false;
+  fireEvent.click(screen.getByRole('button',{name:'Reload sending accounts'}));
+  await waitFor(()=>expect(screen.queryByRole('button',{name:'Reload sending accounts'})).toBeNull());
+});
