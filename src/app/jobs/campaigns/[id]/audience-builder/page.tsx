@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { gql } from "@/lib/graphql";
 import { JOBS_QUERY, USERS_QUERY } from "@/lib/queries";
+import { LEAD_SOURCE_OPTIONS, canonicalLeadSourceLabel, normalizeLeadSourceValue } from "@/lib/lead-sources";
 
 type Campaign = {
   id: string;
@@ -54,6 +55,7 @@ type Job = {
   archivedAt?: string;
   lead?: {
     leadStatus?: string;
+    leadSource?: string[];
     allocatedTo?: { _id: string; firstname: string; lastname: string };
     callbackDate?: string;
     quoteBookingDate?: string;
@@ -194,6 +196,7 @@ export default function CampaignDetailPage() {
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [subStatusFilter, setSubStatusFilter] = useState("ALL");
   const [salespersonFilter, setSalespersonFilter] = useState("ALL");
+  const [leadSourceFilter, setLeadSourceFilter] = useState("");
   const [quoteFrom, setQuoteFrom] = useState("");
   const [quoteTo, setQuoteTo] = useState("");
   const [appliedJobs, setAppliedJobs] = useState<Job[]>([]);
@@ -274,6 +277,15 @@ export default function CampaignDetailPage() {
     return options;
   }, [jobs, users]);
 
+  const leadSourceOptions = useMemo(() => {
+    const options = new Map<string, string>();
+    for (const source of [...LEAD_SOURCE_OPTIONS, ...jobs.flatMap((job) => job.lead?.leadSource || [])]) {
+      const value = normalizeLeadSourceValue(source);
+      if (value && !options.has(value)) options.set(value, canonicalLeadSourceLabel(source));
+    }
+    return [...options].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
+  }, [jobs]);
+
   const filteredJobs = useMemo(() => (
     jobs.filter((job) => {
       if (statusFilter !== "ALL" && job.stage !== statusFilter) return false;
@@ -282,12 +294,14 @@ export default function CampaignDetailPage() {
       if (salespersonFilter === "UNALLOCATED" && job.lead?.allocatedTo?._id) return false;
       if (salespersonFilter !== "ALL" && salespersonFilter !== "UNALLOCATED" && job.lead?.allocatedTo?._id !== salespersonFilter) return false;
 
+      if (leadSourceFilter && !job.lead?.leadSource?.some((source) => normalizeLeadSourceValue(source) === leadSourceFilter)) return false;
+
       const quoteDate = job.quote?.date ? job.quote.date.slice(0, 10) : "";
       if (quoteFrom && (!quoteDate || quoteDate < quoteFrom)) return false;
       if (quoteTo && (!quoteDate || quoteDate > quoteTo)) return false;
       return true;
     })
-  ), [jobs, quoteFrom, quoteTo, salespersonFilter, statusFilter, subStatusFilter]);
+  ), [jobs, leadSourceFilter, quoteFrom, quoteTo, salespersonFilter, statusFilter, subStatusFilter]);
 
   const savedJobIds = useMemo(() => (
     new Set(savedRecipients.map((recipient) => recipient.jobId))
@@ -493,6 +507,19 @@ export default function CampaignDetailPage() {
                 <option value="UNALLOCATED">Unallocated</option>
                 {salespersonOptions.map((salesperson) => (
                   <option key={salesperson.id} value={salesperson.id}>{salesperson.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-xs font-semibold text-gray-600">Lead source</span>
+              <select
+                value={leadSourceFilter}
+                onChange={(event) => setLeadSourceFilter(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900"
+              >
+                <option value="">All lead sources</option>
+                {leadSourceOptions.map((source) => (
+                  <option key={source.value} value={source.value}>{source.label}</option>
                 ))}
               </select>
             </label>
