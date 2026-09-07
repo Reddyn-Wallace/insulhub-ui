@@ -23,7 +23,7 @@ export async function GET(request: NextRequest, context: Context) {
     const attempt = request.nextUrl.searchParams.get("attempt");
     if (attempt && !uuid.test(attempt)) return NextResponse.json({ error: "Invalid email reference." }, { status: 400 });
     const rows = attempt ? await overlaySql`SELECT * FROM job_email_messages WHERE id=${attempt} AND insulhub_job_id=${id}` : [];
-    const senders = enabled ? await overlaySql`SELECT id,label,sender_value,provider_config FROM communication_senders WHERE channel='email' AND provider='gmail' AND is_active=true AND connection_status='connected' ORDER BY is_default DESC,label` : [];
+    const senders = enabled ? await overlaySql`SELECT id,label,sender_value,provider_config FROM communication_senders WHERE owner_user_id=${me._id} AND channel='email' AND provider='gmail' AND is_active=true AND connection_status='connected' ORDER BY is_default DESC,label` : [];
     return NextResponse.json({ enabled, senders: senders.map(sender => ({ id: sender.id, label: sender.label, senderValue: sender.sender_value,
       signatureHtml: (sender.provider_config as Record<string,string> | null)?.gmailSignature || "" })), message: rows[0] ? publicMessage(rows[0]) : null });
   } catch { return NextResponse.json({ error: "Could not load CRM email. Check your connection and job access." }, { status: 503 }); }
@@ -47,9 +47,9 @@ export async function POST(request: NextRequest, context: Context) {
     if (!await crmJobMessagingEnabled(me._id)) return NextResponse.json({ error: "CRM messaging is disabled for your account. Manual Email remains available.", safeToEdit: true }, { status: 403 });
     const contact = job?.client?.contactDetails;
     if (!contact?.email || contact.email.trim().toLowerCase() !== message.destination.toLowerCase()) return NextResponse.json({ error: "The job contact email has changed or is missing. Refresh the job and correct the contact details before sending.", safeToEdit: true }, { status: 409 });
-    const senders = await overlaySql`SELECT * FROM communication_senders WHERE id=${input.senderId} AND channel='email' AND provider='gmail' AND is_active=true AND connection_status='connected'`;
+    const senders = await overlaySql`SELECT * FROM communication_senders WHERE id=${input.senderId} AND owner_user_id=${me._id} AND channel='email' AND provider='gmail' AND is_active=true AND connection_status='connected'`;
     const sender = senders[0];
-    if (!sender) return NextResponse.json({ error: "That email account is unavailable. Choose a connected account.", safeToEdit: true }, { status: 400 });
+    if (!sender || sender.owner_user_id !== me._id) return NextResponse.json({ error: "That email account is unavailable. Choose a connected account.", safeToEdit: true }, { status: 400 });
     const config = (sender.provider_config || {}) as Record<string, string>;
     const content = emailContent(message.body, config.gmailSignature || "");
     if (Buffer.byteLength(content.htmlBody, "utf8") > 200000) return NextResponse.json({ error: "The message and signature are too large.", safeToEdit: true }, { status: 400 });
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest, context: Context) {
       // Save acceptance before updating the token cache: a cache failure must not obscure a sent email.
       await overlaySql`UPDATE job_email_messages SET status=${status},failure_reason=${reason},provider_message_id=${result.providerMessageId || ""},provider_thread_id=${result.providerThreadId || ""},updated_at=now() WHERE id=${input.id} AND status='sending'`;
       if (result.accessToken) {
-        try { await overlaySql`UPDATE communication_senders SET provider_access_token=${result.accessToken},provider_refresh_token=${result.refreshToken || sender.provider_refresh_token || ""},provider_token_expires_at=${result.tokenExpiresAt || sender.provider_token_expires_at || null},updated_at=now() WHERE id=${input.senderId} AND provider='gmail' AND provider_refresh_token=${sender.provider_refresh_token || ""}`; } catch { /* The confirmed send remains recorded. */ }
+        try { await overlaySql`UPDATE communication_senders SET provider_access_token=${result.accessToken},provider_refresh_token=${result.refreshToken || sender.provider_refresh_token || ""},provider_token_expires_at=${result.tokenExpiresAt || sender.provider_token_expires_at || null},updated_at=now() WHERE id=${input.senderId} AND owner_user_id=${me._id} AND provider='gmail' AND provider_refresh_token=${sender.provider_refresh_token || ""}`; } catch { /* The confirmed send remains recorded. */ }
       }
     }
     const saved = await overlaySql`SELECT * FROM job_email_messages WHERE id=${input.id}`;

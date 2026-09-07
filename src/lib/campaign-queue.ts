@@ -7,6 +7,7 @@ import { deliverCommunication } from "@/lib/communication-delivery";
 import { ensureOverlaySchema, overlaySql } from "@/lib/overlay-db";
 
 type SenderRow = {
+  owner_user_id: string;
   id: string;
   channel: "email" | "sms";
   label: string;
@@ -145,7 +146,7 @@ async function finalizeCampaignIfDone(id: string) {
   return { campaign: rows[0], pendingCount, sentCount, failedCount, skippedCount };
 }
 
-export async function processCampaignQueue(id: string) {
+export async function processCampaignQueue(id: string, actorUserId?: string) {
   await ensureOverlaySchema();
   const campaign = await loadQueuedCampaign(id);
   if (!campaign) throw new Error("Campaign not found");
@@ -164,7 +165,16 @@ export async function processCampaignQueue(id: string) {
   }
 
   const sender = await loadSender(stringValue(campaign.sender_id)) as SenderRow | null;
-  if (!sender) throw new Error("Active sender record could not be found");
+  if (actorUserId && (!sender || sender.owner_user_id !== actorUserId)) {
+    throw new Error("You can only process campaigns using your own sending connection");
+  }
+  if (!sender || !sender.owner_user_id || sender.owner_user_id !== campaign.send_authorized_user_id
+      || sender.channel !== campaign.channel || (sender.provider !== "stub" && sender.connection_status !== "connected")) {
+    const reason = "Sending connection is unavailable or its owner has not authorised this campaign. Create a new campaign using your own connected account.";
+    await overlaySql`UPDATE campaigns SET status='halted', updated_at=now() WHERE id=${id} AND status IN ('pending','sending')`;
+    await overlaySql`UPDATE campaign_recipients SET status='skipped', failure_reason=${reason}, updated_at=now() WHERE campaign_id=${id} AND status='pending'`;
+    return { campaign: { ...campaign, status: "halted" }, processResult: reason, processedCount: 0, done: true };
+  }
 
   const settings = await loadCommunicationSettings();
   if (sender.provider !== "stub") {
@@ -232,6 +242,8 @@ export async function processCampaignQueue(id: string) {
     const result = await deliverCommunication({
       channel: stringValue(campaign.channel) === "sms" ? "sms" : "email",
       provider: sender.provider,
+      strictGmailConnection: sender.provider === "gmail",
+          strictSmsgateConnection: sender.provider === "smsgate",
       from: stringValue(sender.sender_value),
       fromName: stringValue(sender.label),
       to: stringValue(row.destination),
@@ -252,7 +264,7 @@ export async function processCampaignQueue(id: string) {
           provider_token_expires_at = ${result.tokenExpiresAt || sender.provider_token_expires_at || null},
           connection_status = 'connected',
           updated_at = now()
-        WHERE id = ${sender.id}
+        WHERE id = ${sender.id} AND owner_user_id = ${sender.owner_user_id}
       `;
       sender.provider_access_token = result.accessToken;
       sender.provider_refresh_token = result.refreshToken || sender.provider_refresh_token;

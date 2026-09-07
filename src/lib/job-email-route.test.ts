@@ -19,7 +19,7 @@ beforeEach(() => {
     const sql = parts.join("?");
     if (sql.includes("SELECT key,value FROM overlay_settings")) return [{ key: "job_sms_enabled", value: "true" }];
     if (sql.includes("SELECT * FROM job_email_messages")) return rows;
-    if (sql.includes("FROM communication_senders")) return [{ id: input.senderId, label: "Staff Gmail", sender_value: "staff@example.com", provider_config: { gmailSignature: "<b>Sam</b>" }, provider_access_token: "secret", provider_refresh_token: "refresh-secret" }];
+    if (sql.includes("FROM communication_senders")) return [{ owner_user_id: "staff", id: input.senderId, label: "Staff Gmail", sender_value: "staff@example.com", provider_config: { gmailSignature: "<b>Sam</b>" }, provider_access_token: "secret", provider_refresh_token: "refresh-secret" }];
     if (sql.includes("INSERT INTO job_email_messages")) {
       if (rows.length) return [];
       const columns = sql.match(/job_email_messages\s*\(([^)]+)\)/)![1].split(",").map(s => s.trim());
@@ -79,4 +79,14 @@ it("blocks email for another account when testing is restricted", async () => {
   const original = mocks.sql.getMockImplementation()!;
   mocks.sql.mockImplementation((parts: TemplateStringsArray, ...values: unknown[]) => parts.join("").includes("SELECT key,value") ? [{ key: "job_sms_enabled", value: "true" }, { key: "job_crm_test_user", value: JSON.stringify({ userId: "someone-else", name: "Tester" }) }] : original(parts, ...values));
   expect((await POST(request(input), context)).status).toBe(403); expect(mocks.deliver).not.toHaveBeenCalled();
+});
+
+it.each(["another-person", null])("blocks sending from a connection owned by %s", async owner => {
+  const original = mocks.sql.getMockImplementation()!;
+  mocks.sql.mockImplementation(async (parts: TemplateStringsArray, ...values: unknown[]) => {
+    const result = await original(parts, ...values);
+    return parts.join("").includes("SELECT * FROM communication_senders") ? result.map((row: Record<string,unknown>) => ({ ...row, owner_user_id: owner })) : result;
+  });
+  expect((await POST(request(input), context)).status).toBe(400);
+  expect(mocks.deliver).not.toHaveBeenCalled();
 });

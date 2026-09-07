@@ -21,7 +21,7 @@ beforeEach(() => {
     const text = strings.join("?");
     if (text.includes("SELECT * FROM job_sms_messages")) return rows;
     if (text.includes("SELECT key,value FROM overlay_settings")) return [{ key: "job_sms_enabled", value: String(available) }];
-    if (text.includes("SELECT * FROM communication_senders")) return [{ label: "Business", sender_value: "021", provider_config: {} }];
+    if (text.includes("SELECT * FROM communication_senders")) return [{ owner_user_id: "staff", label: "Business", sender_value: "021", provider_config: {} }];
     if (text.includes("INSERT INTO job_sms_messages")) {
       if (rows.length) return [];
       rows = [{ id: values[0], insulhub_job_id: values[1], request_hash: values[12], status: "sending", body: values[10], actor_name: values[7], created_at: new Date().toISOString() }];
@@ -69,4 +69,14 @@ it("blocks SMS for other accounts in testing mode", async () => {
   const original = mocks.sql.getMockImplementation()!;
   mocks.sql.mockImplementation((parts: TemplateStringsArray, ...values: unknown[]) => parts.join("").includes("SELECT key,value") ? [{ key: "job_sms_enabled", value: "true" }, { key: "job_crm_test_user", value: JSON.stringify({ userId: "someone-else", name: "Tester" }) }] : original(parts, ...values));
   expect((await POST(request(input), context)).status).toBe(403); expect(mocks.deliver).not.toHaveBeenCalled();
+});
+
+it.each(["another-person", null])("blocks sending from a connection owned by %s", async owner => {
+  const original = mocks.sql.getMockImplementation()!;
+  mocks.sql.mockImplementation(async (parts: TemplateStringsArray, ...values: unknown[]) => {
+    const result = await original(parts, ...values);
+    return parts.join("").includes("SELECT * FROM communication_senders") ? result.map((row: Record<string,unknown>) => ({ ...row, owner_user_id: owner })) : result;
+  });
+  expect((await POST(request(input), context)).status).toBe(400);
+  expect(mocks.deliver).not.toHaveBeenCalled();
 });

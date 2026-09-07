@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { jobSmsIdentity } from "@/lib/job-sms-access";
 import { requireInsulhubAuth } from "@/lib/insulhub-auth";
 import {
   loadCampaignQueueState,
@@ -16,9 +17,10 @@ export async function POST(
   try {
     const unauthorized = await requireInsulhubAuth(request);
     if (unauthorized) return unauthorized;
+    const { me } = await jobSmsIdentity(request);
 
     const { id } = await params;
-    const result = await processCampaignQueue(id);
+    const result = await processCampaignQueue(id, me._id);
     const recipients = await loadQueuedRecipients(id);
     const queue = await loadCampaignQueueState();
     const scheduler = queue.pendingCount > 0
@@ -35,7 +37,7 @@ export async function POST(
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to process campaign queue" },
-      { status: 500 }
+      { status: error instanceof Error && error.message.includes("your own sending connection") ? 403 : 500 }
     );
   }
 }

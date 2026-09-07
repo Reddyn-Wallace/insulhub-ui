@@ -1,3 +1,4 @@
+import { consumeGmailState, GMAIL_STATE_COOKIE, GMAIL_STATE_PATH } from "@/lib/communication-oauth-state";
 import { NextRequest, NextResponse } from "next/server";
 import { fetchGmailSignature, testCommunicationConnection } from "@/lib/communication-delivery";
 import { ensureOverlaySchema, overlaySql } from "@/lib/overlay-db";
@@ -23,7 +24,9 @@ function settingsRedirect(request: NextRequest, params: Record<string, string>) 
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value);
   }
-  return NextResponse.redirect(url);
+  const response = NextResponse.redirect(url);
+  response.cookies.set(GMAIL_STATE_COOKIE, "", { path: GMAIL_STATE_PATH, maxAge: 0 });
+  return response;
 }
 
 export async function GET(request: NextRequest) {
@@ -32,22 +35,16 @@ export async function GET(request: NextRequest) {
   const code = url.searchParams.get("code") || "";
   const error = url.searchParams.get("error") || "";
   const state = url.searchParams.get("state") || "";
+  const grant = await consumeGmailState(state, request.cookies.get(GMAIL_STATE_COOKIE)?.value);
+  if (!grant) return settingsRedirect(request, { connectError: "invalid_state" });
   if (error) return settingsRedirect(request, { connectError: error });
   if (!code) return settingsRedirect(request, { connectError: "missing_code" });
-
-  let senderId = "";
-  try {
-    const decoded = JSON.parse(Buffer.from(state, "base64url").toString("utf8")) as { senderId?: string };
-    senderId = decoded.senderId || "";
-  } catch {
-    return settingsRedirect(request, { connectError: "invalid_state" });
-  }
-  if (!senderId) return settingsRedirect(request, { connectError: "invalid_state" });
+  const senderId = grant.sender_id;
 
   const rows = await overlaySql`
     SELECT *
     FROM communication_senders
-    WHERE id = ${senderId}
+    WHERE id = ${senderId} AND owner_user_id = ${grant.owner_user_id}
     LIMIT 1
   `;
   const sender = rows[0];
@@ -79,15 +76,18 @@ export async function GET(request: NextRequest) {
   }
 
   const expiresIn = typeof body.expires_in === "number" ? body.expires_in : Number(body.expires_in || 3600);
-  const refreshToken = typeof body.refresh_token === "string" ? body.refresh_token : stringValue(sender.provider_refresh_token);
+  const refreshToken = typeof body.refresh_token === "string" ? body.refresh_token : "";
+  if (!refreshToken) return settingsRedirect(request, { connectError: "Google did not grant offline access. Reconnect and approve access." });
   const tokenExpiresAt = new Date(Date.now() + Math.max(60, expiresIn - 60) * 1000).toISOString();
   const connectionResult = await testCommunicationConnection({
+    strictGmailConnection: true,
     provider: "gmail",
     accessToken: String(body.access_token),
     refreshToken,
     tokenExpiresAt,
   });
   const signatureResult = await fetchGmailSignature({
+      strictGmailConnection: true,
     provider: "gmail",
     accessToken: String(body.access_token),
     refreshToken,
@@ -121,7 +121,7 @@ export async function GET(request: NextRequest) {
       connection_status = ${connectionResult.ok ? "connected" : "disconnected"},
       last_tested_at = now(),
       updated_at = now()
-    WHERE id = ${senderId}
+    WHERE id = ${senderId} AND owner_user_id = ${grant.owner_user_id}
   `;
 
   if (!connectionResult.ok) {

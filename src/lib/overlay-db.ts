@@ -264,6 +264,23 @@ async function ensureOverlaySchemaInternal() {
     )
   `;
 
+  // References canonical Insulhub user IDs without duplicating users.
+  await overlaySql`ALTER TABLE communication_senders ADD COLUMN IF NOT EXISTS owner_user_id text`;
+
+  await overlaySql`CREATE INDEX IF NOT EXISTS communication_senders_owner_channel_idx
+  ON communication_senders(owner_user_id, channel, is_active, is_default DESC)`;
+
+  await overlaySql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS send_authorized_user_id text`;
+
+  await overlaySql`CREATE TABLE IF NOT EXISTS communication_oauth_states (
+  state_hash text PRIMARY KEY,
+  sender_id uuid NOT NULL REFERENCES communication_senders(id) ON DELETE CASCADE,
+  owner_user_id text NOT NULL,
+  expires_at timestamptz NOT NULL
+)`;
+
+  await overlaySql`CREATE INDEX IF NOT EXISTS communication_oauth_states_expiry_idx ON communication_oauth_states(expires_at)`;
+
   await overlaySql`
     CREATE INDEX IF NOT EXISTS communication_senders_channel_active_idx
       ON communication_senders (channel, is_active, is_default DESC, label)

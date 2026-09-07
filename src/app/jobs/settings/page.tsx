@@ -630,6 +630,7 @@ export default function SettingsPage() {
             <div className="space-y-4 p-3">
               <div className="rounded-lg border border-gray-200 p-4">
                 <h2 className="text-sm font-semibold text-gray-900">Add {senderChannelLabel(senderChannel)} sender</h2>
+                <p className="mt-1 text-sm text-gray-500">Connections here belong to your account. Only you can use them to send from jobs or campaigns.</p>
                 <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
                   <input
                     value={senderLabel}

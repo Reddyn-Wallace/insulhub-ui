@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireInsulhubAuth } from "@/lib/insulhub-auth";
+import { jobSmsIdentity } from "@/lib/job-sms-access";
 import { testCommunicationConnection } from "@/lib/communication-delivery";
 import { ensureOverlaySchema, overlaySql } from "@/lib/overlay-db";
 
@@ -50,11 +51,11 @@ function toSender(row: Record<string, unknown>) {
   };
 }
 
-async function loadSender(id: string) {
+async function loadSender(id: string, ownerUserId: string) {
   const rows = await overlaySql`
     SELECT *
     FROM communication_senders
-    WHERE id = ${id}
+    WHERE id = ${id} AND owner_user_id = ${ownerUserId}
     LIMIT 1
   `;
   return rows[0] || null;
@@ -67,10 +68,11 @@ export async function PATCH(
   try {
     const unauthorized = await requireInsulhubAuth(request);
     if (unauthorized) return unauthorized;
+    const { me } = await jobSmsIdentity(request);
 
     await ensureOverlaySchema();
     const { id } = await params;
-    const existing = await loadSender(id);
+    const existing = await loadSender(id, me._id);
     if (!existing) return NextResponse.json({ error: "Sender not found" }, { status: 404 });
 
     const input = (await request.json()) as SenderInput;
@@ -96,7 +98,7 @@ export async function PATCH(
           connected_at = NULL,
           last_tested_at = NULL,
           updated_at = now()
-        WHERE id = ${id}
+        WHERE id = ${id} AND owner_user_id = ${me._id}
         RETURNING *
       `;
 
@@ -110,13 +112,15 @@ export async function PATCH(
       await overlaySql`
         UPDATE communication_senders
         SET is_default = false, updated_at = now()
-        WHERE channel = ${channel} AND id <> ${id}
+        WHERE channel = ${channel} AND owner_user_id = ${me._id} AND id <> ${id}
       `;
     }
 
     let testResult: Awaited<ReturnType<typeof testCommunicationConnection>> | null = null;
     if (input.test) {
       testResult = await testCommunicationConnection({
+        strictGmailConnection: true,
+        strictSmsgateConnection: true,
         provider,
         providerConfig,
         accessToken: stringValue(existing.provider_access_token),
@@ -139,7 +143,7 @@ export async function PATCH(
         is_active = ${input.isActive ?? Boolean(existing.is_active)},
         last_tested_at = ${input.test ? new Date().toISOString() : existing.last_tested_at},
         updated_at = now()
-      WHERE id = ${id}
+      WHERE id = ${id} AND owner_user_id = ${me._id}
       RETURNING *
     `;
 
@@ -166,14 +170,17 @@ export async function DELETE(
   try {
     const unauthorized = await requireInsulhubAuth(request);
     if (unauthorized) return unauthorized;
+    const { me } = await jobSmsIdentity(request);
 
     await ensureOverlaySchema();
     const { id } = await params;
 
-    await overlaySql`
+    const deleted = await overlaySql`
       DELETE FROM communication_senders
-      WHERE id = ${id}
+      WHERE id = ${id} AND owner_user_id = ${me._id}
+      RETURNING id
     `;
+    if (!deleted.length) return NextResponse.json({ error: "Sender not found" }, { status: 404 });
 
     return NextResponse.json({ ok: true });
   } catch (error) {

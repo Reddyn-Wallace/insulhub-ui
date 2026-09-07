@@ -25,6 +25,7 @@ export type DeliveryMessage = {
   messageId?: string;
   // Account emails must use the selected connection and prove its authorised From address.
   strictGmailConnection?: boolean;
+  strictSmsgateConnection?: boolean;
   channel: "email" | "sms";
   provider: Provider;
   from: string;
@@ -52,6 +53,8 @@ export type DeliveryResult = {
 };
 
 export type ConnectionTestInput = {
+  strictGmailConnection?: boolean;
+  strictSmsgateConnection?: boolean;
   provider: Provider;
   providerConfig?: Record<string, string>;
   accessToken?: string;
@@ -390,7 +393,7 @@ async function sendGmail(input: DeliveryMessage): Promise<DeliveryResult> {
 }
 
 async function getGmailAccess(input: ConnectionTestInput | DeliveryMessage) {
-  let token = input.accessToken || process.env.GMAIL_SEND_ACCESS_TOKEN?.trim() || "";
+  let token = input.accessToken || (input.strictGmailConnection ? "" : process.env.GMAIL_SEND_ACCESS_TOKEN?.trim()) || "";
   let refreshed: Awaited<ReturnType<typeof refreshGmailToken>> = null;
   if (!token || !tokenIsFresh(input.tokenExpiresAt)) {
     refreshed = await refreshGmailToken(input as DeliveryMessage);
@@ -464,6 +467,12 @@ export async function fetchGmailSignature(input: ConnectionTestInput, senderEmai
   } catch (error) {
     return { ok: false, failureReason: friendlyNetworkError(error, "Could not sync Gmail signature") };
   }
+}
+
+function smsgateConnectionBaseUrl(config?: Record<string, string>, strict = false) {
+  const value = config?.smsgateBaseUrl || (!strict ? process.env.SMSGATE_BASE_URL?.trim() : undefined);
+  if (!value) throw new Error("Add a server address to the selected SMS connection");
+  return normalizeBaseUrl(value);
 }
 
 export function smsgateAuthHeaders(config?: Record<string, string>, strict = false) {
@@ -567,11 +576,11 @@ async function smsgateJsonRequest<T>(input: {
   body?: Record<string, unknown>;
 }): Promise<SmsgateApiResult<T>> {
   try {
-    const baseUrl = normalizeBaseUrl(input.providerConfig?.smsgateBaseUrl || requiredEnv("SMSGATE_BASE_URL"));
+    const baseUrl = smsgateConnectionBaseUrl(input.providerConfig, true);
     const response = await fetch(`${baseUrl}${input.path}`, {
       method: input.method || "GET",
       headers: {
-        ...smsgateAuthHeaders(input.providerConfig),
+        ...smsgateAuthHeaders(input.providerConfig, true),
         "content-type": "application/json",
       },
       body: input.body ? JSON.stringify(input.body) : undefined,
@@ -627,7 +636,7 @@ export async function registerSmsgateWebhook(input: {
   event: "sms:received" | "sms:batch:received";
 }): Promise<SmsgateApiResult<SmsgateWebhook>> {
   const body: Record<string, unknown> = { url: input.url, event: input.event };
-  const deviceId = input.providerConfig?.smsgateDeviceId || process.env.SMSGATE_DEVICE_ID?.trim();
+  const deviceId = input.providerConfig?.smsgateDeviceId;
   if (deviceId) body.deviceId = deviceId;
   return smsgateJsonRequest<SmsgateWebhook>({
     providerConfig: input.providerConfig,
@@ -657,7 +666,7 @@ export async function refreshSmsgateInbox(input: {
     messageTypes: ["SMS"],
     webhookDelivery: input.webhookDelivery || "Individual",
   };
-  const deviceId = input.providerConfig?.smsgateDeviceId || process.env.SMSGATE_DEVICE_ID?.trim();
+  const deviceId = input.providerConfig?.smsgateDeviceId;
   if (deviceId) body.deviceId = deviceId;
   return smsgateJsonRequest<undefined>({
     providerConfig: input.providerConfig,
@@ -668,9 +677,9 @@ export async function refreshSmsgateInbox(input: {
 }
 
 async function sendSmsgate(input: DeliveryMessage): Promise<DeliveryResult> {
-  const baseUrl = normalizeBaseUrl(input.providerConfig?.smsgateBaseUrl || requiredEnv("SMSGATE_BASE_URL"));
-  const deviceId = input.providerConfig?.smsgateDeviceId || process.env.SMSGATE_DEVICE_ID?.trim();
-  const simNumber = input.providerConfig?.smsgateSimNumber || process.env.SMSGATE_SIM_NUMBER?.trim();
+  const baseUrl = smsgateConnectionBaseUrl(input.providerConfig, input.strictSmsgateConnection);
+  const deviceId = input.providerConfig?.smsgateDeviceId || (input.strictSmsgateConnection ? undefined : process.env.SMSGATE_DEVICE_ID?.trim());
+  const simNumber = input.providerConfig?.smsgateSimNumber || (input.strictSmsgateConnection ? undefined : process.env.SMSGATE_SIM_NUMBER?.trim());
   const requestBody: Record<string, unknown> = {
     phoneNumbers: [normalizeSmsPhoneNumber(input.to)],
     textMessage: { text: input.body },
@@ -682,19 +691,19 @@ async function sendSmsgate(input: DeliveryMessage): Promise<DeliveryResult> {
   let response = await fetch(`${baseUrl}/messages`, {
     method: "POST",
     headers: {
-      ...smsgateAuthHeaders(input.providerConfig),
+      ...smsgateAuthHeaders(input.providerConfig, input.strictSmsgateConnection),
       "content-type": "application/json",
     },
     body: JSON.stringify(requestBody),
   });
   let body = await parseResponseBody(response);
   const firstFailure = responseErrorMessage(body, response.statusText);
-  if (!response.ok && deviceId && /select device|record not found|device/i.test(firstFailure)) {
+  if (!input.strictSmsgateConnection && !response.ok && deviceId && /select device|record not found|device/i.test(firstFailure)) {
     delete requestBody.deviceId;
     response = await fetch(`${baseUrl}/messages`, {
       method: "POST",
       headers: {
-        ...smsgateAuthHeaders(input.providerConfig),
+        ...smsgateAuthHeaders(input.providerConfig, input.strictSmsgateConnection),
         "content-type": "application/json",
       },
       body: JSON.stringify(requestBody),
@@ -709,10 +718,10 @@ async function sendSmsgate(input: DeliveryMessage): Promise<DeliveryResult> {
 }
 
 async function testSmsgateConnection(input: ConnectionTestInput): Promise<DeliveryResult> {
-  const baseUrl = normalizeBaseUrl(input.providerConfig?.smsgateBaseUrl || requiredEnv("SMSGATE_BASE_URL"));
+  const baseUrl = smsgateConnectionBaseUrl(input.providerConfig, input.strictSmsgateConnection);
   const response = await fetch(`${baseUrl}/devices`, {
     headers: {
-      ...smsgateAuthHeaders(input.providerConfig),
+      ...smsgateAuthHeaders(input.providerConfig, input.strictSmsgateConnection),
       "content-type": "application/json",
     },
   });
@@ -747,8 +756,8 @@ export async function deliverCommunication(input: DeliveryMessage): Promise<Deli
 export async function testCommunicationConnection(input: ConnectionTestInput): Promise<DeliveryResult> {
   try {
     if (input.provider === "stub") return { ok: true };
-    if (input.provider === "gmail") return testGmailConnection(input);
-    if (input.provider === "smsgate") return testSmsgateConnection(input);
+    if (input.provider === "gmail") return await testGmailConnection(input);
+    if (input.provider === "smsgate") return await testSmsgateConnection(input);
     return { ok: false, failureReason: `Unsupported provider: ${input.provider}` };
   } catch (error) {
     return { ok: false, failureReason: friendlyNetworkError(error, "Connection test failed") };

@@ -22,7 +22,7 @@ export async function GET(request: NextRequest, context: Context) {
     const attempt = request.nextUrl.searchParams.get("attempt");
     if (attempt && !uuid.test(attempt)) return NextResponse.json({ error: "Invalid message reference." }, { status: 400 });
     const rows = attempt ? await overlaySql`SELECT * FROM job_sms_messages WHERE id=${attempt} AND insulhub_job_id=${id}` : [];
-    const senders = available ? await overlaySql`SELECT id,label,sender_value AS "senderValue" FROM communication_senders WHERE channel='sms' AND provider='smsgate' AND is_active=true AND connection_status='connected' ORDER BY is_default DESC,label` : [];
+    const senders = available ? await overlaySql`SELECT id,label,sender_value AS "senderValue" FROM communication_senders WHERE owner_user_id=${me._id} AND channel='sms' AND provider='smsgate' AND is_active=true AND connection_status='connected' ORDER BY is_default DESC,label` : [];
     return NextResponse.json({ enabled: available, senders, message: rows[0] ? publicMessage(rows[0]) : null });
   } catch { return NextResponse.json({ error: "Could not load CRM SMS. Check your connection and job access." }, { status: 503 }); }
 }
@@ -58,9 +58,9 @@ export async function POST(request: NextRequest, context: Context) {
       try { canonical = validateSmsInput({ body: message.body, destination: contact?.phoneMobile || contact?.phoneSecondary }); }
       catch { return NextResponse.json({ error: "Correct the mobile number in the job contact details before sending." }, { status: 400 }); }
       if (canonical.destination !== message.destination) return NextResponse.json({ error: "The job contact number has changed. Refresh the job before sending.", safeToEdit: true }, { status: 409 });
-      const senders = await overlaySql`SELECT * FROM communication_senders WHERE id=${input.senderId} AND channel='sms' AND provider='smsgate' AND is_active=true AND connection_status='connected'`;
+      const senders = await overlaySql`SELECT * FROM communication_senders WHERE id=${input.senderId} AND owner_user_id=${me._id} AND channel='sms' AND provider='smsgate' AND is_active=true AND connection_status='connected'`;
       const sender = senders[0];
-      if (!sender) return NextResponse.json({ error: "That SMS sender is unavailable. Choose a connected sender." }, { status: 400 });
+      if (!sender || sender.owner_user_id !== me._id) return NextResponse.json({ error: "That SMS sender is unavailable. Choose a connected sender." }, { status: 400 });
       await runSmsAttempt({
         claim: async () => {
           const claimed = await overlaySql`INSERT INTO job_sms_messages(id,insulhub_job_id,job_number,sender_id,sender_label,sender_value,actor_id,actor_name,destination,contact_name,body,template_title,request_hash,status,provider_message_id)

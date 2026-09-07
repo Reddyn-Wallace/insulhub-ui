@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireInsulhubAuth } from "@/lib/insulhub-auth";
+import { jobSmsIdentity } from "@/lib/job-sms-access";
 import { fetchGmailSignature } from "@/lib/communication-delivery";
 import { ensureOverlaySchema, overlaySql } from "@/lib/overlay-db";
 
@@ -47,13 +48,14 @@ export async function POST(
   try {
     const unauthorized = await requireInsulhubAuth(request);
     if (unauthorized) return unauthorized;
+    const { me } = await jobSmsIdentity(request);
 
     await ensureOverlaySchema();
     const { id } = await params;
     const rows = await overlaySql`
       SELECT *
       FROM communication_senders
-      WHERE id = ${id}
+      WHERE id = ${id} AND owner_user_id = ${me._id}
       LIMIT 1
     `;
     const sender = rows[0];
@@ -66,6 +68,7 @@ export async function POST(
       ? sender.provider_config as Record<string, unknown>
       : {};
     const signatureResult = await fetchGmailSignature({
+      strictGmailConnection: true,
       provider: "gmail",
       providerConfig: existingConfig as Record<string, string>,
       accessToken: stringValue(sender.provider_access_token),
@@ -86,7 +89,7 @@ export async function POST(
           provider_refresh_token = ${signatureResult.refreshToken || stringValue(sender.provider_refresh_token)},
           provider_token_expires_at = ${signatureResult.tokenExpiresAt || sender.provider_token_expires_at},
           updated_at = now()
-        WHERE id = ${id}
+        WHERE id = ${id} AND owner_user_id = ${me._id}
       `;
       return NextResponse.json(
         { error: signatureResult.failureReason || "Could not sync Gmail signature" },
@@ -109,7 +112,7 @@ export async function POST(
         provider_refresh_token = ${signatureResult.refreshToken || stringValue(sender.provider_refresh_token)},
         provider_token_expires_at = ${signatureResult.tokenExpiresAt || sender.provider_token_expires_at},
         updated_at = now()
-      WHERE id = ${id}
+      WHERE id = ${id} AND owner_user_id = ${me._id}
       RETURNING *
     `;
 

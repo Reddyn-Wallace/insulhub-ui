@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { jobSmsIdentity } from "@/lib/job-sms-access";
 import { requireInsulhubAuth } from "@/lib/insulhub-auth";
 import {
   campaignRecipientScheduleAt,
@@ -125,11 +126,11 @@ async function loadCampaign(id: string) {
   return rows[0] || null;
 }
 
-async function loadSender(id: string) {
+async function loadSender(id: string, ownerUserId: string) {
   const rows = await overlaySql`
     SELECT *
     FROM communication_senders
-    WHERE id = ${id}
+    WHERE id = ${id} AND owner_user_id = ${ownerUserId}
       AND is_active = true
     LIMIT 1
   `;
@@ -237,6 +238,7 @@ export async function PATCH(
   try {
     const unauthorized = await requireInsulhubAuth(request);
     if (unauthorized) return unauthorized;
+    const { me } = await jobSmsIdentity(request);
 
     await ensureOverlaySchema();
     const { id } = await params;
@@ -323,8 +325,8 @@ export async function PATCH(
       if (channel === "email" && !subject.trim()) return NextResponse.json({ error: "Email subject is required before sending" }, { status: 400 });
       if (!body.trim()) return NextResponse.json({ error: "Message body is required before sending" }, { status: 400 });
 
-      const sender = await loadSender(senderId) as SenderRow | null;
-      if (!sender) return NextResponse.json({ error: "Active sender record could not be found" }, { status: 400 });
+      const sender = await loadSender(senderId, me._id) as SenderRow | null;
+      if (!sender) return NextResponse.json({ error: "Choose an active sending connection belonging to your account" }, { status: 400 });
       if (sender.channel !== channel) return NextResponse.json({ error: "Sender channel does not match campaign channel" }, { status: 400 });
       if (sender.provider !== "stub" && stringValue(sender.connection_status) !== "connected") {
         return NextResponse.json({ error: "Test and connect the selected sender before sending this campaign" }, { status: 400 });
@@ -388,12 +390,12 @@ export async function PATCH(
 
       const campaignRows = await overlaySql`
         UPDATE campaigns
-        SET status = 'pending', sent_at = NULL, updated_at = now()
+        SET status = 'pending', send_authorized_user_id = ${me._id}, sent_by = ${[me.firstname, me.lastname].filter(Boolean).join(' ') || me._id}, sent_at = NULL, updated_at = now()
         WHERE id = ${id}
         RETURNING *
       `;
 
-      const processResult = await processCampaignQueue(id);
+      const processResult = await processCampaignQueue(id, me._id);
       const updatedRecipients = await loadQueuedRecipients(id);
       const queue = await loadCampaignQueueState();
       const scheduler = queue.pendingCount > 0
@@ -422,10 +424,14 @@ export async function PATCH(
 
     if (input.senderId !== undefined || input.senderLabel !== undefined) {
       const senderId = input.senderId?.trim() || null;
-      const senderLabel = input.senderLabel?.trim() || "";
+      const selectedSender = senderId ? await loadSender(senderId, me._id) : null;
+      if (senderId && (!selectedSender || selectedSender.channel !== campaign.channel)) {
+        return NextResponse.json({ error: "Choose a sending connection belonging to your account for this channel" }, { status: 403 });
+      }
+      const senderLabel = selectedSender ? stringValue(selectedSender.label) : "";
       const campaignRows = await overlaySql`
         UPDATE campaigns
-        SET sender_id = ${senderId}, sender_label = ${senderLabel}, updated_at = now()
+        SET sender_id = ${senderId}, sender_label = ${senderLabel}, test_sent_at = NULL, send_authorized_user_id = NULL, updated_at = now()
         WHERE id = ${id}
         RETURNING *
       `;
@@ -462,8 +468,8 @@ export async function PATCH(
         if (channel === "email" && !subject.trim()) return NextResponse.json({ error: "Email subject is required before sending a test" }, { status: 400 });
         if (!body.trim()) return NextResponse.json({ error: "Message body is required before sending a test" }, { status: 400 });
 
-        const sender = await loadSender(senderId) as SenderRow | null;
-        if (!sender) return NextResponse.json({ error: "Active sender record could not be found" }, { status: 400 });
+        const sender = await loadSender(senderId, me._id) as SenderRow | null;
+        if (!sender) return NextResponse.json({ error: "Choose an active sending connection belonging to your account" }, { status: 400 });
         if (sender.channel !== channel) return NextResponse.json({ error: "Sender channel does not match campaign channel" }, { status: 400 });
         let testSubject = subject;
         let testBody = body;
@@ -484,6 +490,8 @@ export async function PATCH(
         const result = await deliverCommunication({
           channel: channel === "sms" ? "sms" : "email",
           provider: sender.provider,
+          strictGmailConnection: sender.provider === "gmail",
+          strictSmsgateConnection: sender.provider === "smsgate",
           from: stringValue(sender.sender_value),
           fromName: stringValue(sender.label),
           to: testDestination,
@@ -503,7 +511,7 @@ export async function PATCH(
               provider_token_expires_at = ${result.tokenExpiresAt || sender.provider_token_expires_at || null},
               connection_status = 'connected',
               updated_at = now()
-            WHERE id = ${sender.id}
+            WHERE id = ${sender.id} AND owner_user_id = ${me._id}
           `;
         }
         if (!result.ok) return NextResponse.json({ error: result.failureReason || "Test send failed" }, { status: 400 });

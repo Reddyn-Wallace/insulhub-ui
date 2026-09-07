@@ -292,7 +292,7 @@ export default function CampaignBuilderPage() {
 
   const audienceReady = recipients.length > 0 && duplicateRecipientCount === 0;
   const senderHasUnsavedChange = Boolean(selectedSenderId) && selectedSenderId !== (campaign?.senderId || "");
-  const senderReady = Boolean(campaign?.senderId && campaign?.senderLabel && !senderHasUnsavedChange);
+  const senderReady = Boolean(selectedSender && campaign?.senderId && campaign?.senderLabel && !senderHasUnsavedChange);
   const messageReady = Boolean(campaign?.messageBody?.trim()) && (campaign?.channel === "sms" || Boolean(campaign?.messageSubject?.trim()));
   const canConfirm = audienceReady && senderReady && messageReady;
   const isQueued = campaign?.status === "pending" || campaign?.status === "sending";
@@ -372,6 +372,8 @@ export default function CampaignBuilderPage() {
     }
   }
 
+  const ownsCampaignSender = Boolean(campaign?.senderId && senders.some(sender => sender.id === campaign.senderId));
+
   const processQueue = useCallback(async (showResult = false) => {
     if (!campaign || (campaign.status !== "pending" && campaign.status !== "sending")) return;
     const token = getToken();
@@ -381,8 +383,8 @@ export default function CampaignBuilderPage() {
     }
 
     try {
-      const res = await fetch(`/api/campaigns/${campaign.id}/process`, {
-        method: "POST",
+      const res = await fetch(`/api/campaigns/${campaign.id}${ownsCampaignSender ? "/process" : ""}`, {
+        method: ownsCampaignSender ? "POST" : "GET",
         headers: { "x-access-token": token },
       });
       const json = await res.json();
@@ -397,7 +399,7 @@ export default function CampaignBuilderPage() {
         setMessage({ type: "error", text: err instanceof Error ? err.message : "Failed to process campaign queue" });
       }
     }
-  }, [campaign, router]);
+  }, [campaign, ownsCampaignSender, router]);
 
   async function haltCampaign() {
     if (!campaign || !isQueued) return;
@@ -519,7 +521,7 @@ export default function CampaignBuilderPage() {
                         onClick={() => processQueue(true)}
                         className="rounded-lg bg-[#1a3a4a] px-3 py-2 text-sm font-semibold text-white"
                       >
-                        Process Due
+                        {ownsCampaignSender ? "Process Due" : "Refresh"}
                       </button>
                       <button
                         type="button"

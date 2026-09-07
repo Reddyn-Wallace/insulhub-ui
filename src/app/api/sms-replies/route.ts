@@ -9,6 +9,7 @@ import {
   refreshSmsgateInbox,
   registerSmsgateWebhook,
 } from "@/lib/communication-delivery";
+import { jobSmsIdentity } from "@/lib/job-sms-access";
 import { requireInsulhubAuth } from "@/lib/insulhub-auth";
 import { ensureOverlaySchema, overlaySql } from "@/lib/overlay-db";
 import { matchSmsReply, normalizeNzPhone } from "@/lib/sms-reply-matching";
@@ -78,18 +79,18 @@ async function saveSession(session: PollSession) {
   `;
 }
 
-async function loadSender(senderId = "") {
+async function loadSender(senderId: string, ownerUserId: string) {
   const rows = senderId
     ? await overlaySql`
         SELECT id, label, provider_config
         FROM communication_senders
-        WHERE id = ${senderId} AND channel = 'sms' AND provider = 'smsgate' AND is_active = true
+        WHERE id = ${senderId} AND owner_user_id = ${ownerUserId} AND channel = 'sms' AND provider = 'smsgate' AND is_active = true
         LIMIT 1
       `
     : await overlaySql`
         SELECT id, label, provider_config
         FROM communication_senders
-        WHERE channel = 'sms' AND provider = 'smsgate' AND is_active = true AND connection_status = 'connected'
+        WHERE owner_user_id = ${ownerUserId} AND channel = 'sms' AND provider = 'smsgate' AND is_active = true AND connection_status = 'connected'
         ORDER BY is_default DESC, updated_at DESC
         LIMIT 1
       `;
@@ -154,12 +155,12 @@ async function removeStaleInsulhubPollWebhooks(config: Record<string, string>, o
   return { ok: true };
 }
 
-async function closePoll(pollId: string) {
+async function closePoll(pollId: string, ownerUserId: string) {
   const session = await loadSession(pollId);
-  if (!session) return { ok: false, status: 404, error: "SMS reply poll was not found" };
+  if (!session || !await loadSender(session.senderId, ownerUserId)) return { ok: false, status: 404, error: "SMS reply poll was not found" };
   session.state = "closed";
   await saveSession(session);
-  const sender = await loadSender(session.senderId);
+  const sender = await loadSender(session.senderId, ownerUserId);
   let removalError = "";
   if (sender && session.webhookId) {
     const removed = await deleteSmsgateWebhook(providerConfig(sender), session.webhookId);
@@ -175,16 +176,16 @@ async function closePoll(pollId: string) {
   return { ok: true, status: 200, session };
 }
 
-async function refreshPoll(pollId: string) {
+async function refreshPoll(pollId: string, ownerUserId: string) {
   const session = await loadSession(pollId);
-  if (!session) return { ok: false, status: 404, error: "SMS reply poll was not found" };
+  if (!session || !await loadSender(session.senderId, ownerUserId)) return { ok: false, status: 404, error: "SMS reply poll was not found" };
   if (session.state !== "starting") {
     return { ok: false, status: 409, error: `SMS reply poll cannot refresh from state ${session.state}` };
   }
   if (safeDate(session.expiresAt) <= Date.now()) {
     return { ok: false, status: 410, error: "SMS reply poll expired before refresh" };
   }
-  const sender = await loadSender(session.senderId);
+  const sender = await loadSender(session.senderId, ownerUserId);
   if (!sender) return { ok: false, status: 404, error: "SMSGate sender is no longer available" };
   const config = providerConfig(sender);
   session.state = "waiting";
@@ -214,22 +215,23 @@ function safeDate(value: unknown) {
 export async function POST(request: NextRequest) {
   const unauthorized = await requireInsulhubAuth(request);
   if (unauthorized) return unauthorized;
+  const { me } = await jobSmsIdentity(request);
   await ensureOverlaySchema();
 
   const input = await request.json().catch(() => ({})) as Record<string, unknown>;
   if (input.action === "close") {
-    const result = await closePoll(stringValue(input.pollId));
+    const result = await closePoll(stringValue(input.pollId), me._id);
     return NextResponse.json(result.ok ? { ok: true } : { error: result.error }, { status: result.status });
   }
   if (input.action === "refresh") {
-    const result = await refreshPoll(stringValue(input.pollId));
+    const result = await refreshPoll(stringValue(input.pollId), me._id);
     return NextResponse.json(
       result.ok ? { pollId: result.session?.pollId, state: result.session?.state } : { error: result.error },
       { status: result.status }
     );
   }
 
-  const sender = await loadSender(stringValue(input.senderId));
+  const sender = await loadSender(stringValue(input.senderId), me._id);
   if (!sender) return NextResponse.json({ error: "No connected SMSGate sender is configured" }, { status: 404 });
   const config = providerConfig(sender);
   if (input.action === "diagnose") {
@@ -330,11 +332,12 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   const unauthorized = await requireInsulhubAuth(request);
   if (unauthorized) return unauthorized;
+  const { me } = await jobSmsIdentity(request);
   await ensureOverlaySchema();
 
   const pollId = request.nextUrl.searchParams.get("pollId")?.trim() || "";
   const session = await loadSession(pollId);
-  if (!session) return NextResponse.json({ error: "SMS reply poll was not found" }, { status: 404 });
+  if (!session || !await loadSender(session.senderId, me._id)) return NextResponse.json({ error: "SMS reply poll was not found" }, { status: 404 });
   const rows = await overlaySql`
     SELECT value FROM overlay_settings
     WHERE key LIKE ${`${messageKeyPrefix(pollId)}%`}

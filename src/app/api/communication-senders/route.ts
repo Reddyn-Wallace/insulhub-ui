@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireInsulhubAuth } from "@/lib/insulhub-auth";
+import { jobSmsIdentity } from "@/lib/job-sms-access";
 import { testCommunicationConnection } from "@/lib/communication-delivery";
 import { ensureOverlaySchema, overlaySql } from "@/lib/overlay-db";
 
@@ -57,6 +58,7 @@ export async function GET(request: NextRequest) {
   try {
     const unauthorized = await requireInsulhubAuth(request);
     if (unauthorized) return unauthorized;
+    const { me } = await jobSmsIdentity(request);
 
     await ensureOverlaySchema();
 
@@ -70,12 +72,13 @@ export async function GET(request: NextRequest) {
       ? await overlaySql`
           SELECT *
           FROM communication_senders
-          WHERE channel = ${channel}
+          WHERE channel = ${channel} AND owner_user_id = ${me._id}
           ORDER BY is_default DESC, is_active DESC, label ASC
         `
       : await overlaySql`
           SELECT *
           FROM communication_senders
+          WHERE owner_user_id = ${me._id}
           ORDER BY channel ASC, is_default DESC, is_active DESC, label ASC
         `;
 
@@ -92,6 +95,7 @@ export async function POST(request: NextRequest) {
   try {
     const unauthorized = await requireInsulhubAuth(request);
     if (unauthorized) return unauthorized;
+    const { me } = await jobSmsIdentity(request);
 
     await ensureOverlaySchema();
 
@@ -123,6 +127,8 @@ export async function POST(request: NextRequest) {
 
     if (provider === "smsgate") {
       const testResult = await testCommunicationConnection({
+        strictGmailConnection: true,
+        strictSmsgateConnection: true,
         provider,
         providerConfig,
       });
@@ -138,8 +144,9 @@ export async function POST(request: NextRequest) {
     }
 
     const rows = await overlaySql`
-      INSERT INTO communication_senders (channel, label, sender_value, provider, provider_config, connection_status, connected_at, last_tested_at, is_default, is_active)
+      INSERT INTO communication_senders (owner_user_id, channel, label, sender_value, provider, provider_config, connection_status, connected_at, last_tested_at, is_default, is_active)
       VALUES (
+        ${me._id},
         ${channel},
         ${label},
         ${senderValue},
