@@ -1734,7 +1734,11 @@ export default function JobDetailPage() {
   }
 
   async function openEBAClientApprovalPage() {
-    window.location.href = `/jobs/${id}/eba`;
+    if (job?.ebaForm?.clientApproved) {
+      setNotice({ type: "error", text: "EBA is already signed and can no longer be edited." });
+      return;
+    }
+    router.push(`/jobs/${id}/eba`);
   }
 
   function openSignedEBAPdf() {
@@ -1763,34 +1767,6 @@ export default function JobDetailPage() {
       return;
     }
     router.push(`/jobs/${id}/installers-checksheet`);
-  }
-
-  async function saveQuoteAndOpenEBA() {
-    if (job?.ebaForm?.clientApproved) {
-      setNotice({ type: "error", text: "EBA is already signed and can no longer be edited." });
-      return;
-    }
-
-    if (job?.ebaForm?.complete || job?.ebaForm?.signature_assessor?.fileName) {
-      await openEBAClientApprovalPage();
-      return;
-    }
-
-    if (!quoteForm.quoteNumber || !quoteForm.date || (!quoteForm.hasWall && !quoteForm.hasCeiling)) {
-      setNotice({ type: "error", text: "Add quote data first (quote number, date, and wall/ceiling values)." });
-      return;
-    }
-
-    setSaving(true);
-    try {
-      await gql(UPDATE_JOB_QUOTE, { input: buildQuoteUpdateInput(false) });
-      await load();
-      await openEBAClientApprovalPage();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save quote and open EBA");
-    } finally {
-      setSaving(false);
-    }
   }
 
   async function archiveJob() {
@@ -3119,7 +3095,7 @@ export default function JobDetailPage() {
         ) : null}
 
 
-        {isQuoteInfoStage && (
+        {(isQuoteInfoStage || job.stage === "LEAD") && (
           <Section title="EBA">
             <div className="mb-2 text-sm">
               <span className={`px-2 py-1 rounded-full text-xs font-semibold ${job.ebaForm?.clientApproved ? "bg-emerald-100 text-emerald-700" : job.ebaForm?.complete ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"}`}>
@@ -3128,7 +3104,7 @@ export default function JobDetailPage() {
             </div>
             <div className="flex gap-2 flex-wrap">
               <button
-                onClick={saveQuoteAndOpenEBA}
+                onClick={openEBAClientApprovalPage}
                 disabled={saving || !!job.ebaForm?.clientApproved}
                 className="flex-1 bg-white border border-gray-300 text-gray-700 text-sm font-semibold py-2.5 rounded-xl disabled:opacity-50"
               >
