@@ -70,6 +70,7 @@ async function ensureOverlaySchemaInternal() {
       planning_note text NOT NULL DEFAULT '',
       council_approval_na boolean NOT NULL DEFAULT false,
       access_notes text NOT NULL DEFAULT '',
+      parking_notes text NOT NULL DEFAULT '',
       extension_hoses_required boolean NOT NULL DEFAULT false,
       extension_hoses_distance text NOT NULL DEFAULT '',
       extension_ladders_required boolean NOT NULL DEFAULT false,
@@ -90,6 +91,10 @@ async function ensureOverlaySchemaInternal() {
       ON job_install_planning (insulhub_job_id)
   `;
 
+  await overlaySql`
+    ALTER TABLE job_install_planning
+    ADD COLUMN IF NOT EXISTS parking_notes text NOT NULL DEFAULT ''
+  `;
   await overlaySql`
     ALTER TABLE job_install_planning
     ADD COLUMN IF NOT EXISTS access_notes text NOT NULL DEFAULT ''

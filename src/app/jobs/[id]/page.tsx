@@ -86,6 +86,7 @@ interface InstallPlanningMeta {
   councilApprovalNA: boolean;
   installScope: "internal" | "external" | "both" | "";
   accessNotes?: string;
+  parkingNotes?: string;
   extensionHosesRequired?: boolean;
   extensionHosesDistance?: string;
   extensionLaddersRequired?: boolean;
@@ -2195,6 +2196,7 @@ export default function JobDetailPage() {
   const visibleJobNotes = stripInstallMeta(job.notes);
   const installPlanningSummaryLines = buildInstallPlanningSummaryLines({
     accessNotes: installMeta.accessNotes,
+    parkingNotes: installMeta.parkingNotes,
     extensionHosesRequired: installMeta.extensionHosesRequired,
     extensionHosesDistance: installMeta.extensionHosesDistance,
     extensionLaddersRequired: installMeta.extensionLaddersRequired,

@@ -1373,7 +1373,18 @@ export default function EbaPreviewPage() {
                   value={installPlanningDetails.accessNotes}
                   onChange={(e) => setInstallPlanningField("accessNotes", e.target.value)}
                   rows={3}
-                  placeholder="Optional notes about parking, gates, dogs, steep access, long carries, etc."
+                  placeholder="Optional notes about gates, dogs, steep access, long carries, etc."
+                  className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-[#00485a]"
+                />
+              </label>
+
+              <label className="block">
+                <span className="text-xs font-medium text-slate-500">Where will we need to park?</span>
+                <textarea
+                  value={installPlanningDetails.parkingNotes}
+                  onChange={(e) => setInstallPlanningField("parkingNotes", e.target.value)}
+                  rows={3}
+                  placeholder="e.g. On the driveway beside the garage. Note space for the van, parking restrictions, or any arrangements needed."
                   className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-[#00485a]"
                 />
               </label>

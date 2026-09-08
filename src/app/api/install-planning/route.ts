@@ -10,6 +10,7 @@ type InstallPlanningInput = {
   planningNote?: string;
   councilApprovalNA?: boolean;
   accessNotes?: string;
+  parkingNotes?: string;
   extensionHosesRequired?: boolean;
   extensionHosesDistance?: string;
   extensionLaddersRequired?: boolean;
@@ -28,6 +29,7 @@ function toInstallPlanning(row: Record<string, unknown>) {
     councilApprovalNA: row.council_approval_na,
     ...normalizeInstallPlanningDetails({
       accessNotes: String(row.access_notes || ""),
+      parkingNotes: String(row.parking_notes || ""),
       extensionHosesRequired: row.extension_hoses_required === true,
       extensionHosesDistance: String(row.extension_hoses_distance || ""),
       extensionLaddersRequired: row.extension_ladders_required === true,
@@ -113,6 +115,7 @@ export async function PUT(request: NextRequest) {
 
     const details = normalizeInstallPlanningDetails({
       accessNotes: input.accessNotes ?? existing.accessNotes,
+      parkingNotes: input.parkingNotes ?? existing.parkingNotes,
       extensionHosesRequired: input.extensionHosesRequired ?? existing.extensionHosesRequired,
       extensionHosesDistance: input.extensionHosesDistance ?? existing.extensionHosesDistance,
       extensionLaddersRequired: input.extensionLaddersRequired ?? existing.extensionLaddersRequired,
@@ -129,6 +132,7 @@ export async function PUT(request: NextRequest) {
         planning_note,
         council_approval_na,
         access_notes,
+        parking_notes,
         extension_hoses_required,
         extension_hoses_distance,
         extension_ladders_required,
@@ -143,6 +147,7 @@ export async function PUT(request: NextRequest) {
         ${input.planningNote?.trim() ?? existing.note},
         ${input.councilApprovalNA ?? existing.councilApprovalNA},
         ${details.accessNotes},
+        ${details.parkingNotes},
         ${details.extensionHosesRequired},
         ${details.extensionHosesDistance},
         ${details.extensionLaddersRequired},
@@ -157,6 +162,7 @@ export async function PUT(request: NextRequest) {
         planning_note = EXCLUDED.planning_note,
         council_approval_na = EXCLUDED.council_approval_na,
         access_notes = EXCLUDED.access_notes,
+        parking_notes = EXCLUDED.parking_notes,
         extension_hoses_required = EXCLUDED.extension_hoses_required,
         extension_hoses_distance = EXCLUDED.extension_hoses_distance,
         extension_ladders_required = EXCLUDED.extension_ladders_required,

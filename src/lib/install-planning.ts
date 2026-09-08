@@ -1,5 +1,6 @@
 export type InstallPlanningDetails = {
   accessNotes: string;
+  parkingNotes: string;
   extensionHosesRequired: boolean;
   extensionHosesDistance: string;
   extensionLaddersRequired: boolean;
@@ -19,6 +20,7 @@ export type InstallPlanningPayload = InstallPlanningDetails & {
 export function getDefaultInstallPlanningDetails(): InstallPlanningDetails {
   return {
     accessNotes: "",
+    parkingNotes: "",
     extensionHosesRequired: false,
     extensionHosesDistance: "",
     extensionLaddersRequired: false,
@@ -31,6 +33,7 @@ export function getDefaultInstallPlanningDetails(): InstallPlanningDetails {
 export function normalizeInstallPlanningDetails(input?: Partial<InstallPlanningDetails> | null): InstallPlanningDetails {
   return {
     accessNotes: input?.accessNotes?.trim() || "",
+    parkingNotes: input?.parkingNotes?.trim() || "",
     extensionHosesRequired: input?.extensionHosesRequired === true,
     extensionHosesDistance: input?.extensionHosesDistance?.trim() || "",
     extensionLaddersRequired: input?.extensionLaddersRequired === true,
@@ -50,6 +53,10 @@ export function buildInstallPlanningSummaryLines(input?: Partial<InstallPlanning
 
   if (details.accessNotes) {
     lines.push(`Access to the property: ${details.accessNotes}`);
+  }
+
+  if (details.parkingNotes) {
+    lines.push(`Parking: ${details.parkingNotes}`);
   }
 
   if (details.extensionHosesRequired) {
