@@ -29,3 +29,25 @@ it("keeps sources open through URL updates so several can be selected and desele
   fireEvent.click(screen.getByRole("button", { name: "Done" }));
   expect(screen.queryByRole("button", { name: /^Social Media/ })).toBeNull();
 });
+
+it("restores a search after leaving the jobs list and returning", async () => {
+  const view = render(<JobsPage />);
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Wallace" } });
+  await waitFor(() => expect(navigation.params.get("search")).toBe("Wallace"));
+  view.unmount();
+  render(<JobsPage />);
+  expect((screen.getByRole("searchbox") as HTMLInputElement).value).toBe("Wallace");
+  expect(await screen.findByText('No results for "Wallace"')).toBeTruthy();
+});
+
+it("clears the saved search and cancels pending input", async () => {
+  navigation.params = new URLSearchParams("stage=LEAD&search=Wallace");
+  const view = render(<JobsPage />);
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Smith" } });
+  fireEvent.click(screen.getByRole("button", { name: "×" }));
+  await new Promise(resolve => setTimeout(resolve, 500));
+  expect(navigation.params.has("search")).toBe(false);
+  view.unmount();
+  render(<JobsPage />);
+  expect((screen.getByRole("searchbox") as HTMLInputElement).value).toBe("");
+});

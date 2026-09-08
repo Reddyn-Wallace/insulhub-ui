@@ -17,7 +17,7 @@ it("combines lead source with status and applies the matching audience, using th
   const source = await screen.findByRole("combobox", { name: "Lead source" });
   fireEvent.change(source, { target: { value: "referral" } });
   expect(screen.getByText("2 jobs match the current filters.")).toBeTruthy();
-  fireEvent.change(screen.getByRole("combobox", { name: "Status", exact: true }), { target: { value: "LEAD" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "Status" }), { target: { value: "LEAD" } });
   fireEvent.click(screen.getByRole("button", { name: "Apply Filters" }));
   expect(screen.getByText("Matching customer")).toBeTruthy();
   expect(screen.queryByText("Quote customer")).toBeNull();

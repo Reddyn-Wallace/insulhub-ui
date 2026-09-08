@@ -81,6 +81,7 @@ interface EmailLogData {
 function JobsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const initSearch = searchParams.get("search") || "";
   const initStage = searchParams.get("stage") || "LEAD";
   const initSubTab = searchParams.get("subTab") || (initStage === "QUOTE" ? "OPEN" : initStage === "LEAD" ? "NEW" : "ALL");
   const initSalespersonFilters = useMemo(() => searchParams.getAll("salesperson").filter(Boolean), [searchParams]);
@@ -89,9 +90,9 @@ function JobsPageContent() {
   const [activeStage, setActiveStage] = useState<string>(initStage);
   const [subTab, setSubTab] = useState(initSubTab);
   const [page, setPage] = useState(0);
-  const [search, setSearch] = useState("");
-  const [searchInput, setSearchInput] = useState("");
-  const [searchMode, setSearchMode] = useState(false);
+  const [search, setSearch] = useState(initSearch);
+  const [searchInput, setSearchInput] = useState(initSearch);
+  const [searchMode, setSearchMode] = useState(initSearch.trim().length > 0);
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("oldest");
   const [jobs, setJobs] = useState<Job[]>([]);
   const [total, setTotal] = useState(0);
@@ -202,6 +203,7 @@ function JobsPageContent() {
   }, [activeStage, sortOrder, sortPreferenceKey]);
 
   function buildJobsUrl(next: {
+    search?: string;
     stage?: string;
     subTab?: string;
     salespersonFilters?: string[];
@@ -212,6 +214,10 @@ function JobsPageContent() {
     const effectiveSubTab = next.subTab ?? subTab;
     const salesperson = next.salespersonFilters ?? salespersonFilters;
     const leadSources = next.leadSourceFilters ?? leadSourceFilters;
+
+    const query = next.search ?? search;
+    if (query.trim()) params.set("search", query);
+    else params.delete("search");
 
     params.set("stage", stage);
     if (stage === "QUOTE") params.set("subTab", effectiveSubTab || "OPEN");
@@ -230,6 +236,18 @@ function JobsPageContent() {
 
     return `/jobs?${params.toString()}`;
   }
+
+  useEffect(() => {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    setSearchInput(initSearch);
+    setSearch(initSearch);
+    setSearchMode(initSearch.trim().length > 0);
+    setPage(0);
+  }, [initSearch]);
+
+  useEffect(() => () => {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+  }, []);
 
   // Sync state with URL changes (back/forward or tab click)
   // Preserve the open source picker while its selections update the URL.
@@ -498,10 +516,13 @@ function JobsPageContent() {
       setSearch(val);
       setSearchMode(isSearchMode);
       setPage(0);
+      router.replace(buildJobsUrl({ search: val }), { scroll: false });
     }, 400);
   }
 
   function clearSearch() {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    router.replace(buildJobsUrl({ search: "" }), { scroll: false });
     setSearchInput("");
     setSearch("");
     setSearchMode(false);
