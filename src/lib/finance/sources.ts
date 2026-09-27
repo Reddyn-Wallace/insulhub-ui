@@ -55,12 +55,21 @@ export async function getCrmSnapshot(token: string) {
         totalType: typeof list?.total,
         resultsArray: Array.isArray(list?.results),
         errors: Array.isArray(d.errors)
-          ? d.errors.map(
-              (e: { path?: unknown; extensions?: { code?: unknown } }) => ({
-                path: e.path,
-                code: e.extensions?.code,
-              }),
-            )
+          ? d.errors
+              .slice(0, 5)
+              .map(
+                (e: {
+                  path?: unknown[];
+                  message?: string;
+                  extensions?: { code?: unknown };
+                }) => ({
+                  path: e.path?.join("."),
+                  message: e.message
+                    ?.replace(/[A-Za-z0-9_\-]{30,}/g, "[redacted]")
+                    .slice(0, 200),
+                  code: e.extensions?.code,
+                }),
+              )
           : [],
       });
       throw new FinanceError(502, "CRM job data was incomplete.");
