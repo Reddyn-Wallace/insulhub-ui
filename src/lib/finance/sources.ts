@@ -50,8 +50,21 @@ export async function getCrmSnapshot(token: string) {
       !Number.isInteger(list?.total) ||
       list.total < 0 ||
       !Array.isArray(list.results)
-    )
+    ) {
+      console.warn("Finance CRM response rejected", {
+        totalType: typeof list?.total,
+        resultsArray: Array.isArray(list?.results),
+        errors: Array.isArray(d.errors)
+          ? d.errors.map(
+              (e: { path?: unknown; extensions?: { code?: unknown } }) => ({
+                path: e.path,
+                code: e.extensions?.code,
+              }),
+            )
+          : [],
+      });
       throw new FinanceError(502, "CRM job data was incomplete.");
+    }
     if (expected !== undefined && expected !== list.total)
       throw new FinanceError(
         502,
