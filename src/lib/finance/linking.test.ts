@@ -50,3 +50,10 @@ it("retains archived jobs and uses direct invoice-number links", () => {
     ).get("i1")?.jobId,
   ).toBe("j1");
 });
+it("recognises the observed Xero quote and deposit labels without fuzzy matching", () => {
+  for (const ref of ["Quote #AP28968", "AP28968 (deposit)", " quote #ap28968 "])
+    expect(linkInvoices([invoice(ref)], [job("j1")], []).get("i1")?.jobId).toBe("j1");
+  for (const ref of ["AP28968 and BW123", "Quote #AP289680", "AP28968 (deposit) extra", "Quote #AP28968 / BW123"])
+    expect(linkInvoices([invoice(ref)], [job("j1")], []).get("i1")?.jobId).toBeNull();
+  expect(linkInvoices([invoice("Quote #AP28968")], [job("j1"), job("j2")], []).get("i1")?.jobId).toBeNull();
+});

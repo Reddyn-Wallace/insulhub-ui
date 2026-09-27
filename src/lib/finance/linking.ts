@@ -1,5 +1,11 @@
 import type { FinanceJob, InvoiceLink, ReviewDecision } from "./model";
 const norm = (s: string) => s.trim().toUpperCase();
+// Only the complete label formats verified in the owner's Xero records.
+export function quoteReference(reference: string) {
+  const value = norm(reference);
+  return /^(?:QUOTE #)([A-Z]+\d+)$/.exec(value)?.[1] ||
+    /^([A-Z]+\d+) \(DEPOSIT\)$/.exec(value)?.[1] || value;
+}
 export function linkInvoices(
   invoices: Array<{ id: string; number: string; reference: string }>,
   jobs: FinanceJob[],
@@ -24,7 +30,7 @@ export function linkInvoices(
     const refs = jobs.filter(
       (j) =>
         norm(i.reference) === norm(j.id) ||
-        (!!j.quote && norm(i.reference) === norm(j.quote)),
+        (!!j.quote && quoteReference(i.reference) === norm(j.quote)),
     );
     const candidates = [...new Set([...direct, ...refs].map((j) => j.id))];
     result.set(i.id, {
