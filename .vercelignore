@@ -9,3 +9,5 @@ docs/design-reference/*.png
 .superpowers
 public/sw.js
 public/workbox-*.js
+
+.env*
