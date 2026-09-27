@@ -293,7 +293,8 @@ export default function Connections() {
                   </p>
                   <ul className="mt-6 space-y-2 text-sm text-slate-700">
                     <li>
-                      {crm.data.missingInvoiceLinks} without invoice links
+                      {crm.data.missingInvoiceLinks} with missing or unreadable
+                      invoice links
                     </li>
                     <li>
                       {crm.data.missingInstallationStatus} without installation
