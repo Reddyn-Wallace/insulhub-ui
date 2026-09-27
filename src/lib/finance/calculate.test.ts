@@ -73,6 +73,17 @@ const paid = (d: FinanceInputs, amount = 100000) => {
 const installed = (d: FinanceInputs) => {
   d.jobs[0].status = "INSTALLED_AS_QUOTED";
 };
+it("matches plain bank quote references against labelled Xero references", () => {
+  const d = base(); d.invoices[0].reference = "AP1 (deposit)"; receipt(d); paid(d);
+  d.receipts[0].description = "Customer AP1";
+  expect(calculateFinance(d, []).reserved).toBe(100000);
+  d.invoices.push({...d.invoices[0], id: "other", number: "INV-0002", reference: "Quote #AP1"});
+  expect(calculateFinance(d, []).reserved).toBe(0);
+  d.receipts[0].description = "Customer INV 0001 AP1";
+  expect(calculateFinance(d, []).reserved).toBe(100000);
+  d.receipts[0].description = "Customer 0001";
+  expect(calculateFinance(d, []).reserved).toBe(0);
+});
 it("reserves received deposits, partial deposits and early final payments; unpaid future billing is excluded", () => {
   const d = base();
   expect(calculateFinance(d, []).reserved).toBe(0);

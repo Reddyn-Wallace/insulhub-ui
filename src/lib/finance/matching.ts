@@ -4,6 +4,7 @@ import type {
   FinanceReceipt,
   ReviewDecision,
 } from "./model";
+import { quoteReference } from "./linking";
 export type ReceiptMatch = {
   receipt: FinanceReceipt;
   allocations: Allocation[];
@@ -34,14 +35,15 @@ export function matchReceipts(
   );
   const candidates = new Map<string, typeof invoices>();
   for (const r of input.receipts) {
-    const text = r.description + " " + r.reference;
+    // Banks commonly render INV-0425 as INV 0425. Keep the prefix and full digits.
+    const text = (r.description + " " + r.reference).replace(/\bINV\s+(\d+)\b/gi, "INV-$1");
     const numberMatches = invoices.filter((i) => hasReference(text, i.number));
-    const refs = invoices.filter((i) => hasReference(text, i.reference));
+    const refs = invoices.filter((i) => hasReference(text, quoteReference(i.reference)));
     const ids = new Set([...numberMatches, ...refs].map((i) => i.id));
     // An exact invoice number narrows a shared quote, but a different job/reference conflicts.
     const pool = numberMatches.length
       ? numberMatches.filter((i) =>
-          refs.every((x) => x.reference === i.reference || x.id === i.id),
+          refs.every((x) => quoteReference(x.reference) === quoteReference(i.reference) || x.id === i.id),
         )
       : invoices.filter((i) => ids.has(i.id));
     candidates.set(
