@@ -84,6 +84,12 @@ it("matches plain bank quote references against labelled Xero references", () =>
   d.receipts[0].description = "Customer 0001";
   expect(calculateFinance(d, []).reserved).toBe(0);
 });
+it("keeps shared quote ambiguity even when only one invoice can hold the whole receipt", () => {
+  const d = base(); d.invoices[0].reference = "AP1 (deposit)";
+  d.invoices.push({...d.invoices[0], id: "other", number: "INV-0002", reference: "Quote #AP1", total: 300000, due: 300000});
+  receipt(d, 200000); d.receipts[0].description = "Customer AP1";
+  expect(calculateFinance(d, []).reserved).toBe(0);
+});
 it("reserves received deposits, partial deposits and early final payments; unpaid future billing is excluded", () => {
   const d = base();
   expect(calculateFinance(d, []).reserved).toBe(0);

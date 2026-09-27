@@ -48,7 +48,7 @@ export function matchReceipts(
       : invoices.filter((i) => ids.has(i.id));
     candidates.set(
       r.id,
-      pool.filter(
+      pool.length > 1 ? pool : pool.filter(
         (i) =>
           !/WINDCAVE|PAYMENT EXPRESS|\bDPS\b|STRIPE|PAYPAL|EFTPOS|SETTLEMENT|PAYOUT/i.test(
             text,
