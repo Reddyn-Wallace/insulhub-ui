@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import type { FinanceSourceStatus, SourceState } from "@/lib/finance/sources";
 type Organisation = { id: string; name: string; eligible: boolean };
 const money = (cents: number) =>
@@ -126,6 +127,12 @@ export default function Connections() {
     xero = status?.xero;
   return (
     <main className="mx-auto max-w-6xl px-4 py-8 sm:px-8">
+      <Link
+        className="mb-5 inline-block text-sm font-semibold text-teal-700"
+        href="/jobs/finance"
+      >
+        ← Cash overview
+      </Link>
       <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">
