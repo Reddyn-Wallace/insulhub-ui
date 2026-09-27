@@ -11,6 +11,7 @@ import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { LEAD_SOURCE_OPTIONS, canonicalLeadSourceLabel, normalizeLeadSourceValue } from "@/lib/lead-sources";
 
 const PAGE_SIZE = 40;
+const UNASSIGNED_SALESPERSON = "UNASSIGNED";
 const STAGE_CACHE_TTL_MS = 30 * 60 * 1000;
 const SORT_PREFERENCE_KEY = "jobs-sort-order";
 const CACHE_KEY_VERSION = "v3";
@@ -590,7 +591,10 @@ function JobsPageContent() {
   ), [jobs, quoteSentByEmail]);
 
   const salespersonOptions = useMemo(() => (
-    [...users].sort((a, b) => `${a.firstname} ${a.lastname}`.localeCompare(`${b.firstname} ${b.lastname}`))
+    [
+      { _id: UNASSIGNED_SALESPERSON, firstname: "Unassigned", lastname: "" },
+      ...[...users].sort((a, b) => `${a.firstname} ${a.lastname}`.localeCompare(`${b.firstname} ${b.lastname}`)),
+    ]
   ), [users]);
 
   const selectedSalespersonLabel = salespersonFilters.length === 0 ? "All" : `${salespersonFilters.length} selected`;
@@ -608,7 +612,7 @@ function JobsPageContent() {
 
   // Client-side sub-tab filter
   const filtered = decoratedJobs.filter((job) => {
-    if (salespersonFilters.length > 0 && !salespersonFilters.includes(job.lead?.allocatedTo?._id || "")) return false;
+    if (salespersonFilters.length > 0 && !salespersonFilters.includes(job.lead?.allocatedTo?._id || UNASSIGNED_SALESPERSON)) return false;
     if (leadSourceFilters.length > 0) {
       const jobLeadSources = (job.lead?.leadSource || []).map(normalizeLeadSourceValue).filter(Boolean);
       if (!jobLeadSources.some((source) => leadSourceFilters.includes(source))) return false;
@@ -838,6 +842,7 @@ function JobsPageContent() {
                     <button
                       key={u._id}
                       type="button"
+                      aria-pressed={active}
                       onClick={() => updateSalespersonFilters(toggleMultiSelectValue(salespersonFilters, u._id))}
                       className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${active ? "border-[#e85d04] bg-orange-50 text-[#e85d04]" : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"}`}
                     >
