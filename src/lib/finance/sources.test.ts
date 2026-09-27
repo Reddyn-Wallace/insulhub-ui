@@ -162,3 +162,56 @@ it("does not treat malformed Xero balances as zero", async () => {
   );
   await expect(getXeroSnapshot("owner")).rejects.toThrow();
 });
+
+it("retains CRM jobs but flags missing mandatory invoice numbers as incomplete links", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json({
+        data: {
+          jobs: {
+            total: 1,
+            results: [
+              {
+                _id: "j1",
+                installation: { installStatus: "INSTALLED_AS_QUOTED" },
+                depositInvoice: null,
+                finalInvoice: { xeroInvoiceNumber: "INV-2" },
+              },
+            ],
+          },
+        },
+        errors: [
+          {
+            message:
+              "Cannot return null for non-nullable field InvoiceSchema.xeroInvoiceNumber.",
+            path: ["jobs", "results", 0, "depositInvoice", "xeroInvoiceNumber"],
+          },
+        ],
+      }),
+    ),
+  );
+  const r = await getCrmSnapshot("session");
+  expect(r.jobCount).toBe(1);
+  expect(r.installed).toBe(1);
+  expect(r.missingInvoiceLinks).toBe(1);
+});
+it("still rejects CRM errors outside the known missing invoice-number field", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json({
+        data: { jobs: { total: 1, results: [{ _id: "j1" }] } },
+        errors: [
+          {
+            message: "Resolver failed",
+            path: ["jobs", "results", 0, "installation"],
+          },
+        ],
+      }),
+    ),
+  );
+  await expect(getCrmSnapshot("session")).rejects.toThrow(
+    "CRM job data was incomplete",
+  );
+});

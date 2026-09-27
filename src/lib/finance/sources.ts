@@ -46,33 +46,38 @@ export async function getCrmSnapshot(token: string) {
     const d = await r.json();
     const list = d.data?.jobs;
     if (
-      d.errors?.length ||
       !Number.isInteger(list?.total) ||
       list.total < 0 ||
       !Array.isArray(list.results)
-    ) {
-      console.warn("Finance CRM response rejected", {
-        totalType: typeof list?.total,
-        resultsArray: Array.isArray(list?.results),
-        errors: Array.isArray(d.errors)
-          ? d.errors
-              .slice(0, 5)
-              .map(
-                (e: {
-                  path?: unknown[];
-                  message?: string;
-                  extensions?: { code?: unknown };
-                }) => ({
-                  path: e.path?.join("."),
-                  message: e.message
-                    ?.replace(/[A-Za-z0-9_\-]{30,}/g, "[redacted]")
-                    .slice(0, 200),
-                  code: e.extensions?.code,
-                }),
-              )
-          : [],
-      });
+    )
       throw new FinanceError(502, "CRM job data was incomplete.");
+    const missingInvoiceNumberJobs = new Set<string>();
+    for (const error of d.errors || []) {
+      const path = error.path;
+      const invoiceField = Array.isArray(path) ? path[3] : undefined;
+      const knownField =
+        invoiceField === "depositInvoice" || invoiceField === "finalInvoice";
+      const knownPath =
+        Array.isArray(path) &&
+        path[0] === "jobs" &&
+        path[1] === "results" &&
+        Number.isInteger(path[2]) &&
+        path[2] >= 0 &&
+        path[2] < list.results.length &&
+        ((knownField && path.length === 5 && path[4] === "xeroInvoiceNumber") ||
+          (invoiceField === "additionalInstallmentInvoices" &&
+            path.length === 6 &&
+            Number.isInteger(path[4]) &&
+            path[4] >= 0 &&
+            path[5] === "xeroInvoiceNumber"));
+      if (
+        !knownPath ||
+        error.message !==
+          "Cannot return null for non-nullable field InvoiceSchema.xeroInvoiceNumber." ||
+        typeof list.results[path[2]]?._id !== "string"
+      )
+        throw new FinanceError(502, "CRM job data was incomplete.");
+      missingInvoiceNumberJobs.add(list.results[path[2]]._id);
     }
     if (expected !== undefined && expected !== list.total)
       throw new FinanceError(
@@ -96,7 +101,8 @@ export async function getCrmSnapshot(token: string) {
       ]
         .map((x) => x?.xeroInvoiceNumber)
         .filter((x): x is string => typeof x === "string" && !!x);
-      if (!invoices.length) missingInvoiceLinks++;
+      if (!invoices.length || missingInvoiceNumberJobs.has(j._id))
+        missingInvoiceLinks++;
       if (!status) missingInstallationStatus++;
       if (
         [
