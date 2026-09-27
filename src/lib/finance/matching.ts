@@ -71,6 +71,9 @@ export function matchReceipts(
       for (const p of possible(r, i.id, r.amount))
         counts.set(p.id, (counts.get(p.id) || 0) + 1);
   }
+  const explicitPayments = new Set([...manual.values()].flatMap(m => m.allocations.map(a => a.paymentId).filter((id):id is string => !!id)));
+  const manualCandidates = new Map<string,number>();
+  for(const r of input.receipts){const m=manual.get(r.id);if(!m)continue;for(const a of m.allocations){if(a.paymentId)continue;for(const p of possible(r,a.invoiceId,a.gross))manualCandidates.set(p.id,(manualCandidates.get(p.id)||0)+1);}}
   const usedPayments = new Set<string>(),
     received = new Map<string, number>(),
     local = new Map<string, number>();
@@ -87,7 +90,7 @@ export function matchReceipts(
               p.invoiceId === a.invoiceId &&
               p.amount === a.gross,
           )
-        : ps.length === 1 && (counts.get(ps[0].id) || 0) === 0
+        : ps.length === 1 && (counts.get(ps[0].id) || 0) === 0 && manualCandidates.get(ps[0].id) === 1 && !explicitPayments.has(ps[0].id) && !usedPayments.has(ps[0].id)
           ? ps[0]
           : undefined;
       return { ...a, paymentId: p?.id || null };

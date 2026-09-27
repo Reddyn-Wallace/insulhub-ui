@@ -41,10 +41,10 @@ export function calculateFinance(
       input.payments
         .filter((p) => p.invoiceId === i.id)
         .reduce((n, p) => n + p.amount, 0) === i.paid;
-    const localCandidate = allocations.reduce(
-      (n, a) => n + (a.gross > 0 && !a.paymentId ? a.gross : 0),
+    const localCandidate = Math.max(0, allocations.reduce(
+      (n, a) => n + (!a.paymentId ? a.gross : 0),
       0,
-    );
+    ));
     const local =
       paymentCoverage && (i.paid === 0 || reflected === i.paid)
         ? Math.min(i.due, localCandidate)
