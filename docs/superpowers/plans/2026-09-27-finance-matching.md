@@ -25,29 +25,29 @@
 ## Task 1: Complete source adapters and invoice/job linking
 Files: model.ts, live-data.ts, linking.ts and tests under src/lib/finance; owner-only dashboard route.
 Interfaces: FinanceJob, FinanceInvoice, FinancePayment, FinanceReceipt and FinanceInputs; loadFinanceInputs(owner); linkInvoices(invoices,jobs,decisions).
-- [ ] Write failing tests for exact ID/reference links, collisions, archived/unknown jobs and malformed/partial provider responses.
-- [ ] Fetch all CRM stages including archived rows; query quote references without broken invoice relations. Validate targeted job detail for direct invoice evidence where useful.
-- [ ] Fetch all Xero invoices/payments with pagination; normalise only supported customer invoice amounts; preserve credits and status. Retrieve Akahu's available two-year transaction history with boundaries disclosed.
-- [ ] Run tests and verify live link coverage. Commit.
+- [x] Write failing tests for exact ID/reference links, collisions, archived/unknown jobs and malformed/partial provider responses.
+- [x] Fetch all CRM stages including archived rows; query quote references without broken invoice relations. Validate targeted job detail for direct invoice evidence where useful.
+- [x] Fetch all Xero invoices/payments with pagination; normalise only supported customer invoice amounts; preserve credits and status. Retrieve Akahu's available two-year transaction history with boundaries disclosed.
+- [x] Run tests and verify live link coverage. Commit.
 
 ## Task 2: Evidence-based matching and calculations
 Files: calculate.ts, calculate.test.ts, matching.ts, matching.test.ts.
 Interface: calculateFinance(inputs, decisions) -> FinanceDashboard with known totals, uncertainty, per-invoice rows, bank match evidence and review items.
-- [ ] Write failing acceptance cases from all 19 contract scenarios plus duplicates, partial payments, overpayments and catch-up ambiguity.
-- [ ] Implement reference/amount/date matching, one-to-one payment evidence, installed debt/local adjustments, gross unfinished reserves, refunds/fees and uncertain-payment classifications. Auto-matches never use name/amount alone.
-- [ ] Keep unmatched receipts and unknown job links separate, indicate incomplete headline totals and historical coverage; no overstated confidence.
-- [ ] Run tests; commit.
+- [x] Write failing acceptance cases from all 19 contract scenarios plus duplicates, partial payments, overpayments and catch-up ambiguity.
+- [x] Implement reference/amount/date matching, one-to-one payment evidence, installed debt/local adjustments, gross unfinished reserves, refunds/fees and uncertain-payment classifications. Auto-matches never use name/amount alone.
+- [x] Keep unmatched receipts and unknown job links separate, indicate incomplete headline totals and historical coverage; no overstated confidence.
+- [x] Run tests; commit.
 
 ## Task 3: Owner review overlay
 Files: review-store.ts, review.test.ts, scripts/finance-review-schema.sql, /api/finance/review route.
 Interfaces: listReviewDecisions(owner), saveReviewDecision(owner,validatedInput), immutable event history with optimistic revision.
-- [ ] Test owner checks, conflicting edits, allocation caps, stale fingerprints and deletion/reversal.
-- [ ] Store only references/allocations/classifications/reasons with audit events; read current canonical evidence before changes. Support invoice/job links, receipt allocations, non-customer classification, evidenced refunds and opening reserves with explicit owner confirmation.
-- [ ] Verify against disposable PostgreSQL and provision finance-only overlay tables. Commit.
+- [x] Test owner checks, conflicting edits, allocation caps, stale fingerprints and deletion/reversal.
+- [x] Store only references/allocations/classifications/reasons with audit events; read current canonical evidence before changes. Support invoice/job links, receipt allocations, non-customer classification, evidenced refunds and opening reserves with explicit owner confirmation.
+- [x] Verify against disposable PostgreSQL and provision finance-only overlay tables. Commit.
 
 ## Task 4: Dashboard, live verification and review
 Files: /jobs/finance/page.tsx, finance components, dashboard route tests/UI tests, connection-page link.
-- [ ] Show bank balance, known unfinished deposits, cash less those deposits and known installed debt. Place uncertainty adjacent to amounts. Include invoice/job drilldowns and review workflow.
-- [ ] Add filtering/search, source timestamps, refresh, copy/export restricted to the visible filtered rows; no invented trend/history.
-- [ ] Run finance suite, type/lint/build, browser verification and independent whole-change review. Fix material issues, deploy and verify live numbers/source comparisons.
-- [ ] Record unresolved data decisions honestly; do not fabricate owner confirmations.
+- [x] Show bank balance, known unfinished deposits, cash less those deposits and known installed debt. Place uncertainty adjacent to amounts. Include invoice/job drilldowns and review workflow.
+- [x] Add filtering/search, source timestamps, refresh, copy/export restricted to the visible filtered rows; no invented trend/history.
+- [x] Run finance suite, type/lint/build, browser verification and independent whole-change review. Fix material issues, deploy and verify live numbers/source comparisons.
+- [x] Record unresolved data decisions honestly; do not fabricate owner confirmations.
