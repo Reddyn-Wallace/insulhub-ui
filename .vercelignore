@@ -5,3 +5,7 @@ node_modules
 tmp
 coverage
 docs/design-reference/*.png
+
+.superpowers
+public/sw.js
+public/workbox-*.js
