@@ -66,7 +66,10 @@ export function validateReview(
       v.reason.length <= 1000,
     "Add a clear reason or settlement evidence (5–1000 characters).",
   );
-  check(v.kind !== "release", "Historical retained releases no longer change Xero-based totals. Undo the old decision if needed.");
+  check(
+    v.kind !== "release",
+    "Historical retained releases no longer change Xero-based totals. Undo the old decision if needed.",
+  );
   let key: string;
   if (v.kind === "link") {
     key = "link:" + v.invoiceId;

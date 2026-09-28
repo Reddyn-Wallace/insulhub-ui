@@ -98,7 +98,8 @@ export const isInstalled = (status: string) =>
     status,
   );
 export const isJobInstalled = (job: FinanceJob) =>
-  isInstalled(job.status) || (job.stage === "COMPLETED" && job.status !== "INSTALL_NOT_FINISHED");
+  isInstalled(job.status) ||
+  (job.stage === "COMPLETED" && job.status !== "INSTALL_NOT_FINISHED");
 export const cents = (v: unknown) => {
   if (
     typeof v !== "number" ||

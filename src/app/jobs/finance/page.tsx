@@ -85,10 +85,15 @@ export default function FinancePage() {
     void load();
   }, [load]);
   async function loadBank() {
-    setBankBusy(true); setBankError("");
-    try { setData(await financeApi("dashboard?bank=1")); }
-    catch(e) {setBankError(e instanceof Error ? e.message : "Bank check unavailable");}
-    finally {setBankBusy(false);}
+    setBankBusy(true);
+    setBankError("");
+    try {
+      setData(await financeApi("dashboard?bank=1"));
+    } catch (e) {
+      setBankError(e instanceof Error ? e.message : "Bank check unavailable");
+    } finally {
+      setBankBusy(false);
+    }
   }
   const rows = useMemo(
     () =>
@@ -97,9 +102,11 @@ export default function FinancePage() {
           const scope =
             view === "deposits"
               ? !!r.job && !isJobInstalled(r.job)
-              : view === "unlinked" ? !r.job : view === "owed"
-                ? !!r.job && isJobInstalled(r.job) && r.due > 0
-                : true;
+              : view === "unlinked"
+                ? !r.job
+                : view === "owed"
+                  ? !!r.job && isJobInstalled(r.job) && r.due > 0
+                  : true;
           return (
             scope &&
             (
@@ -264,7 +271,8 @@ export default function FinancePage() {
               Reading bank, Xero and installation records…
             </p>
             <p className="mt-2 text-sm text-slate-500">
-              Loading Xero invoices and CRM job status. Bank reconciliation loads separately.
+              Loading Xero invoices and CRM job status. Bank reconciliation
+              loads separately.
             </p>
           </div>
         )}
@@ -277,7 +285,9 @@ export default function FinancePage() {
                     Known amounts · review still needed
                   </p>
                   <p className="mt-1 text-xs leading-5 text-amber-900">
-                    {data.unlinked} invoices need a job link · {money(data.unclassifiedOwed)} outstanding on unlinked invoices
+                    {data.unlinked} invoices need a job link ·{" "}
+                    {money(data.unclassifiedOwed)} outstanding on unlinked
+                    invoices
                     {data.staleDecisions.length
                       ? ` · ${data.staleDecisions.length} saved decisions need rechecking`
                       : ""}
@@ -321,35 +331,65 @@ export default function FinancePage() {
             </div>
             <section className="mt-5 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
               <div className="rounded-2xl border border-slate-200 bg-white p-5">
-                {!data.bankChecked ? <><h2 className="text-sm font-semibold">Bank reconciliation · separate check</h2><p className="mt-3 text-sm text-slate-600">Xero payments are already included above. Check bank settlement and unmatched receipts when needed; this does not change the payment totals.</p><button disabled={bankBusy} className={buttonClass + " mt-4"} onClick={() => void loadBank()}>{bankBusy ? "Checking bank history…" : "Load bank reconciliation"}</button>{bankError && <p role="alert" className="mt-3 text-sm text-rose-700">{bankError}</p>}</> : <>
-                <h2 className="text-sm font-semibold">
-                  Paid in Xero · bank settlement not confirmed
-                </h2>
-                <div className="mt-4 grid grid-cols-3 divide-x divide-slate-100">
-                  <div className="pr-3">
-                    <p className="text-xs text-slate-500">Unfinished jobs</p>
-                    <p className="mt-2 text-lg font-semibold tabular-nums">
-                      {money(data.unconfirmedUnfinished)}
+                {!data.bankChecked ? (
+                  <>
+                    <h2 className="text-sm font-semibold">
+                      Bank reconciliation · separate check
+                    </h2>
+                    <p className="mt-3 text-sm text-slate-600">
+                      Xero payments are already included above. Check bank
+                      settlement and unmatched receipts when needed; this does
+                      not change the payment totals.
                     </p>
-                  </div>
-                  <div className="px-3">
-                    <p className="text-xs text-slate-500">Installed jobs</p>
-                    <p className="mt-2 text-lg font-semibold tabular-nums">
-                      {money(data.unconfirmedInstalled)}
+                    <button
+                      disabled={bankBusy}
+                      className={buttonClass + " mt-4"}
+                      onClick={() => void loadBank()}
+                    >
+                      {bankBusy
+                        ? "Checking bank history…"
+                        : "Load bank reconciliation"}
+                    </button>
+                    {bankError && (
+                      <p role="alert" className="mt-3 text-sm text-rose-700">
+                        {bankError}
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <h2 className="text-sm font-semibold">
+                      Paid in Xero · bank settlement not confirmed
+                    </h2>
+                    <div className="mt-4 grid grid-cols-3 divide-x divide-slate-100">
+                      <div className="pr-3">
+                        <p className="text-xs text-slate-500">
+                          Unfinished jobs
+                        </p>
+                        <p className="mt-2 text-lg font-semibold tabular-nums">
+                          {money(data.unconfirmedUnfinished)}
+                        </p>
+                      </div>
+                      <div className="px-3">
+                        <p className="text-xs text-slate-500">Installed jobs</p>
+                        <p className="mt-2 text-lg font-semibold tabular-nums">
+                          {money(data.unconfirmedInstalled)}
+                        </p>
+                      </div>
+                      <div className="pl-3">
+                        <p className="text-xs text-slate-500">Job unlinked</p>
+                        <p className="mt-2 text-lg font-semibold tabular-nums">
+                          {money(data.unconfirmedUnknown)}
+                        </p>
+                      </div>
+                    </div>
+                    <p className="mt-4 text-xs leading-5 text-slate-500">
+                      Includes historical payments without matching bank
+                      evidence. These are not extra cash or customer debt, and
+                      are not necessarily Windcave payments in transit.
                     </p>
-                  </div>
-                  <div className="pl-3">
-                    <p className="text-xs text-slate-500">Job unlinked</p>
-                    <p className="mt-2 text-lg font-semibold tabular-nums">
-                      {money(data.unconfirmedUnknown)}
-                    </p>
-                  </div>
-                </div>
-                <p className="mt-4 text-xs leading-5 text-slate-500">
-                  Includes historical payments without matching bank evidence.
-                  These are not extra cash or customer debt, and are not
-                  necessarily Windcave payments in transit.
-                </p></>}
+                  </>
+                )}
               </div>
               <div className="rounded-2xl border border-slate-200 bg-white p-5">
                 <div className="flex items-center justify-between">
@@ -384,8 +424,9 @@ export default function FinancePage() {
                   </summary>
                   <p className="mt-2">
                     History requested from {data.historyStart.slice(0, 10)}.
-                    Actual history depends on the bank feed; deposit amounts use Xero regardless of bank matching. Checking sources does
-                    not force an Akahu refresh.
+                    Actual history depends on the bank feed; deposit amounts use
+                    Xero regardless of bank matching. Checking sources does not
+                    force an Akahu refresh.
                   </p>
                   {data.warnings.map((w) => (
                     <p key={w} className="mt-2">
@@ -394,7 +435,10 @@ export default function FinancePage() {
                   ))}
                   <p className="mt-2">
                     All totals NZD including GST. Credits reduce invoice debt;
-                    they do not count as payments. Jobs are installed or not installed. CRM completed stage or an installed result releases advances. Xero paid amounts remain reserved for other jobs.
+                    they do not count as payments. Jobs are installed or not
+                    installed. CRM completed stage or an installed result
+                    releases advances. Xero paid amounts remain reserved for
+                    other jobs.
                   </p>
                 </details>
               </div>
@@ -411,7 +455,7 @@ export default function FinancePage() {
                       ["deposits", "Unfinished work"],
                       ["owed", "To collect"],
                       ["all", "All invoices"],
-                  ["unlinked", "Needs linking"],
+                      ["unlinked", "Needs linking"],
                       ["review", "Bank review"],
                       ["history", "Decision history"],
                     ] as [View, string][]
@@ -463,7 +507,23 @@ export default function FinancePage() {
                   </div>
                 </div>
               )}
-              {view === "review" && !data.bankChecked && <div className="p-6"><p className="mb-4 text-sm text-slate-600">Bank history is loaded separately to keep the overview fast.</p><button className={buttonClass} disabled={bankBusy} onClick={() => void loadBank()}>{bankBusy ? "Checking bank history…" : "Load bank reconciliation"}</button>{bankError && <p role="alert">{bankError}</p>}</div>}
+              {view === "review" && !data.bankChecked && (
+                <div className="p-6">
+                  <p className="mb-4 text-sm text-slate-600">
+                    Bank history is loaded separately to keep the overview fast.
+                  </p>
+                  <button
+                    className={buttonClass}
+                    disabled={bankBusy}
+                    onClick={() => void loadBank()}
+                  >
+                    {bankBusy
+                      ? "Checking bank history…"
+                      : "Load bank reconciliation"}
+                  </button>
+                  {bankError && <p role="alert">{bankError}</p>}
+                </div>
+              )}
               {view === "review" && data.bankChecked && (
                 <>
                   <div className="flex flex-wrap gap-5 px-5 pb-5 text-sm text-slate-600">
@@ -595,9 +655,18 @@ export default function FinancePage() {
                                   {(r.credited / 100).toFixed(2)}
                                 </p>
                                 <p>
-                                  {data.bankChecked ? `Bank settlement unconfirmed ${money(r.unconfirmed)}` : "Bank settlement not checked. Xero payments are included."}
+                                  {data.bankChecked
+                                    ? `Bank settlement unconfirmed ${money(r.unconfirmed)}`
+                                    : "Bank settlement not checked. Xero payments are included."}
                                 </p>
-                                <p>{r.link.method}</p><p>CRM: {r.job?.status || "Unknown"} · stage {r.job?.stage || "Unknown"}{r.job?.detailVerified ? " · verified from job detail" : ""}</p>
+                                <p>{r.link.method}</p>
+                                <p>
+                                  CRM: {r.job?.status || "Unknown"} · stage{" "}
+                                  {r.job?.stage || "Unknown"}
+                                  {r.job?.detailVerified
+                                    ? " · verified from job detail"
+                                    : ""}
+                                </p>
                                 {r.allocations.map((a, n) => (
                                   <p key={n}>
                                     {money(a.gross)} customer amount · fee{" "}
@@ -629,7 +698,6 @@ export default function FinancePage() {
                                   >
                                     Historical bank evidence
                                   </button>
-
                                 </div>
                               </div>
                             )}

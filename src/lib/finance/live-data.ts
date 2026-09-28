@@ -98,63 +98,170 @@ export function normalisePayment(v: RecordValue): FinancePayment | null {
     reference: String(v.Reference || ""),
   };
 }
-async function boundedMap<T, R>(items: T[], limit: number, run: (item: T, index: number) => Promise<R>): Promise<R[]> {
-  const result: R[] = new Array(items.length); let next = 0;
-  await Promise.all(Array.from({length: Math.min(limit, items.length)}, async () => {
-    while (next < items.length) { const index = next++; result[index] = await run(items[index], index); }
-  })); return result;
+async function boundedMap<T, R>(
+  items: T[],
+  limit: number,
+  run: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const result: R[] = new Array(items.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (next < items.length) {
+        const index = next++;
+        result[index] = await run(items[index], index);
+      }
+    }),
+  );
+  return result;
 }
 export async function readCrmJobs(token: string): Promise<FinanceJob[]> {
   async function page(skip: number) {
     const r = await safeFetch("https://api.insulhub.nz/graphql", {
-      method: "POST", headers: {"content-type":"application/json", "x-access-token":token},
-      body: JSON.stringify({query:"query FinanceJobIndex($skip:Int,$limit:Int){jobs(skip:$skip,limit:$limit){total results{_id jobNumber stage archivedAt quote{quoteNumber} installation{installStatus} client{contactDetails{name streetAddress}}}}}",variables:{skip,limit:500}}),
+      method: "POST",
+      headers: { "content-type": "application/json", "x-access-token": token },
+      body: JSON.stringify({
+        query:
+          "query FinanceJobIndex($skip:Int,$limit:Int){jobs(skip:$skip,limit:$limit){total results{_id jobNumber stage archivedAt quote{quoteNumber} installation{installStatus} client{contactDetails{name streetAddress}}}}}",
+        variables: { skip, limit: 500 },
+      }),
     });
-    if (!r.ok) throw new FinanceError(502,"CRM jobs could not be read.");
-    const d = await r.json(), list = d.data?.jobs;
-    if (d.errors?.length || !Number.isInteger(list?.total) || list.total < 0 || !Array.isArray(list.results)) throw new FinanceError(502,"CRM job index is incomplete.");
+    if (!r.ok) throw new FinanceError(502, "CRM jobs could not be read.");
+    const d = await r.json(),
+      list = d.data?.jobs;
+    if (
+      d.errors?.length ||
+      !Number.isInteger(list?.total) ||
+      list.total < 0 ||
+      !Array.isArray(list.results)
+    )
+      throw new FinanceError(502, "CRM job index is incomplete.");
     return list;
   }
   const first = await page(0);
-  if (first.total > 50000) throw new FinanceError(502,"CRM job index exceeds the supported size.");
-  const rest = await boundedMap(Array.from({length:Math.max(0,Math.ceil(first.total/500)-1)},(_,i)=>(i+1)*500),3,page);
-  const jobs: FinanceJob[] = [], seen = new Set<string>();
-  for (const list of [first,...rest]) {
-    if (list.total !== first.total) throw new FinanceError(502,"CRM jobs changed during loading. Refresh again.");
+  if (first.total > 50000)
+    throw new FinanceError(502, "CRM job index exceeds the supported size.");
+  const rest = await boundedMap(
+    Array.from(
+      { length: Math.max(0, Math.ceil(first.total / 500) - 1) },
+      (_, i) => (i + 1) * 500,
+    ),
+    3,
+    page,
+  );
+  const jobs: FinanceJob[] = [],
+    seen = new Set<string>();
+  for (const list of [first, ...rest]) {
+    if (list.total !== first.total)
+      throw new FinanceError(
+        502,
+        "CRM jobs changed during loading. Refresh again.",
+      );
     for (const j of list.results) {
-      if (typeof j._id !== "string" || seen.has(j._id)) throw new FinanceError(502,"CRM job pagination overlapped.");
+      if (typeof j._id !== "string" || seen.has(j._id))
+        throw new FinanceError(502, "CRM job pagination overlapped.");
       seen.add(j._id);
-      jobs.push({id:j._id,number:String(j.jobNumber??""),quote:String(j.quote?.quoteNumber||""),status:String(j.installation?.installStatus||""),stage:String(j.stage||""),archived:!!j.archivedAt,contact:String(j.client?.contactDetails?.name||""),name:String(j.client?.contactDetails?.streetAddress||j.client?.contactDetails?.name||"Job "+j.jobNumber),invoiceNumbers:[]});
+      jobs.push({
+        id: j._id,
+        number: String(j.jobNumber ?? ""),
+        quote: String(j.quote?.quoteNumber || ""),
+        status: String(j.installation?.installStatus || ""),
+        stage: String(j.stage || ""),
+        archived: !!j.archivedAt,
+        contact: String(j.client?.contactDetails?.name || ""),
+        name: String(
+          j.client?.contactDetails?.streetAddress ||
+            j.client?.contactDetails?.name ||
+            "Job " + j.jobNumber,
+        ),
+        invoiceNumbers: [],
+      });
     }
   }
-  if (jobs.length !== first.total) throw new FinanceError(502,"CRM job pagination is incomplete.");
+  if (jobs.length !== first.total)
+    throw new FinanceError(502, "CRM job pagination is incomplete.");
   return jobs;
 }
-export async function verifyCrmDetails(token:string, jobs:FinanceJob[], invoices:FinanceInvoice[]) {
-  const links=linkInvoices(invoices,jobs,[]), selected = new Set([...links.values()].flatMap(l=>l.candidates));
-  const normalName=(s:string)=>s.toLowerCase().replace(/[^a-z0-9]/g,"");
-  const contacts=new Set(invoices.filter(i=>!links.get(i.id)?.jobId).map(i=>normalName(i.contact)).filter(Boolean));
-  for(const j of jobs) if(j.contact && contacts.has(normalName(j.contact))) selected.add(j.id);
-  const candidates=jobs.filter(j=>selected.has(j.id));
-  const chunks=Array.from({length:Math.ceil(candidates.length/15)},(_,i)=>candidates.slice(i*15,i*15+15));
-  const updates=new Map<string,FinanceJob>();
-  await boundedMap(chunks,3,async batch=>{
-    const variables=Object.fromEntries(batch.map((j,i)=>['id'+i,j.id]));
-    const fields=batch.map((_,i)=>`j${i}:job(_id:$id${i}){_id stage installation{installStatus} depositInvoice{xeroInvoiceNumber} finalInvoice{xeroInvoiceNumber} additionalInstallmentInvoices{xeroInvoiceNumber}}`).join(' ');
-    const query=`query FinanceJobDetails(${batch.map((_,i)=>`$id${i}:ObjectId!`).join(',')}){${fields}}`;
-    const r=await safeFetch('https://api.insulhub.nz/graphql',{method:'POST',headers:{'content-type':'application/json','x-access-token':token},body:JSON.stringify({query,variables})});
-    if(!r.ok) throw new FinanceError(502,'Detailed CRM jobs could not be read.');
-    const d=await r.json();
-    const unexpected=(d.errors||[]).some((e:{message?:string;path?:Array<string|number>})=>!(/Cannot return null for non-nullable field .*xeroInvoiceNumber/.test(e.message||'') && e.path?.some(p=>['depositInvoice','finalInvoice','additionalInstallmentInvoices'].includes(String(p)))));
-    if(unexpected) throw new FinanceError(502,'Detailed CRM job verification failed.');
-    batch.forEach((j,i)=>{
-      const detail=d.data?.['j'+i];
-      if(!detail || detail._id!==j.id) throw new FinanceError(502,'Detailed CRM job was incomplete.');
-      const numbers=[detail.depositInvoice,detail.finalInvoice,...(detail.additionalInstallmentInvoices||[])].map(v=>v?.xeroInvoiceNumber).filter((v:unknown):v is string=>typeof v==='string' && !!v);
-      updates.set(j.id,{...j,status:String(detail.installation?.installStatus||''),stage:String(detail.stage||''),invoiceNumbers:numbers,detailVerified:true,completionConflict:detail.stage === "COMPLETED" && detail.installation?.installStatus === "INSTALL_NOT_FINISHED"});
+export async function verifyCrmDetails(
+  token: string,
+  jobs: FinanceJob[],
+  invoices: FinanceInvoice[],
+) {
+  const links = linkInvoices(invoices, jobs, []),
+    selected = new Set([...links.values()].flatMap((l) => l.candidates));
+  const normalName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const contacts = new Set(
+    invoices
+      .filter((i) => !links.get(i.id)?.jobId)
+      .map((i) => normalName(i.contact))
+      .filter(Boolean),
+  );
+  for (const j of jobs)
+    if (j.contact && contacts.has(normalName(j.contact))) selected.add(j.id);
+  const candidates = jobs.filter((j) => selected.has(j.id));
+  const chunks = Array.from(
+    { length: Math.ceil(candidates.length / 15) },
+    (_, i) => candidates.slice(i * 15, i * 15 + 15),
+  );
+  const updates = new Map<string, FinanceJob>();
+  await boundedMap(chunks, 3, async (batch) => {
+    const variables = Object.fromEntries(batch.map((j, i) => ["id" + i, j.id]));
+    const fields = batch
+      .map(
+        (_, i) =>
+          `j${i}:job(_id:$id${i}){_id stage installation{installStatus} depositInvoice{xeroInvoiceNumber} finalInvoice{xeroInvoiceNumber} additionalInstallmentInvoices{xeroInvoiceNumber}}`,
+      )
+      .join(" ");
+    const query = `query FinanceJobDetails(${batch.map((_, i) => `$id${i}:ObjectId!`).join(",")}){${fields}}`;
+    const r = await safeFetch("https://api.insulhub.nz/graphql", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-access-token": token },
+      body: JSON.stringify({ query, variables }),
+    });
+    if (!r.ok)
+      throw new FinanceError(502, "Detailed CRM jobs could not be read.");
+    const d = await r.json();
+    const unexpected = (d.errors || []).some(
+      (e: { message?: string; path?: Array<string | number> }) =>
+        !(
+          /Cannot return null for non-nullable field .*xeroInvoiceNumber/.test(
+            e.message || "",
+          ) &&
+          e.path?.some((p) =>
+            [
+              "depositInvoice",
+              "finalInvoice",
+              "additionalInstallmentInvoices",
+            ].includes(String(p)),
+          )
+        ),
+    );
+    if (unexpected)
+      throw new FinanceError(502, "Detailed CRM job verification failed.");
+    batch.forEach((j, i) => {
+      const detail = d.data?.["j" + i];
+      if (!detail || detail._id !== j.id)
+        throw new FinanceError(502, "Detailed CRM job was incomplete.");
+      const numbers = [
+        detail.depositInvoice,
+        detail.finalInvoice,
+        ...(detail.additionalInstallmentInvoices || []),
+      ]
+        .map((v) => v?.xeroInvoiceNumber)
+        .filter((v: unknown): v is string => typeof v === "string" && !!v);
+      updates.set(j.id, {
+        ...j,
+        status: String(detail.installation?.installStatus || ""),
+        stage: String(detail.stage || ""),
+        invoiceNumbers: numbers,
+        detailVerified: true,
+        completionConflict:
+          detail.stage === "COMPLETED" &&
+          detail.installation?.installStatus === "INSTALL_NOT_FINISHED",
+      });
     });
   });
-  return jobs.map(j=>updates.get(j.id)||j);
+  return jobs.map((j) => updates.get(j.id) || j);
 }
 export async function readXeroData(ownerId: string, includePayments = true) {
   return withXeroAccess(ownerId, async (token, tenant) => {
@@ -165,7 +272,9 @@ export async function readXeroData(ownerId: string, includePayments = true) {
     };
     const invoices: FinanceInvoice[] = [],
       payments: FinancePayment[] = [];
-    for (const endpoint of includePayments ? ["Invoices", "Payments"] : ["Invoices"]) {
+    for (const endpoint of includePayments
+      ? ["Invoices", "Payments"]
+      : ["Invoices"]) {
       const seen = new Set<string>();
       let done = false;
       for (let page = 1; page <= 100; page++) {
@@ -212,17 +321,22 @@ export async function readXeroData(ownerId: string, includePayments = true) {
     return { invoices, payments };
   });
 }
-export async function loadFinanceInputs(owner: {
-  userId: string;
-  token: string;
-}, bankCheck = false): Promise<FinanceInputs> {
+export async function loadFinanceInputs(
+  owner: {
+    userId: string;
+    token: string;
+  },
+  bankCheck = false,
+): Promise<FinanceInputs> {
   const started = Date.now();
   const now = new Date(),
     historyEnd = now.toISOString(),
     historyStart = new Date(now.getTime() - 730 * 86400000).toISOString();
   const [bank, transactions, jobs, xero] = await Promise.all([
     getBankSnapshot(),
-    bankCheck ? getBankTransactions(historyStart, historyEnd) : Promise.resolve([]),
+    bankCheck
+      ? getBankTransactions(historyStart, historyEnd)
+      : Promise.resolve([]),
     readCrmJobs(owner.token),
     readXeroData(owner.userId, bankCheck),
   ]);
@@ -234,7 +348,15 @@ export async function loadFinanceInputs(owner: {
     reference: t.reference ? JSON.stringify(t.reference) : "",
   }));
   const verifiedJobs = await verifyCrmDetails(owner.token, jobs, xero.invoices);
-  console.info("finance_load", JSON.stringify({mode:bankCheck?"bank":"overview",elapsedMs:Date.now()-started,jobs:jobs.length,invoices:xero.invoices.length}));
+  console.info(
+    "finance_load",
+    JSON.stringify({
+      mode: bankCheck ? "bank" : "overview",
+      elapsedMs: Date.now() - started,
+      jobs: jobs.length,
+      invoices: xero.invoices.length,
+    }),
+  );
   return {
     checkedAt: new Date().toISOString(),
     bank,
@@ -245,7 +367,9 @@ export async function loadFinanceInputs(owner: {
     ...xero,
     receipts,
     warnings: [
-      bankCheck ? "Bank checks cover available transactions from the past two years and do not change Xero payment totals." : "Bank reconciliation loads separately on request. Xero paid amounts are included without a bank match.",
+      bankCheck
+        ? "Bank checks cover available transactions from the past two years and do not change Xero payment totals."
+        : "Bank reconciliation loads separately on request. Xero paid amounts are included without a bank match.",
       "Archived jobs remain in scope. Missing installation status never releases a deposit.",
     ],
   };

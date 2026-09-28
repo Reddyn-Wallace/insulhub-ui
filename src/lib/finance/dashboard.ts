@@ -3,13 +3,24 @@ import { dashboardInputs } from "./snapshot-cache";
 import { calculateFinance } from "./calculate";
 import { listReviewDecisions, reviewHistory } from "./review-store";
 import { activeDecisions, decisionFingerprint } from "./review-validation";
-export async function buildDashboard(owner: { userId: string; token: string }, bankCheck = false, force = false) {
+export async function buildDashboard(
+  owner: { userId: string; token: string },
+  bankCheck = false,
+  force = false,
+) {
   const [input, decisions, history] = await Promise.all([
     dashboardInputs(owner, bankCheck, force),
     listReviewDecisions(owner.userId),
     reviewHistory(owner.userId),
   ]);
-  const { active, stale } = activeDecisions(input, bankCheck ? decisions : decisions.filter(d => d.value?.kind !== "receipt" && d.value?.kind !== "opening"));
+  const { active, stale } = activeDecisions(
+    input,
+    bankCheck
+      ? decisions
+      : decisions.filter(
+          (d) => d.value?.kind !== "receipt" && d.value?.kind !== "opening",
+        ),
+  );
   const dashboard = calculateFinance(input, active);
   return {
     ...dashboard,

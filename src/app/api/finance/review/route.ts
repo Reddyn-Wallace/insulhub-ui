@@ -19,7 +19,10 @@ export async function POST(request: NextRequest) {
     return financeJson(
       await saveReviewDecision(
         owner.userId,
-        await loadFinanceInputs(owner, body?.value?.kind === "receipt" || body?.value?.kind === "opening"),
+        await loadFinanceInputs(
+          owner,
+          body?.value?.kind === "receipt" || body?.value?.kind === "opening",
+        ),
         body,
       ),
     );

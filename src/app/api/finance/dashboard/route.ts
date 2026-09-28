@@ -7,7 +7,11 @@ export const maxDuration = 300;
 export async function GET(request: NextRequest) {
   try {
     return financeJson(
-      await buildDashboard(await requireFinanceOwner(request), request.nextUrl.searchParams.get("bank") === "1", request.nextUrl.searchParams.get("refresh") === "1"),
+      await buildDashboard(
+        await requireFinanceOwner(request),
+        request.nextUrl.searchParams.get("bank") === "1",
+        request.nextUrl.searchParams.get("refresh") === "1",
+      ),
     );
   } catch (e) {
     return financeError(e);

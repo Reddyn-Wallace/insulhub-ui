@@ -1,4 +1,8 @@
-import { isJobInstalled, type FinanceInputs, type ReviewDecision } from "./model";
+import {
+  isJobInstalled,
+  type FinanceInputs,
+  type ReviewDecision,
+} from "./model";
 import { linkInvoices } from "./linking";
 import { matchReceipts } from "./matching";
 export function calculateFinance(
@@ -38,11 +42,17 @@ export function calculateFinance(
       0,
     );
     // Xero is the payment authority. Bank receipts are reconciliation evidence only.
-    const localCandidate = Math.max(0, allocations.reduce((n,a) => n + (!a.paymentId ? a.gross : 0), 0));
+    const localCandidate = Math.max(
+      0,
+      allocations.reduce((n, a) => n + (!a.paymentId ? a.gross : 0), 0),
+    );
     const local = 0;
     const unfinished = !!job && !isJobInstalled(job),
       supported = i.currency === "NZD";
-    const unconfirmed = input.bankChecked === false ? 0 : Math.max(0, i.paid - reflected - opening);
+    const unconfirmed =
+      input.bankChecked === false
+        ? 0
+        : Math.max(0, i.paid - reflected - opening);
     const issues = [
       !job ? link.method : "",
       !supported ? "Non-NZD invoice excluded" : "",
@@ -54,9 +64,15 @@ export function calculateFinance(
         : "",
       !i.date ? "Invoice date missing" : "",
       i.paid < released ? "Release exceeds Xero paid amount" : "",
-      input.bankChecked !== false && localCandidate > 0 ? "Bank receipt not linked to a Xero payment; reconcile in Xero" : "",
-      job?.completionConflict ? "CRM completion signals conflict; review installation status" : "",
-      job?.detailVerified === false ? "Detailed CRM record could not be verified" : "",
+      input.bankChecked !== false && localCandidate > 0
+        ? "Bank receipt not linked to a Xero payment; reconcile in Xero"
+        : "",
+      job?.completionConflict
+        ? "CRM completion signals conflict; review installation status"
+        : "",
+      job?.detailVerified === false
+        ? "Detailed CRM record could not be verified"
+        : "",
     ].filter(Boolean);
     return {
       ...i,
@@ -101,8 +117,8 @@ export function calculateFinance(
     rows.some((r) => r.issues.length > 0);
   return {
     bankChecked: input.bankChecked !== false,
-    unclassifiedOwed: sum(r => !r.job && r.currency === "NZD" ? r.due : 0),
-    totalXeroOwed: sum(r => r.currency === "NZD" ? r.due : 0),
+    unclassifiedOwed: sum((r) => (!r.job && r.currency === "NZD" ? r.due : 0)),
+    totalXeroOwed: sum((r) => (r.currency === "NZD" ? r.due : 0)),
     checkedAt: input.checkedAt,
     bank: input.bank,
     historyStart: input.historyStart,

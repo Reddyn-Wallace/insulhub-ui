@@ -80,10 +80,55 @@ it("reads CRM quote references across all stages without the broken bulk invoice
     { id: "j", quote: "AP123", archived: true },
   ]);
 });
-it('verifies invoice links and installation from CRM detail, without matching names alone',async()=>{
- const {verifyCrmDetails}=await import('./live-data');
- const jobs=[{id:'j',number:'1',quote:'AP1',status:'JOB_NOT_STARTED_YET',archived:false,name:'Address',contact:'Customer',invoiceNumbers:[]}];
- const invoices=[normaliseInvoice({InvoiceID:'i',InvoiceNumber:'INV-1',Reference:'opaque',Contact:{Name:'Customer'},Status:'PAID',CurrencyCode:'NZD',Total:10,AmountPaid:10,AmountDue:0})!];
- vi.stubGlobal('fetch',vi.fn(async()=>Response.json({data:{j0:{_id:'j',stage:'COMPLETED',installation:{installStatus:'INSTALLED_AS_QUOTED'},depositInvoice:{xeroInvoiceNumber:'INV-1'},finalInvoice:null,additionalInstallmentInvoices:[]}}})));
- const result=await verifyCrmDetails('token',jobs,invoices);expect(result[0]).toMatchObject({status:'INSTALLED_AS_QUOTED',stage:'COMPLETED',invoiceNumbers:['INV-1'],detailVerified:true});
+it("verifies invoice links and installation from CRM detail, without matching names alone", async () => {
+  const { verifyCrmDetails } = await import("./live-data");
+  const jobs = [
+    {
+      id: "j",
+      number: "1",
+      quote: "AP1",
+      status: "JOB_NOT_STARTED_YET",
+      archived: false,
+      name: "Address",
+      contact: "Customer",
+      invoiceNumbers: [],
+    },
+  ];
+  const invoices = [
+    normaliseInvoice({
+      InvoiceID: "i",
+      InvoiceNumber: "INV-1",
+      Reference: "opaque",
+      Contact: { Name: "Customer" },
+      Status: "PAID",
+      CurrencyCode: "NZD",
+      Total: 10,
+      AmountPaid: 10,
+      AmountDue: 0,
+    })!,
+  ];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json({
+        data: {
+          j0: {
+            _id: "j",
+            stage: "COMPLETED",
+            installation: { installStatus: "INSTALLED_AS_QUOTED" },
+            depositInvoice: { xeroInvoiceNumber: "INV-1" },
+            finalInvoice: null,
+            additionalInstallmentInvoices: [],
+          },
+        },
+      }),
+    ),
+  );
+  const result = await verifyCrmDetails("token", jobs, invoices);
+  expect(result[0]).toMatchObject({
+    status: "INSTALLED_AS_QUOTED",
+    stage: "COMPLETED",
+    invoiceNumbers: ["INV-1"],
+    detailVerified: true,
+  });
 });

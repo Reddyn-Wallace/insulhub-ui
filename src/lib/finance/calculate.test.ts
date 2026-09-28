@@ -1,7 +1,10 @@
 import { it, expect } from "vitest";
 import { calculateFinance } from "./calculate";
 import { matchReceipts } from "./matching";
-const bankMatched = (d: FinanceInputs) => matchReceipts(d, []).flatMap(m => m.allocations).reduce((n,a) => n+a.gross,0);
+const bankMatched = (d: FinanceInputs) =>
+  matchReceipts(d, [])
+    .flatMap((m) => m.allocations)
+    .reduce((n, a) => n + a.gross, 0);
 import type { FinanceInputs, ReviewDecision, ReviewValue } from "./model";
 const base = (): FinanceInputs => ({
   checkedAt: "2026-09-27T10:00:00Z",
@@ -76,10 +79,18 @@ const installed = (d: FinanceInputs) => {
   d.jobs[0].status = "INSTALLED_AS_QUOTED";
 };
 it("matches plain bank quote references against labelled Xero references", () => {
-  const d = base(); d.invoices[0].reference = "AP1 (deposit)"; receipt(d); paid(d);
+  const d = base();
+  d.invoices[0].reference = "AP1 (deposit)";
+  receipt(d);
+  paid(d);
   d.receipts[0].description = "Customer AP1";
   expect(bankMatched(d)).toBe(100000);
-  d.invoices.push({...d.invoices[0], id: "other", number: "INV-0002", reference: "Quote #AP1"});
+  d.invoices.push({
+    ...d.invoices[0],
+    id: "other",
+    number: "INV-0002",
+    reference: "Quote #AP1",
+  });
   expect(bankMatched(d)).toBe(0);
   d.receipts[0].description = "Customer INV 0001 AP1";
   expect(bankMatched(d)).toBe(100000);
@@ -87,9 +98,18 @@ it("matches plain bank quote references against labelled Xero references", () =>
   expect(bankMatched(d)).toBe(0);
 });
 it("keeps shared quote ambiguity even when only one invoice can hold the whole receipt", () => {
-  const d = base(); d.invoices[0].reference = "AP1 (deposit)";
-  d.invoices.push({...d.invoices[0], id: "other", number: "INV-0002", reference: "Quote #AP1", total: 300000, due: 300000});
-  receipt(d, 200000); d.receipts[0].description = "Customer AP1";
+  const d = base();
+  d.invoices[0].reference = "AP1 (deposit)";
+  d.invoices.push({
+    ...d.invoices[0],
+    id: "other",
+    number: "INV-0002",
+    reference: "Quote #AP1",
+    total: 300000,
+    due: 300000,
+  });
+  receipt(d, 200000);
+  d.receipts[0].description = "Customer AP1";
   expect(bankMatched(d)).toBe(0);
 });
 it("reserves received deposits, partial deposits and early final payments; unpaid future billing is excluded", () => {
@@ -145,7 +165,7 @@ it("archived and unknown-status jobs use Xero amounts, ignoring historic bank-on
   d.jobs[0].archived = true;
   d.jobs[0].status = "";
   receipt(d);
-  paid(d,80000);
+  paid(d, 80000);
   const refund = decision({
     kind: "receipt",
     receiptId: "refund",
@@ -318,12 +338,117 @@ it("competing equal reference receipts without Xero payments all require review"
     unmatchedReceipts: 200000,
   });
 });
-it('bank refunds do not independently change Xero debt',()=>{const d=base();installed(d);receipt(d);d.receipts.push({id:'refund',amount:-20000,date:'2026-09-11',description:'Refund',reference:''});const a=decision({kind:'receipt',receiptId:'refund',allocations:[{invoiceId:'i',gross:-20000,fee:0,paymentId:null}],nonCustomer:false,reason:'Settled partial refund'});expect(calculateFinance(d,[a])).toMatchObject({owed:100000,localAdjustment:0});d.receipts[1].amount=-100000;a.value={...a.value as Extract<ReviewValue,{kind:'receipt'}>,allocations:[{invoiceId:'i',gross:-100000,fee:0,paymentId:null}]};expect(calculateFinance(d,[a])).toMatchObject({owed:100000,localAdjustment:0});});
-it('preserves two owner-confirmed receipts when only one owns the existing Xero payment',()=>{const d=base();d.invoices[0].total=300000;d.invoices[0].due=300000;paid(d,100000);receipt(d);receipt(d,100000,'r2');const first=decision({kind:'receipt',receiptId:'r',allocations:[{invoiceId:'i',gross:100000,fee:0,paymentId:'p'}],nonCustomer:false,reason:'First received payment'}),second={...decision({kind:'receipt',receiptId:'r2',allocations:[{invoiceId:'i',gross:100000,fee:0,paymentId:null}],nonCustomer:false,reason:'Second received payment'}),key:'second'};expect(calculateFinance(d,[first,second])).toMatchObject({reserved:100000,unmatchedReceipts:0});});
+it("bank refunds do not independently change Xero debt", () => {
+  const d = base();
+  installed(d);
+  receipt(d);
+  d.receipts.push({
+    id: "refund",
+    amount: -20000,
+    date: "2026-09-11",
+    description: "Refund",
+    reference: "",
+  });
+  const a = decision({
+    kind: "receipt",
+    receiptId: "refund",
+    allocations: [{ invoiceId: "i", gross: -20000, fee: 0, paymentId: null }],
+    nonCustomer: false,
+    reason: "Settled partial refund",
+  });
+  expect(calculateFinance(d, [a])).toMatchObject({
+    owed: 100000,
+    localAdjustment: 0,
+  });
+  d.receipts[1].amount = -100000;
+  a.value = {
+    ...(a.value as Extract<ReviewValue, { kind: "receipt" }>),
+    allocations: [{ invoiceId: "i", gross: -100000, fee: 0, paymentId: null }],
+  };
+  expect(calculateFinance(d, [a])).toMatchObject({
+    owed: 100000,
+    localAdjustment: 0,
+  });
+});
+it("preserves two owner-confirmed receipts when only one owns the existing Xero payment", () => {
+  const d = base();
+  d.invoices[0].total = 300000;
+  d.invoices[0].due = 300000;
+  paid(d, 100000);
+  receipt(d);
+  receipt(d, 100000, "r2");
+  const first = decision({
+      kind: "receipt",
+      receiptId: "r",
+      allocations: [{ invoiceId: "i", gross: 100000, fee: 0, paymentId: "p" }],
+      nonCustomer: false,
+      reason: "First received payment",
+    }),
+    second = {
+      ...decision({
+        kind: "receipt",
+        receiptId: "r2",
+        allocations: [
+          { invoiceId: "i", gross: 100000, fee: 0, paymentId: null },
+        ],
+        nonCustomer: false,
+        reason: "Second received payment",
+      }),
+      key: "second",
+    };
+  expect(calculateFinance(d, [first, second])).toMatchObject({
+    reserved: 100000,
+    unmatchedReceipts: 0,
+  });
+});
 
-it('counts Xero-paid advances without requiring a bank match',()=>{const d=base();paid(d,60000);expect(calculateFinance(d,[])).toMatchObject({reserved:60000,owed:0});});
-it('uses completed CRM stage even where the legacy installation field is not updated',()=>{const d=base();d.jobs[0].stage='COMPLETED';paid(d,40000);expect(calculateFinance(d,[])).toMatchObject({reserved:0,owed:60000});});
-it('keeps bank receipts separate from the Xero debt amount',()=>{const d=base();installed(d);receipt(d,40000);expect(calculateFinance(d,[])).toMatchObject({owed:100000,localAdjustment:0});});
-it('exposes debt for unlinked invoices rather than silently losing it',()=>{const d=base();d.jobs=[];expect(calculateFinance(d,[])).toMatchObject({owed:0,unclassifiedOwed:100000,totalXeroOwed:100000});});
-it('historical retained releases cannot override the Xero-paid binary reserve rule',()=>{const d=base();paid(d);expect(calculateFinance(d,[decision({kind:'release',invoiceId:'i',amount:40000,reason:'Old retained release'})]).reserved).toBe(100000);});
-it('an explicitly unfinished installation does not become installed from a stale completed stage',()=>{const d=base();d.jobs[0].stage='COMPLETED';d.jobs[0].status='INSTALL_NOT_FINISHED';paid(d);expect(calculateFinance(d,[])).toMatchObject({reserved:100000,owed:0});});
+it("counts Xero-paid advances without requiring a bank match", () => {
+  const d = base();
+  paid(d, 60000);
+  expect(calculateFinance(d, [])).toMatchObject({ reserved: 60000, owed: 0 });
+});
+it("uses completed CRM stage even where the legacy installation field is not updated", () => {
+  const d = base();
+  d.jobs[0].stage = "COMPLETED";
+  paid(d, 40000);
+  expect(calculateFinance(d, [])).toMatchObject({ reserved: 0, owed: 60000 });
+});
+it("keeps bank receipts separate from the Xero debt amount", () => {
+  const d = base();
+  installed(d);
+  receipt(d, 40000);
+  expect(calculateFinance(d, [])).toMatchObject({
+    owed: 100000,
+    localAdjustment: 0,
+  });
+});
+it("exposes debt for unlinked invoices rather than silently losing it", () => {
+  const d = base();
+  d.jobs = [];
+  expect(calculateFinance(d, [])).toMatchObject({
+    owed: 0,
+    unclassifiedOwed: 100000,
+    totalXeroOwed: 100000,
+  });
+});
+it("historical retained releases cannot override the Xero-paid binary reserve rule", () => {
+  const d = base();
+  paid(d);
+  expect(
+    calculateFinance(d, [
+      decision({
+        kind: "release",
+        invoiceId: "i",
+        amount: 40000,
+        reason: "Old retained release",
+      }),
+    ]).reserved,
+  ).toBe(100000);
+});
+it("an explicitly unfinished installation does not become installed from a stale completed stage", () => {
+  const d = base();
+  d.jobs[0].stage = "COMPLETED";
+  d.jobs[0].status = "INSTALL_NOT_FINISHED";
+  paid(d);
+  expect(calculateFinance(d, [])).toMatchObject({ reserved: 100000, owed: 0 });
+});
