@@ -1,4 +1,4 @@
-import { isInstalled, type FinanceInputs, type ReviewDecision } from "./model";
+import { isJobInstalled, type FinanceInputs, type ReviewDecision } from "./model";
 import { linkInvoices } from "./linking";
 import { matchReceipts } from "./matching";
 export function calculateFinance(
@@ -32,26 +32,17 @@ export function calculateFinance(
       0,
     );
     const gross = allocations.reduce((n, a) => n + a.gross, 0) + opening;
-    const settled = Math.max(0, gross - released);
+    const settled = Math.max(0, gross);
     const reflected = allocations.reduce(
       (n, a) => n + (a.paymentId && a.gross > 0 ? a.gross : 0),
       0,
     );
-    const paymentCoverage =
-      input.payments
-        .filter((p) => p.invoiceId === i.id)
-        .reduce((n, p) => n + p.amount, 0) === i.paid;
-    const localCandidate = Math.max(0, allocations.reduce(
-      (n, a) => n + (!a.paymentId ? a.gross : 0),
-      0,
-    ));
-    const local =
-      paymentCoverage && (i.paid === 0 || reflected === i.paid)
-        ? Math.min(i.due, localCandidate)
-        : 0;
-    const unfinished = !!job && !isInstalled(job.status),
+    // Xero is the payment authority. Bank receipts are reconciliation evidence only.
+    const localCandidate = Math.max(0, allocations.reduce((n,a) => n + (!a.paymentId ? a.gross : 0), 0));
+    const local = 0;
+    const unfinished = !!job && !isJobInstalled(job),
       supported = i.currency === "NZD";
-    const unconfirmed = Math.max(0, i.paid - reflected - opening);
+    const unconfirmed = input.bankChecked === false ? 0 : Math.max(0, i.paid - reflected - opening);
     const issues = [
       !job ? link.method : "",
       !supported ? "Non-NZD invoice excluded" : "",
@@ -62,14 +53,10 @@ export function calculateFinance(
         ? "Archived unfinished job; refund/release review required"
         : "",
       !i.date ? "Invoice date missing" : "",
-      gross < released ? "Refund/release exceeds evidenced receipts" : "",
-      !paymentCoverage && i.paid > 0
-        ? "Xero payment history does not explain the paid balance"
-        : "",
-      localCandidate > 0 && i.paid > reflected
-        ? "Local debt adjustment held: existing Xero payments need settlement evidence"
-        : "",
-      localCandidate > i.due ? "Possible duplicate receipt or overpayment" : "",
+      i.paid < released ? "Release exceeds Xero paid amount" : "",
+      input.bankChecked !== false && localCandidate > 0 ? "Bank receipt not linked to a Xero payment; reconcile in Xero" : "",
+      job?.completionConflict ? "CRM completion signals conflict; review installation status" : "",
+      job?.detailVerified === false ? "Detailed CRM record could not be verified" : "",
     ].filter(Boolean);
     return {
       ...i,
@@ -79,9 +66,9 @@ export function calculateFinance(
       opening,
       released,
       settled,
-      localAdjustment: supported && job && isInstalled(job.status) ? local : 0,
-      reserved: supported && unfinished ? settled : 0,
-      owed: supported && job && isInstalled(job.status) ? i.due - local : 0,
+      localAdjustment: supported && job && isJobInstalled(job) ? local : 0,
+      reserved: supported && unfinished ? i.paid : 0,
+      owed: supported && job && isJobInstalled(job) ? i.due - local : 0,
       unconfirmed: supported ? unconfirmed : 0,
       issues,
     };
@@ -100,10 +87,10 @@ export function calculateFinance(
     0,
   );
   const unconfirmedUnfinished = sum((r) =>
-      r.job && !isInstalled(r.job.status) ? r.unconfirmed : 0,
+      r.job && !isJobInstalled(r.job) ? r.unconfirmed : 0,
     ),
     unconfirmedInstalled = sum((r) =>
-      r.job && isInstalled(r.job.status) ? r.unconfirmed : 0,
+      r.job && isJobInstalled(r.job) ? r.unconfirmed : 0,
     ),
     unconfirmedUnknown = sum((r) => (!r.job ? r.unconfirmed : 0));
   const unlinked = rows.filter((r) => !r.job).length;
@@ -111,9 +98,11 @@ export function calculateFinance(
     input.bank.stale ||
     unmatchedReceipts > 0 ||
     unlinked > 0 ||
-    unconfirmedUnfinished > 0 ||
     rows.some((r) => r.issues.length > 0);
   return {
+    bankChecked: input.bankChecked !== false,
+    unclassifiedOwed: sum(r => !r.job && r.currency === "NZD" ? r.due : 0),
+    totalXeroOwed: sum(r => r.currency === "NZD" ? r.due : 0),
     checkedAt: input.checkedAt,
     bank: input.bank,
     historyStart: input.historyStart,

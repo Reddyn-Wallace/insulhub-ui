@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DashboardResponse } from "@/lib/finance/dashboard";
-import { isInstalled } from "@/lib/finance/model";
+import { isJobInstalled } from "@/lib/finance/model";
 import {
   ReviewPanel,
   type ReviewTarget,
@@ -14,7 +14,7 @@ import {
   inputClass,
   buttonClass,
 } from "@/components/finance/format";
-type View = "deposits" | "owed" | "all" | "review" | "history";
+type View = "deposits" | "owed" | "all" | "unlinked" | "review" | "history";
 function Metric({
   label,
   value,
@@ -60,6 +60,8 @@ export default function FinancePage() {
   const [data, setData] = useState<DashboardResponse | null>(null),
     [busy, setBusy] = useState(true),
     [error, setError] = useState(""),
+    [bankBusy, setBankBusy] = useState(false),
+    [bankError, setBankError] = useState(""),
     [view, setView] = useState<View>("deposits"),
     [search, setSearch] = useState(""),
     [limit, setLimit] = useState(40),
@@ -67,11 +69,11 @@ export default function FinancePage() {
     [includeMatched, setIncludeMatched] = useState(false),
     [target, setTarget] = useState<ReviewTarget | null>(null),
     [expanded, setExpanded] = useState<string | null>(null);
-  const load = useCallback(async () => {
+  const load = useCallback(async (refresh = false) => {
     setBusy(true);
     setError("");
     try {
-      setData(await financeApi("dashboard"));
+      setData(await financeApi(refresh ? "dashboard?refresh=1" : "dashboard"));
     } catch (e) {
       setData(null);
       setError(e instanceof Error ? e.message : "Could not load cash data.");
@@ -82,15 +84,21 @@ export default function FinancePage() {
   useEffect(() => {
     void load();
   }, [load]);
+  async function loadBank() {
+    setBankBusy(true); setBankError("");
+    try { setData(await financeApi("dashboard?bank=1")); }
+    catch(e) {setBankError(e instanceof Error ? e.message : "Bank check unavailable");}
+    finally {setBankBusy(false);}
+  }
   const rows = useMemo(
     () =>
       data?.rows
         .filter((r) => {
           const scope =
             view === "deposits"
-              ? !!r.job && !isInstalled(r.job.status)
-              : view === "owed"
-                ? !!r.job && isInstalled(r.job.status) && r.due > 0
+              ? !!r.job && !isJobInstalled(r.job)
+              : view === "unlinked" ? !r.job : view === "owed"
+                ? !!r.job && isJobInstalled(r.job) && r.due > 0
                 : true;
           return (
             scope &&
@@ -227,7 +235,7 @@ export default function FinancePage() {
             </Link>
             <button
               className={buttonClass}
-              onClick={() => void load()}
+              onClick={() => void load(true)}
               disabled={busy}
             >
               {busy ? "Checking sources…" : "Refresh figures"}
@@ -256,8 +264,7 @@ export default function FinancePage() {
               Reading bank, Xero and installation records…
             </p>
             <p className="mt-2 text-sm text-slate-500">
-              The first check includes the available bank history and may take a
-              minute.
+              Loading Xero invoices and CRM job status. Bank reconciliation loads separately.
             </p>
           </div>
         )}
@@ -270,9 +277,7 @@ export default function FinancePage() {
                     Known amounts · review still needed
                   </p>
                   <p className="mt-1 text-xs leading-5 text-amber-900">
-                    {data.unlinked} unlinked invoices ·{" "}
-                    {money(data.unmatchedReceipts)} incoming bank transactions
-                    awaiting classification
+                    {data.unlinked} invoices need a job link · {money(data.unclassifiedOwed)} outstanding on unlinked invoices
                     {data.staleDecisions.length
                       ? ` · ${data.staleDecisions.length} saved decisions need rechecking`
                       : ""}
@@ -281,9 +286,9 @@ export default function FinancePage() {
                 </div>
                 <button
                   className="text-sm font-semibold text-amber-950 underline underline-offset-4"
-                  onClick={() => changeView("review")}
+                  onClick={() => changeView("unlinked")}
                 >
-                  Review evidence →
+                  Review job links →
                 </button>
               </div>
             )}
@@ -301,7 +306,7 @@ export default function FinancePage() {
               <Metric
                 label="Deposits for unfinished jobs"
                 value={data.reserved}
-                note="Known gross advances settled into this account. Partial work stays reserved."
+                note="Xero paid amounts for jobs not yet installed. A bank match is not required."
               />
               <Metric
                 label="Bank less known deposits"
@@ -311,11 +316,12 @@ export default function FinancePage() {
               <Metric
                 label="Owed for installed jobs"
                 value={data.owed}
-                note={`Known linked invoices: Xero ${money(data.xeroOwed)} less ${money(data.localAdjustment)} bank-backed adjustments.`}
+                note={`Xero amount due on installed jobs. ${money(data.unclassifiedOwed)} additional debt needs a job link.`}
               />
             </div>
             <section className="mt-5 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
               <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                {!data.bankChecked ? <><h2 className="text-sm font-semibold">Bank reconciliation · separate check</h2><p className="mt-3 text-sm text-slate-600">Xero payments are already included above. Check bank settlement and unmatched receipts when needed; this does not change the payment totals.</p><button disabled={bankBusy} className={buttonClass + " mt-4"} onClick={() => void loadBank()}>{bankBusy ? "Checking bank history…" : "Load bank reconciliation"}</button>{bankError && <p role="alert" className="mt-3 text-sm text-rose-700">{bankError}</p>}</> : <>
                 <h2 className="text-sm font-semibold">
                   Paid in Xero · bank settlement not confirmed
                 </h2>
@@ -343,7 +349,7 @@ export default function FinancePage() {
                   Includes historical payments without matching bank evidence.
                   These are not extra cash or customer debt, and are not
                   necessarily Windcave payments in transit.
-                </p>
+                </p></>}
               </div>
               <div className="rounded-2xl border border-slate-200 bg-white p-5">
                 <div className="flex items-center justify-between">
@@ -378,8 +384,7 @@ export default function FinancePage() {
                   </summary>
                   <p className="mt-2">
                     History requested from {data.historyStart.slice(0, 10)}.
-                    Actual history depends on the bank feed; older deposits
-                    require confirmed opening evidence. Checking sources does
+                    Actual history depends on the bank feed; deposit amounts use Xero regardless of bank matching. Checking sources does
                     not force an Akahu refresh.
                   </p>
                   {data.warnings.map((w) => (
@@ -389,9 +394,7 @@ export default function FinancePage() {
                   ))}
                   <p className="mt-2">
                     All totals NZD including GST. Credits reduce invoice debt;
-                    they do not prove cash received. Cancelled or partially
-                    installed jobs retain confirmed advances until a settled
-                    refund or an explicit retained-amount release.
+                    they do not count as payments. Jobs are installed or not installed. CRM completed stage or an installed result releases advances. Xero paid amounts remain reserved for other jobs.
                   </p>
                 </details>
               </div>
@@ -408,6 +411,7 @@ export default function FinancePage() {
                       ["deposits", "Unfinished work"],
                       ["owed", "To collect"],
                       ["all", "All invoices"],
+                  ["unlinked", "Needs linking"],
                       ["review", "Bank review"],
                       ["history", "Decision history"],
                     ] as [View, string][]
@@ -459,7 +463,8 @@ export default function FinancePage() {
                   </div>
                 </div>
               )}
-              {view === "review" && (
+              {view === "review" && !data.bankChecked && <div className="p-6"><p className="mb-4 text-sm text-slate-600">Bank history is loaded separately to keep the overview fast.</p><button className={buttonClass} disabled={bankBusy} onClick={() => void loadBank()}>{bankBusy ? "Checking bank history…" : "Load bank reconciliation"}</button>{bankError && <p role="alert">{bankError}</p>}</div>}
+              {view === "review" && data.bankChecked && (
                 <>
                   <div className="flex flex-wrap gap-5 px-5 pb-5 text-sm text-slate-600">
                     <label className="flex items-center gap-2">
@@ -590,11 +595,9 @@ export default function FinancePage() {
                                   {(r.credited / 100).toFixed(2)}
                                 </p>
                                 <p>
-                                  Bank-backed adjustment{" "}
-                                  {money(r.localAdjustment)} · Bank settlement
-                                  unconfirmed {money(r.unconfirmed)}
+                                  {data.bankChecked ? `Bank settlement unconfirmed ${money(r.unconfirmed)}` : "Bank settlement not checked. Xero payments are included."}
                                 </p>
-                                <p>{r.link.method}</p>
+                                <p>{r.link.method}</p><p>CRM: {r.job?.status || "Unknown"} · stage {r.job?.stage || "Unknown"}{r.job?.detailVerified ? " · verified from job detail" : ""}</p>
                                 {r.allocations.map((a, n) => (
                                   <p key={n}>
                                     {money(a.gross)} customer amount · fee{" "}
@@ -624,16 +627,9 @@ export default function FinancePage() {
                                       setTarget({ kind: "opening", id: r.id })
                                     }
                                   >
-                                    Historical advance
+                                    Historical bank evidence
                                   </button>
-                                  <button
-                                    className="font-semibold text-teal-700"
-                                    onClick={() =>
-                                      setTarget({ kind: "release", id: r.id })
-                                    }
-                                  >
-                                    Retained-amount release
-                                  </button>
+
                                 </div>
                               </div>
                             )}
@@ -651,7 +647,7 @@ export default function FinancePage() {
                                   {r.job.name}
                                 </p>
                                 <p className="mt-2 text-xs">
-                                  {isInstalled(r.job.status)
+                                  {isJobInstalled(r.job)
                                     ? "Installed"
                                     : r.job.status === "INSTALL_NOT_FINISHED"
                                       ? "Partly installed"
@@ -692,7 +688,7 @@ export default function FinancePage() {
                                   ? "Bank evidence linked"
                                   : r.paid === 0
                                     ? "No payment recorded"
-                                    : "Check detail"}
+                                    : "Xero payment recorded"}
                           </td>
                         </tr>
                       ))}
@@ -773,7 +769,7 @@ export default function FinancePage() {
             data={data}
             target={target}
             onClose={() => setTarget(null)}
-            onSaved={load}
+            onSaved={() => load(true)}
           />
         )}
       </div>

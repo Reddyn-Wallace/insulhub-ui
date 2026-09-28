@@ -66,6 +66,7 @@ export function validateReview(
       v.reason.length <= 1000,
     "Add a clear reason or settlement evidence (5–1000 characters).",
   );
+  check(v.kind !== "release", "Historical retained releases no longer change Xero-based totals. Undo the old decision if needed.");
   let key: string;
   if (v.kind === "link") {
     key = "link:" + v.invoiceId;
@@ -146,7 +147,7 @@ export function validateReview(
           "That Xero payment is already allocated.",
         );
     }
-  } else if (v.kind === "opening" || v.kind === "release") {
+  } else if (v.kind === "opening") {
     key = v.kind + ":" + v.invoiceId;
     check(
       integer(v.amount) && v.amount > 0,
@@ -180,10 +181,6 @@ export function validateReview(
     check(
       gross >= 0 && gross <= row.total,
       "Allocation exceeds the invoice total or refunds exceed evidenced receipts.",
-    );
-    check(
-      row.released <= gross,
-      "Release exceeds the remaining evidenced advance.",
     );
   }
   return key;

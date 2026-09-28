@@ -3,8 +3,7 @@ const norm = (s: string) => s.trim().toUpperCase();
 // Only the complete label formats verified in the owner's Xero records.
 export function quoteReference(reference: string) {
   const value = norm(reference);
-  return /^(?:QUOTE #)([A-Z]+\d+)$/.exec(value)?.[1] ||
-    /^([A-Z]+\d+) \(DEPOSIT\)$/.exec(value)?.[1] || value;
+  return /^(?:(?:QUOTE|DEPOSIT)(?:\s*#\s*|\s+)|#)?([A-Z]+\d+(?:-\d+)?)(?:\s+\(DEPOSIT\))?$/.exec(value)?.[1] || value;
 }
 export function linkInvoices(
   invoices: Array<{ id: string; number: string; reference: string }>,

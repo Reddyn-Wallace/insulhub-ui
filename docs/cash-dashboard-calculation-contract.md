@@ -1,3 +1,20 @@
+# Current calculation contract — 28 September 2026
+
+This section supersedes the original bank-evidence-only contract below, following the owner's reviewer feedback and explicit binary installation clarification.
+
+- **A — Bank balance:** latest Akahu Trading Account current balance, excluding overdraft availability, with its source timestamp.
+- **B — Paid advances for jobs not installed:** sum Xero invoice AmountPaid for NZD invoices linked to CRM jobs not installed. Bank matching is not a prerequisite. Historical opening allocations, bank receipts and retained-release decisions never add to or subtract from this total. Paid final invoices are also advances until installation is done.
+- **C — Owed for installed jobs:** sum Xero invoice AmountDue for NZD invoices linked to installed CRM jobs. Credits are already represented in Xero due. Bank receipts do not create an extra deduction; potential unreconciled receipts appear in the separate bank check.
+- **Job status is binary:** installed or not installed. Detailed CRM installed-result enums establish installed. Completed CRM stage supports legacy records whose default installation result was not maintained. An explicit INSTALL_NOT_FINISHED result blocks that fallback and is flagged if the stage says completed. No completed-work valuation or partial-payment reserve percentage is introduced.
+- **Links:** whole verified quote labels and direct CRM invoice numbers; names only select candidate jobs for direct invoice verification. Conflicting or missing evidence remains unlinked. Unlinked outstanding debt is shown separately, never silently dropped or called installed debt.
+- **Bank reconciliation:** optional, separate and timestamped. Paid-but-unmatched in Xero can include settlement delay or historical missing evidence; it is not extra debt. Bank-check failure does not remove an already loaded overview.
+- **Freshness/performance:** overview skips historical bank/payment reads. A 60-second owner-scoped server-memory cache and in-flight deduplication reduce repeat loading; explicit refresh bypasses it. Every request still verifies the canonical owner. HTTP responses remain no-store/private.
+- **Old review records:** preserved for audit. Historical retained releases are incompatible with the new binary calculation and must be flagged rather than applied. Owner invoice links still apply; bank allocations remain separate evidence.
+
+Examples: Xero paid 1,000/not installed/unmatched bank => B 1,000. Same job installed => B 0. Installed invoice due 600 with a 400 unmatched bank receipt => C 600 until Xero is reconciled. Unlinked invoice due 600 => 600 in unclassified outstanding, not silently assumed installed.
+
+## Historical contract — superseded
+
 # Insulmax cash dashboard — chunk 1
 
 Status: calculation rules and acceptance examples approved by the owner, including the three highlighted advance-payment, cancellation and processing-fee policies. No live connections or product changes. Prepared 27 September 2026.

@@ -6,6 +6,10 @@ export type FinanceJob = {
   archived: boolean;
   name: string;
   invoiceNumbers: string[];
+  stage?: string;
+  contact?: string;
+  detailVerified?: boolean;
+  completionConflict?: boolean;
 };
 export type FinanceInvoice = {
   id: string;
@@ -52,6 +56,7 @@ export type FinanceInputs = {
   payments: FinancePayment[];
   receipts: FinanceReceipt[];
   warnings: string[];
+  bankChecked?: boolean;
 };
 export type Allocation = {
   invoiceId: string;
@@ -92,6 +97,8 @@ export const isInstalled = (status: string) =>
   ["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"].includes(
     status,
   );
+export const isJobInstalled = (job: FinanceJob) =>
+  isInstalled(job.status) || (job.stage === "COMPLETED" && job.status !== "INSTALL_NOT_FINISHED");
 export const cents = (v: unknown) => {
   if (
     typeof v !== "number" ||
