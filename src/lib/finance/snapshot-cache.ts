@@ -21,7 +21,7 @@ export async function dashboardInputs(
   const promise = loadFinanceInputs(owner, bankCheck)
     .then((input) => {
       if (cache.size > 10) cache.clear();
-      cache.set(key, { input, expires: Date.now() + 60000 });
+      cache.set(key, { input, expires: Date.now() + 300000 });
       return input;
     })
     .finally(() => pending.delete(key));

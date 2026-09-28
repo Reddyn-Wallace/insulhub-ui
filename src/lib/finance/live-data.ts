@@ -5,6 +5,7 @@ import { getBankSnapshot, getBankTransactions } from "./akahu";
 import { withXeroAccess } from "./xero-oauth";
 import {
   cents,
+  isJobInstalled,
   type FinanceInvoice,
   type FinanceJob,
   type FinancePayment,
@@ -187,8 +188,15 @@ export async function verifyCrmDetails(
   jobs: FinanceJob[],
   invoices: FinanceInvoice[],
 ) {
-  const links = linkInvoices(invoices, jobs, []),
-    selected = new Set([...links.values()].flatMap((l) => l.candidates));
+  const links = linkInvoices(invoices, jobs, []);
+  const selected = new Set<string>();
+  for (const link of links.values()) {
+    if (!link.jobId) for (const id of link.candidates) selected.add(id);
+    else {
+      const job = jobs.find((j) => j.id === link.jobId);
+      if (job && !isJobInstalled(job)) selected.add(job.id);
+    }
+  }
   const normalName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
   const contacts = new Set(
     invoices
@@ -332,13 +340,20 @@ export async function loadFinanceInputs(
   const now = new Date(),
     historyEnd = now.toISOString(),
     historyStart = new Date(now.getTime() - 730 * 86400000).toISOString();
+  const timings: Record<string, number> = {};
+  async function timed<T>(name: string, action: Promise<T>) {
+    const start = Date.now();
+    const result = await action;
+    timings[name] = Date.now() - start;
+    return result;
+  }
   const [bank, transactions, jobs, xero] = await Promise.all([
-    getBankSnapshot(),
+    timed("bank", getBankSnapshot()),
     bankCheck
       ? getBankTransactions(historyStart, historyEnd)
       : Promise.resolve([]),
-    readCrmJobs(owner.token),
-    readXeroData(owner.userId, bankCheck),
+    timed("crmIndex", readCrmJobs(owner.token)),
+    timed("xero", readXeroData(owner.userId, bankCheck)),
   ]);
   const receipts = transactions.map((t) => ({
     id: t.id,
@@ -347,12 +362,13 @@ export async function loadFinanceInputs(
     description: t.description,
     reference: t.reference ? JSON.stringify(t.reference) : "",
   }));
-  const verifiedJobs = await verifyCrmDetails(owner.token, jobs, xero.invoices);
+  const verifiedJobs = await timed("crmDetails", verifyCrmDetails(owner.token, jobs, xero.invoices));
   console.info(
     "finance_load",
     JSON.stringify({
       mode: bankCheck ? "bank" : "overview",
       elapsedMs: Date.now() - started,
+      timings,
       jobs: jobs.length,
       invoices: xero.invoices.length,
     }),

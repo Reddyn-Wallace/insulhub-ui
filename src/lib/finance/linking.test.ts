@@ -93,3 +93,22 @@ it("normalises other observed whole quote labels and preserves revision suffixes
     ).get("i1")?.jobId,
   ).toBe("j2");
 });
+it("uses one exact CRM invoice link to disambiguate a duplicated quote, but never conflicting references", () => {
+  const a = { ...job("a"), invoiceNumbers: ["INV-0426"] },
+    b = job("b");
+  expect(linkInvoices([invoice()], [a, b], []).get("i1")).toMatchObject({
+    jobId: "a",
+    method: "CRM invoice number",
+  });
+  expect(
+    linkInvoices([invoice()], [{ ...a, quote: "OTHER" }, b], []).get("i1")
+      ?.jobId,
+  ).toBeNull();
+  expect(
+    linkInvoices(
+      [invoice()],
+      [a, { ...b, invoiceNumbers: ["INV-0426"] }],
+      [],
+    ).get("i1")?.jobId,
+  ).toBeNull();
+});

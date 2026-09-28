@@ -35,7 +35,14 @@ export function linkInvoices(
         norm(i.reference) === norm(j.id) ||
         (!!j.quote && quoteReference(i.reference) === norm(j.quote)),
     );
-    const candidates = [...new Set([...direct, ...refs].map((j) => j.id))];
+    // An exact invoice relation resolves duplicate quote labels only when it agrees
+    // with the reference (or no quote reference is available).
+    const verifiedDirect =
+      direct.length === 1 &&
+      (refs.length === 0 || refs.some((j) => j.id === direct[0].id));
+    const candidates = verifiedDirect
+      ? [direct[0].id]
+      : [...new Set([...direct, ...refs].map((j) => j.id))];
     result.set(i.id, {
       jobId: candidates.length === 1 ? candidates[0] : null,
       method:

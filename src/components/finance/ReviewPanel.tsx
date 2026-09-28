@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { quoteReference } from "@/lib/finance/linking";
 import type { DashboardResponse } from "@/lib/finance/dashboard";
 import type { Allocation, ReviewValue } from "@/lib/finance/model";
 import { money, financeApi, inputClass, buttonClass } from "./format";
@@ -28,7 +29,9 @@ export function ReviewPanel({
   const key = target.kind + ":" + target.id,
     existing = data.decisions.find((d) => d.key === key);
   const [reason, setReason] = useState(""),
-    [jobSearch, setJobSearch] = useState(invoice?.reference || ""),
+    [jobSearch, setJobSearch] = useState(
+      quoteReference(invoice?.reference || ""),
+    ),
     [jobId, setJobId] = useState(""),
     [nonCustomer, setNonCustomer] = useState(false),
     [amount, setAmount] = useState(""),

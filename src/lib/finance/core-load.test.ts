@@ -42,7 +42,7 @@ it("overview reads invoice amounts and detailed jobs without payments or bank hi
           jobs: {
             total: 1,
             results: [
-              { _id: "j", quote: { quoteNumber: "AP1" }, stage: "COMPLETED" },
+              { _id: "j", quote: { quoteNumber: "AP1" }, stage: "INVOICE" },
             ],
           },
         },
@@ -51,7 +51,7 @@ it("overview reads invoice amounts and detailed jobs without payments or bank hi
       data: {
         j0: {
           _id: "j",
-          stage: "COMPLETED",
+          stage: "INVOICE",
           installation: { installStatus: "INSTALLED_AS_QUOTED" },
           finalInvoice: { xeroInvoiceNumber: "INV-1" },
         },
