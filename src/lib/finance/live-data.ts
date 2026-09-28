@@ -362,7 +362,10 @@ export async function loadFinanceInputs(
     description: t.description,
     reference: t.reference ? JSON.stringify(t.reference) : "",
   }));
-  const verifiedJobs = await timed("crmDetails", verifyCrmDetails(owner.token, jobs, xero.invoices));
+  const verifiedJobs = await timed(
+    "crmDetails",
+    verifyCrmDetails(owner.token, jobs, xero.invoices),
+  );
   console.info(
     "finance_load",
     JSON.stringify({

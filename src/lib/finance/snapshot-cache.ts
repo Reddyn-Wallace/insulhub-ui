@@ -1,7 +1,8 @@
 import "server-only";
 import { loadFinanceInputs } from "./live-data";
+import { readSnapshot, writeSnapshot } from "./snapshot-store";
 import type { FinanceInputs } from "./model";
-// Short-lived server memory only. Every request still verifies its CRM owner.
+// Every request still verifies its CRM owner. Encrypted snapshots survive serverless instance changes.
 const cache = new Map<string, { expires: number; input: FinanceInputs }>();
 const pending = new Map<string, Promise<FinanceInputs>>();
 export function clearDashboardInputs() {
@@ -16,15 +17,27 @@ export async function dashboardInputs(
   const key = owner.userId + ":" + (bankCheck ? "bank" : "overview");
   const saved = cache.get(key);
   if (!force && saved && saved.expires > Date.now()) return saved.input;
-  const running = pending.get(key);
+  const pendingKey = force ? key + ":fresh" : key;
+  const running = pending.get(key + ":fresh") || pending.get(pendingKey);
   if (running) return running;
-  const promise = loadFinanceInputs(owner, bankCheck)
+  const promise = (async () => {
+    const mode = bankCheck ? "bank" : "overview";
+    if (!force) {
+      const stored = await readSnapshot(owner.userId, mode).catch(() => null);
+      if (stored) return stored;
+    }
+    const input = await loadFinanceInputs(owner, bankCheck);
+    await writeSnapshot(owner.userId, mode, input).catch(() => undefined);
+    return input;
+  })()
     .then((input) => {
       if (cache.size > 10) cache.clear();
-      cache.set(key, { input, expires: Date.now() + 300000 });
+      const expires = Date.parse(input.checkedAt) + 300000;
+      if (!cache.has(key) || cache.get(key)!.expires < expires)
+        cache.set(key, { input, expires });
       return input;
     })
-    .finally(() => pending.delete(key));
-  pending.set(key, promise);
+    .finally(() => pending.delete(pendingKey));
+  pending.set(pendingKey, promise);
   return promise;
 }
