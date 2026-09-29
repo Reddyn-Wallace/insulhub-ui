@@ -40,7 +40,18 @@ export type FinanceReceipt = {
   description: string;
   reference: string;
 };
+export type CreditCardSnapshot =
+  | {
+      name: string;
+      currentCents: number;
+      owedCents: number;
+      creditCents: number;
+      balanceUpdatedAt: string;
+      stale: boolean;
+    }
+  | { error: string };
 export type FinanceInputs = {
+  creditCard?: CreditCardSnapshot;
   checkedAt: string;
   bank: {
     accountName: string;

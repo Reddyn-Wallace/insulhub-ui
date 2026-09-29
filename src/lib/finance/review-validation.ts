@@ -44,6 +44,16 @@ export function decisionFingerprint(
         ? job(id)
         : invoice(id);
   if (!evidence) return "";
+  // Preserve existing decision identities while retaining full bank timestamps for NZ display/window checks.
+  if (kind === "receipt") {
+    const receipt = evidence as FinanceInputs["receipts"][number];
+    evidence = {
+      ...receipt,
+      date: Number.isFinite(Date.parse(receipt.date))
+        ? new Date(receipt.date).toISOString().slice(0, 10)
+        : "",
+    };
+  }
   if (value?.kind === "receipt" && !value.nonCustomer)
     evidence = {
       receipt: evidence,

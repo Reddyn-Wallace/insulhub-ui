@@ -1,7 +1,11 @@
 import "server-only";
 import { linkInvoices } from "./linking";
 import { FinanceError, safeFetch } from "./errors";
-import { getBankSnapshot, getBankTransactions } from "./akahu";
+import {
+  getBankSnapshot,
+  getBankTransactions,
+  getCreditCardSnapshot,
+} from "./akahu";
 import { withXeroAccess } from "./xero-oauth";
 import {
   cents,
@@ -349,16 +353,22 @@ export async function loadFinanceInputs(
     timings[name] = Date.now() - start;
     return result;
   }
-  const [bank, transactions, jobs, xero] = await Promise.all([
+  const [bank, transactions, jobs, xero, creditCard] = await Promise.all([
     timed("bank", getBankSnapshot()),
     getBankTransactions(historyStart, historyEnd),
     timed("crmIndex", readCrmJobs(owner.token)),
     timed("xero", readXeroData(owner.userId, true)),
+    timed(
+      "creditCard",
+      getCreditCardSnapshot().catch(() => ({
+        error: "Credit card balance unavailable. Try refreshing sources.",
+      })),
+    ),
   ]);
   const receipts = transactions.map((t) => ({
     id: t.id,
     amount: cents(t.amount),
-    date: providerDate(t.date),
+    date: t.date || "",
     description: t.description,
     reference: t.reference ? JSON.stringify(t.reference) : "",
   }));
@@ -379,6 +389,7 @@ export async function loadFinanceInputs(
   return {
     checkedAt: new Date().toISOString(),
     bank,
+    creditCard,
     historyStart,
     historyEnd,
     jobs: verifiedJobs,

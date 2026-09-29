@@ -22,7 +22,7 @@ function Metric({
   dark = false,
 }: {
   label: string;
-  value: number;
+  value: number | string;
   note: string;
   dark?: boolean;
 }) {
@@ -43,7 +43,7 @@ function Metric({
         {label}
       </p>
       <p className="mt-3 text-3xl font-semibold tracking-tight tabular-nums lg:text-4xl">
-        {money(value)}
+        {typeof value === "number" ? money(value) : value}
       </p>
       <p
         className={
@@ -277,7 +277,7 @@ export default function FinancePage() {
         )}
         {data && (
           <>
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <Metric
                 label="Bank balance"
                 value={data.bank.currentCents}
@@ -304,6 +304,27 @@ export default function FinancePage() {
                       : "Unpaid amounts for installed jobs only."
                 }
               />
+              {"error" in data.creditCard ? (
+                <Metric
+                  label="Credit card owed"
+                  value="Unavailable"
+                  note={data.creditCard.error}
+                />
+              ) : (
+                <Metric
+                  label={
+                    data.creditCard.creditCents > 0
+                      ? "Credit card · in credit"
+                      : "Credit card owed"
+                  }
+                  value={
+                    data.creditCard.creditCents > 0
+                      ? data.creditCard.creditCents
+                      : data.creditCard.owedCents
+                  }
+                  note={`${data.creditCard.name} · Akahu balance updated ${when(data.creditCard.balanceUpdatedAt)}${data.creditCard.stale ? " · Update overdue" : ""}. Separate from bank cash.`}
+                />
+              )}
             </div>
             <p className="mt-5 text-xs leading-6 text-slate-500">
               NZD · Xero and job status checked {when(data.checkedAt)}.<br />

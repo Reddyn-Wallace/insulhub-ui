@@ -235,3 +235,11 @@ it("resolves a reused paid-deposit reference only with the same verified job, ex
   Object.assign(d.invoices[2], { status: "PAID", paid: 646418, due: 0 });
   expect(recentReceiptAdjustments(d, []).size).toBe(0);
 });
+
+it("uses the actual bank timestamp at the seven-day boundary", () => {
+  const d = input();
+  d.receipts[0].date = "2026-09-22T11:00:00Z";
+  expect(recentReceiptAdjustments(d, []).get("i")).toBe(40000);
+  d.receipts[0].date = "2026-09-22T09:00:00Z";
+  expect(recentReceiptAdjustments(d, []).size).toBe(0);
+});

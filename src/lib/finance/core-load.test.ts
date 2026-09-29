@@ -7,6 +7,9 @@ vi.mock("./xero-oauth", () => ({
   ) => run("token", "tenant"),
 }));
 vi.mock("./akahu", () => ({
+  getCreditCardSnapshot: vi.fn(async () => {
+    throw new Error("Card offline");
+  }),
   getBankSnapshot: vi.fn(async () => ({ currentCents: 10000 })),
   getBankTransactions: vi.fn(async () => []),
 }));
@@ -61,6 +64,9 @@ it("overview reads invoice amounts and detailed jobs with one week of bank recei
   expect(getBankTransactions).toHaveBeenCalledOnce();
   const [start, end] = vi.mocked(getBankTransactions).mock.calls[0];
   expect(Date.parse(end) - Date.parse(start)).toBe(7 * 86400000);
+  expect(d.creditCard).toEqual({
+    error: "Credit card balance unavailable. Try refreshing sources.",
+  });
   expect(d.recentBankChecked).toBe(true);
   expect(d.bankChecked).toBe(false);
   expect(d.invoices[0].paid).toBe(1000);

@@ -109,3 +109,37 @@ export async function getBankTransactions(start: string, end: string) {
     "Bank transaction pagination exceeded the safety limit.",
   );
 }
+
+export async function getCreditCardSnapshot() {
+  const id = required("AKAHU_CREDIT_CARD_ACCOUNT_ID");
+  const { item } = await akahu("accounts/" + encodeURIComponent(id));
+  if (
+    item?._id !== id ||
+    item.status !== "ACTIVE" ||
+    item.type !== "CREDITCARD"
+  )
+    throw new FinanceError(502, "The selected credit card is unavailable.");
+  const current = item.balance?.current;
+  if (
+    item.balance?.currency !== "NZD" ||
+    typeof current !== "number" ||
+    !Number.isFinite(current) ||
+    !Number.isSafeInteger(Math.round(current * 100))
+  )
+    throw new FinanceError(
+      502,
+      "The credit card returned an invalid NZD balance.",
+    );
+  const balanceUpdatedAt = timestamp(item.refreshed?.balance);
+  if (!balanceUpdatedAt)
+    throw new FinanceError(502, "The credit card has no valid update time.");
+  const currentCents = Math.round(current * 100);
+  return {
+    name: String(item.name || "Business credit card"),
+    currentCents,
+    owedCents: Math.max(0, -currentCents),
+    creditCents: Math.max(0, currentCents),
+    balanceUpdatedAt,
+    stale: Date.now() - Date.parse(balanceUpdatedAt) > 26 * 3600000,
+  };
+}

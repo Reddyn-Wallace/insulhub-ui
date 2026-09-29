@@ -115,3 +115,9 @@ Previously identified exceptions to carry into the live register: INV-0389 and I
 Chunk 1 review is complete. Chunk 2 covers source connections. No credentials, production records, schema, payment instructions or application code are changed in chunk 1.
 
 29September receipt matching refinement: compact `Inv0441` is accepted without losing digits. A reused paid-deposit number can identify the later full invoice only with explicit same quote, same installed CRM job, receipt exceeding the entire fully paid deposit, and a unique later full invoice value. Paid target invoices remain in the candidate set. Ambiguous or partial reused-reference receipts remain conservative. Details show the supporting receipt and rule; the main view remains three figures.
+
+## Business credit card
+
+Visa Business is a fourth separate headline figure, pinned through `AKAHU_CREDIT_CARD_ACCOUNT_ID`. Use the negative of Akahu `balance.current` as debt owed; positive current balances are explicitly labelled in credit. Never use available credit or the limit. Show the actual balance refresh time and overdue status. Card failures show unavailable without changing bank cash, deposits, or completed-job debt.
+
+Bank receipts retain their full timestamp for the rolling seven-day boundary and NZ display. Existing review fingerprints retain their historical UTC date normalisation.

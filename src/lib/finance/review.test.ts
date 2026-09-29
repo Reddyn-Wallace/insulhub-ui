@@ -147,3 +147,14 @@ it("invalidates receipt allocations when target invoice identity facts change bu
   d.invoices[0].reference = "DIFFERENT";
   expect(activeDecisions(d, [saved]).stale).toHaveLength(1);
 });
+it("preserves saved receipt identity when retaining its full bank timestamp", () => {
+  const d = data();
+  d.receipts[0].date = "2026-09-27";
+  const before = decisionFingerprint(d, "receipt:r");
+  d.receipts[0].date = "2026-09-27T21:18:04.000Z";
+  expect(decisionFingerprint(d, "receipt:r")).toBe(before);
+  d.receipts[0].date = "2026-09-28T10:18:04.000+13:00";
+  expect(decisionFingerprint(d, "receipt:r")).toBe(before);
+  d.receipts[0].amount += 1;
+  expect(decisionFingerprint(d, "receipt:r")).not.toBe(before);
+});
