@@ -7,6 +7,7 @@ Required server-only variables:
 - `FINANCE_OWNER_EMAIL`: the owner's CRM email, verified server-side through canonical `me`.
 - `FINANCE_OWNER_USER_ID`: canonical ID obtained from the email-verified identity screen. Until pinned, all financial reads and Xero authorisation are denied.
 - `FINANCE_APP_ORIGIN`: the chosen HTTPS deployment origin. For the registered production app: `https://insulhub-ui.vercel.app`.
+- `AKAHU_CREDIT_CARD_ACCOUNT_ID`: confirmed Visa Business card; optional isolated fourth figure.
 - `AKAHU_APP_TOKEN`, `AKAHU_USER_TOKEN`, `AKAHU_ACCOUNT_ID`: the confirmed Trading Account only.
 - `XERO_CLIENT_ID`, `XERO_CLIENT_SECRET`.
 - `FINANCE_DATABASE_URL`: a **direct**, not transaction-pooled, PostgreSQL connection. Required because refresh uses a session advisory lock. Neon `-pooler` endpoints are rejected.
@@ -106,3 +107,11 @@ Compact INV references now normalise with full digits preserved. Reused-deposit 
 Actual-source replay with current owner decisions gives zero owed for INV-0422, INV-0441 and INV-0440 and total recent adjustments14873.56. Extra correction versus previous logic11341.62.102finance tests, TypeScript and targeted lint passed; independent review found no material issue. Added partial/full catch-up, missing-quote, ambiguous later invoice and already-paid duplicate target cases. Seven-day short-lag scope remains unchanged.
 
 Calendar deployment coordination: commit2b42f3d (native Open job link) cherry-picked as59990a3 before finance changes. Calendar thread confirmed deployment complete and no more deploys planned. Finance deployment preserves that change.
+
+## 29 September 21:56 NZDT final deployment verification
+
+Production deployment `2G6iyJR2kBmiXxG6ZY1fUqYdgcdE`, implementation `167a4bb`, successfully aliased to insulhub-ui.vercel.app. Includes receipt matching12553d1 and calendar native-link59990a3. Fourth separate Visa Business card uses pinned account and reports NZD3,585.30 owed, actual Akahu balance timestamp29Sep19:47NZDT. Bank19,885.21; deposits27,903.99; installed owed52,512.50.
+
+Authenticated live invoice drilldowns verified: INV-0422 Xero paid6,464.18, due/known owed0, receipt28Sep10:18NZDT with explicit RW26353 and reused INV-0340; INV-0441 paid4,877.44, due/known owed0, receipt28Sep14:01NZDT with Inv0441; INV-0440 paid3,531.94, due/known owed0, receipt27Sep16:35NZDT with Inv0440. Xero has now caught up, so local additional deduction correctly0. Earlier pre-reconciliation replay verified all three adjustments. Do not compare total debt by subtracting these receipts alone: other source invoices changed during work.
+
+109 finance tests pass including card debt/credit/unavailable UI states and real PostgreSQL; TypeScript, targeted lint, production build and independent review pass. Calendar source still uses native Link and preserved commit is ancestor of deployment. Details left collapsed on live four-card dashboard. Remaining13 unlinked invoices contain39,534.04 paid and0due; deposits may remain incomplete. Named receipt verification does not certify the whole ledger. Fresh CRM loads still take roughly20seconds; five-minute cache improves repeats.

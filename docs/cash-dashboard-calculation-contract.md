@@ -1,6 +1,6 @@
 # Active update — 29 September 2026
 
-The main view has exactly three figures: latest Akahu bank balance with actual feed time, Xero payments held for not-installed jobs, and money owed for installed jobs only. Other detail is collapsed. No partial-work status exists.
+The main view has four figures: separate business credit card debt, latest Akahu bank balance with actual feed time, Xero payments held for not-installed jobs, and money owed for installed jobs only. Other detail is collapsed. No partial-work status exists.
 
 The overview reads the past seven days of posted bank receipts. A unique full invoice number (including bank space/hyphen normalisation) or active owner allocation is required. Amount alone, unknown/multiple invoice references, processor payouts, conflicting references, stale decisions and ambiguous evidence do not establish automatic adjustments.
 
@@ -114,7 +114,7 @@ Previously identified exceptions to carry into the live register: INV-0389 and I
 
 Chunk 1 review is complete. Chunk 2 covers source connections. No credentials, production records, schema, payment instructions or application code are changed in chunk 1.
 
-29September receipt matching refinement: compact `Inv0441` is accepted without losing digits. A reused paid-deposit number can identify the later full invoice only with explicit same quote, same installed CRM job, receipt exceeding the entire fully paid deposit, and a unique later full invoice value. Paid target invoices remain in the candidate set. Ambiguous or partial reused-reference receipts remain conservative. Details show the supporting receipt and rule; the main view remains three figures.
+29September receipt matching refinement: compact `Inv0441` is accepted without losing digits. A reused paid-deposit number can identify the later full invoice only with explicit same quote, same installed CRM job, receipt exceeding the entire fully paid deposit, and a unique later full invoice value. Paid target invoices remain in the candidate set. Ambiguous or partial reused-reference receipts remain conservative. Details show the supporting receipt and rule; the receipt refinement does not change the headline cash or deposit figures.
 
 ## Business credit card
 
