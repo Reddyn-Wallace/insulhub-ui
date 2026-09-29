@@ -132,3 +132,53 @@ it("verifies invoice links and installation from CRM detail, without matching na
     detailVerified: true,
   });
 });
+it("verifies every competing quote job before finalising customer-corroborated links", async () => {
+  const { linkInvoices } = await import("./linking");
+  const { verifyCrmDetails } = await import("./live-data");
+  const jobs = ["a", "b"].map((id) => ({
+    id,
+    number: id,
+    quote: "AP1",
+    status: "INSTALLED_AS_QUOTED",
+    archived: false,
+    name: "Address",
+    contact: id === "a" ? "Customer A" : "Customer B",
+    invoiceNumbers: [],
+  }));
+  const invoices = [
+    normaliseInvoice({
+      InvoiceID: "i",
+      InvoiceNumber: "INV-1",
+      Reference: "AP1",
+      Contact: { Name: "Customer A" },
+      Status: "PAID",
+      CurrencyCode: "NZD",
+      Total: 10,
+      AmountPaid: 10,
+      AmountDue: 0,
+    })!,
+  ];
+  expect(linkInvoices(invoices, jobs, []).get("i")?.jobId).toBe("a");
+  const fetcher = vi.fn(async (_url: unknown, init?: RequestInit) => {
+    const { variables } = JSON.parse(String(init?.body));
+    expect(Object.values(variables).sort()).toEqual(["a", "b"]);
+    return Response.json({
+      data: Object.fromEntries(
+        Object.entries(variables).map(([key, id]) => [
+          key.replace("id", "j"),
+          {
+            _id: id,
+            stage: "COMPLETED",
+            installation: { installStatus: "INSTALLED_AS_QUOTED" },
+            depositInvoice: id === "b" ? { xeroInvoiceNumber: "INV-1" } : null,
+          },
+        ]),
+      ),
+    });
+  });
+  vi.stubGlobal("fetch", fetcher);
+  const verified = await verifyCrmDetails("token", jobs, invoices);
+  expect(verified.every((j) => j.detailVerified)).toBe(true);
+  expect(linkInvoices(invoices, verified, []).get("i")?.jobId).toBe("b");
+  vi.unstubAllGlobals();
+});

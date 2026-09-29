@@ -195,10 +195,15 @@ export async function verifyCrmDetails(
   const links = linkInvoices(invoices, jobs, []);
   const selected = new Set<string>();
   for (const link of links.values()) {
-    if (!link.jobId) for (const id of link.candidates) selected.add(id);
+    if (!link.jobId || link.method.includes("customer/site"))
+      for (const id of link.candidates) selected.add(id);
     else {
       const job = jobs.find((j) => j.id === link.jobId);
-      if (job && !isJobInstalled(job)) selected.add(job.id);
+      if (
+        job &&
+        (!isJobInstalled(job) || link.method.includes("customer/site"))
+      )
+        selected.add(job.id);
     }
   }
   const normalName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");

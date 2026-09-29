@@ -112,3 +112,83 @@ it("uses one exact CRM invoice link to disambiguate a duplicated quote, but neve
     ).get("i1")?.jobId,
   ).toBeNull();
 });
+it("disambiguates duplicate quotes with exact full customer or exact site-address evidence", () => {
+  const a = { ...job("a"), contact: "Jenny Eagle", name: "50 Dundas Street" },
+    b = { ...job("b"), contact: "Susan Hes", name: "14 Wye Street" };
+  expect(
+    linkInvoices([{ ...invoice(), contact: "Jenny Eagle" }], [a, b], []).get(
+      "i1",
+    )?.jobId,
+  ).toBe("a");
+  expect(
+    linkInvoices(
+      [
+        {
+          ...invoice(),
+          description: "Installation at 50 Dundas Street - Wellington",
+        },
+      ],
+      [a, b],
+      [],
+    ).get("i1")?.jobId,
+  ).toBe("a");
+  expect(
+    linkInvoices([{ ...invoice(), contact: "Jenny" }], [a, b], []).get("i1")
+      ?.jobId,
+  ).toBeNull();
+  expect(
+    linkInvoices(
+      [{ ...invoice(), contact: "Jenny Eagle", description: "14 Wye Street" }],
+      [a, b],
+      [],
+    ).get("i1")?.jobId,
+  ).toBeNull();
+  expect(
+    linkInvoices(
+      [{ ...invoice(), contact: "Jenny Eagle" }],
+      [a, { ...b, contact: "Jenny Eagle" }],
+      [],
+    ).get("i1")?.jobId,
+  ).toBeNull();
+  expect(
+    linkInvoices(
+      [{ ...invoice(), description: "150 Dundas Street" }],
+      [a, b],
+      [],
+    ).get("i1")?.jobId,
+  ).toBeNull();
+});
+it("accepts exact slash quote punctuation and corroborated revision references", () => {
+  expect(
+    linkInvoices([invoice("#R25184/2)")], [job("a", "R25184/2")], []).get("i1")
+      ?.jobId,
+  ).toBe("a");
+  const a = {
+    ...job("a", "E03051"),
+    contact: "Stephen Hart and Amber Von Espy",
+  };
+  expect(
+    linkInvoices(
+      [{ ...invoice("#E03051/2"), contact: a.contact }],
+      [a],
+      [],
+    ).get("i1")?.jobId,
+  ).toBe("a");
+  expect(
+    linkInvoices([invoice("#E03051/2")], [a], []).get("i1")?.jobId,
+  ).toBeNull();
+  expect(
+    linkInvoices(
+      [{ ...invoice("#E03051/2"), contact: a.contact }],
+      [a, { ...job("b", "E03051/2"), contact: "Different Customer" }],
+      [],
+    ).get("i1")?.jobId,
+  ).toBe("b");
+  expect(
+    linkInvoices(
+      [{ ...invoice("#E03051/2"), contact: a.contact }],
+      [a, { ...job("b", "OTHER"), invoiceNumbers: ["INV-0426"] }],
+      [],
+    ).get("i1")?.jobId,
+  ).toBeNull();
+});
