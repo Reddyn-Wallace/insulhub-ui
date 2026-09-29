@@ -39,7 +39,7 @@ function StateTag({ source }: { source?: SourceState<unknown> }) {
       {source?.status === "connected"
         ? "Connected"
         : source?.status === "incomplete"
-          ? "Links need review"
+          ? "Bulk check incomplete"
           : source?.status === "stale"
             ? "Update overdue"
             : source
@@ -300,8 +300,9 @@ export default function Connections() {
                   </p>
                   <ul className="mt-6 space-y-2 text-sm text-slate-700">
                     <li>
-                      {crm.data.missingInvoiceLinks} with missing or unreadable
-                      invoice links
+                      {crm.data.missingInvoiceLinks} jobs had absent or
+                      unreadable invoice fields in this bulk check. This is not
+                      the number of unmatched cash invoices.
                     </li>
                     <li>
                       {crm.data.missingInstallationStatus} without installation
@@ -312,7 +313,10 @@ export default function Connections() {
                     Checked {date(crm.checkedAt)}
                   </p>
                   <p className="mt-4 text-xs leading-5 text-slate-500">
-                    {crm.data.scope}
+                    This connection check covers scheduled, installation,
+                    invoice and completed stages. The cash overview checks all
+                    job stages and uses quote references plus individual invoice
+                    links.
                   </p>
                 </>
               ) : (
@@ -328,9 +332,10 @@ export default function Connections() {
             <strong className="text-slate-900">
               Connection verification only.
             </strong>{" "}
-            Deposits for unfinished jobs and amounts owed for installed jobs
-            will appear after invoice linking and payment matching have been
-            verified.
+            For the actual unresolved invoices and their effect on cash figures,
+            open the cash overview and expand “View invoices and how these
+            figures are worked out”. Bulk field warnings do not mean thousands
+            of jobs need manual fixes.
           </section>
           {xero &&
             xero.status !== "unavailable" &&

@@ -582,7 +582,7 @@ export default function FinancePage() {
                                   <p>
                                     {data.bankChecked
                                       ? `Bank settlement unconfirmed ${money(r.unconfirmed)}`
-                                      : "Bank settlement not checked. Xero payments are included."}
+                                      : "Recent bank receipts checked; older settlement history is not loaded."}
                                   </p>
                                   <p>{r.link.method}</p>
                                   <p>
