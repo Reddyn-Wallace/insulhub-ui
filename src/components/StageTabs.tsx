@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { Fragment } from "react";
 const LEAD_SUB_TABS = [
   { label: "New", value: "NEW" },
   { label: "Quote booked", value: "QUOTE_BOOKED" },
@@ -49,8 +51,8 @@ export default function StageTabs({
       ) : subTabs ? (
         <div className="flex px-3 py-2 gap-2 overflow-x-auto no-scrollbar">
           {subTabs.map((t) => (
+            <Fragment key={t.value}>
             <button
-              key={t.value}
               onClick={() => onSubTabChange(t.value)}
               className={`flex-shrink-0 px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-300 ${
                 subTab === t.value
@@ -63,6 +65,8 @@ export default function StageTabs({
                 <span className="ml-1 opacity-70">({counts[t.value] ?? 0})</span>
               )}
             </button>
+            {activeStage === "QUOTE" && t.value === "DEAD" && <Link href="/jobs/follow-ups?stage=QUOTE" className="flex-shrink-0 px-4 py-1.5 text-xs font-semibold rounded-full bg-gray-50 text-gray-500 hover:bg-gray-100 hover:text-gray-800">Follow-ups</Link>}
+            </Fragment>
           ))}
         </div>
       ) : null}

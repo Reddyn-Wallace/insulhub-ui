@@ -19,7 +19,7 @@
     "partner:live-test-once": "node --conditions=react-server --import tsx scripts/partner-live-test-once.ts",
     "partner:notification-test-once": "node --conditions=react-server --import tsx scripts/partner-notification-test-once.ts",
     "partner:provision": "node scripts/partner-provision.mjs",
-    "test": "npm run test:site-plan-drawings && npm run test:sms-replies && npm run test:partner && npm run test:job-sms && npm run test:communications && npm run test:cloudflare && npm run test:job-email && npm run test:sender-ownership",
+    "test": "npm run test:site-plan-drawings && npm run test:sms-replies && npm run test:partner && npm run test:job-sms && npm run test:communications && npm run test:cloudflare && npm run test:job-email && npm run test:sender-ownership && npm run test:dead-followups",
     "test:job-sms": "vitest run src/lib/job-sms*.test.*",
     "test:job-sms-browser": "node scripts/job-sms-browser-smoke.cjs",
     "job-sms:migrate": "node scripts/job-sms-migrate.mjs",
@@ -27,7 +27,8 @@
     "job-email:migrate": "node scripts/job-email-migrate.mjs",
     "test:sender-ownership": "vitest run src/lib/communication-sender-ownership.test.ts src/lib/communication-oauth*.test.ts src/lib/communication-owned-credentials.test.ts src/lib/campaign-sender-ownership.test.ts",
     "communication-ownership:migrate": "node scripts/communication-ownership-migrate.mjs",
-    "test:job-communications-browser": "node scripts/job-communications-browser-smoke.cjs"
+    "test:job-communications-browser": "node scripts/job-communications-browser-smoke.cjs",
+    "test:dead-followups": "vitest run src/lib/dead-followups"
   },
   "dependencies": {
     "@ducanh2912/next-pwa": "^10.2.9",
