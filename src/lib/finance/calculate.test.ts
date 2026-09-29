@@ -508,3 +508,108 @@ it("does not substitute zero when the credit card is unavailable", () => {
   d.creditCard = { error: "Unavailable" };
   expect(calculateFinance(d, []).bankLessCreditCard).toBeNull();
 });
+it("separates pending invoice receipts without changing cash or counting settlement/Xero twice", () => {
+  const d = base();
+  installed(d);
+  d.recentBankChecked = true;
+  d.pendingBank = {
+    receipts: [
+      {
+        date: "2026-09-26T10:00:00Z",
+        amount: 40000,
+        description: "Da Silva K Inv 0001",
+        updatedAt: d.checkedAt,
+      },
+    ],
+  };
+  let r = calculateFinance(d, []);
+  expect(r.pendingSettlement).toBe(40000);
+  expect(r.owed).toBe(60000);
+  expect(r.bank.currentCents).toBe(1000000);
+  expect(r.reserved).toBe(0);
+  d.receipts = [
+    {
+      id: "settled",
+      date: "2026-09-26T10:00:00Z",
+      amount: 40000,
+      description: "Da Silva K Inv 0001",
+      reference: "",
+    },
+  ];
+  r = calculateFinance(d, []);
+  expect(r.pendingSettlement).toBe(0);
+  expect(r.owed).toBe(60000);
+  expect(r.localAdjustment).toBe(40000);
+  d.invoices[0].paid = 40000;
+  d.invoices[0].due = 60000;
+  r = calculateFinance(d, []);
+  expect(r.pendingSettlement).toBe(0);
+  expect(r.localAdjustment).toBe(0);
+  expect(r.owed).toBe(60000);
+});
+it("pending duplicates, absent references and unavailable feed never invent deductions", () => {
+  const d = base();
+  installed(d);
+  d.recentBankChecked = true;
+  const p = {
+    date: "2026-09-26",
+    amount: 40000,
+    description: "INV-0001",
+    updatedAt: d.checkedAt,
+  };
+  d.pendingBank = { receipts: [p, p] };
+  expect(calculateFinance(d, []).pendingSettlement).toBe(40000);
+  d.pendingBank = { receipts: [{ ...p, description: "Customer" }] };
+  expect(calculateFinance(d, []).owed).toBe(100000);
+  d.pendingBank = { error: "Unavailable" };
+  expect(calculateFinance(d, []).owed).toBe(100000);
+  d.pendingBank = { receipts: [p] };
+  d.jobs[0].status = "JOB_NOT_STARTED_YET";
+  expect(calculateFinance(d, []).pendingSettlement).toBe(0);
+  expect(calculateFinance(d, []).reserved).toBe(0);
+});
+it("pending copies cannot undo owner exclusions, stale decisions or settled refunds", () => {
+  const d = base();
+  installed(d);
+  d.recentBankChecked = true;
+  d.pendingBank = {
+    receipts: [
+      {
+        date: "2026-09-26",
+        amount: 100000,
+        description: "INV-0001",
+        updatedAt: d.checkedAt,
+      },
+    ],
+  };
+  d.receipts = [
+    {
+      id: "r",
+      date: "2026-09-26",
+      amount: 100000,
+      description: "INV-0001",
+      reference: "",
+    },
+  ];
+  const nonCustomer = decision({
+    kind: "receipt",
+    receiptId: "r",
+    allocations: [],
+    nonCustomer: true,
+    reason: "Not customer funds",
+  });
+  expect(calculateFinance(d, [nonCustomer]).owed).toBe(100000);
+  d.excludedReceiptIds = ["r"];
+  expect(calculateFinance(d, []).owed).toBe(100000);
+  d.excludedReceiptIds = [];
+  d.receipts.push({
+    id: "refund",
+    date: "2026-09-26",
+    amount: -100000,
+    description: "INV-0001 refund",
+    reference: "",
+  });
+  const result = calculateFinance(d, []);
+  expect(result.owed).toBe(100000);
+  expect(result.pendingSettlement).toBe(0);
+});

@@ -150,3 +150,87 @@ it("a missing login does not request financial data", async () => {
   await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
   expect(fetcher).not.toHaveBeenCalled();
 });
+it("shows a pending invoice separately from the amount to collect and leaves bank cash unchanged", async () => {
+  localStorage.setItem("token", "test-session");
+  const data = calculateFinance(
+    {
+      checkedAt: "2026-09-29T10:00:00Z",
+      recentBankChecked: true,
+      bank: {
+        accountName: "Trading",
+        currentCents: 1988521,
+        balanceUpdatedAt: "2026-09-29T09:26:00Z",
+        transactionsUpdatedAt: "2026-09-29T09:26:00Z",
+        stale: false,
+      },
+      historyStart: "2026-09-22",
+      historyEnd: "2026-09-29",
+      jobs: [
+        {
+          id: "j",
+          number: "28218",
+          quote: "AP28218",
+          status: "INSTALLED_AS_QUOTED",
+          archived: false,
+          name: "55 Owen Street",
+          invoiceNumbers: [],
+        },
+      ],
+      invoices: [
+        {
+          id: "i",
+          number: "INV-0445",
+          reference: "AP28218",
+          contact: "Kimberly Da Silva",
+          date: "2026-09-21",
+          dueDate: "2026-09-29",
+          status: "AUTHORISED",
+          currency: "NZD",
+          total: 333825,
+          paid: 0,
+          due: 333825,
+          credited: 0,
+          description: "Installation",
+        },
+      ],
+      payments: [],
+      receipts: [],
+      warnings: [],
+      pendingBank: {
+        receipts: [
+          {
+            date: "2026-09-28T20:44:29Z",
+            amount: 333825,
+            description: "Da Silva K Inv 0445 Kdasilva",
+            updatedAt: "2026-09-29T09:26:41Z",
+          },
+        ],
+      },
+    },
+    [],
+  );
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json({
+        ...data,
+        jobs: [],
+        decisions: [],
+        staleDecisions: [],
+        history: [],
+        payments: [],
+        fingerprints: {},
+      }),
+    ),
+  );
+  render(<Page />);
+  await screen.findByText(/\$3,338.25 received — awaiting settlement/);
+  expect(screen.getByText("$19,885.21")).toBeTruthy();
+  fireEvent.click(
+    screen.getByText("View invoices and how these figures are worked out"),
+  );
+  fireEvent.click(screen.getByRole("tab", { name: "To collect" }));
+  expect(
+    screen.getByText("Payment received — awaiting settlement"),
+  ).toBeTruthy();
+});

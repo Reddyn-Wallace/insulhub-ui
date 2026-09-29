@@ -143,3 +143,41 @@ export async function getCreditCardSnapshot() {
     stale: Date.now() - Date.parse(balanceUpdatedAt) > 26 * 3600000,
   };
 }
+
+export async function getPendingBankTransactions() {
+  const id = required("AKAHU_ACCOUNT_ID");
+  const data = await akahu("transactions/pending");
+  if (!Array.isArray(data.items))
+    throw new FinanceError(502, "Pending bank transactions unavailable.");
+  return {
+    receipts: data.items
+      .filter((t: { _account?: string }) => t._account === id)
+      .map(
+        (t: {
+          amount?: number;
+          date?: string;
+          description?: string;
+          updated_at?: string;
+        }) => {
+          if (
+            typeof t.amount !== "number" ||
+            !Number.isFinite(t.amount) ||
+            !Number.isSafeInteger(Math.round(t.amount * 100)) ||
+            !timestamp(t.date) ||
+            !timestamp(t.updated_at) ||
+            typeof t.description !== "string"
+          )
+            throw new FinanceError(
+              502,
+              "Pending bank transactions incomplete.",
+            );
+          return {
+            amount: Math.round(t.amount * 100),
+            date: t.date!,
+            description: t.description,
+            updatedAt: t.updated_at!,
+          };
+        },
+      ),
+  };
+}

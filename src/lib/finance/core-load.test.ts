@@ -10,6 +10,7 @@ vi.mock("./akahu", () => ({
   getCreditCardSnapshot: vi.fn(async () => {
     throw new Error("Card offline");
   }),
+  getPendingBankTransactions: vi.fn(async () => ({ receipts: [] })),
   getBankSnapshot: vi.fn(async () => ({ currentCents: 10000 })),
   getBankTransactions: vi.fn(async () => []),
 }));

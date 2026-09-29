@@ -50,7 +50,14 @@ export type CreditCardSnapshot =
       stale: boolean;
     }
   | { error: string };
+export type PendingReceipt = {
+  date: string;
+  amount: number;
+  description: string;
+  updatedAt: string;
+};
 export type FinanceInputs = {
+  pendingBank?: { receipts: PendingReceipt[] } | { error: string };
   creditCard?: CreditCardSnapshot;
   checkedAt: string;
   bank: {

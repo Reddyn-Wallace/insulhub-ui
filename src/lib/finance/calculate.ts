@@ -23,6 +23,50 @@ export function calculateFinance(
     uncertainRecent,
     recentEvidence,
   );
+  // Pending records have no stable IDs: rebuild and conservatively deduplicate every snapshot.
+  const pendingReceipts =
+    input.pendingBank && "receipts" in input.pendingBank
+      ? input.pendingBank.receipts
+      : [];
+  const uniquePending = [
+    ...new Map(
+      pendingReceipts.map((p) => [
+        JSON.stringify([p.date, p.amount, p.description]),
+        p,
+      ]),
+    ).values(),
+  ];
+  // No stable pending identity: an equal-value reviewed/stale settled receipt can be the same entry.
+  // Keep that pending amount uncertain rather than overriding an owner decision.
+  const reviewedIds = new Set(
+    decisions
+      .filter((d) => d.value?.kind === "receipt")
+      .map((d) => (d.value?.kind === "receipt" ? d.value.receiptId : "")),
+  );
+  const restrictedAmounts = new Set(
+    input.receipts
+      .filter(
+        (r) =>
+          reviewedIds.has(r.id) || input.excludedReceiptIds?.includes(r.id),
+      )
+      .map((r) => Math.abs(r.amount)),
+  );
+  const pendingEvidence: RecentReceiptEvidence[] = [];
+  const pendingAdjustments = recentReceiptAdjustments(
+    {
+      ...input,
+      receipts: [
+        ...uniquePending
+          .filter((p) => !restrictedAmounts.has(Math.abs(p.amount)))
+          .map((p, n) => ({ ...p, id: `pending:${n}`, reference: "" })),
+        ...input.receipts.filter((r) => r.amount < 0),
+      ],
+      excludedReceiptIds: [],
+    },
+    decisions,
+    new Set(),
+    pendingEvidence,
+  );
   // Carry the same recent-receipt evidence into drill-downs and bank review.
   for (const match of matches) {
     if (match.allocations.length || match.nonCustomer) continue;
@@ -80,6 +124,11 @@ export function calculateFinance(
       allocations.reduce((n, a) => n + (!a.paymentId ? a.gross : 0), 0),
     );
     const local = recentAdjustments.get(i.id) || 0;
+    // Use the larger evidence total, never sum pending and settled versions of the same invoice payment.
+    const awaiting =
+      i.currency === "NZD" && job && isJobInstalled(job)
+        ? Math.max(0, (pendingAdjustments.get(i.id) || 0) - local)
+        : 0;
     const unfinished = !!job && !isJobInstalled(job),
       supported = i.currency === "NZD";
     const unconfirmed =
@@ -119,9 +168,12 @@ export function calculateFinance(
       released,
       settled,
       recentEvidence: recentEvidence.filter((e) => e.invoiceId === i.id),
+      pendingSettlement: awaiting,
+      pendingEvidence: pendingEvidence.filter((e) => e.invoiceId === i.id),
       localAdjustment: supported && job && isJobInstalled(job) ? local : 0,
       reserved: supported && unfinished ? i.paid : 0,
-      owed: supported && job && isJobInstalled(job) ? i.due - local : 0,
+      owed:
+        supported && job && isJobInstalled(job) ? i.due - local - awaiting : 0,
       unconfirmed: supported ? unconfirmed : 0,
       issues,
     };
@@ -130,7 +182,8 @@ export function calculateFinance(
     rows.reduce((n, r) => n + fn(r), 0);
   const reserved = sum((r) => r.reserved),
     owed = sum((r) => r.owed),
-    localAdjustment = sum((r) => r.localAdjustment);
+    localAdjustment = sum((r) => r.localAdjustment),
+    pendingSettlement = sum((r) => r.pendingSettlement);
   const unmatchedReceipts = matches.reduce(
     (n, m) =>
       n +
@@ -159,6 +212,10 @@ export function calculateFinance(
     unclassifiedPaid: sum((r) => (!r.job && r.currency === "NZD" ? r.paid : 0)),
     unclassifiedOwed: sum((r) => (!r.job && r.currency === "NZD" ? r.due : 0)),
     totalXeroOwed: sum((r) => (r.currency === "NZD" ? r.due : 0)),
+    pendingSettlement,
+    pendingBank: input.pendingBank ?? {
+      error: "Pending bank payments have not been checked.",
+    },
     checkedAt: input.checkedAt,
     bank: input.bank,
     bankLessCreditCard:
@@ -177,7 +234,7 @@ export function calculateFinance(
     reserved,
     owed,
     localAdjustment,
-    xeroOwed: owed + localAdjustment,
+    xeroOwed: owed + localAdjustment + pendingSettlement,
     cashAfterDeposits: input.bank.currentCents - reserved,
     unmatchedReceipts,
     unconfirmedUnfinished,

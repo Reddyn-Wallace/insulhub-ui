@@ -5,6 +5,7 @@ import {
   getBankSnapshot,
   getBankTransactions,
   getCreditCardSnapshot,
+  getPendingBankTransactions,
 } from "./akahu";
 import { withXeroAccess } from "./xero-oauth";
 import {
@@ -358,18 +359,26 @@ export async function loadFinanceInputs(
     timings[name] = Date.now() - start;
     return result;
   }
-  const [bank, transactions, jobs, xero, creditCard] = await Promise.all([
-    timed("bank", getBankSnapshot()),
-    getBankTransactions(historyStart, historyEnd),
-    timed("crmIndex", readCrmJobs(owner.token)),
-    timed("xero", readXeroData(owner.userId, true)),
-    timed(
-      "creditCard",
-      getCreditCardSnapshot().catch(() => ({
-        error: "Credit card balance unavailable. Try refreshing sources.",
-      })),
-    ),
-  ]);
+  const [bank, transactions, jobs, xero, creditCard, pendingBank] =
+    await Promise.all([
+      timed("bank", getBankSnapshot()),
+      getBankTransactions(historyStart, historyEnd),
+      timed("crmIndex", readCrmJobs(owner.token)),
+      timed("xero", readXeroData(owner.userId, true)),
+      timed(
+        "creditCard",
+        getCreditCardSnapshot().catch(() => ({
+          error: "Credit card balance unavailable. Try refreshing sources.",
+        })),
+      ),
+      timed(
+        "pendingBank",
+        getPendingBankTransactions().catch(() => ({
+          error:
+            "Pending bank payments unavailable. Amounts shown as owed may include payments awaiting settlement.",
+        })),
+      ),
+    ]);
   const receipts = transactions.map((t) => ({
     id: t.id,
     amount: cents(t.amount),
@@ -395,6 +404,7 @@ export async function loadFinanceInputs(
     checkedAt: new Date().toISOString(),
     bank,
     creditCard,
+    pendingBank,
     historyStart,
     historyEnd,
     jobs: verifiedJobs,

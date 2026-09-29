@@ -195,6 +195,7 @@ export default function FinancePage() {
               "Currency",
               "Xero due",
               "Bank adjustment",
+              "Awaiting settlement",
               "Known reserved",
               "Known owed",
               "Paid settlement unconfirmed",
@@ -209,6 +210,7 @@ export default function FinancePage() {
               r.currency,
               (r.due / 100).toFixed(2),
               (r.localAdjustment / 100).toFixed(2),
+              (r.pendingSettlement / 100).toFixed(2),
               (r.reserved / 100).toFixed(2),
               (r.owed / 100).toFixed(2),
               (r.unconfirmed / 100).toFixed(2),
@@ -346,8 +348,45 @@ export default function FinancePage() {
                       ? `${money(data.localAdjustment)} already received in the bank has been taken off.`
                       : "Unpaid amounts for installed jobs only."
                 }
-              />
+              >
+                {data.pendingSettlement > 0 && (
+                  <p className="mt-3 text-sm font-medium text-amber-800">
+                    {money(data.pendingSettlement)} received — awaiting
+                    settlement, excluded from the amount to collect.
+                  </p>
+                )}
+              </Metric>
             </div>
+            {"error" in data.pendingBank ? (
+              <p role="status" className="mt-4 text-sm text-amber-800">
+                {data.pendingBank.error}
+              </p>
+            ) : (
+              data.pendingBank.receipts.length > 0 && (
+                <details className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
+                  <summary className="cursor-pointer font-medium text-amber-900">
+                    Bank payments awaiting settlement (
+                    {data.pendingBank.receipts.length})
+                  </summary>
+                  <p className="mt-2 text-slate-600">
+                    Pending entries can change. Only confidently matched invoice
+                    payments reduce the amount to collect. The bank balance is
+                    used as supplied by Akahu.
+                  </p>
+                  <ul className="mt-3 space-y-2">
+                    {data.pendingBank.receipts.map((p, n) => (
+                      <li key={n}>
+                        {money(p.amount)} · {p.description}
+                        <br />
+                        <span className="text-xs text-slate-500">
+                          {when(p.date)} · Bank data updated {when(p.updatedAt)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )
+            )}
             <p className="mt-5 text-xs leading-6 text-slate-500">
               NZD · Xero and job status checked {when(data.checkedAt)}.<br />
               Bank transactions updated {when(data.bank.transactionsUpdatedAt)}.
@@ -361,9 +400,9 @@ export default function FinancePage() {
                 <p>
                   Job completion comes from the CRM: installed or not installed.
                   Deposits use Xero payments. Money owed includes installed jobs
-                  only, less confidently identified receipts from the past week
-                  that Xero has not yet reflected. Bank cash is never increased
-                  by those receipts.
+                  only, less confidently identified settled and pending receipts
+                  from the past week that Xero has not yet reflected. Bank cash
+                  is never increased by those receipts.
                 </p>
                 {data.unlinked > 0 && (
                   <p className="mt-3">
@@ -634,6 +673,22 @@ export default function FinancePage() {
                                       this invoice.
                                     </p>
                                   )}
+                                  {r.pendingSettlement > 0 && (
+                                    <p className="mt-2 text-amber-800">
+                                      Payment received — awaiting settlement:{" "}
+                                      {money(r.pendingSettlement)}. Not counted
+                                      again as settled cash.
+                                    </p>
+                                  )}
+                                  {r.pendingEvidence.map((e) => (
+                                    <p
+                                      key={e.receiptId}
+                                      className="mt-1 text-xs text-amber-800"
+                                    >
+                                      {when(e.date)} · {money(e.amount)} ·{" "}
+                                      {e.description} · Pending bank entry
+                                    </p>
+                                  ))}
                                   {r.recentEvidence.map((e) => (
                                     <p key={e.receiptId}>
                                       {when(e.date)} · {money(e.amount)} ·{" "}
@@ -727,16 +782,18 @@ export default function FinancePage() {
                               {money(r.owed)}
                             </td>
                             <td className="max-w-52 px-5 py-4 text-xs leading-5 text-slate-500">
-                              {r.issues.length
-                                ? r.issues.join(" · ")
-                                : r.unconfirmed
-                                  ? "Paid; settlement needs evidence"
-                                  : r.localAdjustment > 0 ||
-                                      r.allocations.length
-                                    ? "Bank evidence linked"
-                                    : r.paid === 0
-                                      ? "No payment recorded"
-                                      : "Xero payment recorded"}
+                              {r.pendingSettlement > 0
+                                ? "Payment received — awaiting settlement"
+                                : r.issues.length
+                                  ? r.issues.join(" · ")
+                                  : r.unconfirmed
+                                    ? "Paid; settlement needs evidence"
+                                    : r.localAdjustment > 0 ||
+                                        r.allocations.length
+                                      ? "Bank evidence linked"
+                                      : r.paid === 0
+                                        ? "No payment recorded"
+                                        : "Xero payment recorded"}
                             </td>
                           </tr>
                         ))}
