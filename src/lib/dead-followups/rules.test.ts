@@ -58,3 +58,6 @@ describe('conservative historical note suggestions', () => {
 });
 it('chooses the later instant in the repeated NZ autumn hour',()=>expect(addNzMonths('2026-02-04T13:30:00Z',2)).toBe('2026-04-04T14:30:00.000Z'));
 it('moves forward through the missing NZ spring hour',()=>expect(addNzMonths('2026-07-26T14:30:00Z',2)).toBe('2026-09-26T14:30:00.000Z'));
+it('does not restart reminders for an exhausted quote when its review version changes',()=>{
+ expect(evaluateFollowup(job,{entry:known,historyReviewed:false,approaches:[{number:1,status:'sent',sentAt:'2026-03-30T00:00:00Z'},{number:2,status:'sent',sentAt:'2026-08-01T00:00:00Z'}]},now).state).toBe('complete');
+});

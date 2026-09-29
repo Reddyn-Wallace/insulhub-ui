@@ -5,7 +5,7 @@ import type { DeadQuote, QueueItem, QueueResponse } from './types';
 const QUERY = `query DeadQuoteReview($skip: Int, $limit: Int) {
   jobs(stages: [QUOTE], skip: $skip, limit: $limit) {
     total results {
-      _id jobNumber stage notes archivedAt
+      _id jobNumber stage notes archivedAt updatedAt
       lead { leadStatus callbackDate }
       quote { status date quoteNumber c_total quoteNote wall { SQM } ceiling { SQM } }
       client { contactDetails { name streetAddress suburb city } }
@@ -15,7 +15,7 @@ const QUERY = `query DeadQuoteReview($skip: Int, $limit: Int) {
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
-function validQuote(value: unknown): value is DeadQuote {
+export function validQuote(value: unknown): value is DeadQuote {
   if (!record(value) || typeof value._id !== 'string' || !value._id || typeof value.stage !== 'string') return false;
   if (!('quote' in value) || !('lead' in value)) return false;
   if (value.quote !== null && (!record(value.quote) || !('status' in value.quote) || (value.quote.status !== null && typeof value.quote.status !== 'string'))) return false;

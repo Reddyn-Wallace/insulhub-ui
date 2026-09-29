@@ -48,3 +48,25 @@ it('clears customer details when access expires during refresh',async()=>{
   expect(screen.queryByRole('region',{name:'Selected quote'})).toBeNull();
   expect(screen.queryByText('12 Test Street')).toBeNull();
 });
+it('skip hides a quote for this session, with an undo control',async()=>{
+ render(<DeadFollowupsPage/>);fireEvent.click(await screen.findByRole('button',{name:/Alex Example/}));
+ fireEvent.click(screen.getByRole('button',{name:'Skip for now'}));
+ expect(screen.queryByRole('button',{name:/Alex Example/})).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'Undo skip'}));
+ expect(screen.getByRole('button',{name:/Alex Example/})).toBeTruthy();
+});
+it('shows staff-reviewed date rather than unknown when there was no note suggestion',async()=>{
+ const state={draftDiscountCents:null,snoozedUntil:null,exclusionReason:null,deadDate:'2026-09-01T11:59:59.999Z',dateEvidence:'Staff evidence',reviewedVersion:'v1',offers:[]};
+ vi.mocked(fetch).mockResolvedValue(Response.json({...payload,historyAvailable:true,readOnly:false,items:[{...payload.items[0],suggestion:null,controls:{revision:1,state,actorName:'Staff',updatedAt:null}}]}));
+ render(<DeadFollowupsPage/>);fireEvent.click(await screen.findByRole('button',{name:/Alex Example/}));
+ expect(screen.queryByRole('heading',{name:'Dead entry date unknown'})).toBeNull();
+ expect(screen.queryByText('Dead date unknown')).toBeNull();
+});
+it('keeps controls disabled while retrying a failed refresh',async()=>{
+ const state={draftDiscountCents:null,snoozedUntil:null,exclusionReason:null,deadDate:null,dateEvidence:'',reviewedVersion:null,offers:[]};
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({...payload,historyAvailable:true,readOnly:false,items:[{...payload.items[0],controls:{revision:0,state,actorName:'',updatedAt:null}}]}));
+ render(<DeadFollowupsPage/>);fireEvent.click(await screen.findByRole('button',{name:/Alex Example/}));
+ vi.mocked(fetch).mockResolvedValueOnce(new Response('',{status:503}));fireEvent.click(screen.getByRole('button',{name:'Refresh'}));await screen.findByRole('alert');
+ vi.mocked(fetch).mockImplementationOnce(()=>new Promise(()=>{}));fireEvent.click(screen.getByRole('button',{name:'Retry'}));
+ expect(screen.getByRole('button',{name:'Save discount draft'}).matches(':disabled')).toBe(true);
+});

@@ -38,8 +38,8 @@ export function evaluateFollowup(job: DeadQuote, history: FollowupHistory, now: 
   if (history.approaches.some(a => a.status === 'unknown' || a.status === 'pending')) return {state:'attention',reason:'Confirm the previous send before another approach.'};
   const sent = history.approaches.filter(a => a.status === 'sent').sort((a,b)=>a.number-b.number);
   if (sent.some(a => !a.sentAt || !Number.isFinite(Date.parse(a.sentAt)) || Date.parse(a.sentAt) > Date.parse(now)) || new Set(sent.map(a=>a.number)).size !== sent.length || (sent.length && sent[0].number !== 1)) return {state:'review',reason:'Previous offer history needs review.'};
-  if (!history.historyReviewed || history.reentryReviewRequired) return {state:'review',reason:'Review previous offers before deciding the next approach.'};
   if (sent.length === 2) return {state:'complete',reason:'Two approaches recorded. No more individual reminders.'};
+  if (!history.historyReviewed || history.reentryReviewRequired) return {state:'review',reason:'Review previous offers before deciding the next approach.'};
   const entry = history.entry;
   if (!entry || (entry.provenance !== 'canonical' && !entry.reviewed) || !Number.isFinite(Date.parse(entry.at)) || Date.parse(entry.at) > Date.parse(now)) return {state:'review',reason:'The current Dead entry date needs review.'};
   try {
@@ -69,4 +69,13 @@ export function suggestDeadDate(notes: string | null | undefined, now: string): 
   const at = new Date(fromNzParts([year,month,day,23,59,59],999)).toISOString();
   if (Date.parse(at) > Date.parse(now)) return null;
   return {provenance:'note',date:date.toISOString().slice(0,10),at,evidence:lines[0]};
+}
+
+/** Date-only evidence keeps a conservative end-of-NZ-day boundary. */
+export function nzDateEnd(value: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw Error('Choose a valid date.');
+  const [year,month,day]=value.split('-').map(Number);
+  const check=new Date(Date.UTC(year,month-1,day));
+  if (year<2000 || check.toISOString().slice(0,10)!==value) throw Error('Choose a valid date.');
+  return new Date(fromNzParts([year,month,day,23,59,59],999)).toISOString();
 }
