@@ -29,7 +29,7 @@ export function ReviewPanel({
   const key = target.kind + ":" + target.id,
     existing = data.decisions.find((d) => d.key === key);
   const [classification, setClassification] = useState<
-    "refunded" | "non-installation"
+    "refunded" | "non-installation" | "earned"
   >(invoice?.classification?.classification || "refunded");
   const [reason, setReason] = useState(""),
     [jobSearch, setJobSearch] = useState(
@@ -202,6 +202,9 @@ export function ReviewPanel({
                   setClassification(e.target.value as typeof classification)
                 }
               >
+                <option value="earned">
+                  Paid work completed — CRM job remains open
+                </option>
                 <option value="refunded">Cancelled job — fully refunded</option>
                 <option value="non-installation">
                   Not related to installation work

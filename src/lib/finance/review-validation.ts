@@ -103,7 +103,8 @@ export function validateReview(
     );
     check(
       v.classification === "refunded" ||
-        v.classification === "non-installation",
+        v.classification === "non-installation" ||
+        v.classification === "earned",
       "Choose a valid invoice classification.",
     );
     return "classification:" + v.invoiceId;

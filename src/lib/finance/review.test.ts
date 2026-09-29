@@ -181,3 +181,17 @@ it("owner classifications require a closed balance and expire when payment evide
   d.invoices[0].paid = 9000;
   expect(activeDecisions(d, [saved]).stale).toHaveLength(1);
 });
+
+it("accepts completed-paid-work confirmation only for closed invoices", () => {
+  const d = data();
+  const value = {
+    kind: "classification" as const,
+    invoiceId: "i",
+    classification: "earned" as const,
+    reason: "Owner confirms all paid work completed; later work remains open",
+  };
+  expect(() => validateReview(d, [], value)).toThrow(/unpaid/);
+  d.invoices[0].due = 0;
+  d.invoices[0].paid = 10000;
+  expect(validateReview(d, [], value)).toBe("classification:i");
+});

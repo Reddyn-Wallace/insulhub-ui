@@ -645,3 +645,27 @@ it("retains owner-classified invoices for audit without false deposit or linking
     100000,
   );
 });
+
+it("completed paid work is excluded per invoice, without releasing later deposits on the same open job", () => {
+  const d = base();
+  Object.assign(d.invoices[0], { paid: 100000, due: 0 });
+  d.invoices.push({
+    ...d.invoices[0],
+    id: "later",
+    number: "INV-0002",
+    paid: 20000,
+    due: 80000,
+  });
+  const result = calculateFinance(d, [
+    decision({
+      kind: "classification",
+      invoiceId: "i",
+      classification: "earned",
+      reason: "Owner confirms paid scope is completed",
+    }),
+  ]);
+  expect(result.reserved).toBe(20000);
+  expect(result.owed).toBe(0);
+  expect(result.rows[0].paid).toBe(100000);
+  expect(result.rows[0].job?.status).toBe("JOB_NOT_STARTED_YET");
+});

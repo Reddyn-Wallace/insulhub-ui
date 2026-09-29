@@ -88,7 +88,7 @@ export type ReviewValue =
   | {
       kind: "classification";
       invoiceId: string;
-      classification: "refunded" | "non-installation";
+      classification: "refunded" | "non-installation" | "earned";
       reason: string;
     }
   | { kind: "link"; invoiceId: string; jobId: string; reason: string }

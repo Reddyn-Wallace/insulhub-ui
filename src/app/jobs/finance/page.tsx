@@ -881,7 +881,10 @@ export default function FinancePage() {
                                       {r.classification.classification ===
                                       "refunded"
                                         ? "Cancelled and fully refunded"
-                                        : "Not installation work"}
+                                        : r.classification.classification ===
+                                            "earned"
+                                          ? "Paid work completed; CRM job remains open"
+                                          : "Not installation work"}
                                       . {r.classification.reason}
                                     </p>
                                   )}
@@ -955,7 +958,10 @@ export default function FinancePage() {
                                   {r.classification.classification ===
                                   "refunded"
                                     ? "Cancelled · refunded"
-                                    : "Not installation work"}
+                                    : r.classification.classification ===
+                                        "earned"
+                                      ? "Paid work completed"
+                                      : "Not installation work"}
                                 </button>
                               ) : r.job ? (
                                 <>
