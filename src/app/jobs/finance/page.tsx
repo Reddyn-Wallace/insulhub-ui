@@ -698,11 +698,9 @@ export default function FinancePage() {
                                   <p className="mt-2 text-xs">
                                     {isJobInstalled(r.job)
                                       ? "Installed"
-                                      : r.job.status === "INSTALL_NOT_FINISHED"
-                                        ? "Partly installed"
-                                        : r.job.status
-                                          ? "Not installed"
-                                          : "Status unknown"}
+                                      : r.job.status
+                                        ? "Not installed"
+                                        : "Status unknown"}
                                     {r.job.archived ? " · archived" : ""}
                                   </p>
                                 </>
