@@ -339,7 +339,9 @@ export async function loadFinanceInputs(
   const started = Date.now();
   const now = new Date(),
     historyEnd = now.toISOString(),
-    historyStart = new Date(now.getTime() - 730 * 86400000).toISOString();
+    historyStart = new Date(
+      now.getTime() - (bankCheck ? 730 : 7) * 86400000,
+    ).toISOString();
   const timings: Record<string, number> = {};
   async function timed<T>(name: string, action: Promise<T>) {
     const start = Date.now();
@@ -349,11 +351,9 @@ export async function loadFinanceInputs(
   }
   const [bank, transactions, jobs, xero] = await Promise.all([
     timed("bank", getBankSnapshot()),
-    bankCheck
-      ? getBankTransactions(historyStart, historyEnd)
-      : Promise.resolve([]),
+    getBankTransactions(historyStart, historyEnd),
     timed("crmIndex", readCrmJobs(owner.token)),
-    timed("xero", readXeroData(owner.userId, bankCheck)),
+    timed("xero", readXeroData(owner.userId, true)),
   ]);
   const receipts = transactions.map((t) => ({
     id: t.id,
@@ -383,12 +383,13 @@ export async function loadFinanceInputs(
     historyEnd,
     jobs: verifiedJobs,
     bankChecked: bankCheck,
+    recentBankChecked: true,
     ...xero,
     receipts,
     warnings: [
       bankCheck
-        ? "Bank checks cover available transactions from the past two years and do not change Xero payment totals."
-        : "Bank reconciliation loads separately on request. Xero paid amounts are included without a bank match.",
+        ? "Bank history covers up to two years. Only receipts from the past week may reduce installed-job debt."
+        : "Receipts from the past week are checked for completed-job payments not yet reflected in Xero. Earlier Xero payments can overlap recent receipts. Uncertain amounts remain owed until reconciled.",
       "Archived jobs remain in scope. Missing installation status never releases a deposit.",
     ],
   };

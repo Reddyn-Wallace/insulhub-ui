@@ -452,3 +452,33 @@ it("an explicitly unfinished installation does not become installed from a stale
   paid(d);
   expect(calculateFinance(d, [])).toMatchObject({ reserved: 100000, owed: 0 });
 });
+it("recent bank receipts reduce only installed debt, never bank balance or deposits", () => {
+  const d = base();
+  d.recentBankChecked = true;
+  d.receipts = [
+    {
+      id: "recent",
+      amount: 40000,
+      date: "2026-09-26T09:00:00Z",
+      description: "INV-0001",
+      reference: "",
+    },
+  ];
+  let result = calculateFinance(d, []);
+  expect(result.owed).toBe(0);
+  expect(result.reserved).toBe(0);
+  installed(d);
+  result = calculateFinance(d, []);
+  expect(result.owed).toBe(60000);
+  expect(result.localAdjustment).toBe(40000);
+  expect(result.bank.currentCents).toBe(d.bank.currentCents);
+  d.invoices[0].paid = 40000;
+  d.invoices[0].due = 60000;
+  result = calculateFinance(d, []);
+  expect(result.owed).toBe(60000);
+  expect(result.localAdjustment).toBe(0);
+  d.jobs[0].status = "JOB_NOT_STARTED_YET";
+  result = calculateFinance(d, []);
+  expect(result.reserved).toBe(40000);
+  expect(result.owed).toBe(0);
+});

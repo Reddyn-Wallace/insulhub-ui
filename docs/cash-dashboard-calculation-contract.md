@@ -1,3 +1,15 @@
+# Active update — 29 September 2026
+
+The main view has exactly three figures: latest Akahu bank balance with actual feed time, Xero payments held for not-installed jobs, and money owed for installed jobs only. Other detail is collapsed. No partial-work status exists.
+
+The overview reads the past seven days of posted bank receipts. A unique full invoice number (including bank space/hyphen normalisation) or active owner allocation is required. Amount alone, unknown/multiple invoice references, processor payouts, conflicting references, stale decisions and ambiguous evidence do not establish automatic adjustments.
+
+For each invoice, the adjustment is max(0, min(Xero due, confidently allocated recent receipts minus Xero paid)). Only installed NZD jobs use it. Bank balance and deposit amounts are unchanged. Negative/refund evidence blocks automatic adjustment. Xero paid amounts are offset in aggregate, preventing double deduction as Xero catches up, even with grouped/backdated records. When an older deposit exceeds a recent final receipt on the same invoice, these sources alone cannot establish distinct payment identity: leave the uncertain amount owed and explain the overlap in details. Do not assume payment dates prove independence.
+
+Unlinked paid amounts qualify the deposit headline in plain language; unlinked debt similarly qualifies the completed-debt headline. Counts and matching workflow are in the expandable detail only. Source snapshots remain encrypted, owner-scoped and valid for five minutes; version is bumped to prevent prior calculation inputs being reused.
+
+---
+
 # Current calculation contract — 28 September 2026
 
 This section supersedes the original bank-evidence-only contract below, following the owner's reviewer feedback and explicit binary installation clarification.

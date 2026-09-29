@@ -230,7 +230,7 @@ export default function FinancePage() {
               Cash overview
             </h1>
             <p className="mt-2 text-sm text-slate-500">
-              Cash in the bank, work still owed, and invoices still to collect.
+              Your cash, deposits held, and completed work still to collect.
             </p>
           </div>
           <div className="flex items-center gap-4">
@@ -271,564 +271,494 @@ export default function FinancePage() {
               Reading bank, Xero and installation records…
             </p>
             <p className="mt-2 text-sm text-slate-500">
-              Loading Xero invoices and CRM job status. Bank reconciliation
-              loads separately.
+              Loading payments, job status and recent bank receipts.
             </p>
           </div>
         )}
         {data && (
           <>
-            {data.provisional && (
-              <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
-                <div>
-                  <p className="text-sm font-semibold text-amber-950">
-                    Known amounts · review still needed
-                  </p>
-                  <p className="mt-1 text-xs leading-5 text-amber-900">
-                    {data.unlinked} invoices need a job link ·{" "}
-                    {money(data.unclassifiedOwed)} outstanding on unlinked
-                    invoices
-                    {data.staleDecisions.length
-                      ? ` · ${data.staleDecisions.length} saved decisions need rechecking`
-                      : ""}
-                    . Deposit and debt totals may change.
-                  </p>
-                </div>
-                <button
-                  className="text-sm font-semibold text-amber-950 underline underline-offset-4"
-                  onClick={() => changeView("unlinked")}
-                >
-                  Review job links →
-                </button>
-              </div>
-            )}
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-3">
               <Metric
                 label="Bank balance"
                 value={data.bank.currentCents}
-                note={
-                  "NZD · " +
-                  when(data.bank.balanceUpdatedAt) +
-                  " · excludes overdraft"
-                }
                 dark
+                note={`Akahu balance updated ${when(data.bank.balanceUpdatedAt)}${data.bank.stale ? " · Update overdue" : ""}.`}
               />
               <Metric
-                label="Deposits for unfinished jobs"
+                label="Deposits held for work to do"
                 value={data.reserved}
-                note="Xero paid amounts for jobs not yet installed. A bank match is not required."
+                note={
+                  data.unclassifiedPaid > 0
+                    ? "Some received payments still need their job confirmed. This total may be incomplete."
+                    : "Payments recorded in Xero for jobs not yet installed."
+                }
               />
               <Metric
-                label="Bank less known deposits"
-                value={data.cashAfterDeposits}
-                note="Before wages, suppliers and tax. This is not a safe-to-spend figure."
-              />
-              <Metric
-                label="Owed for installed jobs"
+                label="Owed for completed jobs"
                 value={data.owed}
-                note={`Xero amount due on installed jobs. ${money(data.unclassifiedOwed)} additional debt needs a job link.`}
+                note={
+                  data.unclassifiedOwed > 0
+                    ? "Some unpaid invoices still need their job confirmed. This total may be incomplete."
+                    : data.localAdjustment > 0
+                      ? `${money(data.localAdjustment)} already received in the bank has been taken off.`
+                      : "Unpaid amounts for installed jobs only."
+                }
               />
             </div>
-            <section className="mt-5 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-              <div className="rounded-2xl border border-slate-200 bg-white p-5">
-                {!data.bankChecked ? (
-                  <>
-                    <h2 className="text-sm font-semibold">
-                      Bank reconciliation · separate check
-                    </h2>
-                    <p className="mt-3 text-sm text-slate-600">
-                      Xero payments are already included above. Check bank
-                      settlement and unmatched receipts when needed; this does
-                      not change the payment totals.
+            <p className="mt-5 text-xs leading-6 text-slate-500">
+              NZD · Xero and job status checked {when(data.checkedAt)}.<br />
+              Bank transactions updated {when(data.bank.transactionsUpdatedAt)}.
+              Receipts from the past week checked; bank data is not live.
+            </p>
+            <details className="mt-8">
+              <summary className="cursor-pointer text-sm font-semibold text-teal-800">
+                View invoices and how these figures are worked out
+              </summary>
+              <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 text-sm leading-6 text-slate-600">
+                <p>
+                  Job completion comes from the CRM: installed or not installed.
+                  Deposits use Xero payments. Money owed includes installed jobs
+                  only, less confidently identified receipts from the past week
+                  that Xero has not yet reflected. Bank cash is never increased
+                  by those receipts.
+                </p>
+                {data.unlinked > 0 && (
+                  <p className="mt-3">
+                    {data.unlinked} invoices do not yet have a confirmed CRM
+                    job. They contain {money(data.unclassifiedPaid)} in recorded
+                    payments and {money(data.unclassifiedOwed)} outstanding.
+                    Their job status must be confirmed before those amounts can
+                    be included in deposits or completed-job debt. See “Needs
+                    linking” below.
+                  </p>
+                )}
+                {data.uncertainRecentCount > 0 && (
+                  <p className="mt-3">
+                    Recent receipts on {data.uncertainRecentCount} invoices may
+                    overlap payments already in Xero. The uncertain amount
+                    remains owed until the evidence is clear.
+                  </p>
+                )}
+                {data.staleDecisions.length > 0 && (
+                  <p className="mt-3">
+                    {data.staleDecisions.length} saved decisions need rechecking
+                    because their supporting records changed.
+                  </p>
+                )}
+                <p className="mt-3">
+                  An invoice number or a confirmed allocation is required for a
+                  bank adjustment; an amount alone is not enough. Previously
+                  recorded payments may overlap recent bank receipts, even if
+                  their dates differ. Where an old deposit prevents a confident
+                  adjustment, the uncertain amount stays owed until Xero is
+                  reconciled. Figures include GST. Refresh reads the latest
+                  available data; it does not force an Akahu bank update.
+                </p>
+                <button
+                  className={buttonClass + " mt-4"}
+                  disabled={bankBusy}
+                  onClick={() => void loadBank()}
+                >
+                  {bankBusy ? "Checking history…" : "Check older bank history"}
+                </button>
+                {bankError && (
+                  <p role="alert" className="mt-3 text-rose-700">
+                    {bankError}
+                  </p>
+                )}
+              </div>
+              <section className="mt-7 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                <div className="border-b border-slate-200 px-5 pt-5">
+                  <div
+                    className="flex flex-wrap gap-x-6 gap-y-2"
+                    role="tablist"
+                    aria-label="Cash detail"
+                  >
+                    {(
+                      [
+                        ["deposits", "Unfinished work"],
+                        ["owed", "To collect"],
+                        ["all", "All invoices"],
+                        ["unlinked", "Needs linking"],
+                        ["review", "Bank review"],
+                        ["history", "Decision history"],
+                      ] as [View, string][]
+                    ).map(([v, label]) => (
+                      <button
+                        role="tab"
+                        aria-selected={view === v}
+                        key={v}
+                        onClick={() => changeView(v)}
+                        className={
+                          "border-b-2 pb-4 text-sm font-semibold " +
+                          (view === v
+                            ? "border-teal-600 text-teal-800"
+                            : "border-transparent text-slate-500 hover:text-slate-900")
+                        }
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {view !== "history" && (
+                  <div className="flex flex-wrap items-center justify-between gap-3 p-5">
+                    <input
+                      aria-label="Search financial records"
+                      className={inputClass + " max-w-sm"}
+                      value={search}
+                      onChange={(e) => {
+                        setSearch(e.target.value);
+                        setLimit(40);
+                      }}
+                      placeholder={
+                        view === "review"
+                          ? "Search bank description or reference"
+                          : "Search invoice, quote, customer or address"
+                      }
+                    />
+                    <div className="flex items-center gap-4">
+                      <span className="text-xs text-slate-500">
+                        {view === "review" ? receipts.length : rows.length}{" "}
+                        records
+                      </span>
+                      <button
+                        className="text-sm font-semibold text-teal-700"
+                        onClick={exportRows}
+                      >
+                        Export this view
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {view === "review" && !data.bankChecked && (
+                  <div className="p-6">
+                    <p className="mb-4 text-sm text-slate-600">
+                      Bank history is loaded separately to keep the overview
+                      fast.
                     </p>
                     <button
+                      className={buttonClass}
                       disabled={bankBusy}
-                      className={buttonClass + " mt-4"}
                       onClick={() => void loadBank()}
                     >
                       {bankBusy
                         ? "Checking bank history…"
                         : "Load bank reconciliation"}
                     </button>
-                    {bankError && (
-                      <p role="alert" className="mt-3 text-sm text-rose-700">
-                        {bankError}
+                    {bankError && <p role="alert">{bankError}</p>}
+                  </div>
+                )}
+                {view === "review" && data.bankChecked && (
+                  <>
+                    <div className="flex flex-wrap gap-5 px-5 pb-5 text-sm text-slate-600">
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={outgoing}
+                          onChange={(e) => setOutgoing(e.target.checked)}
+                        />
+                        Include outgoing transactions / refunds
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={includeMatched}
+                          onChange={(e) => setIncludeMatched(e.target.checked)}
+                        />
+                        Include matched and classified
+                      </label>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm">
+                        <thead className="bg-slate-50 text-xs text-slate-500">
+                          <tr>
+                            {[
+                              "Date",
+                              "Bank transaction",
+                              "Amount",
+                              "Evidence",
+                              "",
+                            ].map((t) => (
+                              <th key={t} className="px-5 py-3 font-medium">
+                                {t}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {receipts.slice(0, limit).map((m) => (
+                            <tr key={m.receipt.id}>
+                              <td className="whitespace-nowrap px-5 py-4 text-slate-500">
+                                {m.receipt.date}
+                              </td>
+                              <td className="max-w-xs px-5 py-4">
+                                {m.receipt.description}
+                              </td>
+                              <td className="whitespace-nowrap px-5 py-4 font-medium tabular-nums">
+                                {money(m.receipt.amount)}
+                              </td>
+                              <td className="max-w-xs px-5 py-4 text-xs leading-5 text-slate-500">
+                                {m.nonCustomer
+                                  ? "Non-customer · "
+                                  : m.method + " · "}
+                                {m.reason}
+                              </td>
+                              <td className="px-5 py-4">
+                                <button
+                                  className="font-semibold text-teal-700"
+                                  onClick={() =>
+                                    setTarget({
+                                      kind: "receipt",
+                                      id: m.receipt.id,
+                                    })
+                                  }
+                                >
+                                  Review
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {!receipts.length && (
+                      <p className="p-8 text-sm text-slate-500">
+                        No transactions match this view.
                       </p>
                     )}
                   </>
-                ) : (
-                  <>
-                    <h2 className="text-sm font-semibold">
-                      Paid in Xero · bank settlement not confirmed
-                    </h2>
-                    <div className="mt-4 grid grid-cols-3 divide-x divide-slate-100">
-                      <div className="pr-3">
-                        <p className="text-xs text-slate-500">
-                          Unfinished jobs
-                        </p>
-                        <p className="mt-2 text-lg font-semibold tabular-nums">
-                          {money(data.unconfirmedUnfinished)}
-                        </p>
-                      </div>
-                      <div className="px-3">
-                        <p className="text-xs text-slate-500">Installed jobs</p>
-                        <p className="mt-2 text-lg font-semibold tabular-nums">
-                          {money(data.unconfirmedInstalled)}
-                        </p>
-                      </div>
-                      <div className="pl-3">
-                        <p className="text-xs text-slate-500">Job unlinked</p>
-                        <p className="mt-2 text-lg font-semibold tabular-nums">
-                          {money(data.unconfirmedUnknown)}
-                        </p>
-                      </div>
-                    </div>
-                    <p className="mt-4 text-xs leading-5 text-slate-500">
-                      Includes historical payments without matching bank
-                      evidence. These are not extra cash or customer debt, and
-                      are not necessarily Windcave payments in transit.
-                    </p>
-                  </>
                 )}
-              </div>
-              <div className="rounded-2xl border border-slate-200 bg-white p-5">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-sm font-semibold">Source coverage</h2>
-                  <span
-                    className={
-                      "rounded-full px-2 py-1 text-xs " +
-                      (data.bank.stale
-                        ? "bg-amber-100 text-amber-900"
-                        : "bg-teal-50 text-teal-800")
-                    }
-                  >
-                    {data.bank.stale
-                      ? "Bank update overdue"
-                      : "Latest available feed"}
-                  </span>
-                </div>
-                <p className="mt-3 text-sm text-slate-600">
-                  {data.invoiceCount} approved sales invoices ·{" "}
-                  {data.jobCount.toLocaleString()} CRM jobs
-                </p>
-                <p className="mt-2 text-xs text-slate-500">
-                  Bank transactions updated{" "}
-                  {when(data.bank.transactionsUpdatedAt)}
-                </p>
-                <p className="mt-2 text-xs text-slate-500">
-                  Xero and CRM checked {when(data.checkedAt)}
-                </p>
-                <details className="mt-3 text-xs text-slate-500">
-                  <summary className="cursor-pointer font-medium text-slate-700">
-                    History and calculation notes
-                  </summary>
-                  <p className="mt-2">
-                    History requested from {data.historyStart.slice(0, 10)}.
-                    Actual history depends on the bank feed; deposit amounts use
-                    Xero regardless of bank matching. Checking sources does not
-                    force an Akahu refresh.
-                  </p>
-                  {data.warnings.map((w) => (
-                    <p key={w} className="mt-2">
-                      {w}
-                    </p>
-                  ))}
-                  <p className="mt-2">
-                    All totals NZD including GST. Credits reduce invoice debt;
-                    they do not count as payments. Jobs are installed or not
-                    installed. CRM completed stage or an installed result
-                    releases advances. Xero paid amounts remain reserved for
-                    other jobs.
-                  </p>
-                </details>
-              </div>
-            </section>
-            <section className="mt-7 overflow-hidden rounded-2xl border border-slate-200 bg-white">
-              <div className="border-b border-slate-200 px-5 pt-5">
-                <div
-                  className="flex flex-wrap gap-x-6 gap-y-2"
-                  role="tablist"
-                  aria-label="Cash detail"
-                >
-                  {(
-                    [
-                      ["deposits", "Unfinished work"],
-                      ["owed", "To collect"],
-                      ["all", "All invoices"],
-                      ["unlinked", "Needs linking"],
-                      ["review", "Bank review"],
-                      ["history", "Decision history"],
-                    ] as [View, string][]
-                  ).map(([v, label]) => (
-                    <button
-                      role="tab"
-                      aria-selected={view === v}
-                      key={v}
-                      onClick={() => changeView(v)}
-                      className={
-                        "border-b-2 pb-4 text-sm font-semibold " +
-                        (view === v
-                          ? "border-teal-600 text-teal-800"
-                          : "border-transparent text-slate-500 hover:text-slate-900")
-                      }
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {view !== "history" && (
-                <div className="flex flex-wrap items-center justify-between gap-3 p-5">
-                  <input
-                    aria-label="Search financial records"
-                    className={inputClass + " max-w-sm"}
-                    value={search}
-                    onChange={(e) => {
-                      setSearch(e.target.value);
-                      setLimit(40);
-                    }}
-                    placeholder={
-                      view === "review"
-                        ? "Search bank description or reference"
-                        : "Search invoice, quote, customer or address"
-                    }
-                  />
-                  <div className="flex items-center gap-4">
-                    <span className="text-xs text-slate-500">
-                      {view === "review" ? receipts.length : rows.length}{" "}
-                      records
-                    </span>
-                    <button
-                      className="text-sm font-semibold text-teal-700"
-                      onClick={exportRows}
-                    >
-                      Export this view
-                    </button>
-                  </div>
-                </div>
-              )}
-              {view === "review" && !data.bankChecked && (
-                <div className="p-6">
-                  <p className="mb-4 text-sm text-slate-600">
-                    Bank history is loaded separately to keep the overview fast.
-                  </p>
-                  <button
-                    className={buttonClass}
-                    disabled={bankBusy}
-                    onClick={() => void loadBank()}
-                  >
-                    {bankBusy
-                      ? "Checking bank history…"
-                      : "Load bank reconciliation"}
-                  </button>
-                  {bankError && <p role="alert">{bankError}</p>}
-                </div>
-              )}
-              {view === "review" && data.bankChecked && (
-                <>
-                  <div className="flex flex-wrap gap-5 px-5 pb-5 text-sm text-slate-600">
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={outgoing}
-                        onChange={(e) => setOutgoing(e.target.checked)}
-                      />
-                      Include outgoing transactions / refunds
-                    </label>
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={includeMatched}
-                        onChange={(e) => setIncludeMatched(e.target.checked)}
-                      />
-                      Include matched and classified
-                    </label>
-                  </div>
+                {view !== "review" && view !== "history" && (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-sm">
                       <thead className="bg-slate-50 text-xs text-slate-500">
                         <tr>
                           {[
-                            "Date",
-                            "Bank transaction",
-                            "Amount",
+                            "Invoice / customer",
+                            "CRM job",
+                            "Xero due",
+                            "Known reserve",
+                            "Known owed",
                             "Evidence",
-                            "",
                           ].map((t) => (
-                            <th key={t} className="px-5 py-3 font-medium">
+                            <th
+                              key={t}
+                              className="whitespace-nowrap px-5 py-3 font-medium"
+                            >
                               {t}
                             </th>
                           ))}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {receipts.slice(0, limit).map((m) => (
-                          <tr key={m.receipt.id}>
-                            <td className="whitespace-nowrap px-5 py-4 text-slate-500">
-                              {m.receipt.date}
+                        {rows.slice(0, limit).map((r) => (
+                          <tr key={r.id} className="align-top">
+                            <td className="min-w-52 px-5 py-4">
+                              <button
+                                className="font-semibold text-slate-900 underline decoration-slate-300 underline-offset-4"
+                                onClick={() =>
+                                  setExpanded(expanded === r.id ? null : r.id)
+                                }
+                                aria-expanded={expanded === r.id}
+                              >
+                                {r.number}
+                              </button>
+                              <p className="mt-1 text-xs text-slate-500">
+                                {r.contact}
+                              </p>
+                              <p className="mt-1 text-xs text-slate-500">
+                                {r.reference || "No reference"}
+                              </p>
+                              {expanded === r.id && (
+                                <div className="mt-4 max-w-sm space-y-3 rounded-xl bg-slate-50 p-4 text-xs">
+                                  <p>{r.description}</p>
+                                  <p>
+                                    {r.currency} · Total{" "}
+                                    {(r.total / 100).toFixed(2)} · Xero paid{" "}
+                                    {(r.paid / 100).toFixed(2)} · Credits{" "}
+                                    {(r.credited / 100).toFixed(2)}
+                                  </p>
+                                  <p>
+                                    {data.bankChecked
+                                      ? `Bank settlement unconfirmed ${money(r.unconfirmed)}`
+                                      : "Bank settlement not checked. Xero payments are included."}
+                                  </p>
+                                  <p>{r.link.method}</p>
+                                  <p>
+                                    CRM: {r.job?.status || "Unknown"} · stage{" "}
+                                    {r.job?.stage || "Unknown"}
+                                    {r.job?.detailVerified
+                                      ? " · verified from job detail"
+                                      : ""}
+                                  </p>
+                                  {r.allocations.map((a, n) => (
+                                    <p key={n}>
+                                      {money(a.gross)} customer amount · fee{" "}
+                                      {money(a.fee)} · {a.method}
+                                      {a.paymentId
+                                        ? " · recorded in Xero"
+                                        : " · no identified Xero payment"}
+                                    </p>
+                                  ))}
+                                  {r.issues.map((x) => (
+                                    <p className="text-amber-800" key={x}>
+                                      {x}
+                                    </p>
+                                  ))}
+                                  <div className="flex flex-wrap gap-3">
+                                    <button
+                                      className="font-semibold text-teal-700"
+                                      onClick={() =>
+                                        setTarget({ kind: "link", id: r.id })
+                                      }
+                                    >
+                                      Confirm/change job
+                                    </button>
+                                    <button
+                                      className="font-semibold text-teal-700"
+                                      onClick={() =>
+                                        setTarget({ kind: "opening", id: r.id })
+                                      }
+                                    >
+                                      Historical bank evidence
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
                             </td>
-                            <td className="max-w-xs px-5 py-4">
-                              {m.receipt.description}
+                            <td className="max-w-56 px-5 py-4">
+                              {r.job ? (
+                                <>
+                                  <Link
+                                    className="text-teal-800 underline underline-offset-4"
+                                    href={"/jobs/" + r.job.id}
+                                  >
+                                    {r.job.quote || r.job.number}
+                                  </Link>
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    {r.job.name}
+                                  </p>
+                                  <p className="mt-2 text-xs">
+                                    {isJobInstalled(r.job)
+                                      ? "Installed"
+                                      : r.job.status === "INSTALL_NOT_FINISHED"
+                                        ? "Partly installed"
+                                        : r.job.status
+                                          ? "Not installed"
+                                          : "Status unknown"}
+                                    {r.job.archived ? " · archived" : ""}
+                                  </p>
+                                </>
+                              ) : (
+                                <button
+                                  className="text-amber-800 underline underline-offset-4"
+                                  onClick={() =>
+                                    setTarget({ kind: "link", id: r.id })
+                                  }
+                                >
+                                  Link job
+                                </button>
+                              )}
+                            </td>
+                            <td className="whitespace-nowrap px-5 py-4 tabular-nums">
+                              {r.currency === "NZD"
+                                ? money(r.due)
+                                : r.currency + " " + (r.due / 100).toFixed(2)}
                             </td>
                             <td className="whitespace-nowrap px-5 py-4 font-medium tabular-nums">
-                              {money(m.receipt.amount)}
+                              {money(r.reserved)}
                             </td>
-                            <td className="max-w-xs px-5 py-4 text-xs leading-5 text-slate-500">
-                              {m.nonCustomer
-                                ? "Non-customer · "
-                                : m.method + " · "}
-                              {m.reason}
+                            <td className="whitespace-nowrap px-5 py-4 font-medium tabular-nums">
+                              {money(r.owed)}
                             </td>
-                            <td className="px-5 py-4">
-                              <button
-                                className="font-semibold text-teal-700"
-                                onClick={() =>
-                                  setTarget({
-                                    kind: "receipt",
-                                    id: m.receipt.id,
-                                  })
-                                }
-                              >
-                                Review
-                              </button>
+                            <td className="max-w-52 px-5 py-4 text-xs leading-5 text-slate-500">
+                              {r.issues.length
+                                ? r.issues.join(" · ")
+                                : r.unconfirmed
+                                  ? "Paid; settlement needs evidence"
+                                  : r.allocations.length
+                                    ? "Bank evidence linked"
+                                    : r.paid === 0
+                                      ? "No payment recorded"
+                                      : "Xero payment recorded"}
                             </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
-                  </div>
-                  {!receipts.length && (
-                    <p className="p-8 text-sm text-slate-500">
-                      No transactions match this view.
-                    </p>
-                  )}
-                </>
-              )}
-              {view !== "review" && view !== "history" && (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead className="bg-slate-50 text-xs text-slate-500">
-                      <tr>
-                        {[
-                          "Invoice / customer",
-                          "CRM job",
-                          "Xero due",
-                          "Known reserve",
-                          "Known owed",
-                          "Evidence",
-                        ].map((t) => (
-                          <th
-                            key={t}
-                            className="whitespace-nowrap px-5 py-3 font-medium"
-                          >
-                            {t}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {rows.slice(0, limit).map((r) => (
-                        <tr key={r.id} className="align-top">
-                          <td className="min-w-52 px-5 py-4">
-                            <button
-                              className="font-semibold text-slate-900 underline decoration-slate-300 underline-offset-4"
-                              onClick={() =>
-                                setExpanded(expanded === r.id ? null : r.id)
-                              }
-                              aria-expanded={expanded === r.id}
-                            >
-                              {r.number}
-                            </button>
-                            <p className="mt-1 text-xs text-slate-500">
-                              {r.contact}
-                            </p>
-                            <p className="mt-1 text-xs text-slate-500">
-                              {r.reference || "No reference"}
-                            </p>
-                            {expanded === r.id && (
-                              <div className="mt-4 max-w-sm space-y-3 rounded-xl bg-slate-50 p-4 text-xs">
-                                <p>{r.description}</p>
-                                <p>
-                                  {r.currency} · Total{" "}
-                                  {(r.total / 100).toFixed(2)} · Xero paid{" "}
-                                  {(r.paid / 100).toFixed(2)} · Credits{" "}
-                                  {(r.credited / 100).toFixed(2)}
-                                </p>
-                                <p>
-                                  {data.bankChecked
-                                    ? `Bank settlement unconfirmed ${money(r.unconfirmed)}`
-                                    : "Bank settlement not checked. Xero payments are included."}
-                                </p>
-                                <p>{r.link.method}</p>
-                                <p>
-                                  CRM: {r.job?.status || "Unknown"} · stage{" "}
-                                  {r.job?.stage || "Unknown"}
-                                  {r.job?.detailVerified
-                                    ? " · verified from job detail"
-                                    : ""}
-                                </p>
-                                {r.allocations.map((a, n) => (
-                                  <p key={n}>
-                                    {money(a.gross)} customer amount · fee{" "}
-                                    {money(a.fee)} · {a.method}
-                                    {a.paymentId
-                                      ? " · recorded in Xero"
-                                      : " · no identified Xero payment"}
-                                  </p>
-                                ))}
-                                {r.issues.map((x) => (
-                                  <p className="text-amber-800" key={x}>
-                                    {x}
-                                  </p>
-                                ))}
-                                <div className="flex flex-wrap gap-3">
-                                  <button
-                                    className="font-semibold text-teal-700"
-                                    onClick={() =>
-                                      setTarget({ kind: "link", id: r.id })
-                                    }
-                                  >
-                                    Confirm/change job
-                                  </button>
-                                  <button
-                                    className="font-semibold text-teal-700"
-                                    onClick={() =>
-                                      setTarget({ kind: "opening", id: r.id })
-                                    }
-                                  >
-                                    Historical bank evidence
-                                  </button>
-                                </div>
-                              </div>
-                            )}
-                          </td>
-                          <td className="max-w-56 px-5 py-4">
-                            {r.job ? (
-                              <>
-                                <Link
-                                  className="text-teal-800 underline underline-offset-4"
-                                  href={"/jobs/" + r.job.id}
-                                >
-                                  {r.job.quote || r.job.number}
-                                </Link>
-                                <p className="mt-1 text-xs text-slate-500">
-                                  {r.job.name}
-                                </p>
-                                <p className="mt-2 text-xs">
-                                  {isJobInstalled(r.job)
-                                    ? "Installed"
-                                    : r.job.status === "INSTALL_NOT_FINISHED"
-                                      ? "Partly installed"
-                                      : r.job.status
-                                        ? "Not installed"
-                                        : "Status unknown"}
-                                  {r.job.archived ? " · archived" : ""}
-                                </p>
-                              </>
-                            ) : (
-                              <button
-                                className="text-amber-800 underline underline-offset-4"
-                                onClick={() =>
-                                  setTarget({ kind: "link", id: r.id })
-                                }
-                              >
-                                Link job
-                              </button>
-                            )}
-                          </td>
-                          <td className="whitespace-nowrap px-5 py-4 tabular-nums">
-                            {r.currency === "NZD"
-                              ? money(r.due)
-                              : r.currency + " " + (r.due / 100).toFixed(2)}
-                          </td>
-                          <td className="whitespace-nowrap px-5 py-4 font-medium tabular-nums">
-                            {money(r.reserved)}
-                          </td>
-                          <td className="whitespace-nowrap px-5 py-4 font-medium tabular-nums">
-                            {money(r.owed)}
-                          </td>
-                          <td className="max-w-52 px-5 py-4 text-xs leading-5 text-slate-500">
-                            {r.issues.length
-                              ? r.issues.join(" · ")
-                              : r.unconfirmed
-                                ? "Paid; settlement needs evidence"
-                                : r.allocations.length
-                                  ? "Bank evidence linked"
-                                  : r.paid === 0
-                                    ? "No payment recorded"
-                                    : "Xero payment recorded"}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {!rows.length && (
-                    <p className="p-8 text-sm text-slate-500">
-                      No invoices match this view.
-                    </p>
-                  )}
-                </div>
-              )}
-              {view === "history" && (
-                <div className="divide-y divide-slate-100">
-                  {data.history.length ? (
-                    data.history.map((h) => (
-                      <div
-                        key={h.key + ":" + h.revision}
-                        className="flex flex-wrap items-center justify-between gap-3 p-5"
-                      >
-                        <div>
-                          <p className="text-sm font-medium">
-                            {h.value?.kind || "Decision undone"} · revision{" "}
-                            {h.revision}
-                          </p>
-                          <p className="mt-1 text-sm text-slate-600">
-                            {h.value?.reason ||
-                              "Previous classification removed; evidence recalculated."}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-400">
-                            {when(h.updatedAt)}
-                          </p>
-                        </div>
-                        <button
-                          className="text-sm font-semibold text-teal-700"
-                          onClick={() => {
-                            const at = h.key.indexOf(":");
-                            setTarget({
-                              kind: h.key.slice(0, at) as ReviewTarget["kind"],
-                              id: h.key.slice(at + 1),
-                            });
-                          }}
-                        >
-                          Inspect current decision
-                        </button>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="p-8 text-sm text-slate-500">
-                      No owner decisions yet. Confirmations and reversals will
-                      appear here.
-                    </p>
-                  )}
-                </div>
-              )}
-              {view !== "history" &&
-                (view === "review" ? receipts.length : rows.length) > limit && (
-                  <div className="border-t border-slate-100 p-5 text-center">
-                    <button
-                      className="text-sm font-semibold text-teal-700"
-                      onClick={() => setLimit(limit + 40)}
-                    >
-                      Show 40 more
-                    </button>
+                    {!rows.length && (
+                      <p className="p-8 text-sm text-slate-500">
+                        No invoices match this view.
+                      </p>
+                    )}
                   </div>
                 )}
-            </section>
-            <p className="mt-5 text-xs text-slate-500">
-              Headline figures cover all loaded records. Search and tabs filter
-              detail only. Review decisions affect this dashboard; source
-              records remain in Xero, Akahu and the CRM.
-            </p>
+                {view === "history" && (
+                  <div className="divide-y divide-slate-100">
+                    {data.history.length ? (
+                      data.history.map((h) => (
+                        <div
+                          key={h.key + ":" + h.revision}
+                          className="flex flex-wrap items-center justify-between gap-3 p-5"
+                        >
+                          <div>
+                            <p className="text-sm font-medium">
+                              {h.value?.kind || "Decision undone"} · revision{" "}
+                              {h.revision}
+                            </p>
+                            <p className="mt-1 text-sm text-slate-600">
+                              {h.value?.reason ||
+                                "Previous classification removed; evidence recalculated."}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-400">
+                              {when(h.updatedAt)}
+                            </p>
+                          </div>
+                          <button
+                            className="text-sm font-semibold text-teal-700"
+                            onClick={() => {
+                              const at = h.key.indexOf(":");
+                              setTarget({
+                                kind: h.key.slice(
+                                  0,
+                                  at,
+                                ) as ReviewTarget["kind"],
+                                id: h.key.slice(at + 1),
+                              });
+                            }}
+                          >
+                            Inspect current decision
+                          </button>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="p-8 text-sm text-slate-500">
+                        No owner decisions yet. Confirmations and reversals will
+                        appear here.
+                      </p>
+                    )}
+                  </div>
+                )}
+                {view !== "history" &&
+                  (view === "review" ? receipts.length : rows.length) >
+                    limit && (
+                    <div className="border-t border-slate-100 p-5 text-center">
+                      <button
+                        className="text-sm font-semibold text-teal-700"
+                        onClick={() => setLimit(limit + 40)}
+                      >
+                        Show 40 more
+                      </button>
+                    </div>
+                  )}
+              </section>
+              <p className="mt-5 text-xs text-slate-500">
+                Headline figures cover all loaded records. Search and tabs
+                filter detail only. Review decisions affect this dashboard;
+                source records remain in Xero, Akahu and the CRM.
+              </p>
+            </details>
           </>
         )}
         {data && target && (

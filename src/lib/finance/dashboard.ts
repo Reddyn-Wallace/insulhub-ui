@@ -18,10 +18,24 @@ export async function buildDashboard(
     bankCheck
       ? decisions
       : decisions.filter(
-          (d) => d.value?.kind !== "receipt" && d.value?.kind !== "opening",
+          (d) =>
+            d.value?.kind !== "opening" &&
+            (d.value?.kind !== "receipt" ||
+              input.receipts.some(
+                (r) =>
+                  d.value?.kind === "receipt" && r.id === d.value.receiptId,
+              )),
         ),
   );
-  const dashboard = calculateFinance(input, active);
+  const dashboard = calculateFinance(
+    {
+      ...input,
+      excludedReceiptIds: stale
+        .filter((d) => d.value?.kind === "receipt")
+        .map((d) => d.key.slice("receipt:".length)),
+    },
+    active,
+  );
   return {
     ...dashboard,
     provisional: dashboard.provisional || stale.length > 0,

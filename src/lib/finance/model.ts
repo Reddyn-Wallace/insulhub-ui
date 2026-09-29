@@ -57,6 +57,8 @@ export type FinanceInputs = {
   receipts: FinanceReceipt[];
   warnings: string[];
   bankChecked?: boolean;
+  recentBankChecked?: boolean;
+  excludedReceiptIds?: string[];
 };
 export type Allocation = {
   invoiceId: string;

@@ -4,6 +4,7 @@ import {
   type ReviewDecision,
 } from "./model";
 import { linkInvoices } from "./linking";
+import { recentReceiptAdjustments } from "./recent-receipts";
 import { matchReceipts } from "./matching";
 export function calculateFinance(
   input: FinanceInputs,
@@ -11,6 +12,12 @@ export function calculateFinance(
 ) {
   const links = linkInvoices(input.invoices, input.jobs, decisions),
     matches = matchReceipts(input, decisions);
+  const uncertainRecent = new Set<string>();
+  const recentAdjustments = recentReceiptAdjustments(
+    input,
+    decisions,
+    uncertainRecent,
+  );
   const rows = input.invoices.map((i) => {
     const link = links.get(i.id)!,
       job = input.jobs.find((j) => j.id === link.jobId) || null;
@@ -41,12 +48,12 @@ export function calculateFinance(
       (n, a) => n + (a.paymentId && a.gross > 0 ? a.gross : 0),
       0,
     );
-    // Xero is the payment authority. Bank receipts are reconciliation evidence only.
+    // Recent proven receipts may reduce installed-job debt while Xero catches up.
     const localCandidate = Math.max(
       0,
       allocations.reduce((n, a) => n + (!a.paymentId ? a.gross : 0), 0),
     );
-    const local = 0;
+    const local = recentAdjustments.get(i.id) || 0;
     const unfinished = !!job && !isJobInstalled(job),
       supported = i.currency === "NZD";
     const unconfirmed =
@@ -55,6 +62,9 @@ export function calculateFinance(
         : Math.max(0, i.paid - reflected - opening);
     const issues = [
       !job ? link.method : "",
+      uncertainRecent.has(i.id)
+        ? "Recent bank receipt may overlap Xero payments; uncertain amount remains owed."
+        : "",
       !supported ? "Non-NZD invoice excluded" : "",
       job && !job.status
         ? "Installation status missing; any advance retained"
@@ -117,6 +127,9 @@ export function calculateFinance(
     rows.some((r) => r.issues.length > 0);
   return {
     bankChecked: input.bankChecked !== false,
+    recentBankChecked: !!input.recentBankChecked,
+    uncertainRecentCount: uncertainRecent.size,
+    unclassifiedPaid: sum((r) => (!r.job && r.currency === "NZD" ? r.paid : 0)),
     unclassifiedOwed: sum((r) => (!r.job && r.currency === "NZD" ? r.due : 0)),
     totalXeroOwed: sum((r) => (r.currency === "NZD" ? r.due : 0)),
     checkedAt: input.checkedAt,

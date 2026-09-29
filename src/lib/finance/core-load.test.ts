@@ -8,13 +8,11 @@ vi.mock("./xero-oauth", () => ({
 }));
 vi.mock("./akahu", () => ({
   getBankSnapshot: vi.fn(async () => ({ currentCents: 10000 })),
-  getBankTransactions: vi.fn(async () => {
-    throw Error("Bank history must not block overview");
-  }),
+  getBankTransactions: vi.fn(async () => []),
 }));
 import { loadFinanceInputs } from "./live-data";
 import { getBankTransactions } from "./akahu";
-it("overview reads invoice amounts and detailed jobs without payments or bank history", async () => {
+it("overview reads invoice amounts and detailed jobs with one week of bank receipts and Xero payment evidence", async () => {
   const fetcher = vi.fn(async (url: unknown, init?: RequestInit) => {
     if (String(url).includes("/Invoices?")) {
       expect(String(url)).toContain("pageSize=1000");
@@ -34,7 +32,7 @@ it("overview reads invoice amounts and detailed jobs without payments or bank hi
       });
     }
     if (String(url).includes("/Payments"))
-      throw Error("Unexpected payment history");
+      return Response.json({ Payments: [] });
     const q = JSON.parse(String(init?.body)).query;
     if (q.includes("FinanceJobIndex"))
       return Response.json({
@@ -60,10 +58,13 @@ it("overview reads invoice amounts and detailed jobs without payments or bank hi
   });
   vi.stubGlobal("fetch", fetcher);
   const d = await loadFinanceInputs({ userId: "owner", token: "token" });
-  expect(getBankTransactions).not.toHaveBeenCalled();
+  expect(getBankTransactions).toHaveBeenCalledOnce();
+  const [start, end] = vi.mocked(getBankTransactions).mock.calls[0];
+  expect(Date.parse(end) - Date.parse(start)).toBe(7 * 86400000);
+  expect(d.recentBankChecked).toBe(true);
   expect(d.bankChecked).toBe(false);
   expect(d.invoices[0].paid).toBe(1000);
   expect(d.jobs[0].invoiceNumbers).toEqual(["INV-1"]);
-  expect(fetcher).toHaveBeenCalledTimes(3);
+  expect(fetcher).toHaveBeenCalledTimes(4);
   vi.unstubAllGlobals();
 });
