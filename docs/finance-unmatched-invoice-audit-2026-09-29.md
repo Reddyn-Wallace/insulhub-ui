@@ -35,3 +35,13 @@ Pending integration afd6d16 is now deployed. Live23:01 source check shows INV-04
 ## Deployment verification
 
 Implemented in0750171; final wording25c33e2 is live. Authenticated browser verified all eight recovered rows, five remaining exceptions, deposits29,111.49 and completed debt52,512.50. Warren explicitly displays Not installed and1,207.50 held, with a completion-conflict warning. Bank less card16,299.91 shows19,885.21 operating account and-3,585.30 Visa Business, both updated19:47NZDT. Shona/Berry/Richardson remain0owed.116 finance tests, typecheck, targeted lint, production builds and independent review passed. Pending owner questions concern missing job links, Warren's actual installation state, Hands invoice identity, the finance correction and Da Silva's bank entry.
+
+## Owner confirmations — 29 September, later update
+
+The owner subsequently confirmed Warren was completed and changed the CRM to installed. The 23:40 NZDT source snapshot verifies job21888 as INSTALLED_AS_QUOTED / COMPLETED; deposits return to **27,903.99**, a reduction of1,207.50.
+
+The owner explicitly confirmed INV-0368 belongs to Zachary's job18476 / R24266 and INV-0419 belongs to job28408 / BW28408, 22DuchessPlace. Both jobs are installed. INV-0178 is unrelated to installation work. INV-0101 and INV-0310 concern jobs that did not proceed, were archived and fully refunded. Refund completion is **owner evidence**, not a newly verified Xero refund transaction.
+
+Runtime79ff71f adds reversible, reasoned classifications for closed NZD invoices. Classification fingerprints cover the invoice identity, description, paid/due and credited amounts; changes require review. Classified rows retain source amounts in All invoices and CSV, but no longer enter deposits or unclassified-job totals. Decisions use the existing revision-checked transactional store and history; no source accounting records or money are changed.
+
+The overview now always shows Xero unpaid, less settled receipts awaiting Xero, less pending settlements, and still to collect. Positive deductions identify the customer and invoice directly below, including Da Silva / INV-0445. Zero adjustment lines remain visible.123 finance tests pass, including new classification, undo, source-change and named pending UI checks; independent review findings were addressed.
