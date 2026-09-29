@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { gql } from "@/lib/graphql";
 import { readBrowserCache, writeBrowserCache } from "@/lib/client-cache";
@@ -795,10 +796,6 @@ export default function JobsCalendarPage() {
     setSelectedJob(null);
   };
 
-  const openJobPage = (jobId: string) => {
-    router.push(`/jobs/${jobId}?returnTo=${encodeURIComponent("/jobs/calendar")}`);
-  };
-
   const openInstallInviteTemplatesPage = () => {
     if (!selectedJob) return;
     const startIso = fromDatetimeLocal(installDate);
@@ -1390,12 +1387,12 @@ export default function JobsCalendarPage() {
                   <div className="text-sm font-semibold text-gray-900">{selectedJob.client?.contactDetails?.name || `Job #${selectedJob.jobNumber}`}</div>
                   <div className="text-xs text-gray-500 mt-1">Job #{selectedJob.jobNumber} • {address(selectedJob) || "No address"}</div>
                 </div>
-                <button
-                  onClick={() => openJobPage(selectedJob._id)}
+                <Link
+                  href={`/jobs/${selectedJob._id}?returnTo=${encodeURIComponent("/jobs/calendar")}`}
                   className="text-xs font-semibold text-[#1a3a4a] bg-white border border-gray-200 px-3 py-2 rounded-lg hover:bg-gray-50"
                 >
                   Open job
-                </button>
+                </Link>
               </div>
             </div>
 
