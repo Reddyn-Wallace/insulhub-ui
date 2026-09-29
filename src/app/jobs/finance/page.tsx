@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -20,19 +21,31 @@ import {
   inputClass,
   buttonClass,
 } from "@/components/finance/format";
-type View = "deposits" | "owed" | "all" | "unlinked" | "review" | "history";
+type View =
+  | "deposits"
+  | "owed"
+  | "settled"
+  | "pending"
+  | "all"
+  | "unlinked"
+  | "review"
+  | "history";
 function Metric({
   label,
   value,
   note,
   dark = false,
   children,
+  onOpen,
+  actionLabel,
 }: {
   label: string;
   value: number | string;
   note: ReactNode;
   children?: ReactNode;
   dark?: boolean;
+  onOpen?: () => void;
+  actionLabel?: string;
 }) {
   return (
     <div
@@ -43,16 +56,38 @@ function Metric({
           : "border-slate-200 bg-white")
       }
     >
-      <p
-        className={
-          "text-sm font-medium " + (dark ? "text-slate-300" : "text-slate-600")
-        }
-      >
-        {label}
-      </p>
-      <p className="mt-3 text-3xl font-semibold tracking-tight tabular-nums lg:text-4xl">
-        {typeof value === "number" ? money(value) : value}
-      </p>
+      {onOpen ? (
+        <button
+          type="button"
+          onClick={onOpen}
+          aria-label={`${label}: ${typeof value === "number" ? money(value) : value}. ${actionLabel}`}
+          className="w-full rounded-lg text-left transition hover:text-teal-700 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-teal-700"
+        >
+          <span className="block text-sm font-medium text-slate-600">
+            {label}
+          </span>
+          <span className="mt-3 block text-3xl font-semibold tracking-tight tabular-nums lg:text-4xl">
+            {typeof value === "number" ? money(value) : value}
+          </span>
+          <span className="mt-3 block text-xs font-semibold text-teal-700">
+            View breakdown →
+          </span>
+        </button>
+      ) : (
+        <>
+          <p
+            className={
+              "text-sm font-medium " +
+              (dark ? "text-slate-300" : "text-slate-600")
+            }
+          >
+            {label}
+          </p>
+          <p className="mt-3 text-3xl font-semibold tracking-tight tabular-nums lg:text-4xl">
+            {typeof value === "number" ? money(value) : value}
+          </p>
+        </>
+      )}
       {children}
       <p
         className={
@@ -78,6 +113,23 @@ export default function FinancePage() {
     [includeMatched, setIncludeMatched] = useState(false),
     [target, setTarget] = useState<ReviewTarget | null>(null),
     [expanded, setExpanded] = useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const detailSection = useRef<HTMLElement>(null);
+  const [drillRequest, setDrillRequest] = useState(0);
+  useEffect(() => {
+    if (drillRequest && detailsOpen) {
+      detailSection.current?.scrollIntoView?.({
+        behavior: "smooth",
+        block: "start",
+      });
+      detailSection.current?.focus({ preventScroll: true });
+    }
+  }, [drillRequest, detailsOpen]);
+  function openDetail(next: View) {
+    changeView(next);
+    setDetailsOpen(true);
+    setDrillRequest((n) => n + 1);
+  }
   const load = useCallback(async (refresh = false) => {
     setBusy(true);
     setError("");
@@ -110,15 +162,19 @@ export default function FinancePage() {
         .filter((r) => {
           const scope =
             view === "deposits"
-              ? !r.classification && !!r.job && !isJobInstalled(r.job)
-              : view === "unlinked"
-                ? !r.job && !r.classification
-                : view === "owed"
-                  ? !r.classification &&
-                    !!r.job &&
-                    isJobInstalled(r.job) &&
-                    r.due > 0
-                  : true;
+              ? r.reserved > 0
+              : view === "settled"
+                ? r.localAdjustment > 0
+                : view === "pending"
+                  ? r.pendingSettlement > 0
+                  : view === "unlinked"
+                    ? !r.job && !r.classification
+                    : view === "owed"
+                      ? !r.classification &&
+                        !!r.job &&
+                        isJobInstalled(r.job) &&
+                        r.due > 0
+                      : true;
           return (
             scope &&
             (
@@ -341,6 +397,8 @@ export default function FinancePage() {
                 </dl>
               </Metric>
               <Metric
+                onOpen={() => openDetail("deposits")}
+                actionLabel="View deposits included in total"
                 label="Deposits held for work to do"
                 value={data.reserved}
                 note={
@@ -350,6 +408,8 @@ export default function FinancePage() {
                 }
               />
               <Metric
+                onOpen={() => openDetail("owed")}
+                actionLabel="View completed invoices and payments"
                 label="Owed for completed jobs"
                 value={data.owed}
                 note={
@@ -366,11 +426,27 @@ export default function FinancePage() {
                     <dd>{money(data.xeroOwed)}</dd>
                   </div>
                   <div className="flex justify-between gap-3">
-                    <dt>Less: in bank, awaiting Xero</dt>
+                    <dt>
+                      <button
+                        className="text-left text-teal-800 underline underline-offset-2"
+
+                        onClick={() => openDetail("settled")}
+                      >
+                        Less: in bank, awaiting Xero
+                      </button>
+                    </dt>
                     <dd>−{money(data.localAdjustment)}</dd>
                   </div>
                   <div className="flex justify-between gap-3">
-                    <dt>Less: pending bank settlement</dt>
+                    <dt>
+                      <button
+                        className="text-left text-teal-800 underline underline-offset-2"
+
+                        onClick={() => openDetail("pending")}
+                      >
+                        Less: pending bank settlement
+                      </button>
+                    </dt>
                     <dd>−{money(data.pendingSettlement)}</dd>
                   </div>
                   <div className="flex justify-between gap-3 font-semibold">
@@ -429,7 +505,11 @@ export default function FinancePage() {
               Bank transactions updated {when(data.bank.transactionsUpdatedAt)}.
               Receipts from the past week checked; bank data is not live.
             </p>
-            <details className="mt-8">
+            <details
+              className="mt-8"
+              open={detailsOpen}
+              onToggle={(e) => setDetailsOpen(e.currentTarget.open)}
+            >
               <summary className="cursor-pointer text-sm font-semibold text-teal-800">
                 View invoices and how these figures are worked out
               </summary>
@@ -486,7 +566,72 @@ export default function FinancePage() {
                   </p>
                 )}
               </div>
-              <section className="mt-7 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+              <section
+                ref={detailSection}
+                tabIndex={-1}
+                aria-label="Selected cash breakdown"
+                className="mt-7 scroll-mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white outline-none"
+              >
+                {view !== "review" && view !== "history" && (
+                  <div className="border-b border-slate-200 bg-teal-50 px-5 py-4">
+                    <h2 className="font-semibold text-teal-950">
+                      {view === "deposits"
+                        ? "Deposits included in the total"
+                        : view === "owed"
+                          ? "Completed invoices and payments"
+                          : view === "settled"
+                            ? "In the bank, awaiting Xero"
+                            : view === "pending"
+                              ? "Payments awaiting bank settlement"
+                              : "Invoice details"}
+                    </h2>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {rows.length} {rows.length === 1 ? "invoice" : "invoices"}
+                      {search ? " matching your search" : ""}
+                      {["deposits", "owed", "settled", "pending"].includes(
+                        view,
+                      ) && (
+                        <>
+                          {" "}
+                          ·{" "}
+                          {money(
+                            rows.reduce(
+                              (sum, r) =>
+                                sum +
+                                (view === "deposits"
+                                  ? r.reserved
+                                  : view === "owed"
+                                    ? r.owed
+                                    : view === "settled"
+                                      ? r.localAdjustment
+                                      : r.pendingSettlement),
+                              0,
+                            ),
+                          )}{" "}
+                          {view === "deposits"
+                            ? "held for work to do"
+                            : view === "owed"
+                              ? "still to collect"
+                              : "deducted from completed-job debt"}
+                        </>
+                      )}
+                      .
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Click an invoice to see the source amounts and matching
+                      evidence.{" "}
+                      {view === "deposits"
+                        ? "Only payments for jobs not yet installed are included."
+                        : "Xero due less the two payment deductions equals still to collect."}
+                    </p>
+                    <button
+                      className="mt-2 text-xs font-semibold text-teal-800 underline"
+                      onClick={() => openDetail("review")}
+                    >
+                      Review unallocated bank payments
+                    </button>
+                  </div>
+                )}
                 <div className="border-b border-slate-200 px-5 pt-5">
                   <div
                     className="flex flex-wrap gap-x-6 gap-y-2"
@@ -497,6 +642,8 @@ export default function FinancePage() {
                       [
                         ["deposits", "Unfinished work"],
                         ["owed", "To collect"],
+                        ["settled", "Awaiting Xero"],
+                        ["pending", "Pending settlement"],
                         ["all", "All invoices"],
                         ["unlinked", "Needs linking"],
                         ["review", "Bank review"],
@@ -657,8 +804,10 @@ export default function FinancePage() {
                             "Invoice / customer",
                             "CRM job",
                             "Xero due",
-                            "Known reserve",
-                            "Known owed",
+                            "Deposits included",
+                            "In bank, awaiting Xero",
+                            "Pending settlement",
+                            "Still to collect",
                             "Evidence",
                           ].map((t) => (
                             <th
@@ -854,6 +1003,12 @@ export default function FinancePage() {
                               {money(r.reserved)}
                             </td>
                             <td className="whitespace-nowrap px-5 py-4 font-medium tabular-nums">
+                              {money(r.localAdjustment)}
+                            </td>
+                            <td className="whitespace-nowrap px-5 py-4 tabular-nums">
+                              {money(r.pendingSettlement)}
+                            </td>
+                            <td className="whitespace-nowrap px-5 py-4 font-medium tabular-nums">
                               {money(r.owed)}
                             </td>
                             <td className="max-w-52 px-5 py-4 text-xs leading-5 text-slate-500">
@@ -875,6 +1030,48 @@ export default function FinancePage() {
                           </tr>
                         ))}
                       </tbody>
+                      <tfoot className="border-t border-slate-200 bg-slate-50 font-semibold">
+                        <tr>
+                          <td colSpan={2} className="px-5 py-4">
+                            Total · {rows.length}{" "}
+                            {rows.length === 1 ? "invoice" : "invoices"}
+                            {search ? " (filtered)" : ""}
+                          </td>
+                          {[
+                            "due",
+                            "reserved",
+                            "localAdjustment",
+                            "pendingSettlement",
+                            "owed",
+                          ].map((key) => (
+                            <td
+                              key={key}
+                              className="whitespace-nowrap px-5 py-4 tabular-nums"
+                            >
+                              {money(
+                                rows.reduce(
+                                  (sum, r) =>
+                                    sum +
+                                    (r.currency === "NZD"
+                                      ? r[
+                                          key as
+                                            | "due"
+                                            | "reserved"
+                                            | "localAdjustment"
+                                            | "pendingSettlement"
+                                            | "owed"
+                                        ]
+                                      : 0),
+                                  0,
+                                ),
+                              )}
+                            </td>
+                          ))}
+                          <td className="px-5 py-4 text-xs font-normal">
+                            NZD only · all matching rows
+                          </td>
+                        </tr>
+                      </tfoot>
                     </table>
                     {!rows.length && (
                       <p className="p-8 text-sm text-slate-500">

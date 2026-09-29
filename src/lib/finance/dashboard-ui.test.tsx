@@ -209,6 +209,34 @@ it("shows a pending invoice separately from the amount to collect and leaves ban
     },
     [],
   );
+  const unfinished = {
+    ...data.rows[0].job!,
+    id: "unfinished",
+    status: "JOB_NOT_STARTED_YET",
+  };
+  data.rows.push({
+    ...data.rows[0],
+    id: "deposit",
+    number: "INV-DEPOSIT",
+    job: unfinished,
+    paid: 10000,
+    due: 0,
+    reserved: 10000,
+    owed: 0,
+    pendingSettlement: 0,
+    pendingEvidence: [],
+  });
+  data.rows.push({
+    ...data.rows[0],
+    id: "unpaid-future",
+    number: "INV-FUTURE",
+    job: unfinished,
+    reserved: 0,
+    owed: 0,
+    pendingSettlement: 0,
+    pendingEvidence: [],
+  });
+  data.reserved = 10000;
   vi.stubGlobal(
     "fetch",
     vi.fn(async () =>
@@ -231,9 +259,39 @@ it("shows a pending invoice separately from the amount to collect and leaves ban
   expect(screen.getByText("−$3,338.25")).toBeTruthy();
   expect(screen.getByText("$19,885.21")).toBeTruthy();
   fireEvent.click(
-    screen.getByText("View invoices and how these figures are worked out"),
+    screen.getByRole("button", { name: "Less: pending bank settlement" }),
   );
-  fireEvent.click(screen.getByRole("tab", { name: "To collect" }));
+  expect(
+    screen
+      .getByRole("tab", { name: "Pending settlement" })
+      .getAttribute("aria-selected"),
+  ).toBe("true");
+  expect(screen.getByText("INV-0445")).toBeTruthy();
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: /Deposits held for work to do: \$100.00/,
+    }),
+  );
+  expect(screen.queryByText("INV-0445")).toBeNull();
+  expect(screen.getByText("INV-DEPOSIT")).toBeTruthy();
+  expect(screen.queryByText("INV-FUTURE")).toBeNull();
+  expect(
+    screen.getByText(/1 invoice · \$100.00 held for work to do/),
+  ).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("Search financial records"), {
+    target: { value: "no such invoice" },
+  });
+  expect(screen.queryByText("INV-DEPOSIT")).toBeNull();
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: /Owed for completed jobs: \$0.00/,
+    }),
+  );
+  expect(
+    screen
+      .getByRole("tab", { name: "To collect" })
+      .getAttribute("aria-selected"),
+  ).toBe("true");
   expect(
     screen.getByText("Payment received — awaiting settlement"),
   ).toBeTruthy();
