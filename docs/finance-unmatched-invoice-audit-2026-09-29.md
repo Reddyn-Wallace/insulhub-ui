@@ -26,9 +26,11 @@ The API's returned index contains no archived rows. The code does not filter arc
 
 Matching safeguards: no name-only or amount-only linking; exact quote required. Shared quotes and revision candidates are all fetched in detail before final selection, so existing explicit invoice relations can resolve or expose conflicts. Multiple corroborated candidates remain unresolved.
 
-## Separate receipt check: Kay / Kimberly Da Silva
+## Separate receipt check: Kay / Kimberly Da Silva — corrected finding
 
-INV-0445 / AP28218 is installed, AUTHORISED, NZD3,338.25 due with zero Xero paid. A read-only Akahu search across January–September found no Silva/Kay/INV-0445/AP28218 reference or exact3,338.25 receipt. Feed last updated29September19:47NZDT. No deduction created; actual bank entry date/reference/account requested. Feed delay or another account are possibilities, not established causes.
+The earlier search covered settled transactions only, so the claim that the payment was absent from Akahu was too broad. Akahu's separate pending endpoint contains **3,338.25**, description **Da Silva K Inv 0445 Kdasilva**, dated29September09:44NZDT. Manual Akahu refresh completed22:26NZDT; payment remained pending. INV-0445 / AP28218 is installed and Xero still shows3,338.25due/0paid.
+
+Pending integration afd6d16 is now deployed. Live23:01 source check shows INV-0445 known owed0 and3,338.25 awaiting settlement. Completed-job amount to collect49,174.25; bank/card and deposits unchanged. Matching pending and settled versions cannot be added together; Xero catch-up removes additional deductions. No further bank-entry evidence is needed for Da Silva.
 
 ## Deployment verification
 

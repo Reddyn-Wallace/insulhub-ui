@@ -527,6 +527,10 @@ it("separates pending invoice receipts without changing cash or counting settlem
   expect(r.owed).toBe(60000);
   expect(r.bank.currentCents).toBe(1000000);
   expect(r.reserved).toBe(0);
+  const savedPending = d.pendingBank;
+  d.pendingBank = { receipts: [] };
+  expect(calculateFinance(d, []).owed).toBe(100000);
+  d.pendingBank = savedPending;
   d.receipts = [
     {
       id: "settled",
