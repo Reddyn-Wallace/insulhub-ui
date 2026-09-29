@@ -7,7 +7,7 @@ import { requireInsulhubAuth } from "@/lib/insulhub-auth";
 import { ensurePartnerOpsRole, getPartnerOpsPool } from "./db";
 import { PartnerOperationsRepository } from "./operations-repository";
 import { allowedPartnerOrigins, verifyPartnerRequestHost, withPartnerNoStore } from "./security";
-import { PRODUCT_QUOTE_DEFAULTS } from "./quote";
+import { DEFAULT_COUNCIL_FEE, normalizeQuoteDefaults, PRODUCT_QUOTE_DEFAULTS } from "./quote";
 import { isOpsRevision, isUuid } from "./operations";
 import type { InternalPrincipal } from "./repository";
 import { PARTNER_SETTINGS_SERVICE_ID } from "./settings-service";
@@ -87,18 +87,41 @@ export async function partnerSettingsRoute(request: Request, companyId?: string,
     }
     if (request.method === "GET" && !companyId) {
       const companies = await repository.listCompanies(actor);
-      return json({ companies: companies.map(({ id, name, revision, isActive }) => ({ id, name, revision, isActive })) });
+      return json({ companies: companies.map(({ id, name, revision, isActive, quoteDefaults }) => {
+        const defaults = normalizeQuoteDefaults({ ...quoteDefaults, revision: 0 });
+        if (!defaults.ok) throw new Error("Stored quote defaults are invalid");
+        return { id, name, revision, isActive, pricingDefaults: {
+          wallRateCents: defaults.value.wallRateCents, ceilingRateCents: defaults.value.ceilingRateCents,
+          councilFeeCents: defaults.value.extras.find(extra => extra.id === DEFAULT_COUNCIL_FEE.id)?.priceCents ?? 0,
+        } };
+      }) });
     }
     if (request.method !== (companyId ? "PUT" : "POST")) return json({ error: "Method not allowed" }, 405);
     const raw = await readBody(request);
-    const keys = companyId ? ["revision","name"] : ["creationKey","name"];
+    const keys = companyId ? ["revision","name","pricingDefaults"] : ["creationKey","name","pricingDefaults"];
     if (!raw || Object.keys(raw).some(key => !keys.includes(key)) || typeof raw.name !== "string" || !raw.name.trim() || raw.name.trim().length > 160 ||
       (companyId ? !isOpsRevision(raw.revision) : typeof raw.creationKey !== "string" || !isUuid(raw.creationKey))) return json({ error: "Check the company name." }, 400);
     const existing = companyId ? (await repository.listCompanies(actor)).find(company => company.id === companyId) : null;
     if (companyId && !existing) return json({ error: "Not found" }, 404);
+    const stored = normalizeQuoteDefaults({ ...(existing?.quoteDefaults ?? fixedDefaults()), revision: 0 });
+    if (!stored.ok) throw new Error("Stored quote defaults are invalid");
+    const quoteDefaults = { wallRateCents: stored.value.wallRateCents, ceilingRateCents: stored.value.ceilingRateCents, depositBasisPoints: stored.value.depositBasisPoints, consentFeeCents: stored.value.consentFeeCents, extras: stored.value.extras };
+    if (Object.hasOwn(raw, "pricingDefaults")) {
+      const pricing = raw.pricingDefaults;
+      if (!pricing || typeof pricing !== "object" || Array.isArray(pricing) || Object.keys(pricing).sort().join("|") !== "ceilingRateCents|councilFeeCents|wallRateCents") return json({ error: "Check the pricing defaults." }, 400);
+      const values = pricing as Record<string, unknown>;
+      const extras = quoteDefaults.extras.filter(extra => extra.id !== DEFAULT_COUNCIL_FEE.id);
+      const defaults = normalizeQuoteDefaults({ ...quoteDefaults, revision: 0, wallRateCents: values.wallRateCents, ceilingRateCents: values.ceilingRateCents,
+        extras: [...extras, { ...DEFAULT_COUNCIL_FEE, priceCents: values.councilFeeCents }],
+      });
+      if (!defaults.ok) return json({ error: "Check the pricing defaults." }, 400);
+      quoteDefaults.wallRateCents = defaults.value.wallRateCents;
+      quoteDefaults.ceilingRateCents = defaults.value.ceilingRateCents;
+      quoteDefaults.extras = defaults.value.extras;
+    }
     // The legacy storage column remains fixed only for migration compatibility;
     // it is not accepted from callers or used by the active product workflow.
-    const company = { slug: existing?.slug ?? `partner-${raw.creationKey}`, name: raw.name.trim(), billingModel: "INSULHUB_BILLED" as const, quoteDefaults: fixedDefaults() };
+    const company = { slug: existing?.slug ?? `partner-${raw.creationKey}`, name: raw.name.trim(), billingModel: "INSULHUB_BILLED" as const, quoteDefaults };
     const headers = new Headers(request.headers); headers.delete("content-length"); headers.set("content-type","application/json");
     const forwarded = new Request(request.url, { method: request.method, headers, body: JSON.stringify(companyId ? { revision: raw.revision, company } : company) });
     return companyId ? putOpsCompany(forwarded, companyId, deps) : postOpsCompany(forwarded, deps);

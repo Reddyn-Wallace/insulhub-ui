@@ -2,7 +2,8 @@
 import { OpsRequestError } from "./operations-client";
 import { JOB_LINK_ERRORS } from "./job-link";
 
-export type PartnerCompanySummary = { id: string; revision: number; name: string; isActive?: boolean };
+export type PartnerPricingDefaults = { wallRateCents: number | null; ceilingRateCents: number | null; councilFeeCents: number };
+export type PartnerCompanySummary = { id: string; revision: number; name: string; isActive?: boolean; pricingDefaults?: PartnerPricingDefaults };
 export async function settingsRequest<T = { ok: true }>(url: string, method = "GET", body?: unknown): Promise<T> {
   let token = "";
   try { if (!url.startsWith("/api/partner/")) token = localStorage.getItem("token") ?? ""; } catch { /* request fails closed */ }

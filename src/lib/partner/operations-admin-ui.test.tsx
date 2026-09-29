@@ -15,7 +15,7 @@ import PartnerOpsCompanies, {PartnerCompanyManagement, Users} from "@/components
 import PartnerCompanyWizard from "@/components/PartnerCompanyWizard";
 import type { OpsCompanyView } from "./operations-client";
 
-const companyA: OpsCompanyView = { id: "11111111-1111-4111-8111-111111111111", revision: 5, slug: "northwind", name: "Northwind Insulation", billingModel: "INSULHUB_BILLED", quoteDefaults: { wallRateCents: 15500, ceilingRateCents: 13200, depositBasisPoints: 2500, consentFeeCents: 0, extras: [{ id: "council-fee", name: "Council Fee", priceCents: 33000 }] } };
+const companyA: OpsCompanyView & { pricingDefaults: { wallRateCents: number; ceilingRateCents: number; councilFeeCents: number } } = { id: "11111111-1111-4111-8111-111111111111", revision: 5, pricingDefaults: { wallRateCents: 15500, ceilingRateCents: 13200, councilFeeCents: 33000 }, slug: "northwind", name: "Northwind Insulation", billingModel: "INSULHUB_BILLED", quoteDefaults: { wallRateCents: 15500, ceilingRateCents: 13200, depositBasisPoints: 2500, consentFeeCents: 0, extras: [{ id: "council-fee", name: "Council Fee", priceCents: 33000 }] } };
 const companyB: OpsCompanyView = { ...companyA, id: "22222222-2222-4222-8222-222222222222", slug: "harbour", name: "Harbour Thermal", revision: 2 };
 const user = { id: "partner-user-a", name: "Samira Cole", email: "samira@example.test", disabledAt: null };
 
@@ -44,6 +44,23 @@ describe("operations company, user and queue controls", () => {
     fireEvent.change(screen.getByLabelText("Company name"), { target: { value: "New Partner" } });
     fireEvent.click(screen.getByRole("button", { name: "Create company and continue" }));
     await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith(`/jobs/settings/partners/${companyB.id}?setup=users`));
+  });
+
+  it("accepts dollar pricing during setup and validates rates before saving", async () => {
+    const fetcher = vi.fn(async (_url, init) => init?.method === "POST" ? response({ company: { id: companyB.id } }, 201) : response({ companies: [companyB] }));
+    vi.stubGlobal("fetch", fetcher);
+    render(<PartnerCompanyWizard />);
+    fireEvent.change(screen.getByLabelText("Company name"), { target: { value: "New Partner" } });
+    fireEvent.change(screen.getByLabelText("Wall rate (NZ$/m²)"), { target: { value: "-5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create company and continue" }));
+    expect(screen.getByRole("alert").textContent).toContain("Wall rate");
+    expect(fetcher).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Wall rate (NZ$/m²)"), { target: { value: "95.50" } });
+    fireEvent.change(screen.getByLabelText("Ceiling rate (NZ$/m²)"), { target: { value: "65.25" } });
+    fireEvent.change(screen.getByLabelText("Council fee extra (NZ$)"), { target: { value: "0" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create company and continue" }));
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalled());
+    expect(requestBody(fetcher, 0).pricingDefaults).toEqual({ wallRateCents: 9550, ceilingRateCents: 6525, councilFeeCents: 0 });
   });
 
   it("starts first-user setup as Admin and continues after a confirmed invitation", async () => {
@@ -88,7 +105,7 @@ describe("operations company, user and queue controls", () => {
     expect(navigation.replace).toHaveBeenLastCalledWith(`/jobs/settings/partners/${companyB.id}`);
   });
 
-  it("shows only company name and billing model, uses fixed defaults, and locks a conflict", async () => {
+  it("sends company pricing defaults and locks a conflict", async () => {
     const fetcher = vi.fn<typeof fetch>(async () => response({ error: "changed" }, 409));
     vi.stubGlobal("fetch", fetcher);
     render(<PartnerCompanyWizard />);
@@ -102,7 +119,7 @@ describe("operations company, user and queue controls", () => {
     await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
     const create = requestBody(fetcher, 0);
     expect(create.creationKey).toMatch(/^[0-9a-f-]{36}$/);
-    expect(create).toEqual({ creationKey: create.creationKey, name: "New Company" });
+    expect(create).toEqual({ creationKey: create.creationKey, name: "New Company", pricingDefaults: { wallRateCents: null, ceilingRateCents: null, councilFeeCents: 33000 } });
     expect(create).not.toHaveProperty("id"); expect(create).not.toHaveProperty("revision");
     expect((screen.getByRole("button", { name: "Create company and continue" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByRole("alert").textContent).toContain("Reload required");
@@ -116,7 +133,7 @@ describe("operations company, user and queue controls", () => {
     await waitFor(() => expect(fetcher.mock.calls.some(([,init])=>init?.method==="PUT")).toBe(true));
     const edit = JSON.parse(String(fetcher.mock.calls.find(([,init])=>init?.method==="PUT")![1]?.body));
     expect(edit.revision).toBe(5);
-    expect(edit).toEqual({ revision: 5, name: "Northwind Insulation" });
+    expect(edit).toEqual({ revision: 5, name: "Northwind Insulation", pricingDefaults: { wallRateCents: 15500, ceilingRateCents: 13200, councilFeeCents: 33000 } });
   });
 
   it("cannot abandon a pending or unconfirmed save and create a duplicate company", async () => {
