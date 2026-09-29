@@ -1,5 +1,7 @@
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 vi.mock('./repository',()=>({controlsRepository:vi.fn(),emptyRecord:()=>({revision:0,state:emptyControls(),updatedAt:null,actorName:''})}));
+vi.mock('./send-repository',()=>({sendsRepository:vi.fn(()=>null)}));
+import {sendsRepository} from './send-repository';
 import {controlsRepository} from './repository';
 import {emptyControls} from './controls';
 import {decorateQueue} from './queue-controls';
@@ -27,4 +29,10 @@ it('does not silently discard exclusions on database failure',async()=>{
 it('only missing migration falls back to explicitly read-only review',async()=>{
  vi.mocked(controlsRepository).mockReturnValue({list:async()=>{throw {code:'42P01'};}} as never);
  expect(await decorateQueue(queue)).toEqual(queue);
+});
+
+it('pending sends are attention items even while sending is switched off',async()=>{
+ vi.mocked(controlsRepository).mockReturnValue({list:async()=>({a:{revision:1,state,actorName:'Staff',updatedAt:null}})} as never);
+ vi.mocked(sendsRepository).mockReturnValue({summaries:async()=>[{insulhub_job_id:'a',status:'unknown',note_status:'pending'}]} as never);
+ const result=await decorateQueue(queue);expect(result.items[0].eligibility.state).toBe('attention');expect(result.items[0].sendAvailable).toBe(true);expect(result.items[0].sendEnabled).toBe(false);
 });

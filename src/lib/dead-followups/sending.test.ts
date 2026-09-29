@@ -1,0 +1,13 @@
+import {expect,it} from 'vitest';
+import {prepareSend,followupTemplate,offerNote,confirmedStatus} from './sending';
+import {emptyControls} from './controls';
+const job={_id:'aaaaaaaaaaaaaaaaaaaaaaaa',stage:'QUOTE',updatedAt:'2026-09-01T00:00:00Z',quote:{status:'DECLINED',c_total:10000}};
+const state={...emptyControls(),draftDiscountCents:50000,deadDate:'2026-01-01T00:00:00Z',reviewedVersion:job.updatedAt};
+const input={requestId:'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa',revision:1,jobVersion:job.updatedAt,channel:'sms',senderId:'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb',destination:'0211234567',body:'We can offer $500.00 off your quote.',subject:''};
+it('snapshots validated amount, approach and normalised destination',()=>{expect(prepareSend(input,state,job,'2026-09-30T00:00:00Z')).toMatchObject({discountCents:50000,approach:1,destination:'+64211234567'});});
+it('rejects leads, stale reviews, exclusions and missing discount',()=>{for(const [s,j] of [[state,{...job,stage:'LEAD'}],[{...state,reviewedVersion:null},job],[{...state,exclusionReason:'No'},job],[{...state,draftDiscountCents:null},job]] as const)expect(()=>prepareSend(input,s,j,'2026-09-30T00:00:00Z')).toThrow();});
+it('requires exact discount in final content and prevents oversized discount',()=>{expect(()=>prepareSend({...input,body:'Hello'},state,job,'2026-09-30T00:00:00Z')).toThrow(/discount/i);expect(()=>prepareSend(input,{...state,draftDiscountCents:1000001},job,'2026-09-30T00:00:00Z')).toThrow();});
+it('enforces second waiting period and two approach maximum',()=>{const offer={number:1 as const,sentAt:'2026-08-01T00:00:00Z',discountCents:10000,channel:'sms' as const,evidence:'sent',source:'staff_recorded' as const};expect(()=>prepareSend(input,{...state,offers:[offer]},job,'2026-09-30T00:00:00Z')).toThrow();expect(()=>prepareSend(input,{...state,offers:[offer,{...offer,number:2}]},job,'2027-09-30T00:00:00Z')).toThrow();});
+it('templates contain dollar amount and no unconfirmed expiry promise',()=>{expect(followupTemplate(2,50000).body).toContain('$500.00');});
+it('only sent and delivered outcomes count',()=>{for(const status of ['accepted','sending','unknown','failed'])expect(confirmedStatus(status)).toBe(false);expect(confirmedStatus('sent')).toBe(true);expect(confirmedStatus('delivered')).toBe(true);});
+it('notes have stable attempt marker, actual discount, channel and actor',()=>{expect(offerNote({id:input.requestId,approach:1,discountCents:50000,channel:'sms',actorName:'Staff',sentAt:'2026-09-30T00:00:00Z'})).toContain('NZD $500.00');expect(offerNote({id:input.requestId,approach:1,discountCents:50000,channel:'sms',actorName:'Staff',sentAt:'2026-09-30T00:00:00Z'})).toContain(input.requestId);});

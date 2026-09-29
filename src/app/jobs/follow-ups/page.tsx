@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import FollowupSender from '@/components/FollowupSender';
 import FollowupControls from '@/components/FollowupControls';
 import type { QueueItem, QueueResponse, ControlRecord } from '@/lib/dead-followups/types';
 
@@ -45,6 +46,7 @@ function Detail({item,checkedAt,onBack,onSkip,onSaved,onAccessLost,readOnly}:{it
       <p className="mt-2 text-sm leading-relaxed text-slate-600">Check the notes and existing communications before deciding whether this is a first or second approach. No recorded discount does not mean no discount was offered.</p>
     </div>}
     {item.controls && <FollowupControls key={`${item.job._id}:${item.controls.revision}:${item.job.updatedAt}`} item={item} readOnly={readOnly} onSaved={onSaved} onAccessLost={onAccessLost}/>}
+    {item.sendAvailable && <FollowupSender item={item} onChanged={()=>onSaved(item.controls!)} onAccessLost={onAccessLost} readOnly={readOnly}/>}
     <div className="rounded-2xl border border-slate-200 bg-white p-5"><h3 className="font-semibold text-[#1a3a4a]">Job notes</h3><p className="mt-3 whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-600">{job.notes || 'No notes recorded.'}</p></div>
   </section>;
 }
@@ -88,6 +90,7 @@ export default function DeadFollowupsPage() {
     const snoozed=Boolean(row.controls?.state.snoozedUntil && Date.parse(row.controls.state.snoozedUntil)>Date.parse(data?.checkedAt || ''));
     if(view==='snoozed')return snoozed && row.eligibility.state!=='excluded';
     if(view==='all')return true;
+    if(view==='review')return row.eligibility.state==='review'||row.eligibility.state==='attention'||Boolean(row.notePending);
     if(view==='due')return row.eligibility.state==='due' && !snoozed;
     return row.eligibility.state===view;
   };
@@ -97,7 +100,7 @@ export default function DeadFollowupsPage() {
     <div className="mx-auto max-w-7xl">
       <Link href="/jobs?stage=QUOTE&subTab=DEAD" className="text-sm font-medium text-slate-500 hover:text-[#1a3a4a]">← Dead quotes</Link>
       <div className="mt-5 flex items-start justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#e85d04]">Quotes</p><h1 className="mt-1 text-3xl font-bold tracking-tight text-[#1a3a4a]">Follow-ups</h1><p className="mt-2 text-sm text-slate-600">Review the quote. Understand the history. Plan the next conversation.</p></div><button type="button" onClick={()=>void load()} disabled={loading} className="min-h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-[#1a3a4a] disabled:opacity-50">{loading?'Loading…':'Refresh'}</button></div>
-      <div className="my-6 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm leading-relaxed text-slate-600"><strong className="text-[#1a3a4a]">{data?.readOnly===false?'Follow-up preparation.':'Read-only review.'}</strong> Dead quotes only. Staff-reviewed dates remain estimates. Sending is not enabled.</div>
+      <div className="my-6 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm leading-relaxed text-slate-600"><strong className="text-[#1a3a4a]">{data?.readOnly===false?'Follow-up preparation.':'Read-only review.'}</strong> Dead quotes only. Staff-reviewed dates remain estimates. {data?.items.some(row=>row.sendEnabled)?' Sending is manual; review each offer before sending.':' Sending is not enabled.'}</div>
       {error && <div role="alert" className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{error} {data && 'Showing the last loaded quotes; they may be out of date.'} <button onClick={()=>void load()} className="min-h-11 px-2 font-semibold underline">Retry</button></div>}
       {loading && !data && <p role="status" className="py-12 text-center text-slate-500">Loading Dead quotes…</p>}
       {data && <>

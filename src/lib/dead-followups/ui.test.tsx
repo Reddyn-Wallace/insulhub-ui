@@ -70,3 +70,7 @@ it('keeps controls disabled while retrying a failed refresh',async()=>{
  vi.mocked(fetch).mockImplementationOnce(()=>new Promise(()=>{}));fireEvent.click(screen.getByRole('button',{name:'Retry'}));
  expect(screen.getByRole('button',{name:'Save discount draft'}).matches(':disabled')).toBe(true);
 });
+it('Needs review includes unresolved sending status',async()=>{
+ vi.mocked(fetch).mockResolvedValue(Response.json({...payload,items:[{...payload.items[0],eligibility:{state:'attention',reason:'Check saved sending status'}}]}));
+ render(<DeadFollowupsPage/>);await screen.findByRole('button',{name:/Alex Example/});fireEvent.click(screen.getByRole('button',{name:'Needs review'}));expect(screen.getByRole('button',{name:/Alex Example/})).toBeTruthy();
+});

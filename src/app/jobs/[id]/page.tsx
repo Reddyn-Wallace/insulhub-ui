@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
@@ -2829,6 +2830,7 @@ export default function JobDetailPage() {
                 <p className="text-sm text-gray-400">No notes yet</p>
               )}
               <PartnerSharedNotes updates={sharedNotes} />
+              <Link href={`/jobs/${id}/follow-up-history`} className="mt-3 inline-block text-xs font-medium text-gray-500 underline">Follow-up send history and pending notes</Link>
             </Section>
 
             <div className="mt-1">
@@ -3142,6 +3144,7 @@ export default function JobDetailPage() {
             <p className="text-sm text-gray-400">No notes yet</p>
           )}
           <PartnerSharedNotes updates={sharedNotes} />
+              <Link href={`/jobs/${id}/follow-up-history`} className="mt-3 inline-block text-xs font-medium text-gray-500 underline">Follow-up send history and pending notes</Link>
         </Section>
 
           </>

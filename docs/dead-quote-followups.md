@@ -8,7 +8,21 @@ With the overlay migration applied and `DEAD_QUOTE_FOLLOWUPS_ENABLED=true`, staf
 
 Drafts never count as sent offers. Historical offers are explicitly staff attestations with evidence, date, channel and amount. Correcting the latest entry preserves the original audit record. The previous offered amount is displayed independently of the next draft.
 
-**Sending and automatic job-note recording are not implemented yet.** This slice does not send messages, modify canonical job notes or change job status. The next sending slice must record the actual discount and append it to job notes only after confirmed successful delivery; note retries must not resend the message.
+## Manual sending
+
+With the separate sending flag enabled, due quotes have an editable SMS/email composer using the current staff member's connected sender. Staff must explicitly check the recipient, pricing, scope and discount before selecting Send offer. The final text must contain the saved amount in dollar-and-cents form. The exact recipient, message, discount, actor and approach are saved before dispatch; the email signature is appended by the existing email sender.
+
+A shared database lock reserves one attempt per approach. Repeating a request retrieves its attempt; it never dispatches it again. Only the CRM message's provider-confirmed sent/delivered status records a successful offer. SMS service acceptance is pending. Unknown attempts block further sends and history edits. Checking status only reads/reconciles the existing attempt (and polls the SMS provider); it never sends. A definitive preflight rejection or failed message allows a new explicit attempt after refresh.
+
+Confirmed sends append a stable, identifiable job note with the actual NZD discount, approach, channel, staff member and NZ date/time. Note failures leave the successful offer intact and expose Retry job note only. The job's Notes section also links to follow-up history, so recovery remains available after the job leaves Dead. Confirmed CRM sends cannot be deleted through the historical-entry correction form. Job status is never changed by this workflow.
+
+### Limits and recovery
+
+- The canonical backend only supports replacing the notes string, not atomic append or conditional updates. This implementation rereads notes, detects intervening edits, serialises its own note appends, uses an attempt marker to avoid duplicates and verifies the saved marker. It **cannot eliminate a simultaneous note-edit race with either CRM** after the last read. An atomic backend append is needed for that guarantee.
+- A crash before dispatch, or provider success that was never saved by the existing sender, remains unknown and blocks further sends. There is no automatic retry or staff override of unknown status. Investigate the sending account/device and reconcile durable provider evidence before operational recovery.
+- Successful timing uses the first confirmed observation, which may be later than the actual send. This conservatively delays the second approach.
+- The queue does not automatically poll or send in the background. Staff use Check saved send status for pending SMS. The shared guard covers this follow-up workflow; ordinary manual communications outside it still require history review.
+- Auto-appending a note changes the canonical version and may require another history review. Estimates remain estimates; exact cross-CRM Dead transitions are still unavailable.
 
 ## Timing and backend limitation
 
@@ -21,15 +35,16 @@ Canonical quote changes invalidate the history review, requiring staff to check 
 ## Enablement
 
 1. Apply `npm run dead-followups:migrate` to the intended overlay database using its `DATABASE_URL`.
-2. Set `DEAD_QUOTE_FOLLOWUPS_ENABLED=true` in the application environment.
-3. Verify authenticated staff access and real canonical schema before operational use.
+2. Set `DEAD_QUOTE_FOLLOWUPS_ENABLED=true` for preparation controls.
+3. Verify authenticated staff access, connected sender ownership and real canonical schema. Enable manual sends separately with `DEAD_QUOTE_FOLLOWUP_SEND_ENABLED=true`.
+4. Turning sending off blocks new dispatches while preserving status checks and note recovery.
 
-Neither production migration nor enablement has been performed. Missing tables retain the read-only foundation. Other storage failures surface an error rather than silently discarding exclusions/history. Turning the flag off preserves read access but blocks writes.
+The migration now includes the send-attempt schema and can be rerun. Neither production migration nor enablement has been performed. Missing tables retain the read-only foundation. Other storage failures surface an error rather than silently discarding exclusions/history. Turning the flag off preserves read access but blocks writes.
 
 ## Verification
 
 - `npm run test:dead-followups`: rules, access, queue, controls, API and UI tests. Repository tests require a dedicated local database via `DEAD_FOLLOWUPS_TEST_DATABASE_URL` (see test guard).
 - `npm test` and `npm run build`: full regression suites and production build.
-- Local preview on port 3116: run `node scripts/dead-followups-browser-smoke.cjs` and `node scripts/dead-followup-controls-browser-smoke.cjs`. Both mock business APIs, block external requests and check 390px/1280px screens without customer writes.
+- Local preview on port 3116: run `node scripts/dead-followups-browser-smoke.cjs` and `node scripts/dead-followup-controls-browser-smoke.cjs`. Also run `node scripts/dead-followup-send-browser-smoke.cjs` for SMS/email composition, uncertain-response recovery and note-only retry. These mock business APIs, block external requests and check 390px/1280px screens without customer writes.
 
 Independent review covered concurrent staff edits, uncertain saves, authentication loss, stale reviews and discount history. Regression tests cover saved dates surviving re-review, consistent estimate labels and controls remaining disabled during refresh. Local tests do not establish live schema compatibility, historical data accuracy or operational sending behaviour.

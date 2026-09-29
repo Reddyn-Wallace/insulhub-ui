@@ -29,6 +29,8 @@ export class ControlRepository {
       await client.query('BEGIN');
       await client.query('INSERT INTO dead_quote_followup_controls(insulhub_job_id,revision,state) VALUES($1,0,$2::jsonb) ON CONFLICT DO NOTHING',[job._id,JSON.stringify(emptyControls())]);
       const {rows}=await client.query('SELECT * FROM dead_quote_followup_controls WHERE insulhub_job_id=$1 FOR UPDATE',[job._id]);
+      const installed=await client.query("SELECT to_regclass('dead_quote_followup_attempts') AS name");
+      if(installed.rows[0].name){const pending=await client.query("SELECT id FROM dead_quote_followup_attempts WHERE insulhub_job_id=$1 AND status IN ('sending','accepted','unknown')",[job._id]);if(pending.rows.length)throw new ControlError('A send is awaiting confirmation. Check its status before editing follow-up history.',409);}
       if(rows[0].revision!==revision)throw new ControlError('Another staff member changed this follow-up. Refresh before saving again.',409);
       const state=applyControl(rows[0].state,input,job,new Date().toISOString());
       const command=input as {action:string;reason?:string};
