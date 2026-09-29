@@ -113,3 +113,5 @@ Previously identified exceptions to carry into the live register: INV-0389 and I
 - Owner approved the proposed rules after clarification that a reserve is a dashboard deduction only: no funds are moved or locked. Use “Deposits for unfinished jobs” as the primary dashboard label.
 
 Chunk 1 review is complete. Chunk 2 covers source connections. No credentials, production records, schema, payment instructions or application code are changed in chunk 1.
+
+29September receipt matching refinement: compact `Inv0441` is accepted without losing digits. A reused paid-deposit number can identify the later full invoice only with explicit same quote, same installed CRM job, receipt exceeding the entire fully paid deposit, and a unique later full invoice value. Paid target invoices remain in the candidate set. Ambiguous or partial reused-reference receipts remain conservative. Details show the supporting receipt and rule; the main view remains three figures.

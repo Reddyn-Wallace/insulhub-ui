@@ -96,3 +96,13 @@ Connections diagnostic1777 is a different count: jobs in four later stages whose
 Wording-only follow-up66ce17a deployed successfully; TypeScript, targeted lint and production build passed. New production Connections explanation visibly verified. Calculation unchanged. Authenticated dashboard layout and all three values were inspected before this wording-only deployment; source-freshness labels show supplied feed times rather than real-time claims.
 
 Final post-deployment refresh29Sep21:32NZDT: installed owed52,365.62. Difference+1,200 is newly visible INV-0451 (Nik Florance, R25136, installed, Xero due1,200), verified in the live installed-debt table. Bank19,885.21, deposits27,903.99, recent adjustment3,531.94 and unresolved13/paid39,534.04/due0 remain unchanged. Final dashboard left open with three cards and collapsed supporting details.
+
+## Named recent-receipt corrections — 29 September 2026
+
+Read-only Akahu investigation over90days confirmed all three named receipts exist in the current feed and are within7days; neither feed coverage nor cutoff caused these misses. Berry4877.44 on28SepUTC carries `Inv0441` with no separator. Shona6464.18 on27SepUTC carries explicit quoteRW26353 but earlier deposit numberINV-0340. Richardson3531.94 on27SepUTC carries `Inv 0440` and was already deducted. Bank feed updated29Sep19:47NZDT.
+
+Compact INV references now normalise with full digits preserved. Reused-deposit fallback requires: fully paid earlier deposit with no credits; new receipt greater than deposit's entire total; explicit same quote; both invoice links resolve to one installed CRM job; unique later invoice whose full value equals receipt. Paid later invoices remain candidates so Xero catch-up never switches allocation to another unpaid invoice. No name/amount-only guess is used. Shona's deposit2308.60 dated5Aug/paid17Aug and finalINV-0422 6464.18 dated14Sep satisfy these checks. Supporting rows show receipt date, amount, bank description and match reasoning. No new confirmation workflow or main-screen figure introduced.
+
+Actual-source replay with current owner decisions gives zero owed for INV-0422, INV-0441 and INV-0440 and total recent adjustments14873.56. Extra correction versus previous logic11341.62.102finance tests, TypeScript and targeted lint passed; independent review found no material issue. Added partial/full catch-up, missing-quote, ambiguous later invoice and already-paid duplicate target cases. Seven-day short-lag scope remains unchanged.
+
+Calendar deployment coordination: commit2b42f3d (native Open job link) cherry-picked as59990a3 before finance changes. Calendar thread confirmed deployment complete and no more deploys planned. Finance deployment preserves that change.

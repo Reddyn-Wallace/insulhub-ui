@@ -1,5 +1,14 @@
 import type { FinanceInputs, ReviewDecision } from "./model";
-import { quoteReference } from "./linking";
+import { linkInvoices, quoteReference } from "./linking";
+import { isJobInstalled } from "./model";
+export type RecentReceiptEvidence = {
+  invoiceId: string;
+  receiptId: string;
+  amount: number;
+  date: string;
+  description: string;
+  method: string;
+};
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const has = (text: string, ref: string) =>
   ref.length >= 3 &&
@@ -10,8 +19,10 @@ export function recentReceiptAdjustments(
   input: FinanceInputs,
   decisions: ReviewDecision[],
   uncertain = new Set<string>(),
+  evidence: RecentReceiptEvidence[] = [],
 ) {
   const result = new Map<string, number>();
+  const links = linkInvoices(input.invoices, input.jobs, decisions);
   if (!input.recentBankChecked) return result;
   const end = Date.parse(input.checkedAt),
     start = end - 7 * 86400000;
@@ -39,11 +50,12 @@ export function recentReceiptAdjustments(
     const decision = manual.get(r.id);
     if (decision?.nonCustomer) continue;
     let allocations: Array<{ invoiceId: string; gross: number }> = [];
+    let method = "Owner-confirmed receipt allocation";
     if (decision) {
       allocations = decision.allocations;
     } else {
       const text = `${r.description} ${r.reference}`.replace(
-        /\bINV\s+(\d+)\b/gi,
+        /\bINV[-\s]*(\d+)\b/gi,
         "INV-$1",
       );
       if (
@@ -58,7 +70,8 @@ export function recentReceiptAdjustments(
       if (invoiceTokens.size > 1) continue;
       const candidates = input.invoices.filter((i) => has(text, i.number));
       if (candidates.length !== 1) continue;
-      const i = candidates[0];
+      let i = candidates[0];
+      method = "Full invoice number in bank reference";
       if (
         input.invoices.some(
           (other) =>
@@ -67,6 +80,38 @@ export function recentReceiptAdjustments(
         )
       )
         continue;
+      // Customers can leave the old deposit reference on their final payment.
+      // Never redirect using name/amount alone: require the explicit same quote,
+      // both invoice links to one installed CRM job, fully paid earlier deposit,
+      // receipt larger than that deposit, and a unique full later invoice value.
+      if (
+        r.amount > i.total &&
+        i.due === 0 &&
+        i.paid === i.total &&
+        i.credited === 0 &&
+        i.status === "PAID" &&
+        /deposit/i.test(i.reference + " " + i.description)
+      ) {
+        const old = i,
+          quote = quoteReference(old.reference),
+          jobId = links.get(old.id)?.jobId;
+        const job = input.jobs.find((j) => j.id === jobId);
+        if (!jobId || !job || !isJobInstalled(job) || !has(text, quote))
+          continue;
+        const later = input.invoices.filter(
+          (candidate) =>
+            candidate.id !== old.id &&
+            candidate.currency === "NZD" &&
+            links.get(candidate.id)?.jobId === jobId &&
+            quoteReference(candidate.reference) === quote &&
+            candidate.date > old.date &&
+            Date.parse(candidate.date) <= date &&
+            candidate.total - candidate.credited === r.amount,
+        );
+        if (later.length !== 1) continue;
+        i = later[0];
+        method = `Earlier deposit ${old.number} reference reused; same CRM job and explicit quote ${quote}, full later invoice amount`;
+      }
       if (
         !Number.isFinite(Date.parse(i.date)) ||
         date < Date.parse(i.date) ||
@@ -79,6 +124,14 @@ export function recentReceiptAdjustments(
       if (a.gross < 0) blocked.add(a.invoiceId);
       else if (a.gross > 0) {
         received.set(a.invoiceId, (received.get(a.invoiceId) || 0) + a.gross);
+        evidence.push({
+          invoiceId: a.invoiceId,
+          receiptId: r.id,
+          amount: a.gross,
+          date: r.date,
+          description: r.description,
+          method,
+        });
       }
     }
   }

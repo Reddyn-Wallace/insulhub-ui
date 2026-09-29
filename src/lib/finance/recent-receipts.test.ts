@@ -173,3 +173,65 @@ it("respects an owner link to an older Xero payment instead of deducting it twic
   ];
   expect(recentReceiptAdjustments(d, decisions).size).toBe(0);
 });
+it("recognises the compact bank reference Inv0441 without dropping invoice digits", () => {
+  const d = input();
+  d.invoices[0].number = "INV-0441";
+  d.receipts[0].description = "Berry A R Berry Inv0441";
+  expect(recentReceiptAdjustments(d, []).get("i")).toBe(40000);
+  d.receipts[0].description = "Berry 0441";
+  expect(recentReceiptAdjustments(d, []).size).toBe(0);
+});
+it("resolves a reused paid-deposit reference only with the same verified job, explicit quote and full later invoice amount", () => {
+  const d = input();
+  d.jobs = [
+    {
+      id: "job",
+      quote: "RW26353",
+      number: "1",
+      name: "Test",
+      status: "INSTALLED_AS_QUOTED",
+      archived: false,
+      invoiceNumbers: [],
+    },
+  ];
+  d.invoices[0] = {
+    ...d.invoices[0],
+    number: "INV-0422",
+    reference: "Quote #RW26353",
+    total: 646418,
+    due: 646418,
+    date: "2026-09-14",
+  };
+  d.invoices.push({
+    ...d.invoices[0],
+    id: "deposit",
+    number: "INV-0340",
+    reference: "RW26353 (deposit)",
+    date: "2026-08-05",
+    status: "PAID",
+    total: 230860,
+    paid: 230860,
+    due: 0,
+  });
+  d.receipts[0] = {
+    ...d.receipts[0],
+    amount: 646418,
+    description: "De Sain,Shona Rw26353 Inv-0340 Shona Desain",
+  };
+  expect(recentReceiptAdjustments(d, []).get("i")).toBe(646418);
+  d.invoices[0].paid = 200000;
+  d.invoices[0].due = 446418;
+  expect(recentReceiptAdjustments(d, []).get("i")).toBe(446418);
+  d.invoices[0].paid = 646418;
+  d.invoices[0].due = 0;
+  expect(recentReceiptAdjustments(d, []).size).toBe(0);
+  d.invoices[0].paid = 0;
+  d.invoices[0].due = 646418;
+  d.receipts[0].description = "De Sain Inv-0340";
+  expect(recentReceiptAdjustments(d, []).size).toBe(0);
+  d.receipts[0].description = "Rw26353 Inv-0340";
+  d.invoices.push({ ...d.invoices[0], id: "duplicate", number: "INV-0500" });
+  expect(recentReceiptAdjustments(d, []).size).toBe(0);
+  Object.assign(d.invoices[2], { status: "PAID", paid: 646418, due: 0 });
+  expect(recentReceiptAdjustments(d, []).size).toBe(0);
+});

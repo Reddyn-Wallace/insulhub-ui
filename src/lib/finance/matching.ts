@@ -36,29 +36,40 @@ export function matchReceipts(
   const candidates = new Map<string, typeof invoices>();
   for (const r of input.receipts) {
     // Banks commonly render INV-0425 as INV 0425. Keep the prefix and full digits.
-    const text = (r.description + " " + r.reference).replace(/\bINV\s+(\d+)\b/gi, "INV-$1");
+    const text = (r.description + " " + r.reference).replace(
+      /\bINV[-\s]*(\d+)\b/gi,
+      "INV-$1",
+    );
     const numberMatches = invoices.filter((i) => hasReference(text, i.number));
-    const refs = invoices.filter((i) => hasReference(text, quoteReference(i.reference)));
+    const refs = invoices.filter((i) =>
+      hasReference(text, quoteReference(i.reference)),
+    );
     const ids = new Set([...numberMatches, ...refs].map((i) => i.id));
     // An exact invoice number narrows a shared quote, but a different job/reference conflicts.
     const pool = numberMatches.length
       ? numberMatches.filter((i) =>
-          refs.every((x) => quoteReference(x.reference) === quoteReference(i.reference) || x.id === i.id),
+          refs.every(
+            (x) =>
+              quoteReference(x.reference) === quoteReference(i.reference) ||
+              x.id === i.id,
+          ),
         )
       : invoices.filter((i) => ids.has(i.id));
     candidates.set(
       r.id,
-      pool.length > 1 ? pool : pool.filter(
-        (i) =>
-          !/WINDCAVE|PAYMENT EXPRESS|\bDPS\b|STRIPE|PAYPAL|EFTPOS|SETTLEMENT|PAYOUT/i.test(
-            text,
-          ) &&
-          r.amount > 0 &&
-          r.amount <= i.total &&
-          !!r.date &&
-          !!i.date &&
-          r.date >= i.date,
-      ),
+      pool.length > 1
+        ? pool
+        : pool.filter(
+            (i) =>
+              !/WINDCAVE|PAYMENT EXPRESS|\bDPS\b|STRIPE|PAYPAL|EFTPOS|SETTLEMENT|PAYOUT/i.test(
+                text,
+              ) &&
+              r.amount > 0 &&
+              r.amount <= i.total &&
+              !!r.date &&
+              !!i.date &&
+              r.date >= i.date,
+          ),
     );
   }
   const possible = (r: FinanceReceipt, invoiceId: string, gross: number) =>
@@ -73,9 +84,21 @@ export function matchReceipts(
       for (const p of possible(r, i.id, r.amount))
         counts.set(p.id, (counts.get(p.id) || 0) + 1);
   }
-  const explicitPayments = new Set([...manual.values()].flatMap(m => m.allocations.map(a => a.paymentId).filter((id):id is string => !!id)));
-  const manualCandidates = new Map<string,number>();
-  for(const r of input.receipts){const m=manual.get(r.id);if(!m)continue;for(const a of m.allocations){if(a.paymentId)continue;for(const p of possible(r,a.invoiceId,a.gross))manualCandidates.set(p.id,(manualCandidates.get(p.id)||0)+1);}}
+  const explicitPayments = new Set(
+    [...manual.values()].flatMap((m) =>
+      m.allocations.map((a) => a.paymentId).filter((id): id is string => !!id),
+    ),
+  );
+  const manualCandidates = new Map<string, number>();
+  for (const r of input.receipts) {
+    const m = manual.get(r.id);
+    if (!m) continue;
+    for (const a of m.allocations) {
+      if (a.paymentId) continue;
+      for (const p of possible(r, a.invoiceId, a.gross))
+        manualCandidates.set(p.id, (manualCandidates.get(p.id) || 0) + 1);
+    }
+  }
   const usedPayments = new Set<string>(),
     received = new Map<string, number>(),
     local = new Map<string, number>();
@@ -92,7 +115,11 @@ export function matchReceipts(
               p.invoiceId === a.invoiceId &&
               p.amount === a.gross,
           )
-        : ps.length === 1 && (counts.get(ps[0].id) || 0) === 0 && manualCandidates.get(ps[0].id) === 1 && !explicitPayments.has(ps[0].id) && !usedPayments.has(ps[0].id)
+        : ps.length === 1 &&
+            (counts.get(ps[0].id) || 0) === 0 &&
+            manualCandidates.get(ps[0].id) === 1 &&
+            !explicitPayments.has(ps[0].id) &&
+            !usedPayments.has(ps[0].id)
           ? ps[0]
           : undefined;
       return { ...a, paymentId: p?.id || null };

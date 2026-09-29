@@ -584,6 +584,19 @@ export default function FinancePage() {
                                       ? `Bank settlement unconfirmed ${money(r.unconfirmed)}`
                                       : "Recent bank receipts checked; older settlement history is not loaded."}
                                   </p>
+                                  {r.localAdjustment > 0 && (
+                                    <p>
+                                      Already received in bank:{" "}
+                                      {money(r.localAdjustment)} deducted from
+                                      this invoice.
+                                    </p>
+                                  )}
+                                  {r.recentEvidence.map((e) => (
+                                    <p key={e.receiptId}>
+                                      {when(e.date)} · {money(e.amount)} ·{" "}
+                                      {e.description} · {e.method}
+                                    </p>
+                                  ))}
                                   <p>{r.link.method}</p>
                                   <p>
                                     CRM: {r.job?.status || "Unknown"} · stage{" "}
@@ -677,7 +690,8 @@ export default function FinancePage() {
                                 ? r.issues.join(" · ")
                                 : r.unconfirmed
                                   ? "Paid; settlement needs evidence"
-                                  : r.allocations.length
+                                  : r.localAdjustment > 0 ||
+                                      r.allocations.length
                                     ? "Bank evidence linked"
                                     : r.paid === 0
                                       ? "No payment recorded"

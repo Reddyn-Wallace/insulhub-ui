@@ -4,7 +4,10 @@ import {
   type ReviewDecision,
 } from "./model";
 import { linkInvoices } from "./linking";
-import { recentReceiptAdjustments } from "./recent-receipts";
+import {
+  recentReceiptAdjustments,
+  type RecentReceiptEvidence,
+} from "./recent-receipts";
 import { matchReceipts } from "./matching";
 export function calculateFinance(
   input: FinanceInputs,
@@ -13,11 +16,34 @@ export function calculateFinance(
   const links = linkInvoices(input.invoices, input.jobs, decisions),
     matches = matchReceipts(input, decisions);
   const uncertainRecent = new Set<string>();
+  const recentEvidence: RecentReceiptEvidence[] = [];
   const recentAdjustments = recentReceiptAdjustments(
     input,
     decisions,
     uncertainRecent,
+    recentEvidence,
   );
+  // Carry the same recent-receipt evidence into drill-downs and bank review.
+  for (const match of matches) {
+    if (match.allocations.length || match.nonCustomer) continue;
+    const proof = recentEvidence.filter(
+      (e) =>
+        e.receiptId === match.receipt.id &&
+        (recentAdjustments.get(e.invoiceId) || 0) > 0,
+    );
+    if (proof.length === 1) {
+      match.allocations = [
+        {
+          invoiceId: proof[0].invoiceId,
+          gross: proof[0].amount,
+          fee: 0,
+          paymentId: null,
+        },
+      ];
+      match.method = "Recent receipt evidence";
+      match.reason = proof[0].method;
+    }
+  }
   const rows = input.invoices.map((i) => {
     const link = links.get(i.id)!,
       job = input.jobs.find((j) => j.id === link.jobId) || null;
@@ -92,6 +118,7 @@ export function calculateFinance(
       opening,
       released,
       settled,
+      recentEvidence: recentEvidence.filter((e) => e.invoiceId === i.id),
       localAdjustment: supported && job && isJobInstalled(job) ? local : 0,
       reserved: supported && unfinished ? i.paid : 0,
       owed: supported && job && isJobInstalled(job) ? i.due - local : 0,
