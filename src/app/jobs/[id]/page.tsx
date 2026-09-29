@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
 import { gql } from "@/lib/graphql";
 import { JOB_QUERY, USERS_QUERY } from "@/lib/queries";
+import { completionPackBlocker, canCompleteJob, type ManualInvoiceConfirmation } from "@/lib/job-completion";
 import {
   UPDATE_JOB_LEAD, UPDATE_JOB_NOTES,
   UPDATE_JOB_QUOTE, ARCHIVE_JOB, UPDATE_CLIENT, SEND_EBA, ADD_FILES, REMOVE_FILE,
@@ -491,6 +492,28 @@ export default function JobDetailPage() {
   const [quoteBookingSendTextReminder, setQuoteBookingSendTextReminder] = useState(false);
   const [installDate, setInstallDate] = useState("");
   const [consentNumber, setConsentNumber] = useState("");
+  const [manualInvoice, setManualInvoice] = useState<ManualInvoiceConfirmation | null>(null);
+  const [manualInvoiceReference, setManualInvoiceReference] = useState("");
+  const [manualInvoiceConfirmed, setManualInvoiceConfirmed] = useState(false);
+  const [manualInvoiceLoading, setManualInvoiceLoading] = useState(true);
+  const [manualInvoiceError, setManualInvoiceError] = useState("");
+  const [manualInvoiceReload, setManualInvoiceReload] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    setManualInvoice(null);
+    setManualInvoiceLoading(true);
+    setManualInvoiceError("");
+    fetch(`/api/jobs/${id}/manual-invoice`, { headers: { "x-access-token": getToken() || "" }, cache: "no-store" })
+      .then(async (res) => {
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "Could not load manual invoice confirmation.");
+        if (active) setManualInvoice(json.confirmation || null);
+      })
+      .catch((error) => { if (active) setManualInvoiceError(error instanceof Error ? error.message : "Could not load manual invoice confirmation."); })
+      .finally(() => { if (active) setManualInvoiceLoading(false); });
+    return () => { active = false; };
+  }, [id, manualInvoiceReload]);
   const [creatingFinalInvoice, setCreatingFinalInvoice] = useState(false);
   const [managerOverride, setManagerOverride] = useState("");
   const [managerAdjustment, setManagerAdjustment] = useState("");
@@ -1163,16 +1186,21 @@ export default function JobDetailPage() {
 
   async function toggleCouncilApprovalNA(nextValue: boolean) {
     setSaving(true);
+    setError("");
     try {
+      // Save the certificate's canonical consent before enabling the exception.
+      if (nextValue) await persistConsentNumber("N/A");
       await saveInstallPlanningMeta({
         status: installMeta.status,
         note: installMeta.note,
         councilApprovalNA: nextValue,
         installScope: installMeta.installScope,
       });
+      // Re-enabling council requirements must not leave N/A looking like a real consent.
+      if (!nextValue && job?.council?.consentNumber?.trim().toUpperCase() === "N/A") await persistConsentNumber("");
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not update council approval requirement");
+      setError(err instanceof Error ? err.message : "Could not save council requirements. Please retry.");
     } finally {
       setSaving(false);
     }
@@ -1752,14 +1780,23 @@ export default function JobDetailPage() {
     window.open(`${API_BASE}/pdf/eba?${params.toString()}`, "_blank");
   }
 
-  function openCompletionCertificatePdf() {
+  async function openCompletionCertificatePdf() {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (!token) {
       setError("Missing auth token");
       return;
     }
-    const params = new URLSearchParams({ jobId: id, token });
-    window.open(`${API_BASE}/pdf/certificate?${params.toString()}`, "_blank");
+    const popup = window.open("about:blank", "_blank");
+    if (!popup) { setError("Allow pop-ups to download the completion certificate."); return; }
+    popup.opener = null;
+    try {
+      if (installMeta.councilApprovalNA && job?.council?.consentNumber !== "N/A") await persistConsentNumber("N/A");
+      const params = new URLSearchParams({ jobId: id, token });
+      popup.location.href = `${API_BASE}/pdf/certificate?${params.toString()}`;
+    } catch (err) {
+      popup.close();
+      setError(err instanceof Error ? err.message : "Could not save N/A for the completion certificate.");
+    }
   }
 
   function openInstallerChecksheetPdf() {
@@ -1880,21 +1917,21 @@ export default function JobDetailPage() {
     }
   }
 
+  async function persistConsentNumber(value: string) {
+    const result = await gql<{ updateJob: { council?: Job["council"] } }>(
+      `mutation UpdateCouncilConsent($input: UpdateJobInput!) { updateJob(input: $input) { _id council { _id consentNumber } } }`,
+      { input: { _id: id, council: { _id: job?.council?._id, consentNumber: value } } },
+    );
+    const savedCouncil = result.updateJob?.council;
+    if ((savedCouncil?.consentNumber || "") !== value) throw new Error("Consent number was not saved. Please retry before sending the completion pack.");
+    setConsentNumber(value);
+    setJob(current => current ? { ...current, council: { ...current.council, ...savedCouncil } } : current);
+  }
+
   async function saveConsentNumber(options: { closeAfterSave?: boolean; showToast?: boolean } = {}) {
     setSaving(true);
     try {
-      await gql(
-        `mutation UpdateCouncilConsent($input: UpdateJobInput!) { updateJob(input: $input) { _id council { _id consentNumber } } }`,
-        {
-          input: {
-            _id: id,
-            council: {
-              _id: job?.council?._id,
-              consentNumber: consentNumber.trim(),
-            },
-          },
-        }
-      );
+      await persistConsentNumber(installMeta.councilApprovalNA ? "N/A" : consentNumber.trim());
       await load();
       if (options.closeAfterSave) closeSheet();
       if (options.showToast) {
@@ -1958,6 +1995,9 @@ export default function JobDetailPage() {
     setSaving(true);
     setError("");
     try {
+      const blocker = job ? completionPackBlocker(job, installMeta.councilApprovalNA) : "Job not loaded";
+      if (blocker) throw new Error(blocker);
+      if (installMeta.councilApprovalNA && job?.council?.consentNumber !== "N/A") await persistConsentNumber("N/A");
       await gql(
         `mutation SendCertificate($jobId: ObjectId!) {
           sendCertificate(jobId: $jobId) {
@@ -1978,7 +2018,29 @@ export default function JobDetailPage() {
     }
   }
 
+  async function saveManualInvoice() {
+    if (!manualInvoiceConfirmed || !manualInvoiceReference.trim()) return;
+    setSaving(true);
+    setError("");
+    setManualInvoiceError("");
+    try {
+      const res = await fetch(`/api/jobs/${id}/manual-invoice`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-access-token": getToken() || "" },
+        body: JSON.stringify({ reference: manualInvoiceReference.trim(), confirmed: manualInvoiceConfirmed }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Could not save invoice confirmation.");
+      setManualInvoice(json.confirmation);
+      closeSheet();
+      setToast({ type: "success", text: "Invoice recorded as sent manually." });
+    } catch (err) {
+      setManualInvoiceError(err instanceof Error ? err.message : "Could not save invoice confirmation.");
+    } finally { setSaving(false); }
+  }
+
   async function markJobCompleted() {
+    if (!job || !canCompleteJob(job, manualInvoice)) { setError("Finish the installation, invoice and completion pack steps first."); return; }
     setSaving(true);
     setError("");
     try {
@@ -2193,6 +2255,8 @@ export default function JobDetailPage() {
   const councilApprovalFileCount = job.council?.files_CouncilApprovalLetters?.length || 0;
   const consentNumberChanged = consentNumber.trim() !== (job.council?.consentNumber || "").trim();
   const hasFinalInvoiceInXero = !!(job.finalInvoice?.xeroInvoiceId || job.finalInvoice?.xeroInvoiceNumber);
+  const hasFinalInvoice = hasFinalInvoiceInXero || !!manualInvoice;
+  const packBlocker = completionPackBlocker(job, councilApprovalMarkedNA);
   const visibleJobNotes = stripInstallMeta(job.notes);
   const installPlanningSummaryLines = buildInstallPlanningSummaryLines({
     accessNotes: installMeta.accessNotes,
@@ -2255,19 +2319,19 @@ export default function JobDetailPage() {
     },
     {
       title: "Upload Council Application",
-      description: councilApplicationFileCount
+      description: councilApprovalMarkedNA ? "Council application not required" : councilApplicationFileCount
         ? `${councilApplicationFileCount} file${councilApplicationFileCount === 1 ? "" : "s"} uploaded`
         : "Upload council application files",
-      status: uploadingCompletionFiles ? `Uploading ${completionUploadProgress}%` : councilApplicationFileCount ? "Available" : "Empty",
+      status: councilApprovalMarkedNA ? "Not required" : uploadingCompletionFiles ? `Uploading ${completionUploadProgress}%` : councilApplicationFileCount ? "Available" : "Empty",
       wired: true,
       completionDocsLabel: true,
     },
     {
       title: "Council approval & consent number",
       description: councilApprovalMarkedNA
-        ? `Consent # ${job.council?.consentNumber || "not set"} • approval marked N/A`
+        ? `Consent # ${job.council?.consentNumber || "N/A (saved before sending)"} • council paperwork not required`
         : `${job.council?.consentNumber ? `Consent # ${job.council.consentNumber}` : "Consent # not set"} • ${councilApprovalFileCount ? `${councilApprovalFileCount} approval file${councilApprovalFileCount === 1 ? "" : "s"} uploaded` : "upload approval files"}`,
-      status: uploadingCouncilApproval
+      status: councilApprovalMarkedNA ? "Not required" : uploadingCouncilApproval
           ? `Uploading ${councilApprovalProgress}%`
           : job.council?.consentNumber && (councilApprovalMarkedNA || hasCouncilApprovalFile)
             ? "Available"
@@ -2288,52 +2352,31 @@ export default function JobDetailPage() {
     },
     {
       title: "Trigger final invoice creation in Xero",
-      description: job.finalInvoice?.xeroInvoiceNumber
+      description: manualInvoice && !hasFinalInvoiceInXero
+        ? `${manualInvoice.reference} • confirmed by ${manualInvoice.confirmedByName} on ${fmtDateTime(manualInvoice.confirmedAt)}`
+        : job.finalInvoice?.xeroInvoiceNumber
         ? `Created in Xero as ${job.finalInvoice.xeroInvoiceNumber}`
         : "Create the final invoice in Xero without progressing the job state",
-      status: hasFinalInvoiceInXero ? "Created" : creatingFinalInvoice ? "Creating..." : "Ready",
+      status: hasFinalInvoiceInXero ? "Created" : manualInvoice ? "Sent manually" : creatingFinalInvoice ? "Creating..." : "Ready",
       wired: true,
-      actionLabel: hasFinalInvoiceInXero ? undefined : "Create final invoice",
-      action: hasFinalInvoiceInXero ? undefined : () => {
+      actionLabel: hasFinalInvoice ? undefined : "Create final invoice",
+      action: hasFinalInvoice ? undefined : () => {
         const baseTotal = Number(job.quote?.c_total || 0);
         const existingOverride = job.totalPriceManagerOverride;
         setManagerOverride(existingOverride != null ? String(existingOverride) : "");
         setManagerAdjustment(existingOverride != null ? String(existingOverride - baseTotal) : "");
         openSheet("finalInvoiceConfirm");
       },
-      disabled: creatingFinalInvoice,
+      disabled: creatingFinalInvoice || manualInvoiceLoading || !!manualInvoiceError,
     },
     {
       title: "Send completion pack to customer",
-      description: job.certificateSentAt
-        ? `Sent ${fmtDateTime(job.certificateSentAt)}`
-        : !job.installation?.installDate
-          ? "Set an installation date first"
-          : !job.council?.consentNumber
-            ? "Enter a consent number first"
-            : !job.council?.files_Other?.length
-              ? "Upload a council application first"
-              : (!councilApprovalMarkedNA && !hasCouncilApprovalFile)
-                ? "Upload a council approval first (or mark N/A)"
-                : "Completion certificate, council, acceptance letter, and other customer files",
-      status: job.certificateSentAt
-        ? "Sent"
-        : !job.installation?.installDate || !job.council?.consentNumber || !job.council?.files_Other?.length || (!councilApprovalMarkedNA && !hasCouncilApprovalFile)
-          ? "Blocked"
-          : saving
-            ? "Sending..."
-            : "Ready",
+      description: job.certificateSentAt ? `Sent ${fmtDateTime(job.certificateSentAt)}`
+        : packBlocker || (councilApprovalMarkedNA ? "Completion certificate with consent N/A and available customer files" : "Completion certificate, council, acceptance letter, and other customer files"),
+      status: job.certificateSentAt ? "Sent" : packBlocker ? "Blocked" : saving ? "Sending..." : "Ready",
       wired: true,
-      actionLabel: job.certificateSentAt
-        ? undefined
-        : !job.installation?.installDate || !job.council?.consentNumber || !job.council?.files_Other?.length || (!councilApprovalMarkedNA && !hasCouncilApprovalFile)
-          ? undefined
-          : "Send completion pack",
-      action: job.certificateSentAt
-        ? undefined
-        : !job.installation?.installDate || !job.council?.consentNumber || !job.council?.files_Other?.length || (!councilApprovalMarkedNA && !hasCouncilApprovalFile)
-          ? undefined
-          : sendCompletionPack,
+      actionLabel: job.certificateSentAt || packBlocker ? undefined : "Send completion pack",
+      action: job.certificateSentAt || packBlocker ? undefined : sendCompletionPack,
       disabled: saving,
     },
     {
@@ -2342,14 +2385,14 @@ export default function JobDetailPage() {
         ? "Job is already completed"
         : !job.installation?.installDate
           ? "Set an installation date first"
-          : !hasFinalInvoiceInXero
-            ? "Create the final invoice in Xero first"
+          : !hasFinalInvoice
+            ? "Create the final invoice in Xero or confirm it was sent manually"
             : !job.certificateSentAt
               ? "Send the completion pack first"
               : "Mark the job as completed",
       status: job.stage === "COMPLETED"
         ? "Completed"
-        : !job.installation?.installDate || !hasFinalInvoiceInXero || !job.certificateSentAt
+        : !job.installation?.installDate || !hasFinalInvoice || !job.certificateSentAt
           ? "Blocked"
           : saving
             ? "Completing..."
@@ -2357,12 +2400,12 @@ export default function JobDetailPage() {
       wired: true,
       actionLabel: job.stage === "COMPLETED"
         ? undefined
-        : !job.installation?.installDate || !hasFinalInvoiceInXero || !job.certificateSentAt
+        : !job.installation?.installDate || !hasFinalInvoice || !job.certificateSentAt
           ? undefined
           : "Mark completed",
       action: job.stage === "COMPLETED"
         ? undefined
-        : !job.installation?.installDate || !hasFinalInvoiceInXero || !job.certificateSentAt
+        : !job.installation?.installDate || !hasFinalInvoice || !job.certificateSentAt
           ? undefined
           : () => openSheet("markCompletedConfirm"),
       disabled: saving,
@@ -2555,7 +2598,7 @@ export default function JobDetailPage() {
               <p className="text-xs text-gray-500 mb-2">Complete top to bottom. Each step shows if it is done, ready, in progress, or blocked.</p>
               <div className="space-y-1.5">
                 {completionActions.map((item, index) => {
-                  const doneStates = ["Recorded", "Signed", "Available", "Created", "Sent", "Completed"];
+                  const doneStates = ["Recorded", "Signed", "Available", "Created", "Sent", "Sent manually", "Not required", "Completed"];
                   const blockedStates = ["Blocked", "Missing", "Empty", "Blank"];
                   const isInProgress = /Uploading|Creating|Sending|Completing/.test(item.status);
                   const isDone = doneStates.includes(item.status);
@@ -2617,6 +2660,17 @@ export default function JobDetailPage() {
                             </div>
                           </div>
 
+                          {item.title === "Trigger final invoice creation in Xero" && !hasFinalInvoice && (
+                            <div className="mt-2 space-y-1">
+                              <button type="button" disabled={saving || creatingFinalInvoice || manualInvoiceLoading || !!manualInvoiceError}
+                                onClick={() => { setManualInvoiceReference(""); setManualInvoiceConfirmed(false); openSheet("manualInvoiceConfirm"); }}
+                                className="text-xs font-semibold text-blue-700 underline disabled:opacity-40">
+                                Mark invoice as sent manually
+                              </button>
+                              {manualInvoiceLoading && <p className="text-xs text-gray-500">Checking manual invoice status…</p>}
+                              {manualInvoiceError && <p role="alert" className="text-xs text-red-700">{manualInvoiceError} <button onClick={() => setManualInvoiceReload(value => value + 1)} className="underline">Retry</button></p>}
+                            </div>
+                          )}
                           {item.title === "Install notes & status" ? (
                             <div className="mt-1.5 grid gap-2 md:grid-cols-2">
                               <div className="rounded-lg border border-gray-200 bg-white px-2.5 py-2">
@@ -2700,6 +2754,7 @@ export default function JobDetailPage() {
                                     <input
                                       id="completion-consent-number"
                                       value={consentNumber}
+                                      disabled={saving || councilApprovalMarkedNA}
                                       onChange={(e) => setConsentNumber(e.target.value)}
                                       onKeyDown={(e) => {
                                         if (e.key === "Enter" && consentNumberChanged && !saving) {
@@ -2712,7 +2767,7 @@ export default function JobDetailPage() {
                                     />
                                     <button
                                       onClick={() => saveConsentNumber()}
-                                      disabled={saving || !consentNumberChanged}
+                                      disabled={saving || !consentNumberChanged || councilApprovalMarkedNA}
                                       className="shrink-0 px-2.5 py-2 rounded-lg bg-[#1a3a4a] text-white text-xs font-semibold disabled:opacity-40"
                                     >
                                       {saving && consentNumberChanged ? "Saving..." : "Save"}
@@ -2734,12 +2789,12 @@ export default function JobDetailPage() {
                                     />
                                     <span className="min-w-0">
                                       <span className={`block text-sm font-semibold ${councilApprovalMarkedNA ? "text-amber-900" : "text-gray-900"}`}>
-                                        Council approval not required
+                                        Council paperwork not required
                                       </span>
                                       <span className={`block text-[11px] leading-snug mt-0.5 ${councilApprovalMarkedNA ? "text-amber-800" : "text-gray-500"}`}>
                                         {councilApprovalMarkedNA
-                                          ? "Approval upload is skipped once the other docs are ready."
-                                          : "Use when no approval PDF is expected."}
+                                          ? "No council application or approval is needed. Consent is recorded as N/A on the certificate."
+                                          : "Skip council documents and record the consent number as N/A."}
                                       </span>
                                     </span>
                                   </label>
@@ -2834,7 +2889,7 @@ export default function JobDetailPage() {
             <div className="mt-1">
               <button
                 onClick={openCompletionCertificatePdf}
-                disabled={!job.council?.consentNumber || !job.installation?.installDate}
+                disabled={saving || (!councilApprovalMarkedNA && !job.council?.consentNumber) || !job.installation?.installDate}
                 className="w-full text-blue-700 border border-blue-200 bg-blue-50 rounded-xl py-3 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Download completion certificate
@@ -3528,6 +3583,26 @@ export default function JobDetailPage() {
         </div>
       </BottomSheet>
 
+      <BottomSheet open={sheet === "manualInvoiceConfirm"} onClose={closeSheet} title="Invoice sent manually">
+        <div className="space-y-3 text-sm text-gray-600">
+          <p>Use this when the final invoice has already been sent outside this workflow. This records your confirmation; it does not create or send an invoice.</p>
+          <label className="block font-semibold text-gray-800" htmlFor="manual-invoice-reference">Invoice reference</label>
+          <input id="manual-invoice-reference" value={manualInvoiceReference} maxLength={160} disabled={saving}
+            onChange={event => setManualInvoiceReference(event.target.value)} placeholder="e.g. INV-0311"
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-gray-900" />
+          <label className="flex items-start gap-2">
+            <input type="checkbox" checked={manualInvoiceConfirmed} disabled={saving} onChange={event => setManualInvoiceConfirmed(event.target.checked)} className="mt-1" />
+            <span>I confirm this invoice has been sent to the customer.</span>
+          </label>
+          {manualInvoiceError && <p role="alert" className="text-red-700">{manualInvoiceError}</p>}
+          <div className="flex gap-2 pt-2">
+            <button onClick={closeSheet} disabled={saving} className="flex-1 rounded-xl bg-gray-100 py-3 font-semibold">Cancel</button>
+            <button onClick={saveManualInvoice} disabled={saving || !manualInvoiceConfirmed || !manualInvoiceReference.trim()}
+              className="flex-1 rounded-xl bg-[#e85d04] py-3 font-semibold text-white disabled:opacity-40">{saving ? "Saving..." : "Save invoice confirmation"}</button>
+          </div>
+        </div>
+      </BottomSheet>
+
       <BottomSheet open={sheet === "markCompletedConfirm"} onClose={closeSheet} title="Mark as Completed">
         <div className="space-y-3 text-sm text-gray-600">
           <p>This will move the job to <span className="font-semibold text-gray-900">Completed</span>.</p>
@@ -3535,7 +3610,7 @@ export default function JobDetailPage() {
             <div><span className="font-semibold text-gray-800">Job:</span> #{job.jobNumber}</div>
             <div><span className="font-semibold text-gray-800">Current stage:</span> {job.stage}</div>
             <div><span className="font-semibold text-gray-800">Install date:</span> {fmtDateTime(job.installation?.installDate) || "Not set"}</div>
-            <div><span className="font-semibold text-gray-800">Final invoice:</span> {job.finalInvoice?.xeroInvoiceNumber || "Not in Xero"}</div>
+            <div><span className="font-semibold text-gray-800">Final invoice:</span> {job.finalInvoice?.xeroInvoiceNumber || (manualInvoice ? `${manualInvoice.reference} (sent manually)` : "Not in Xero")}</div>
             <div><span className="font-semibold text-gray-800">Completion pack:</span> {job.certificateSentAt ? `Sent ${fmtDateTime(job.certificateSentAt)}` : "Not sent"}</div>
           </div>
         </div>
