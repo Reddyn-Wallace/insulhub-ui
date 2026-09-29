@@ -110,11 +110,14 @@ export default function FinancePage() {
         .filter((r) => {
           const scope =
             view === "deposits"
-              ? !!r.job && !isJobInstalled(r.job)
+              ? !r.classification && !!r.job && !isJobInstalled(r.job)
               : view === "unlinked"
-                ? !r.job
+                ? !r.job && !r.classification
                 : view === "owed"
-                  ? !!r.job && isJobInstalled(r.job) && r.due > 0
+                  ? !r.classification &&
+                    !!r.job &&
+                    isJobInstalled(r.job) &&
+                    r.due > 0
                   : true;
           return (
             scope &&
@@ -214,7 +217,15 @@ export default function FinancePage() {
               (r.reserved / 100).toFixed(2),
               (r.owed / 100).toFixed(2),
               (r.unconfirmed / 100).toFixed(2),
-              r.link.method + "; " + r.issues.join("; "),
+              [
+                r.link.method,
+                r.classification
+                  ? `Owner confirmed ${r.classification.classification}: ${r.classification.reason}`
+                  : "",
+                ...r.issues,
+              ]
+                .filter(Boolean)
+                .join("; "),
             ]),
           ];
     const blob = new Blob(
@@ -349,12 +360,38 @@ export default function FinancePage() {
                       : "Unpaid amounts for installed jobs only."
                 }
               >
-                {data.pendingSettlement > 0 && (
-                  <p className="mt-3 text-sm font-medium text-amber-800">
-                    {money(data.pendingSettlement)} received — awaiting
-                    settlement, excluded from the amount to collect.
-                  </p>
-                )}
+                <dl className="mt-4 space-y-2 border-t border-slate-200 pt-3 text-sm">
+                  <div className="flex justify-between gap-3">
+                    <dt>Unpaid in Xero</dt>
+                    <dd>{money(data.xeroOwed)}</dd>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <dt>Less: in bank, awaiting Xero</dt>
+                    <dd>−{money(data.localAdjustment)}</dd>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <dt>Less: pending bank settlement</dt>
+                    <dd>−{money(data.pendingSettlement)}</dd>
+                  </div>
+                  <div className="flex justify-between gap-3 font-semibold">
+                    <dt>Still to collect</dt>
+                    <dd>{money(data.owed)}</dd>
+                  </div>
+                </dl>
+                {data.rows
+                  .filter(
+                    (r) => r.localAdjustment > 0 || r.pendingSettlement > 0,
+                  )
+                  .map((r) => (
+                    <p key={r.id} className="mt-3 text-xs text-amber-800">
+                      {r.contact} · {r.number}:{" "}
+                      {money(r.localAdjustment + r.pendingSettlement)} deducted
+                      {r.pendingSettlement > 0
+                        ? " · awaiting bank settlement"
+                        : " · in bank, awaiting Xero"}
+                      .
+                    </p>
+                  ))}
               </Metric>
             </div>
             {"error" in data.pendingBank ? (
@@ -695,6 +732,16 @@ export default function FinancePage() {
                                       {e.description} · {e.method}
                                     </p>
                                   ))}
+                                  {r.classification && (
+                                    <p>
+                                      Owner confirmed:{" "}
+                                      {r.classification.classification ===
+                                      "refunded"
+                                        ? "Cancelled and fully refunded"
+                                        : "Not installation work"}
+                                      . {r.classification.reason}
+                                    </p>
+                                  )}
                                   <p>{r.link.method}</p>
                                   <p>
                                     CRM: {r.job?.status || "Unknown"} · stage{" "}
@@ -734,12 +781,40 @@ export default function FinancePage() {
                                     >
                                       Historical bank evidence
                                     </button>
+                                    {r.due === 0 && (
+                                      <button
+                                        className="font-semibold text-teal-700"
+                                        onClick={() =>
+                                          setTarget({
+                                            kind: "classification",
+                                            id: r.id,
+                                          })
+                                        }
+                                      >
+                                        Classify closed invoice
+                                      </button>
+                                    )}
                                   </div>
                                 </div>
                               )}
                             </td>
                             <td className="max-w-56 px-5 py-4">
-                              {r.job ? (
+                              {r.classification ? (
+                                <button
+                                  className="text-teal-800 underline"
+                                  onClick={() =>
+                                    setTarget({
+                                      kind: "classification",
+                                      id: r.id,
+                                    })
+                                  }
+                                >
+                                  {r.classification.classification ===
+                                  "refunded"
+                                    ? "Cancelled · refunded"
+                                    : "Not installation work"}
+                                </button>
+                              ) : r.job ? (
                                 <>
                                   <Link
                                     className="text-teal-800 underline underline-offset-4"
@@ -782,18 +857,20 @@ export default function FinancePage() {
                               {money(r.owed)}
                             </td>
                             <td className="max-w-52 px-5 py-4 text-xs leading-5 text-slate-500">
-                              {r.pendingSettlement > 0
-                                ? "Payment received — awaiting settlement"
-                                : r.issues.length
-                                  ? r.issues.join(" · ")
-                                  : r.unconfirmed
-                                    ? "Paid; settlement needs evidence"
-                                    : r.localAdjustment > 0 ||
-                                        r.allocations.length
-                                      ? "Bank evidence linked"
-                                      : r.paid === 0
-                                        ? "No payment recorded"
-                                        : "Xero payment recorded"}
+                              {r.classification
+                                ? "Owner confirmed · excluded from deposits"
+                                : r.pendingSettlement > 0
+                                  ? "Payment received — awaiting settlement"
+                                  : r.issues.length
+                                    ? r.issues.join(" · ")
+                                    : r.unconfirmed
+                                      ? "Paid; settlement needs evidence"
+                                      : r.localAdjustment > 0 ||
+                                          r.allocations.length
+                                        ? "Bank evidence linked"
+                                        : r.paid === 0
+                                          ? "No payment recorded"
+                                          : "Xero payment recorded"}
                             </td>
                           </tr>
                         ))}

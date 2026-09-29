@@ -617,3 +617,31 @@ it("pending copies cannot undo owner exclusions, stale decisions or settled refu
   expect(result.owed).toBe(100000);
   expect(result.pendingSettlement).toBe(0);
 });
+
+it("retains owner-classified invoices for audit without false deposit or linking totals; undo restores them", () => {
+  const d = base();
+  Object.assign(d.invoices[0], { paid: 100000, due: 0 });
+  d.jobs[0].archived = true;
+  const v = decision({
+    kind: "classification",
+    invoiceId: "i",
+    classification: "refunded",
+    reason: "Owner confirms cancelled and fully refunded",
+  });
+  expect(calculateFinance(d, []).reserved).toBe(100000);
+  const result = calculateFinance(d, [v]);
+  expect(result.reserved).toBe(0);
+  expect(result.rows[0].paid).toBe(100000);
+  expect(result.rows[0].issues).not.toContain("Non-NZD invoice excluded");
+  expect(result.rows[0].issues).not.toContain(
+    "Archived unfinished job; refund/release review required",
+  );
+  expect(result.rows[0].classification?.classification).toBe("refunded");
+  d.jobs = [];
+  expect(calculateFinance(d, []).unclassifiedPaid).toBe(100000);
+  expect(calculateFinance(d, [v]).unclassifiedPaid).toBe(0);
+  expect(calculateFinance(d, [v]).unlinked).toBe(0);
+  expect(calculateFinance(d, [{ ...v, value: null }]).unclassifiedPaid).toBe(
+    100000,
+  );
+});

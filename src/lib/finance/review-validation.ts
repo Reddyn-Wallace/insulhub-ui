@@ -54,6 +54,16 @@ export function decisionFingerprint(
         : "",
     };
   }
+  if (kind === "classification") {
+    const i = d.invoices.find((i) => i.id === id)!;
+    evidence = {
+      invoice: evidence,
+      paid: i.paid,
+      due: i.due,
+      credited: i.credited,
+      description: i.description,
+    };
+  }
   if (value?.kind === "receipt" && !value.nonCustomer)
     evidence = {
       receipt: evidence,
@@ -81,6 +91,23 @@ export function validateReview(
     "Historical retained releases no longer change Xero-based totals. Undo the old decision if needed.",
   );
   let key: string;
+  if (v.kind === "classification") {
+    const invoice = d.invoices.find((i) => i.id === v.invoiceId);
+    check(
+      invoice && invoice.currency === "NZD",
+      "Choose an existing NZD invoice.",
+    );
+    check(
+      invoice.due === 0,
+      "An unpaid invoice cannot be excluded with this classification.",
+    );
+    check(
+      v.classification === "refunded" ||
+        v.classification === "non-installation",
+      "Choose a valid invoice classification.",
+    );
+    return "classification:" + v.invoiceId;
+  }
   if (v.kind === "link") {
     key = "link:" + v.invoiceId;
     check(

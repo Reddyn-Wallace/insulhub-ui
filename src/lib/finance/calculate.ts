@@ -89,6 +89,11 @@ export function calculateFinance(
     }
   }
   const rows = input.invoices.map((i) => {
+    const classification = decisions
+      .map((d) => d.value)
+      .find((v) => v?.kind === "classification" && v.invoiceId === i.id);
+    const excluded =
+      classification?.kind === "classification" ? classification : null;
     const link = links.get(i.id)!,
       job = input.jobs.find((j) => j.id === link.jobId) || null;
     const allocations = matches.flatMap((m) =>
@@ -126,25 +131,25 @@ export function calculateFinance(
     const local = recentAdjustments.get(i.id) || 0;
     // Use the larger evidence total, never sum pending and settled versions of the same invoice payment.
     const awaiting =
-      i.currency === "NZD" && job && isJobInstalled(job)
+      !excluded && i.currency === "NZD" && job && isJobInstalled(job)
         ? Math.max(0, (pendingAdjustments.get(i.id) || 0) - local)
         : 0;
     const unfinished = !!job && !isJobInstalled(job),
-      supported = i.currency === "NZD";
+      supported = i.currency === "NZD" && !excluded;
     const unconfirmed =
       input.bankChecked === false
         ? 0
         : Math.max(0, i.paid - reflected - opening);
     const issues = [
-      !job ? link.method : "",
+      !job && !excluded ? link.method : "",
       uncertainRecent.has(i.id)
         ? "Recent bank receipt may overlap Xero payments; uncertain amount remains owed."
         : "",
-      !supported ? "Non-NZD invoice excluded" : "",
-      job && !job.status
+      i.currency !== "NZD" ? "Non-NZD invoice excluded" : "",
+      !excluded && job && !job.status
         ? "Installation status missing; any advance retained"
         : "",
-      job?.archived && unfinished
+      !excluded && job?.archived && unfinished
         ? "Archived unfinished job; refund/release review required"
         : "",
       !i.date ? "Invoice date missing" : "",
@@ -152,15 +157,16 @@ export function calculateFinance(
       input.bankChecked !== false && localCandidate > 0
         ? "Bank receipt not linked to a Xero payment; reconcile in Xero"
         : "",
-      job?.completionConflict
+      !excluded && job?.completionConflict
         ? "CRM completion signals conflict; review installation status"
         : "",
-      job?.detailVerified === false
+      !excluded && job?.detailVerified === false
         ? "Detailed CRM record could not be verified"
         : "",
     ].filter(Boolean);
     return {
       ...i,
+      classification: excluded,
       job,
       link,
       allocations,
@@ -199,7 +205,7 @@ export function calculateFinance(
       r.job && isJobInstalled(r.job) ? r.unconfirmed : 0,
     ),
     unconfirmedUnknown = sum((r) => (!r.job ? r.unconfirmed : 0));
-  const unlinked = rows.filter((r) => !r.job).length;
+  const unlinked = rows.filter((r) => !r.job && !r.classification).length;
   const provisional =
     input.bank.stale ||
     unmatchedReceipts > 0 ||
@@ -209,8 +215,12 @@ export function calculateFinance(
     bankChecked: input.bankChecked !== false,
     recentBankChecked: !!input.recentBankChecked,
     uncertainRecentCount: uncertainRecent.size,
-    unclassifiedPaid: sum((r) => (!r.job && r.currency === "NZD" ? r.paid : 0)),
-    unclassifiedOwed: sum((r) => (!r.job && r.currency === "NZD" ? r.due : 0)),
+    unclassifiedPaid: sum((r) =>
+      !r.job && !r.classification && r.currency === "NZD" ? r.paid : 0,
+    ),
+    unclassifiedOwed: sum((r) =>
+      !r.job && !r.classification && r.currency === "NZD" ? r.due : 0,
+    ),
     totalXeroOwed: sum((r) => (r.currency === "NZD" ? r.due : 0)),
     pendingSettlement,
     pendingBank: input.pendingBank ?? {

@@ -49,6 +49,7 @@ export async function buildDashboard(
         ...input.jobs.map((j) => "job:" + j.id),
         ...input.invoices.flatMap((i) => [
           "link:" + i.id,
+          "classification:" + i.id,
           "opening:" + i.id,
           "release:" + i.id,
         ]),

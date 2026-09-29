@@ -5,7 +5,7 @@ import type { DashboardResponse } from "@/lib/finance/dashboard";
 import type { Allocation, ReviewValue } from "@/lib/finance/model";
 import { money, financeApi, inputClass, buttonClass } from "./format";
 export type ReviewTarget = {
-  kind: "receipt" | "link" | "opening" | "release";
+  kind: "receipt" | "link" | "opening" | "release" | "classification";
   id: string;
 };
 const toCents = (s: string) => {
@@ -28,6 +28,9 @@ export function ReviewPanel({
   const invoice = data.rows.find((i) => i.id === target.id);
   const key = target.kind + ":" + target.id,
     existing = data.decisions.find((d) => d.key === key);
+  const [classification, setClassification] = useState<
+    "refunded" | "non-installation"
+  >(invoice?.classification?.classification || "refunded");
   const [reason, setReason] = useState(""),
     [jobSearch, setJobSearch] = useState(
       quoteReference(invoice?.reference || ""),
@@ -76,6 +79,13 @@ export function ReviewPanel({
                       paymentId: p.paymentId || null,
                     }) as Allocation,
                 ),
+          };
+        } else if (target.kind === "classification") {
+          value = {
+            kind: "classification",
+            invoiceId: target.id,
+            classification,
+            reason,
           };
         } else if (target.kind === "link") {
           value = { kind: "link", invoiceId: target.id, jobId, reason };
@@ -138,11 +148,13 @@ export function ReviewPanel({
             <h2 className="mt-2 text-2xl font-semibold">
               {target.kind === "receipt"
                 ? "Classify bank transaction"
-                : target.kind === "link"
-                  ? "Confirm invoice’s job"
-                  : target.kind === "opening"
-                    ? "Confirm historical advance"
-                    : "Release retained advance"}
+                : target.kind === "classification"
+                  ? "Classify closed invoice"
+                  : target.kind === "link"
+                    ? "Confirm invoice’s job"
+                    : target.kind === "opening"
+                      ? "Confirm historical advance"
+                      : "Release retained advance"}
             </h2>
           </div>
           <button
@@ -177,6 +189,35 @@ export function ReviewPanel({
               Total {money(invoice.total)} · Xero paid {money(invoice.paid)} ·
               Due {money(invoice.due)}
             </p>
+          </div>
+        )}
+        {target.kind === "classification" && (
+          <div className="space-y-3">
+            <label className="block text-sm font-medium">
+              Classification
+              <select
+                className={inputClass + " mt-1"}
+                value={classification}
+                onChange={(e) =>
+                  setClassification(e.target.value as typeof classification)
+                }
+              >
+                <option value="refunded">Cancelled job — fully refunded</option>
+                <option value="non-installation">
+                  Not related to installation work
+                </option>
+              </select>
+            </label>
+            <p className="text-sm text-slate-600">
+              Owner confirmation only. Removes this closed invoice from deposits
+              and job-linking checks; keeps its Xero amounts and this decision
+              in the audit history. This does not record a refund in Xero or
+              move money. Undo this decision if the job goes ahead or a refund
+              remains owing.
+            </p>
+            {existing?.value && (
+              <p className="text-sm">Saved reason: {existing.value.reason}</p>
+            )}
           </div>
         )}
         {target.kind === "link" && (

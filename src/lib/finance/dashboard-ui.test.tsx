@@ -224,7 +224,11 @@ it("shows a pending invoice separately from the amount to collect and leaves ban
     ),
   );
   render(<Page />);
-  await screen.findByText(/\$3,338.25 received — awaiting settlement/);
+  await screen.findByText(/Kimberly Da Silva · INV-0445: \$3,338.25 deducted/);
+  expect(screen.getByText("Less: in bank, awaiting Xero")).toBeTruthy();
+  expect(screen.getByText("Less: pending bank settlement")).toBeTruthy();
+  expect(screen.getByText("−$0.00")).toBeTruthy();
+  expect(screen.getByText("−$3,338.25")).toBeTruthy();
   expect(screen.getByText("$19,885.21")).toBeTruthy();
   fireEvent.click(
     screen.getByText("View invoices and how these figures are worked out"),

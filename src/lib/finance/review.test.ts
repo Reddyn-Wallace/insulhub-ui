@@ -158,3 +158,26 @@ it("preserves saved receipt identity when retaining its full bank timestamp", ()
   d.receipts[0].amount += 1;
   expect(decisionFingerprint(d, "receipt:r")).not.toBe(before);
 });
+
+it("owner classifications require a closed balance and expire when payment evidence changes", () => {
+  const d = data();
+  const value = {
+    kind: "classification" as const,
+    invoiceId: "i",
+    classification: "refunded" as const,
+    reason: "Owner confirms cancelled and fully refunded",
+  };
+  expect(() => validateReview(d, [], value)).toThrow(/unpaid/);
+  Object.assign(d.invoices[0], { due: 0, paid: 10000 });
+  expect(validateReview(d, [], value)).toBe("classification:i");
+  const saved = {
+    key: "classification:i",
+    revision: 1,
+    fingerprint: decisionFingerprint(d, "classification:i", value),
+    value,
+    updatedAt: "",
+  };
+  expect(activeDecisions(d, [saved]).active).toHaveLength(1);
+  d.invoices[0].paid = 9000;
+  expect(activeDecisions(d, [saved]).stale).toHaveLength(1);
+});

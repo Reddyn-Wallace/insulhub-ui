@@ -85,6 +85,12 @@ export type Allocation = {
   paymentId: string | null;
 };
 export type ReviewValue =
+  | {
+      kind: "classification";
+      invoiceId: string;
+      classification: "refunded" | "non-installation";
+      reason: string;
+    }
   | { kind: "link"; invoiceId: string; jobId: string; reason: string }
   | {
       kind: "receipt";
