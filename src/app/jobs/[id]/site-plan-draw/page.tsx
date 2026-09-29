@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { PDFDocument, rgb } from "pdf-lib";
+import { PDFDocument, rgb, degrees } from "pdf-lib";
 import { gql } from "@/lib/graphql";
 import { AppDialog } from "@/components/AppDialog";
-import type { SitePlanDrawing, SitePlanDrawingDocument } from "@/lib/site-plan-drawings";
+import { noteCenter, noteLayout, notePdfLines, resizeNote, rotateNotePoint } from "@/lib/site-plan-note-transform";
+import type { SitePlanTextNote, SitePlanDrawing, SitePlanDrawingDocument } from "@/lib/site-plan-drawings";
 import { clampSitePlanPoint as clampPoint, sitePlanDistance as distance, snapSitePlanEndpoint as snapToExistingEndpoints, snapSitePlanOrtho as snapOrtho } from "@/lib/site-plan-editor-geometry";
 
 type WallStyle = "solid" | "dotted";
@@ -13,7 +14,7 @@ type WallColor = "slate" | "teal" | "blue" | "amber" | "red";
 type Point = { x: number; y: number };
 type Wall = { id: string; start: Point; end: Point; style: WallStyle; color?: WallColor; lengthOverride?: number | null };
 type WallSnapshot = { id: string; start: Point; end: Point };
-type TextNote = { id: string; text: string; x: number; y: number; fontSize: number; boxWidth?: number; boxHeight?: number };
+type TextNote = SitePlanTextNote;
 type TextMode = "idle" | "placing";
 type SnapGuide = { kind: "horizontal" | "vertical" | "endpoint"; point?: Point; lineValue?: number } | null;
 
@@ -94,8 +95,8 @@ const WALL_DRAG_ENDPOINT_SNAP_RADIUS = 0.3;
 const DRAG_DEAD_ZONE = 0.18;
 const ROTATE_SOFT_SNAP_DEG = 2.5;
 const ROTATE_RELEASE_SNAP_DEG = 3.0;
-const TEXT_NOTE_MIN_WIDTH = 0.8;
-const TEXT_NOTE_MAX_WIDTH = 10.5;
+const TEXT_NOTE_MIN_WIDTH = 0.16;
+const TEXT_NOTE_MAX_WIDTH = 18;
 const TEXT_NOTE_DEFAULT_WIDTH = 0.8;
 const TEXT_NOTE_GROW_BUFFER = 0.18;
 const TEXT_NOTE_FONT_FAMILY = 'Arial, Helvetica, sans-serif';
@@ -105,8 +106,6 @@ const TEXT_NOTE_PADDING_X = 0.18;
 const TEXT_NOTE_PADDING_Y = 0.14;
 const TEXT_NOTE_HIT_PAD = 0.22;
 const TEXT_NOTE_DEFAULT_FONT_SIZE = 0.82;
-const TEXT_NOTE_MIN_FONT_SIZE = 0.32;
-const TEXT_NOTE_MAX_FONT_SIZE = 0.82;
 
 function snap(v: number) { return Math.round(v / SNAP_STEP) * SNAP_STEP; }
 function makeId() { return Math.random().toString(36).slice(2, 10); }
@@ -122,9 +121,6 @@ function orthoKind(start: Point, end: Point, threshold: number = ORTHO_SNAP_THRE
   if (Math.abs(dx) <= Math.abs(dy) * threshold) return "vertical";
   return null;
 }
-function clampTextFontSize(size: number): number {
-  return Math.max(TEXT_NOTE_MIN_FONT_SIZE, Math.min(TEXT_NOTE_MAX_FONT_SIZE, Number(size.toFixed(2))));
-}
 function getTextNoteLines(text: string): string[] {
   return (text || "").split("\n");
 }
@@ -134,27 +130,8 @@ function clampTextNoteWidth(width?: number) {
 function getTextNoteMinHeight(fontSize: number) {
   return Math.max(TEXT_NOTE_HEIGHT, fontSize * TEXT_NOTE_LINE_HEIGHT + TEXT_NOTE_PADDING_Y * 2);
 }
-function getTextNoteHeight(note: TextNote) {
-  return Math.max(getTextNoteMinHeight(note.fontSize), note.boxHeight ?? getTextNoteMinHeight(note.fontSize));
-}
-function getTextNoteLayout(note: TextNote, liveText: string) {
-  const text = liveText || "";
-  const lines = getTextNoteLines(text);
-  const width = clampTextNoteWidth(note.boxWidth);
-  const height = getTextNoteHeight(note);
-  const x = note.x - width / 2;
-  const y = note.y - height * 0.72;
-  return {
-    text,
-    lines,
-    width,
-    height,
-    x,
-    y,
-    textX: x + TEXT_NOTE_PADDING_X,
-    textY: y + TEXT_NOTE_PADDING_Y + note.fontSize,
-  };
-}
+function getTextNoteHeight(note: TextNote) { return noteLayout(note).height; }
+const getTextNoteLayout = noteLayout;
 function getTextNoteBox(note: TextNote, liveText: string) {
   const layout = getTextNoteLayout(note, liveText);
   return { width: layout.width, height: layout.height, x: layout.x, y: layout.y };
@@ -236,6 +213,7 @@ export default function DrawSitePlanPage() {
   const [canvasDims, setCanvasDims] = useState<{ w: number; h: number } | null>(null);
   const dragActivatedRef = useRef(false);
   const textDragOffsetRef = useRef<Point | null>(null);
+  const noteTransformRef = useRef<{ note: TextNote; start: Point; kind: "resize" | "rotate"; pointerId: number } | null>(null);
   const capturedPointerIdRef = useRef<number | null>(null);
   const isEditingLengthRef = useRef(false);
   const linkedEndpointsRef = useRef<{ wallId: string; end: "start" | "end" }[]>([]);
@@ -433,12 +411,13 @@ export default function DrawSitePlanPage() {
     const lines = getTextNoteLines(textarea.value);
     const fontSizePx = pxY(editingTextNote.fontSize);
     const measuredContentWidthPx = Math.max(...lines.map((line) => measureCanvasTextWidth(line, fontSizePx)));
-    const desiredWidthPx = measuredContentWidthPx + pxX(TEXT_NOTE_PADDING_X * 2 + TEXT_NOTE_GROW_BUFFER);
+    const textScale = editingTextNote.fontSize / TEXT_NOTE_DEFAULT_FONT_SIZE;
+    const desiredWidthPx = measuredContentWidthPx + pxX((TEXT_NOTE_PADDING_X * 2 + TEXT_NOTE_GROW_BUFFER) * textScale);
     const minWidthUnits = textarea.value.trim() ? TEXT_NOTE_MIN_WIDTH : TEXT_NOTE_DEFAULT_WIDTH;
     const nextWidthUnits = Number(Math.max(minWidthUnits, Math.min(TEXT_NOTE_MAX_WIDTH, toUnitsX(desiredWidthPx))).toFixed(3));
     const lineCount = Math.max(1, lines.length);
-    const desiredHeightUnits = editingTextNote.fontSize * TEXT_NOTE_LINE_HEIGHT * lineCount + TEXT_NOTE_PADDING_Y * 2;
-    const nextHeightUnits = Number(Math.max(getTextNoteMinHeight(editingTextNote.fontSize), desiredHeightUnits).toFixed(3));
+    const desiredHeightUnits = editingTextNote.fontSize * TEXT_NOTE_LINE_HEIGHT * lineCount + TEXT_NOTE_PADDING_Y * 2 * textScale;
+    const nextHeightUnits = Number(Math.min(17, Math.max(TEXT_NOTE_HEIGHT * textScale, desiredHeightUnits)).toFixed(3));
     const currentWidthUnits = clampTextNoteWidth(editingTextNote.boxWidth);
     const currentHeightUnits = getTextNoteHeight(editingTextNote);
 
@@ -591,8 +570,9 @@ export default function DrawSitePlanPage() {
       const note = textNotes[i];
       const liveText = editingTextId === note.id ? textEditValue : note.text;
       const box = getTextNoteBox(note, liveText);
-      const inX = p.x >= box.x - TEXT_NOTE_HIT_PAD && p.x <= box.x + box.width + TEXT_NOTE_HIT_PAD;
-      const inY = p.y >= box.y - TEXT_NOTE_HIT_PAD && p.y <= box.y + box.height + TEXT_NOTE_HIT_PAD;
+      const local = rotateNotePoint(p, noteCenter(note), -(note.rotation ?? 0));
+      const inX = local.x >= box.x - TEXT_NOTE_HIT_PAD && local.x <= box.x + box.width + TEXT_NOTE_HIT_PAD;
+      const inY = local.y >= box.y - TEXT_NOTE_HIT_PAD && local.y <= box.y + box.height + TEXT_NOTE_HIT_PAD;
       if (inX && inY) return note;
     }
     return null;
@@ -634,7 +614,46 @@ export default function DrawSitePlanPage() {
     setHoverPoint(endPoint);
   }
 
+  function beginNoteTransform(e: React.PointerEvent<SVGElement>, note: TextNote, kind: "resize" | "rotate") {
+    e.preventDefault();
+    e.stopPropagation();
+    if (editorBusy || noteTransformRef.current) return;
+    const start = toGridPointRaw(e.clientX, e.clientY);
+    if (!start) return;
+    pushHistory();
+    setEditingTextId(null);
+    noteTransformRef.current = { note: { ...note }, start, kind, pointerId: e.pointerId };
+    svgRef.current?.setPointerCapture(e.pointerId);
+    capturedPointerIdRef.current = e.pointerId;
+  }
+
+  function updateNoteTransform(point: Point, pointerId: number) {
+    const gesture = noteTransformRef.current;
+    if (!gesture || gesture.pointerId !== pointerId) return;
+    const { note, start, kind } = gesture;
+    if (kind === "resize") {
+      const dx = start.x - note.x, dy = start.y - note.y;
+      const scale = ((point.x - note.x) * dx + (point.y - note.y) * dy) / Math.max(0.001, dx * dx + dy * dy);
+      updateTextNote(note.id, resizeNote(note, scale));
+    } else {
+      const centre = noteCenter(note);
+      const delta = Math.atan2(point.y - centre.y, point.x - centre.x) - Math.atan2(start.y - centre.y, start.x - centre.x);
+      let rotation = ((note.rotation ?? 0) + delta * 180 / Math.PI + 720) % 360;
+      const nearest = Math.round(rotation / 90) * 90;
+      if (Math.abs(rotation - nearest) <= ROTATE_SOFT_SNAP_DEG) rotation = nearest % 360;
+      updateTextNote(note.id, { rotation });
+    }
+  }
+
+  function noteHandleKey(e: React.KeyboardEvent<SVGElement>, note: TextNote, kind: "resize" | "rotate") {
+    if (!["ArrowUp", "ArrowRight", "ArrowDown", "ArrowLeft"].includes(e.key) || editorBusy) return;
+    e.preventDefault(); e.stopPropagation(); pushHistory();
+    const increase = e.key === "ArrowUp" || e.key === "ArrowRight";
+    updateTextNote(note.id, kind === "resize" ? resizeNote(note, increase ? 1.1 : 1 / 1.1) : { rotation: ((note.rotation ?? 0) + (increase ? 5 : -5) + 360) % 360 });
+  }
+
   function pointerDown(e: React.PointerEvent<SVGSVGElement>) {
+    if (editorBusy || noteTransformRef.current) return;
     const pt = (e.pointerType === "touch" || e.pointerType === "pen") ? e.pointerType : "mouse";
     setActivePointerType(pt);
     const p = (mode === "trace" || mode === "single")
@@ -815,6 +834,7 @@ export default function DrawSitePlanPage() {
       ? toGridPointSnapped(e.clientX, e.clientY)
       : toGridPointRaw(e.clientX, e.clientY);
     if (!p) return;
+    if (noteTransformRef.current) { updateNoteTransform(p, e.pointerId); return; }
 
     if (mode === "trace" || mode === "single") {
       const pending = pendingDrawPlacementRef.current;
@@ -981,6 +1001,11 @@ export default function DrawSitePlanPage() {
   }, []);
 
   function pointerUp(e?: React.PointerEvent<SVGSVGElement>) {
+    if (noteTransformRef.current && e) {
+      const point = toGridPointRaw(e.clientX, e.clientY);
+      if (point) updateNoteTransform(point, e.pointerId);
+    }
+    noteTransformRef.current = null;
     if (e && (mode === "trace" || mode === "single")) {
       const pending = pendingDrawPlacementRef.current;
       const pt = (e.pointerType === "touch" || e.pointerType === "pen") ? e.pointerType : "mouse";
@@ -1232,14 +1257,12 @@ export default function DrawSitePlanPage() {
       }
 
       for (const note of textNotes) {
-        const p = toPdf({ x: note.x, y: note.y });
-        page.drawText(toWinAnsiSafe(note.text), {
-          x: p.x,
-          y: p.y,
-          size: 11,
-          color: rgb(0.1, 0.1, 0.1),
-          maxWidth: 220,
-        });
+        for (const line of notePdfLines(note, GRID)) {
+          page.drawText(toWinAnsiSafe(line.text), {
+            x: line.x, y: line.y, size: line.size, rotate: degrees(line.rotation),
+            color: rgb(0.1, 0.1, 0.1),
+          });
+        }
       }
 
       if (address) {
@@ -1588,6 +1611,14 @@ export default function DrawSitePlanPage() {
             onMouseMove={(e) => updateDrawPreview(e.clientX, e.clientY)}
             onMouseEnter={(e) => updateDrawPreview(e.clientX, e.clientY)}
             onPointerUp={pointerUp}
+            onPointerCancel={() => {
+              const gesture = noteTransformRef.current;
+              if (gesture) {
+                updateTextNote(gesture.note.id, gesture.note);
+                setHistory((current) => current.slice(0, -1));
+              }
+              pointerUp();
+            }}
             onPointerLeave={() => {
               // In draw modes, keep the last preview alive so pen hover can resume cleanly after lifting.
               if (capturedPointerIdRef.current === null) {
@@ -1662,7 +1693,7 @@ export default function DrawSitePlanPage() {
               const liveLabel = isEditing ? textEditValue : note.text;
               const layout = getTextNoteLayout(note, liveLabel);
               return (
-                <g key={note.id}>
+                <g key={note.id} transform={`rotate(${note.rotation ?? 0} ${noteCenter(note).x} ${noteCenter(note).y})`}>
                   <rect
                     x={layout.x}
                     y={layout.y}
@@ -1699,6 +1730,29 @@ export default function DrawSitePlanPage() {
                 </g>
               );
             })}
+            {mode === "select" && selectedTextId && !editingTextId && (() => {
+              const note = textNotes.find((item) => item.id === selectedTextId);
+              if (!note) return null;
+              const box = noteLayout(note);
+              const hitRadius = Math.max(0.3, 22 * CELLS_X / (canvasDims?.w ?? 900));
+              return <g transform={`rotate(${note.rotation ?? 0} ${noteCenter(note).x} ${noteCenter(note).y})`}>
+                <line x1={note.x} y1={box.y} x2={note.x} y2={box.y - 0.8} stroke="#2563eb" strokeWidth={0.06} />
+                <g role="button" aria-label="Rotate note" tabIndex={0} style={{ cursor: "grab" }}
+                  onPointerDown={(e) => beginNoteTransform(e, note, "rotate")}
+                  onKeyDown={(e) => noteHandleKey(e, note, "rotate")}>
+                  <title>Drag to rotate; arrow keys rotate 5°</title>
+                  <circle cx={note.x} cy={box.y - 0.8} r={Math.min(hitRadius, box.height * 0.72 + 0.7)} fill="transparent" />
+                  <circle cx={note.x} cy={box.y - 0.8} r={0.28} fill="white" stroke="#2563eb" strokeWidth={0.08} pointerEvents="none" />
+                </g>
+                <g role="button" aria-label="Resize note" tabIndex={0} style={{ cursor: "nwse-resize" }}
+                  onPointerDown={(e) => beginNoteTransform(e, note, "resize")}
+                  onKeyDown={(e) => noteHandleKey(e, note, "resize")}>
+                  <title>Drag to scale text and box; arrow keys resize</title>
+                  <rect x={box.x + box.width - 0.25} y={box.y + box.height - 0.25} width={hitRadius * 2} height={hitRadius * 2} fill="transparent" />
+                  <rect x={box.x + box.width - 0.25} y={box.y + box.height - 0.25} width={0.5} height={0.5} rx={0.06} fill="white" stroke="#2563eb" strokeWidth={0.08} pointerEvents="none" />
+                </g>
+              </g>;
+            })()}
 
             {/* Draw start dot */}
             {drawStart && (mode === "trace" || mode === "single") && (
@@ -1822,10 +1876,13 @@ export default function DrawSitePlanPage() {
                   top: `${pxY(layout.y)}px`,
                   width: `${pxX(layout.width)}px`,
                   height: `${pxY(layout.height)}px`,
+                  transform: `rotate(${editingTextNote.rotation ?? 0}deg)`,
+                  transformOrigin: "50% 50%",
                 }}
               >
                 <textarea
                   ref={textInputRef as React.RefObject<HTMLTextAreaElement>}
+                  aria-label="Note text"
                   value={textEditValue}
                   dir="ltr"
                   wrap="off"
@@ -1845,7 +1902,7 @@ export default function DrawSitePlanPage() {
                     fontSize: `${pxY(editingTextNote.fontSize)}px`,
                     fontFamily: TEXT_NOTE_FONT_FAMILY,
                     lineHeight: TEXT_NOTE_LINE_HEIGHT,
-                    padding: `${pxY(TEXT_NOTE_PADDING_Y)}px ${pxX(TEXT_NOTE_PADDING_X)}px`,
+                    padding: `${pxY(layout.paddingY)}px ${pxX(layout.paddingX)}px`,
                     background: "transparent",
                     border: "none",
                     boxSizing: "border-box",

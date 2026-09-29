@@ -68,3 +68,20 @@ describe("site plan drawing documents", () => {
     expect(cleanSitePlanDrawingName(null)).toBe("");
   });
 });
+
+
+describe("CRM note transforms", () => {
+  const note = { id: "note", text: "Access hatch", x: 8, y: 8, fontSize: 1.64, boxWidth: 6, boxHeight: 2.6, rotation: 90 };
+  it("round-trips enlarged, rotated notes in the CRM without changing the partner contract", () => {
+    const document = { ...EMPTY_SITE_PLAN_DOCUMENT, textNotes: [note] };
+    expect(parseSitePlanDocument(document, { noteTransforms: true })).toEqual(document);
+    expect(parseSitePlanDocument(document)).toBeNull();
+  });
+  it("round-trips reduced notes and rejects invalid transforms", () => {
+    const document = { ...EMPTY_SITE_PLAN_DOCUMENT, textNotes: [{ ...note, fontSize: 0.2, boxWidth: 0.3, boxHeight: 0.4 }] };
+    expect(parseSitePlanDocument(document, { noteTransforms: true })).toEqual(document);
+    for (const patch of [{ rotation: NaN }, { rotation: 361 }, { fontSize: 0 }, { fontSize: 5 }, { boxWidth: 0 }, { boxHeight: Infinity }]) {
+      expect(parseSitePlanDocument({ ...document, textNotes: [{ ...note, ...patch }] }, { noteTransforms: true })).toBeNull();
+    }
+  });
+});

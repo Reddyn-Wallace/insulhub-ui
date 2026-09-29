@@ -20,7 +20,7 @@ function rowDocument(value: unknown) {
 }
 
 function toDrawing(row: Record<string, unknown>) {
-  const document = parseSitePlanDocument(rowDocument(row.drawing_document));
+  const document = parseSitePlanDocument(rowDocument(row.drawing_document), { noteTransforms: true });
   if (!document) throw new Error("Stored site plan drawing is invalid or unsupported");
   return {
     id: String(row.id),
@@ -105,7 +105,7 @@ export async function PATCH(
 
     let document: SitePlanDrawingDocument = existing.document;
     if (input.document !== undefined) {
-      const parsed = parseSitePlanDocument(input.document);
+      const parsed = parseSitePlanDocument(input.document, { noteTransforms: true });
       if (!parsed) return NextResponse.json({ error: "Invalid drawing document" }, { status: 400 });
       document = parsed;
     }

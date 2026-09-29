@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
     const name = cleanSitePlanDrawingName(input.name);
     const document = input.document === undefined
       ? EMPTY_SITE_PLAN_DOCUMENT
-      : parseSitePlanDocument(input.document);
+      : parseSitePlanDocument(input.document, { noteTransforms: true });
 
     if (!jobId) return NextResponse.json({ error: "jobId is required" }, { status: 400 });
     if (!name) return NextResponse.json({ error: "Drawing name is required" }, { status: 400 });
