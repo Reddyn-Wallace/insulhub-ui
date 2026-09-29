@@ -95,10 +95,10 @@ export default function JobEmailComposer({ jobId, email, contactName, templates,
   const sender = senders.find(item => item.id === senderId);
   const needsConnection = ready && !loadFailed && !attempt && !senders.length;
   return <>
-    {triggerStyle !== "hidden" && <button type="button" disabled={!ready || busy} onClick={() => { if (message?.status === "sent") newMessage(); setOpen(true); }} className={triggerStyle === "primary" ? "flex-1 bg-[#1a3a4a] text-white font-semibold py-3 rounded-xl text-center text-sm disabled:opacity-40" : "rounded-xl border border-[#1a3a4a] px-3 py-3 text-sm font-semibold text-[#1a3a4a] disabled:opacity-40"}>{triggerStyle === "primary" ? "✉️ Email" : "Send email from CRM"}</button>}
+    {triggerStyle !== "hidden" && <button type="button" disabled={busy} onClick={() => { if (message?.status === "sent") newMessage(); setOpen(true); }} className={triggerStyle === "primary" ? "flex-1 bg-[#1a3a4a] text-white font-semibold py-3 rounded-xl text-center text-sm disabled:opacity-40" : "rounded-xl border border-[#1a3a4a] px-3 py-3 text-sm font-semibold text-[#1a3a4a] disabled:opacity-40"}>{triggerStyle === "primary" ? "✉️ Email" : "Send email from CRM"}</button>}
     <NoSendingAccountDialog open={open && needsConnection} channel="email" onClose={() => setOpen(false)} onLegacy={onLegacy} />
     <BottomSheet open={open && !needsConnection} onClose={() => { if (!busy) setOpen(false); }} title="Send email from CRM">
-      <div className="space-y-4 text-left">
+      {!ready ? <p role="status" className="py-6 text-center text-sm text-gray-600">Loading sending accounts…</p> : <div className="space-y-4 text-left">
         <div className="rounded-xl bg-gray-50 p-3"><p className="font-semibold">{contactName}</p><p className="break-all text-sm">{attempt?.destination || email || "No email address — update the job contact first."}</p></div>
         <p className="text-sm text-gray-600">Uses your connected Gmail account and saved signature. Replies are not captured in the CRM yet.</p>
         {!attempt ? <>
@@ -116,7 +116,7 @@ export default function JobEmailComposer({ jobId, email, contactName, templates,
         {attempt && !message && <button type="button" disabled={busy} onClick={() => void submit()} className="w-full rounded-xl border p-3 text-sm">Recover original send attempt</button>}
         {message?.status === "unknown" && <label className="flex gap-2 text-sm"><input type="checkbox" checked={checkedGmail} onChange={event => setCheckedGmail(event.target.checked)} />I checked Gmail’s Sent folder and know whether this email was sent.</label>}
         {(message?.status === "failed" || message?.status === "sent" || (message?.status === "unknown" && checkedGmail)) && <button type="button" disabled={busy} onClick={newMessage} className="w-full rounded-xl border p-3 font-semibold">Compose a new email</button>}
-      </div>
+      </div>}
     </BottomSheet>
   </>;
 }

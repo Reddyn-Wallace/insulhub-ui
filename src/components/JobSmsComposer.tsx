@@ -77,10 +77,10 @@ export default function JobSmsComposer({ jobId, phone, contactName, templates, o
   const settled = message && ["accepted", "sent", "delivered", "failed"].includes(message.status);
   const needsConnection = ready && !loadFailed && !attempt && !senders.length;
   return <>
-    {triggerStyle !== "hidden" && <button type="button" disabled={!ready || busy} onClick={() => { if (message && ["accepted", "sent", "delivered"].includes(message.status)) newMessage(); setOpen(true); }} className={triggerStyle === "primary" ? "flex-1 bg-teal-700 text-white font-semibold py-3 rounded-xl text-center text-sm disabled:opacity-40" : "rounded-xl border border-teal-700 px-3 py-3 text-sm font-semibold text-teal-800"}>{triggerStyle === "primary" ? "💬 Text" : "Send SMS from CRM"}</button>}
+    {triggerStyle !== "hidden" && <button type="button" disabled={busy} onClick={() => { if (message && ["accepted", "sent", "delivered"].includes(message.status)) newMessage(); setOpen(true); }} className={triggerStyle === "primary" ? "flex-1 bg-teal-700 text-white font-semibold py-3 rounded-xl text-center text-sm disabled:opacity-40" : "rounded-xl border border-teal-700 px-3 py-3 text-sm font-semibold text-teal-800"}>{triggerStyle === "primary" ? "💬 Text" : "Send SMS from CRM"}</button>}
     <NoSendingAccountDialog open={open && needsConnection} channel="sms" onClose={() => setOpen(false)} onLegacy={onLegacy} />
     <BottomSheet open={open && !needsConnection} onClose={() => { if (!busy) setOpen(false); }} title="Send SMS from CRM">
-      <div className="space-y-4 text-left">
+      {!ready ? <p role="status" className="py-6 text-center text-sm text-gray-600">Loading sending accounts…</p> : <div className="space-y-4 text-left">
         <div className="rounded-xl bg-gray-50 p-3"><p className="font-semibold">{contactName}</p><p className="text-sm">{attempt?.destination || phone || "No mobile number — update the job contact first."}</p></div>
         <p className="text-sm text-gray-600">Sends through your connected SMS account. Replies are not automatically captured yet. Use Legacy Comms to open your SMS or email app.</p>
         {!attempt ? <>
@@ -97,7 +97,7 @@ export default function JobSmsComposer({ jobId, phone, contactName, templates, o
         {!attempt && <button type="button" disabled={busy || !ready || loadFailed || !senderId || !phone || !body.trim()} onClick={() => void submit()} className="w-full rounded-xl bg-teal-700 p-3 font-semibold text-white disabled:opacity-40">{busy ? "Sending…" : "Send SMS"}</button>}
         {attempt && !message && <button type="button" disabled={busy || !ready || loadFailed} onClick={() => void submit()} className="w-full rounded-xl border p-3 text-sm">Recover original send attempt</button>}
         {settled && <button type="button" disabled={busy || !ready || loadFailed} onClick={newMessage} className="w-full rounded-xl border p-3 font-semibold">{message.status === "failed" ? "Compose a new attempt" : "Compose another message"}</button>}
-      </div>
+      </div>}
     </BottomSheet>
   </>;
 }
