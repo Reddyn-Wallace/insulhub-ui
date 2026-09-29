@@ -1,6 +1,12 @@
 "use client";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import type { DashboardResponse } from "@/lib/finance/dashboard";
 import { isJobInstalled } from "@/lib/finance/model";
 import {
@@ -20,10 +26,12 @@ function Metric({
   value,
   note,
   dark = false,
+  children,
 }: {
   label: string;
   value: number | string;
-  note: string;
+  note: ReactNode;
+  children?: ReactNode;
   dark?: boolean;
 }) {
   return (
@@ -45,6 +53,7 @@ function Metric({
       <p className="mt-3 text-3xl font-semibold tracking-tight tabular-nums lg:text-4xl">
         {typeof value === "number" ? money(value) : value}
       </p>
+      {children}
       <p
         className={
           "mt-3 text-xs leading-5 " +
@@ -277,13 +286,47 @@ export default function FinancePage() {
         )}
         {data && (
           <>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-3">
               <Metric
-                label="Bank balance"
-                value={data.bank.currentCents}
+                label="Bank less credit card"
+                value={data.bankLessCreditCard ?? "Unavailable"}
                 dark
-                note={`Akahu balance updated ${when(data.bank.balanceUpdatedAt)}${data.bank.stale ? " · Update overdue" : ""}.`}
-              />
+                note={
+                  <>
+                    Operating account updated {when(data.bank.balanceUpdatedAt)}
+                    {data.bank.stale ? " · Update overdue" : ""}.<br />
+                    {"error" in data.creditCard ? (
+                      data.creditCard.error
+                    ) : (
+                      <>
+                        Card updated {when(data.creditCard.balanceUpdatedAt)}
+                        {data.creditCard.stale ? " · Update overdue" : ""}.
+                      </>
+                    )}
+                  </>
+                }
+              >
+                <dl className="mt-4 space-y-2 border-t border-slate-700 pt-3 text-sm text-slate-300">
+                  <div className="flex justify-between gap-3">
+                    <dt>Operating account</dt>
+                    <dd className="tabular-nums">
+                      {money(data.bank.currentCents)}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <dt>
+                      {"error" in data.creditCard
+                        ? "Credit card"
+                        : `${data.creditCard.name}${data.creditCard.currentCents > 0 ? " · in credit" : ""}`}
+                    </dt>
+                    <dd className="tabular-nums">
+                      {"error" in data.creditCard
+                        ? "Unavailable"
+                        : `${data.creditCard.currentCents > 0 ? "+" : ""}${money(data.creditCard.currentCents)}`}
+                    </dd>
+                  </div>
+                </dl>
+              </Metric>
               <Metric
                 label="Deposits held for work to do"
                 value={data.reserved}
@@ -304,27 +347,6 @@ export default function FinancePage() {
                       : "Unpaid amounts for installed jobs only."
                 }
               />
-              {"error" in data.creditCard ? (
-                <Metric
-                  label="Credit card owed"
-                  value="Unavailable"
-                  note={data.creditCard.error}
-                />
-              ) : (
-                <Metric
-                  label={
-                    data.creditCard.creditCents > 0
-                      ? "Credit card · in credit"
-                      : "Credit card owed"
-                  }
-                  value={
-                    data.creditCard.creditCents > 0
-                      ? data.creditCard.creditCents
-                      : data.creditCard.owedCents
-                  }
-                  note={`${data.creditCard.name} · Akahu balance updated ${when(data.creditCard.balanceUpdatedAt)}${data.creditCard.stale ? " · Update overdue" : ""}. Separate from bank cash.`}
-                />
-              )}
             </div>
             <p className="mt-5 text-xs leading-6 text-slate-500">
               NZD · Xero and job status checked {when(data.checkedAt)}.<br />

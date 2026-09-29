@@ -161,6 +161,10 @@ export function calculateFinance(
     totalXeroOwed: sum((r) => (r.currency === "NZD" ? r.due : 0)),
     checkedAt: input.checkedAt,
     bank: input.bank,
+    bankLessCreditCard:
+      input.creditCard && !("error" in input.creditCard)
+        ? input.bank.currentCents + input.creditCard.currentCents
+        : null,
     creditCard: input.creditCard ?? {
       error: "Credit card balance unavailable. Refresh sources.",
     },

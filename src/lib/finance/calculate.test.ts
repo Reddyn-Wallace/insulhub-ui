@@ -482,3 +482,29 @@ it("recent bank receipts reduce only installed debt, never bank balance or depos
   expect(result.reserved).toBe(40000);
   expect(result.owed).toBe(0);
 });
+
+it.each([-358530, 12345, 0])(
+  "combines signed card balance %i with operating cash without changing invoice totals",
+  (currentCents) => {
+    const d = base();
+    d.creditCard = {
+      name: "Visa Business",
+      currentCents,
+      owedCents: Math.max(0, -currentCents),
+      creditCents: Math.max(0, currentCents),
+      balanceUpdatedAt: d.checkedAt,
+      stale: false,
+    };
+    const result = calculateFinance(d, []);
+    expect(result.bankLessCreditCard).toBe(1000000 + currentCents);
+    expect(result.bank.currentCents).toBe(1000000);
+    expect(result.reserved).toBe(0);
+    expect(result.owed).toBe(0);
+  },
+);
+it("does not substitute zero when the credit card is unavailable", () => {
+  const d = base();
+  expect(calculateFinance(d, []).bankLessCreditCard).toBeNull();
+  d.creditCard = { error: "Unavailable" };
+  expect(calculateFinance(d, []).bankLessCreditCard).toBeNull();
+});

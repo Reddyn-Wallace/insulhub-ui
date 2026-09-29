@@ -1,6 +1,6 @@
 # Active update — 29 September 2026
 
-The main view has four figures: separate business credit card debt, latest Akahu bank balance with actual feed time, Xero payments held for not-installed jobs, and money owed for installed jobs only. Other detail is collapsed. No partial-work status exists.
+The main view has three figures: operating account less business credit card with signed components and actual feed times, Xero payments held for not-installed jobs, and money owed for installed jobs only. Other detail is collapsed. No partial-work status exists.
 
 The overview reads the past seven days of posted bank receipts. A unique full invoice number (including bank space/hyphen normalisation) or active owner allocation is required. Amount alone, unknown/multiple invoice references, processor payouts, conflicting references, stale decisions and ambiguous evidence do not establish automatic adjustments.
 
@@ -116,8 +116,14 @@ Chunk 1 review is complete. Chunk 2 covers source connections. No credentials, p
 
 29September receipt matching refinement: compact `Inv0441` is accepted without losing digits. A reused paid-deposit number can identify the later full invoice only with explicit same quote, same installed CRM job, receipt exceeding the entire fully paid deposit, and a unique later full invoice value. Paid target invoices remain in the candidate set. Ambiguous or partial reused-reference receipts remain conservative. Details show the supporting receipt and rule; the receipt refinement does not change the headline cash or deposit figures.
 
-## Business credit card
+## Operating account less business credit card
 
-Visa Business is a fourth separate headline figure, pinned through `AKAHU_CREDIT_CARD_ACCOUNT_ID`. Use the negative of Akahu `balance.current` as debt owed; positive current balances are explicitly labelled in credit. Never use available credit or the limit. Show the actual balance refresh time and overdue status. Card failures show unavailable without changing bank cash, deposits, or completed-job debt.
+Latest owner instruction supersedes the standalone fourth card. The cash headline is operating account plus Akahu's signed card current balance: a negative card balance reduces cash; positive card credit increases the combined amount and is labelled in credit. Display the operating-account amount and negative card component separately within that card, with both source update times. Visa Business remains pinned through `AKAHU_CREDIT_CARD_ACCOUNT_ID`. Never use available credit or the limit. If card data is unavailable, the combined headline is unavailable while the known operating account component and other metrics remain visible.
 
 Bank receipts retain their full timestamp for the rolling seven-day boundary and NZ display. Existing review fingerprints retain their historical UTC date normalisation.
+
+## Deposit audit, 29 September
+
+Calculation iterates approved NZD Xero sales invoices, links to a unique CRM job, and sums full AmountPaid where that job is not installed. There is no deposit-label filter. Both installed statuses qualify; COMPLETED stage is a fallback except explicit INSTALL_NOT_FINISHED. An installed job still in INVOICE or INSTALLATION stage therefore does not retain deposits. Archived jobs remain included. No partial valuation is used.
+
+13 unlinked invoices with39,534.04 paid and0due are excluded, producing the deposit qualification:8 have no verified link,5 conflicting references. This is potential unclassified advance money, not proof that the whole amount belongs in deposits. If the intended metric is strictly deposit-labelled invoices or strictly CRM COMPLETED stage, that would be a different rule requiring owner clarification; no such change was made.

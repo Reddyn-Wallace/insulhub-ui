@@ -42,8 +42,9 @@ it.each([
       balanceUpdatedAt: "2026-09-29T06:47:00Z",
       stale: false,
     },
-    label: "Credit card owed",
-    amount: "$3,585.30",
+    label: "Visa Business",
+    amount: "-$3,585.30",
+    net: "$8,407.87",
   },
   {
     creditCard: {
@@ -54,17 +55,19 @@ it.each([
       balanceUpdatedAt: "2026-09-29T06:47:00Z",
       stale: false,
     },
-    label: "Credit card · in credit",
-    amount: "$123.45",
+    label: "Visa Business · in credit",
+    amount: "+$123.45",
+    net: "$12,116.62",
   },
   {
     creditCard: { error: "Card unavailable" },
-    label: "Credit card owed",
+    label: "Credit card",
     amount: "Unavailable",
+    net: "Unavailable",
   },
 ])(
-  "keeps the credit card separate from cash and filtered detail: $label $amount",
-  async ({ creditCard, label, amount }) => {
+  "shows signed card component and combined cash without changing filtered detail: $label $amount",
+  async ({ creditCard, label, amount, net }) => {
     localStorage.setItem("token", "test-session");
     const input = {
       creditCard,
@@ -109,7 +112,9 @@ it.each([
     render(<Page />);
     await screen.findByText("Deposits held for work to do");
     expect(screen.getByText(label)).toBeTruthy();
-    expect(screen.getByText(amount)).toBeTruthy();
+    expect(screen.getAllByText(amount).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(net).length).toBeGreaterThan(0);
+    expect(screen.getByText("Bank less credit card")).toBeTruthy();
     expect(screen.getByText("Owed for completed jobs")).toBeTruthy();
     expect(screen.queryByText("Bank less known deposits")).toBeNull();
     fireEvent.click(
