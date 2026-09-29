@@ -63,14 +63,14 @@ function Metric({
           aria-label={`${label}: ${typeof value === "number" ? money(value) : value}. ${actionLabel}`}
           className="w-full rounded-lg text-left transition hover:text-teal-700 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-teal-700"
         >
-          <span className="block text-sm font-medium text-slate-600">
+          <span className="flex justify-between gap-3 text-sm font-medium text-slate-600">
             {label}
+            <span aria-hidden="true" className="text-teal-700">
+              ↗
+            </span>
           </span>
           <span className="mt-3 block text-3xl font-semibold tracking-tight tabular-nums lg:text-4xl">
             {typeof value === "number" ? money(value) : value}
-          </span>
-          <span className="mt-3 block text-xs font-semibold text-teal-700">
-            View breakdown →
           </span>
         </button>
       ) : (
@@ -413,62 +413,15 @@ export default function FinancePage() {
                 label="Owed for completed jobs"
                 value={data.owed}
                 note={
-                  data.unclassifiedOwed > 0
-                    ? "Some unpaid invoices still need their job confirmed. This total may be incomplete."
-                    : data.localAdjustment > 0
-                      ? `${money(data.localAdjustment)} already received in the bank has been taken off.`
-                      : "Unpaid amounts for installed jobs only."
+                  <>
+                    Already factors in{" "}
+                    {money(data.localAdjustment + data.pendingSettlement)} in
+                    payments received, awaiting reconciliation.
+                    {data.unclassifiedOwed > 0 &&
+                      " Some unpaid invoices still need their job confirmed."}
+                  </>
                 }
-              >
-                <dl className="mt-4 space-y-2 border-t border-slate-200 pt-3 text-sm">
-                  <div className="flex justify-between gap-3">
-                    <dt>Unpaid in Xero</dt>
-                    <dd>{money(data.xeroOwed)}</dd>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <dt>
-                      <button
-                        className="text-left text-teal-800 underline underline-offset-2"
-
-                        onClick={() => openDetail("settled")}
-                      >
-                        Less: in bank, awaiting Xero
-                      </button>
-                    </dt>
-                    <dd>−{money(data.localAdjustment)}</dd>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <dt>
-                      <button
-                        className="text-left text-teal-800 underline underline-offset-2"
-
-                        onClick={() => openDetail("pending")}
-                      >
-                        Less: pending bank settlement
-                      </button>
-                    </dt>
-                    <dd>−{money(data.pendingSettlement)}</dd>
-                  </div>
-                  <div className="flex justify-between gap-3 font-semibold">
-                    <dt>Still to collect</dt>
-                    <dd>{money(data.owed)}</dd>
-                  </div>
-                </dl>
-                {data.rows
-                  .filter(
-                    (r) => r.localAdjustment > 0 || r.pendingSettlement > 0,
-                  )
-                  .map((r) => (
-                    <p key={r.id} className="mt-3 text-xs text-amber-800">
-                      {r.contact} · {r.number}:{" "}
-                      {money(r.localAdjustment + r.pendingSettlement)} deducted
-                      {r.pendingSettlement > 0
-                        ? " · awaiting bank settlement"
-                        : " · in bank, awaiting Xero"}
-                      .
-                    </p>
-                  ))}
-              </Metric>
+              />
             </div>
             {"error" in data.pendingBank ? (
               <p role="status" className="mt-4 text-sm text-amber-800">
@@ -572,6 +525,47 @@ export default function FinancePage() {
                 aria-label="Selected cash breakdown"
                 className="mt-7 scroll-mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white outline-none"
               >
+                {detailsOpen && view === "owed" && (
+                  <div className="px-5 py-4">
+                    <h2 className="font-semibold">
+                      How the amount to collect is calculated
+                    </h2>
+                    <dl className="mt-4 space-y-2 border-t border-slate-200 pt-3 text-sm">
+                      <div className="flex justify-between gap-3">
+                        <dt>Unpaid in Xero</dt>
+                        <dd>{money(data.xeroOwed)}</dd>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <dt>
+                          <button
+                            className="text-left text-teal-800 underline underline-offset-2"
+
+                            onClick={() => openDetail("settled")}
+                          >
+                            Less: in bank, awaiting Xero
+                          </button>
+                        </dt>
+                        <dd>−{money(data.localAdjustment)}</dd>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <dt>
+                          <button
+                            className="text-left text-teal-800 underline underline-offset-2"
+
+                            onClick={() => openDetail("pending")}
+                          >
+                            Less: pending bank settlement
+                          </button>
+                        </dt>
+                        <dd>−{money(data.pendingSettlement)}</dd>
+                      </div>
+                      <div className="flex justify-between gap-3 font-semibold">
+                        <dt>Still to collect</dt>
+                        <dd>{money(data.owed)}</dd>
+                      </div>
+                    </dl>
+                  </div>
+                )}
                 {view !== "review" && view !== "history" && (
                   <div className="border-b border-slate-200 bg-teal-50 px-5 py-4">
                     <h2 className="font-semibold text-teal-950">

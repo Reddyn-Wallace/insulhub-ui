@@ -252,12 +252,17 @@ it("shows a pending invoice separately from the amount to collect and leaves ban
     ),
   );
   render(<Page />);
-  await screen.findByText(/Kimberly Da Silva · INV-0445: \$3,338.25 deducted/);
-  expect(screen.getByText("Less: in bank, awaiting Xero")).toBeTruthy();
-  expect(screen.getByText("Less: pending bank settlement")).toBeTruthy();
-  expect(screen.getByText("−$0.00")).toBeTruthy();
-  expect(screen.getByText("−$3,338.25")).toBeTruthy();
+  await screen.findByText(
+    /Already factors in \$3,338.25 in payments received, awaiting reconciliation/,
+  );
+  expect(screen.queryByText("Unpaid in Xero")).toBeNull();
+  expect(screen.queryByText(/Kimberly Da Silva · INV-0445:/)).toBeNull();
   expect(screen.getByText("$19,885.21")).toBeTruthy();
+  fireEvent.click(
+    screen.getByRole("button", { name: /Owed for completed jobs: \$0.00/ }),
+  );
+  expect(screen.getByText("Unpaid in Xero")).toBeTruthy();
+  expect(screen.getByText("−$3,338.25")).toBeTruthy();
   fireEvent.click(
     screen.getByRole("button", { name: "Less: pending bank settlement" }),
   );
