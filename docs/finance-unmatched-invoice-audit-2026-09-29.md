@@ -29,3 +29,7 @@ Matching safeguards: no name-only or amount-only linking; exact quote required. 
 ## Separate receipt check: Kay / Kimberly Da Silva
 
 INV-0445 / AP28218 is installed, AUTHORISED, NZD3,338.25 due with zero Xero paid. A read-only Akahu search across January–September found no Silva/Kay/INV-0445/AP28218 reference or exact3,338.25 receipt. Feed last updated29September19:47NZDT. No deduction created; actual bank entry date/reference/account requested. Feed delay or another account are possibilities, not established causes.
+
+## Deployment verification
+
+Implemented in0750171; final wording25c33e2 is live. Authenticated browser verified all eight recovered rows, five remaining exceptions, deposits29,111.49 and completed debt52,512.50. Warren explicitly displays Not installed and1,207.50 held, with a completion-conflict warning. Bank less card16,299.91 shows19,885.21 operating account and-3,585.30 Visa Business, both updated19:47NZDT. Shona/Berry/Richardson remain0owed.116 finance tests, typecheck, targeted lint, production builds and independent review passed. Pending owner questions concern missing job links, Warren's actual installation state, Hands invoice identity, the finance correction and Da Silva's bank entry.
