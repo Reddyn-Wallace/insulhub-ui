@@ -53,7 +53,7 @@ export function applyControl(current: ControlState, input: unknown, job: DeadQuo
     case 'remove_latest_offer':
       text(value.reason,'A correction reason');
       if(!next.offers.length)throw new ControlError('No historical offer to correct.');
-      if(next.offers.at(-1)?.source==='provider_sent')throw new ControlError('A confirmed CRM send cannot be removed.');
+      if(next.offers.at(-1)?.source!=='staff_recorded')throw new ControlError('A confirmed CRM send cannot be removed.');
       next.offers.pop();next.reviewedVersion=null;break;
     default:throw new ControlError('Unknown follow-up action.');
   }

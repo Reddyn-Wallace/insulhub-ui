@@ -5,6 +5,8 @@ import {ControlError} from '@/lib/dead-followups/controls';
 import {sendsRepository} from '@/lib/dead-followups/send-repository';
 import {dispatchAttempt,reconcileAttempt,appendOfferNote} from '@/lib/dead-followups/send-service';
 import {uuid,type SendAttempt} from '@/lib/dead-followups/sending';
+import {templateRepository} from '@/lib/dead-followups/template-repository';
+import {defaultTemplates} from '@/lib/dead-followups/templates';
 import {classifyQuote} from '@/lib/dead-followups/rules';
 import {POST as smsPost,GET as smsGet} from '@/app/api/jobs/[id]/sms/route';
 import {POST as emailPost,GET as emailGet} from '@/app/api/jobs/[id]/email/route';
@@ -26,10 +28,11 @@ async function saveNote(token:string,a:SendAttempt,repo:NonNullable<ReturnType<t
 export async function GET(request:NextRequest,context:Context){
  try{
   const denied=await requireInsulhubAuth(request);if(denied)return denied;
-  const {id}=await context.params;const {job}=await readControlJob(tokenFromRequest(request),id);
+  const {id}=await context.params;const {job,actor}=await readControlJob(tokenFromRequest(request),id);
   const repo=sendsRepository();if(!repo)throw new ControlError('Sending storage needs setup.',503);
   const [attempts,sms,email]=await Promise.all([repo.list(id),smsGet(request,context),emailGet(request,context)]);
-  return NextResponse.json({attempts,enabled:enabled(),contact:job.client?.contactDetails||{},sms:sms.ok?await sms.json():{senders:[]},email:email.ok?await email.json():{senders:[]}},{headers});
+  const templates=await templateRepository()?.read();
+  return NextResponse.json({templates:templates?.templates||defaultTemplates(),templateRevision:templates?.revision||0,attempts:attempts.map(a=>({...a,canVerify:(a.actorId===actor.id||actor.role==='ADMIN')&&['sending','accepted','unknown'].includes(a.status)&&Date.now()-Date.parse(a.createdAt)>=60000})),enabled:enabled(),contact:job.client?.contactDetails||{},sms:sms.ok?await sms.json():{senders:[]},email:email.ok?await email.json():{senders:[]}},{headers});
  }catch(e){return failure(e);}
 }
 export async function POST(request:NextRequest,context:Context){
@@ -37,7 +40,7 @@ export async function POST(request:NextRequest,context:Context){
   const denied=await requireInsulhubAuth(request);if(denied)return denied;
   const raw=await request.text();if(raw.length>30000)throw new ControlError('Message is too large.');
   let input;try{input=JSON.parse(raw);}catch{throw new ControlError('Invalid send request.');}
-  if(!input||!['send','check','note'].includes(input.action))throw new ControlError('Choose a valid action.');
+  if(!input||!['send','check','note','verify'].includes(input.action))throw new ControlError('Choose a valid action.');
   const {id}=await context.params;const token=tokenFromRequest(request);const {job,actor}=await readControlJob(token,id);
   const repo=sendsRepository();if(!repo)throw new ControlError('Sending storage needs setup.',503);
   let a:SendAttempt;
@@ -66,7 +69,10 @@ export async function POST(request:NextRequest,context:Context){
     await smsPost(new NextRequest(request.url,{method:'POST',headers:{'content-type':'application/json','x-access-token':token},body:JSON.stringify({id:a.id,action:'check'})}),context);
    }
   }
-  if(input.action!=='note'){
+  if(input.action==='verify'){
+   const outcome=await reconcileAttempt(a,()=>repo.messageOutcome(a));
+   a=outcome.status==='sent'||outcome.status==='failed'?await repo.setOutcome(a.id,outcome.status,outcome.failureReason):await repo.verifySent(a.id,{confirmed:input.confirmed,evidence:input.evidence},actor);
+  }else if(input.action!=='note'){
    const message=await repo.messageOutcome(a);
    const outcome=await reconcileAttempt(a,async()=>message);
    const safeFailure=Boolean(rejection&&!message&&outcome.status==='unknown');

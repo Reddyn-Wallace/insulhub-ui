@@ -12,3 +12,7 @@ it.each([{job:null,me:{_id:'staff'}},{job:{...job,_id:'another'},me:{_id:'staff'
  vi.stubGlobal('fetch',vi.fn(async()=>Response.json({data})));
  await expect(readControlJob('token',id)).rejects.toThrow();
 });
+it('rejects malformed contact fields before the send composer can display them',async()=>{
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json({data:{job:{...job,client:{contactDetails:{email:{unexpected:'value'}}}},me:{_id:'staff'}}})));
+ await expect(readControlJob('token',id)).rejects.toThrow();
+});

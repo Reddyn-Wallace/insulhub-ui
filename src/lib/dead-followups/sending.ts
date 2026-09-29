@@ -1,3 +1,5 @@
+import type {Verification} from './verification';
+import {defaultTemplates,renderTemplate} from './templates';
 import {ControlError,controlHistory} from './controls';
 import {evaluateFollowup} from './rules';
 import {validateSmsInput} from '@/lib/job-sms';
@@ -5,11 +7,10 @@ import {validateJobEmail} from '@/lib/job-email';
 import type {ControlState,DeadQuote} from './types';
 export const uuid=/^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i;
 export type SendSnapshot={requestId:string;channel:'sms'|'email';senderId:string;destination:string;body:string;subject:string;discountCents:number;approach:1|2};
-export type SendAttempt=SendSnapshot & {id:string;jobId:string;actorId:string;actorName:string;status:'sending'|'accepted'|'unknown'|'failed'|'sent';createdAt:string;sentAt:string|null;noteStatus:'pending'|'saved';failureReason:string};
+export type SendAttempt=SendSnapshot & {verification?:Verification;id:string;jobId:string;actorId:string;actorName:string;status:'sending'|'accepted'|'unknown'|'failed'|'sent';createdAt:string;sentAt:string|null;noteStatus:'pending'|'saved';failureReason:string};
 export function confirmedStatus(status:string){return status==='sent'||status==='delivered';}
 export function followupTemplate(approach:1|2,cents:number){
- const discount='$'+(cents/100).toFixed(2);
- return {subject:'Your insulation quote',body:approach===1?`Hi, just following up on your insulation quote. We can offer a discount of ${discount}. Would you like us to revisit the quote and confirm the scope and pricing with you? Thanks, InsulHub`:`Hi, following up on our earlier insulation offer. We can offer a discount of ${discount}. Are you still interested in proceeding? We can confirm the scope and pricing with you. Thanks, InsulHub`};
+ return renderTemplate(defaultTemplates().find(t=>t.channel==='sms'&&t.approach===approach)!,{discountCents:cents});
 }
 export function prepareSend(input:unknown,state:ControlState,job:DeadQuote,now:string):SendSnapshot{
  if(!input || typeof input!=='object')throw new ControlError('Invalid send request.');
@@ -27,7 +28,7 @@ export function prepareSend(input:unknown,state:ControlState,job:DeadQuote,now:s
  if(!message.body.includes(amount)||new RegExp('\\'+amount.replace('.','\\.')+'[0-9]').test(message.body))throw new ControlError(`Include the saved discount ${amount} in the message.`);
  return {requestId:v.requestId,channel:v.channel,senderId:v.senderId,destination:message.destination,body:message.body,subject:message.subject||'',discountCents:cents,approach:eligibility.approach};
 }
-export function offerNote(attempt:Pick<SendAttempt,'id'|'approach'|'discountCents'|'channel'|'actorName'|'sentAt'>){
+export function offerNote(attempt:Pick<SendAttempt,'id'|'approach'|'discountCents'|'channel'|'actorName'|'sentAt'|'verification'>){
  const day=new Date(attempt.sentAt!).toLocaleString('en-NZ',{timeZone:'Pacific/Auckland'});
- return `[Dead quote follow-up ${attempt.id}]\n${day} (NZ time) — Approach ${attempt.approach} sent by ${attempt.channel.toUpperCase()}. Discount offered: NZD $${(attempt.discountCents/100).toFixed(2)}. Staff: ${attempt.actorName}.`;
+ return `[Dead quote follow-up ${attempt.id}]\n${day} (NZ time) — Approach ${attempt.approach} sent by ${attempt.channel.toUpperCase()}. Discount offered: NZD $${(attempt.discountCents/100).toFixed(2)}. Staff: ${attempt.actorName}.${attempt.verification?`\nSent verified by ${attempt.verification.actorName}: ${attempt.verification.evidence}`:''}`;
 }

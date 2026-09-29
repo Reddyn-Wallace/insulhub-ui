@@ -1,0 +1,36 @@
+import {afterAll,beforeAll,describe,expect,it} from 'vitest';
+import {Pool} from 'pg';
+import {readFileSync} from 'node:fs';
+import {ControlRepository} from './repository';
+import {SendRepository} from './send-repository';
+import {TemplateRepository} from './template-repository';
+import {renderTemplate} from './templates';
+import {dispatchAttempt,reconcileAttempt,appendOfferNote} from './send-service';
+import {controlHistory} from './controls';
+import {evaluateFollowup,addNzMonths} from './rules';
+import {checkReadiness} from '../../../scripts/lib/dead-followups-readiness.mjs';
+const url=process.env.DEAD_FOLLOWUPS_TEST_DATABASE_URL;
+describe.skipIf(!url)('full local follow-up lifecycle',()=>{
+ let pool:Pool;
+ beforeAll(async()=>{if(!url||new URL(url).hostname!=='127.0.0.1'||new URL(url).port!=='55687')throw Error('Dedicated local database only');const setup=new Pool({connectionString:url});await setup.query('CREATE SCHEMA IF NOT EXISTS followup_integration_test');await setup.end();pool=new Pool({connectionString:url,options:'-c search_path=followup_integration_test'});for(let run=0;run<2;run++)for(const file of ['dead-followups-schema.sql','dead-followups-send-schema.sql','dead-followups-template-schema.sql','job-sms-schema.sql','job-email-schema.sql'])await pool.query(readFileSync('scripts/'+file,'utf8'));await pool.query('TRUNCATE dead_quote_followup_verifications,dead_quote_followup_attempts,dead_quote_followup_events,dead_quote_followup_controls,job_sms_messages,job_email_messages');});
+ afterAll(async()=>{await pool?.end();});
+ it('reads readiness without changing data',async()=>{const c=await pool.connect();try{await c.query('BEGIN READ ONLY');const result=await checkReadiness(c);expect(result.ready).toBe(true);expect(result.missing).toEqual([]);await c.query('ROLLBACK');}finally{c.release();}});
+ it('draft → reviewed history → one dispatch → confirmed discount → idempotent note → delayed second approach',async()=>{
+  const job={_id:'eeeeeeeeeeeeeeeeeeeeeeee',stage:'QUOTE',updatedAt:'2026-09-01T00:00:00Z',quote:{status:'DECLINED',c_total:10000}};
+  const actor={id:'staff',name:'Staff Member'};const controls=new ControlRepository(pool);const sends=new SendRepository(pool);
+  await controls.change(job,0,{action:'discount',amount:'500'},actor);
+  const review=await controls.change(job,1,{action:'review',date:'2026-01-01',evidence:'Reviewed CRM notes and communication history.',historyConfirmed:true},actor);
+  const settings=await new TemplateRepository(pool).read();const message=renderTemplate(settings.templates.find(t=>t.channel==='sms'&&t.approach===1)!,{discountCents:50000,name:'Alex',quoteNumber:123});
+  const input={requestId:'eeeeeeee-eeee-4eee-eeee-eeeeeeeeeeee',revision:review.revision,jobVersion:job.updatedAt,channel:'sms',senderId:'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb',destination:'0211234567',...message};
+  const claim=await sends.claim(job,input,actor);let dispatches=0;let dispatchError='';
+  const deliver=async()=>{dispatches++;await pool.query("INSERT INTO job_sms_messages(id,insulhub_job_id,sender_id,sender_label,sender_value,actor_id,actor_name,destination,body,request_hash,status,provider_message_id) VALUES($1,$2,$3,'Work phone','0210000000','staff','Staff Member',$4,$5,'test','sent',$6)",[claim.attempt.id,job._id,input.senderId,claim.attempt.destination,message.body,claim.attempt.id]);throw Error('Response lost after sending');};
+  await dispatchAttempt(claim.claimed,async()=>{try{await deliver();}catch(e){dispatchError=(e as Error).message;throw e;}});expect(dispatchError).toBe('Response lost after sending');const repeated=await sends.claim(job,input,actor);await dispatchAttempt(repeated.claimed,deliver);expect(dispatches).toBe(1);
+  const result=await reconcileAttempt(claim.attempt,()=>sends.messageOutcome(claim.attempt));const sent=await sends.setOutcome(claim.attempt.id,result.status,result.failureReason);
+  let notes='Existing customer notes';let writes=0;
+  const deps={read:async()=>notes,write:async(value:string)=>{writes++;notes=value;throw Error('Lost note reply');}};
+  await expect(appendOfferNote(sent,deps)).rejects.toThrow('Lost note reply');await appendOfferNote(sent,deps);await sends.noteSaved(sent.id);expect(writes).toBe(1);expect(notes).toContain('Existing customer notes');expect(notes).toContain('NZD $500.00');expect(dispatches).toBe(1);
+  const saved=(await controls.list([job._id]))[job._id];expect(saved.state.offers).toHaveLength(1);expect(saved.state.offers[0].discountCents).toBe(50000);
+  const due=addNzMonths(sent.sentAt!,4);expect(evaluateFollowup(job,controlHistory(saved.state,job),sent.sentAt!).state).toBe('waiting');expect(evaluateFollowup(job,controlHistory(saved.state,job),due)).toMatchObject({state:'due',approach:2,previousDiscountCents:50000});
+  expect((await sends.list(job._id))[0].noteStatus).toBe('saved');
+ });
+});

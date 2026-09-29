@@ -13,7 +13,7 @@ export type DateSuggestion = { provenance: 'note'; date: string; at: string; evi
 export type QueueItem = { notePending?: boolean; sendAvailable?: boolean; sendEnabled?: boolean; job: DeadQuote; eligibility: Eligibility; suggestion: DateSuggestion | null; earliestFirstApproach: string | null; controls?: ControlRecord };
 export type QueueResponse = { items: QueueItem[]; checkedAt: string; readOnly: boolean; historyAvailable: boolean };
 
-export type HistoricalOffer = { number: 1 | 2; sentAt: string; discountCents: number; channel: 'sms' | 'email'; evidence: string; source: 'staff_recorded' | 'provider_sent'; attemptId?: string };
+export type HistoricalOffer = { number: 1 | 2; sentAt: string; discountCents: number; channel: 'sms' | 'email'; evidence: string; source: 'staff_recorded' | 'provider_sent' | 'staff_verified'; attemptId?: string };
 export type ControlState = { draftDiscountCents: number | null; snoozedUntil: string | null; exclusionReason: string | null; deadDate: string | null; dateEvidence: string; reviewedVersion: string | null; offers: HistoricalOffer[] };
 export type ControlEvent = { revision: number; action: string; actorName: string; createdAt: string; state: ControlState; reason: string };
 export type ControlRecord = { revision: number; state: ControlState; updatedAt: string | null; actorName: string };

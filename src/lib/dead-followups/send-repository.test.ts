@@ -3,6 +3,7 @@ import {Pool} from 'pg';
 import {readFileSync} from 'node:fs';
 import {SendRepository} from './send-repository';
 import {ControlRepository} from './repository';
+import {prepareSend} from './sending';
 import {emptyControls} from './controls';
 const url=process.env.DEAD_FOLLOWUPS_TEST_DATABASE_URL;
 const job={_id:'bbbbbbbbbbbbbbbbbbbbbbbb',stage:'QUOTE',updatedAt:'2026-09-01T00:00:00Z',quote:{status:'DECLINED',c_total:10000}};
@@ -10,7 +11,7 @@ const input={requestId:'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa',revision:1,jobVers
 describe.skipIf(!url)('durable send claims',()=>{
  let pool:Pool;let repo:SendRepository;
  beforeAll(async()=>{if(!url||new URL(url).hostname!=='127.0.0.1'||new URL(url).port!=='55687')throw Error('Dedicated database only');const setup=new Pool({connectionString:url});await setup.query('CREATE SCHEMA IF NOT EXISTS followup_send_test');await setup.end();pool=new Pool({connectionString:url,options:'-c search_path=followup_send_test'});repo=new SendRepository(pool);await pool.query(readFileSync('scripts/dead-followups-schema.sql','utf8'));await pool.query(readFileSync('scripts/dead-followups-send-schema.sql','utf8'));});
- beforeEach(async()=>{await pool.query('TRUNCATE dead_quote_followup_attempts,dead_quote_followup_events,dead_quote_followup_controls');await pool.query('INSERT INTO dead_quote_followup_controls(insulhub_job_id,revision,state) VALUES($1,1,$2) ON CONFLICT(insulhub_job_id) DO UPDATE SET revision=1,state=$2',[job._id,JSON.stringify({...emptyControls(),draftDiscountCents:50000,deadDate:'2026-01-01T00:00:00Z',reviewedVersion:job.updatedAt})]);});
+ beforeEach(async()=>{await pool.query('TRUNCATE dead_quote_followup_verifications,dead_quote_followup_attempts,dead_quote_followup_events,dead_quote_followup_controls');await pool.query('INSERT INTO dead_quote_followup_controls(insulhub_job_id,revision,state) VALUES($1,1,$2) ON CONFLICT(insulhub_job_id) DO UPDATE SET revision=1,state=$2',[job._id,JSON.stringify({...emptyControls(),draftDiscountCents:50000,deadDate:'2026-01-01T00:00:00Z',reviewedVersion:job.updatedAt})]);});
  afterAll(async()=>{await pool?.end();});
  it('claims only once across repeated requests and simultaneous staff',async()=>{
   const results=await Promise.allSettled([repo.claim(job,input,{id:'a',name:'A'}),repo.claim(job,{...input,requestId:'cccccccc-cccc-4ccc-cccc-cccccccccccc'},{id:'b',name:'B'})]);
@@ -28,4 +29,20 @@ describe.skipIf(!url)('durable send claims',()=>{
   await expect(new ControlRepository(pool).change(job,saved.revision,{action:'remove_latest_offer',reason:'erase'},{id:'a',name:'A'})).rejects.toThrow();
  });
  it('failed attempt does not count and allows a new explicit attempt',async()=>{const {attempt}=await repo.claim(job,input,{id:'a',name:'A'});await repo.setOutcome(attempt.id,'failed');expect((await repo.claim(job,{...input,requestId:'cccccccc-cccc-4ccc-cccc-cccccccccccc'},{id:'a',name:'A'})).claimed).toBe(true);});
+ it('staff verification resolves an uncertain attempt once, with immutable evidence and original discount',async()=>{
+  const attemptId='dddddddd-dddd-4ddd-dddd-dddddddddddd';
+  const controls=(await new ControlRepository(pool).list([job._id]))[job._id];
+  const snapshot=prepareSend(input,controls.state,job,new Date().toISOString());
+  await pool.query("INSERT INTO dead_quote_followup_attempts(id,request_id,insulhub_job_id,approach,snapshot,actor_id,actor_name,created_at,status) VALUES($1,$2,$3,1,$4,'a','A',now()-interval '2 minutes','unknown')",[attemptId,input.requestId,job._id,JSON.stringify(snapshot)]);
+  const proof={confirmed:true,evidence:'Checked the sent folder: recipient, body and discount match.'};
+  await expect(repo.verifySent(attemptId,proof,{id:'b',name:'B'})).rejects.toThrow();
+  await repo.verifySent(attemptId,proof,{id:'a',name:'A'});
+  const saved=(await new ControlRepository(pool).list([job._id]))[job._id];
+  expect(saved.state.offers).toHaveLength(1);expect(saved.state.offers[0]).toMatchObject({discountCents:50000,source:'staff_verified'});
+  expect((await repo.list(job._id))[0].verification).toMatchObject({actorName:'A',evidence:proof.evidence});
+  await expect(pool.query("DELETE FROM dead_quote_followup_verifications")).rejects.toThrow('immutable');
+  expect((await repo.setOutcome(attemptId,'sent')).verification?.evidence).toBe(proof.evidence);
+  expect((await new ControlRepository(pool).list([job._id]))[job._id].state.offers).toHaveLength(1);
+ });
+
 });

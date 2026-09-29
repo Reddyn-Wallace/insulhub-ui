@@ -24,4 +24,13 @@ END;
 $$;
 DROP TRIGGER IF EXISTS dead_quote_followup_snapshot_immutable ON dead_quote_followup_attempts;
 CREATE TRIGGER dead_quote_followup_snapshot_immutable BEFORE UPDATE ON dead_quote_followup_attempts FOR EACH ROW EXECUTE FUNCTION dead_quote_followup_snapshot_immutable();
+CREATE TABLE IF NOT EXISTS dead_quote_followup_verifications (
+ attempt_id uuid PRIMARY KEY REFERENCES dead_quote_followup_attempts(id),
+ actor_id text NOT NULL,
+ actor_name text NOT NULL,
+ evidence text NOT NULL CHECK(length(evidence) BETWEEN 20 AND 2000),
+ verified_at timestamptz NOT NULL DEFAULT now()
+);
+DROP TRIGGER IF EXISTS dead_quote_verification_immutable ON dead_quote_followup_verifications;
+CREATE TRIGGER dead_quote_verification_immutable BEFORE UPDATE OR DELETE ON dead_quote_followup_verifications FOR EACH ROW EXECUTE FUNCTION dead_quote_followup_event_immutable();
 COMMIT;

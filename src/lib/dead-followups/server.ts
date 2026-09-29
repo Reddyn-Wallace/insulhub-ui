@@ -35,7 +35,7 @@ export function validQuote(value: unknown): value is DeadQuote {
     const contact=value.client.contactDetails;
     if (contact != null) {
       if (!record(contact)) return false;
-      for (const key of ['name','streetAddress','suburb','city']) if (contact[key] != null && typeof contact[key] !== 'string') return false;
+      for (const key of ['name','streetAddress','suburb','city','email','phoneMobile','phoneSecondary']) if (contact[key] != null && typeof contact[key] !== 'string') return false;
     }
   }
   return true;

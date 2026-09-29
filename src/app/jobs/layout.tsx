@@ -23,7 +23,8 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
     const qs = returnTo.slice(qIndex + 1);
     return new URLSearchParams(qs).get("stage");
   })();
-  const stage = searchParams.get("stage") || returnToStage || "LEAD";
+  const isFollowupView = pathname.startsWith("/jobs/follow-ups") || pathname.endsWith("/follow-up-history");
+  const stage = isFollowupView ? "QUOTE" : searchParams.get("stage") || returnToStage || "LEAD";
   const isCalendarView = pathname === "/jobs/calendar";
   const isReportsView = pathname.startsWith("/jobs/reports");
   const isSettingsView = pathname.startsWith("/jobs/settings");
