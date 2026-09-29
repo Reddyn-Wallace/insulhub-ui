@@ -139,3 +139,7 @@ For installed invoices, split awaiting settlement from money still to collect. P
 For an NZD invoice with zero outstanding balance, the owner can confirm it is unrelated to installation work or belongs to a cancelled job that was fully refunded. Keep the invoice's original Xero amounts visible, the reason in history/CSV, and provide undo. Exclude it from installation deposits and unresolved job-linking totals. This is an owner assertion, not independent proof of a refund or an accounting entry. Changes to invoice identity, description, payment, credit or due amounts invalidate the assertion for review. A reopened unpaid invoice cannot retain the exclusion.
 
 Keep the top-level completed-work card to its net amount and one line stating the combined payment deduction awaiting reconciliation. Clicking opens the completed-work bridge: Xero unpaid minus bank receipts awaiting Xero minus pending bank settlement equals still to collect. Individual invoices and evidence are available below and in the payment tabs. Pending funds do not increase supplied bank cash.
+
+### Completed paid scope while the CRM job remains open
+
+Owner classification `earned` confirms that all work covered by a particular closed invoice has been completed. It removes that invoice's paid amount from deposits without changing its Xero amounts or the CRM job status. Apply per invoice, never per job: subsequent deposits for remaining work remain reserved. The existing zero-due validation, evidence fingerprint invalidation, history and undo apply.
