@@ -143,3 +143,7 @@ Keep the top-level completed-work card to its net amount and one line stating th
 ### Completed paid scope while the CRM job remains open
 
 Owner classification `earned` confirms that all work covered by a particular closed invoice has been completed. It removes that invoice's paid amount from deposits without changing its Xero amounts or the CRM job status. Apply per invoice, never per job: subsequent deposits for remaining work remain reserved. The existing zero-due validation, evidence fingerprint invalidation, history and undo apply.
+
+### Net position
+
+The fourth overview card is bank less credit card minus deposits held plus completed work still to collect. It uses the existing adjusted owed figure, so payments already deducted while awaiting reconciliation are not counted twice. The result includes receivables and is not available cash today. If the card balance is unavailable, net position is unavailable rather than substituting zero card debt.
