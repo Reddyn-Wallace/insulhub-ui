@@ -355,7 +355,7 @@ export default function FinancePage() {
         )}
         {data && (
           <>
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <Metric
                 label="Bank less credit card"
                 value={data.bankLessCreditCard ?? "Unavailable"}
@@ -420,6 +420,19 @@ export default function FinancePage() {
                     {data.unclassifiedOwed > 0 &&
                       " Some unpaid invoices still need their job confirmed."}
                   </>
+                }
+              />
+              <Metric
+                label="Net position"
+                value={
+                  data.bankLessCreditCard === null
+                    ? "Unavailable"
+                    : data.bankLessCreditCard - data.reserved + data.owed
+                }
+                note={
+                  data.bankLessCreditCard === null
+                    ? "Credit card balance needed to calculate net position."
+                    : "Bank less credit card − deposits + completed work still to collect. Not all cash available today."
                 }
               />
             </div>

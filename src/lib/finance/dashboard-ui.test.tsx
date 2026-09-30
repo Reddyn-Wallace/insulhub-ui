@@ -154,6 +154,14 @@ it("shows a pending invoice separately from the amount to collect and leaves ban
   localStorage.setItem("token", "test-session");
   const data = calculateFinance(
     {
+      creditCard: {
+        name: "Visa",
+        currentCents: -10000,
+        owedCents: 10000,
+        creditCents: 0,
+        balanceUpdatedAt: "2026-09-29T09:26:00Z",
+        stale: false,
+      },
       checkedAt: "2026-09-29T10:00:00Z",
       recentBankChecked: true,
       bank: {
@@ -258,6 +266,8 @@ it("shows a pending invoice separately from the amount to collect and leaves ban
   expect(screen.queryByText("Unpaid in Xero")).toBeNull();
   expect(screen.queryByText(/Kimberly Da Silva · INV-0445:/)).toBeNull();
   expect(screen.getByText("$19,885.21")).toBeTruthy();
+  expect(screen.getByText("Net position")).toBeTruthy();
+  expect(screen.getByText("$19,685.21")).toBeTruthy();
   fireEvent.click(
     screen.getByRole("button", { name: /Owed for completed jobs: \$0.00/ }),
   );
