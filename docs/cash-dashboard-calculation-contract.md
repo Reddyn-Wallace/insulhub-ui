@@ -147,3 +147,7 @@ Owner classification `earned` confirms that all work covered by a particular clo
 ### Net position
 
 The fourth overview card is bank less credit card minus deposits held plus completed work still to collect. It uses the existing adjusted owed figure, so payments already deducted while awaiting reconciliation are not counted twice. The result includes receivables and is not available cash today. If the card balance is unavailable, net position is unavailable rather than substituting zero card debt.
+
+### Quote-reference receipt corroboration
+
+A receipt without any invoice-number token can match by exactly one full quote reference, the complete payer name (including short name components; c/o contact supported), a linked installed CRM job and a unique full invoice amount after credits. Paid invoices remain competing candidates to prevent redirecting old receipts after Xero catch-up. Related negative receipts block deductions even for partial refunds. Existing seven-day, owner-review, stale-evidence, overlap and pending/settled deduplication rules remain in force. The zero-deduction headline describes no matched deductions, not the absence of unreconciled transactions.

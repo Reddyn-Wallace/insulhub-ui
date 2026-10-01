@@ -511,13 +511,14 @@ export default function FinancePage() {
                   </p>
                 )}
                 <p className="mt-3">
-                  An invoice number or a confirmed allocation is required for a
-                  bank adjustment; an amount alone is not enough. Previously
-                  recorded payments may overlap recent bank receipts, even if
-                  their dates differ. Where an old deposit prevents a confident
-                  adjustment, the uncertain amount stays owed until Xero is
-                  reconciled. Figures include GST. Refresh reads the latest
-                  available data; it does not force an Akahu bank update.
+                  An invoice number, a corroborated quote reference or a
+                  confirmed allocation is required for a bank adjustment; an
+                  amount alone is not enough. Previously recorded payments may
+                  overlap recent bank receipts, even if their dates differ.
+                  Where an old deposit prevents a confident adjustment, the
+                  uncertain amount stays owed until Xero is reconciled. Figures
+                  include GST. Refresh reads the latest available data; it does
+                  not force an Akahu bank update.
                 </p>
                 <button
                   className={buttonClass + " mt-4"}

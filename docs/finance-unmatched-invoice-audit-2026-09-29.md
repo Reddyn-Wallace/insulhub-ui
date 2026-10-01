@@ -55,3 +55,7 @@ The owner then requested less detail on the overview. The final presentation kee
 ## Costello owner confirmation — 30 September 2026
 
 Owner confirms all work paid for by INV-0295 (1,870.19) and INV-0370 (3,253.06) is complete and nothing is owed. The CRM job stays open for further work at a later date. Both invoices are to receive the auditable `earned` classification, reducing reserved deposits by5,123.25 from27,903.99 to22,780.74. Later invoices on the same job are not excluded.125 finance tests pass; typecheck, lint and independent review passed.
+
+## Peter Pirihi pending receipt — 1 October 2026
+
+Akahu pending5,876.75, `Pirihi,Peter P R Pirihi Insul-E0900 P R Pirihi`, corresponds to INV-0449, quoteE0900, contactKerrynFoote c/oPeterPirihi, total/due5,876.75 and0paid. CRM job28017 /8MiltonStreet explicitly links INV-0449 and is installed. The earlier matcher required an invoice token and omitted this deduction. The corroborated quote/name/fullamount fallback resolves it despite multiple CRM jobs usingE0900. Snapshot replay: owed38,299.90, pending deduction5,876.75.131finance tests, typecheck and independent review passed; short-surname and partial-refund safeguards added.
