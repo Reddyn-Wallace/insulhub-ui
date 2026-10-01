@@ -414,9 +414,9 @@ export default function FinancePage() {
                 value={data.owed}
                 note={
                   <>
-                    Already factors in{" "}
-                    {money(data.localAdjustment + data.pendingSettlement)} in
-                    payments received, awaiting reconciliation.
+                    {data.localAdjustment + data.pendingSettlement > 0
+                      ? `Already factors in ${money(data.localAdjustment + data.pendingSettlement)} in payments received, awaiting reconciliation.`
+                      : "No payments have been matched and deducted from this figure."}
                     {data.unclassifiedOwed > 0 &&
                       " Some unpaid invoices still need their job confirmed."}
                   </>

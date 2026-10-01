@@ -243,3 +243,88 @@ it("uses the actual bank timestamp at the seven-day boundary", () => {
   d.receipts[0].date = "2026-09-22T09:00:00Z";
   expect(recentReceiptAdjustments(d, []).size).toBe(0);
 });
+
+it("matches an explicit quote, full payer name and unique full invoice amount on an installed job", () => {
+  const d = input();
+  Object.assign(d.invoices[0], {
+    reference: "Quote #E0900",
+    contact: "Kerryn Foote c/o: Peter Pirihi",
+  });
+  d.jobs = [
+    {
+      id: "j",
+      number: "28017",
+      quote: "E0900",
+      status: "INSTALLED_AS_QUOTED",
+      archived: false,
+      name: "8 Milton Street",
+      invoiceNumbers: ["INV-0001"],
+    },
+  ];
+  d.receipts[0].amount = 100000;
+  d.receipts[0].description = "Pirihi,Peter P R Pirihi Insul-E0900 P R Pirihi";
+  expect(recentReceiptAdjustments(d, []).get("i")).toBe(100000);
+  d.invoices[0].paid = 100000;
+  d.invoices[0].due = 0;
+  expect(recentReceiptAdjustments(d, []).get("i") || 0).toBe(0);
+  d.invoices.push({
+    ...d.invoices[0],
+    id: "second",
+    number: "INV-0002",
+    paid: 0,
+    due: 100000,
+  });
+  expect(recentReceiptAdjustments(d, []).size).toBe(0);
+});
+it.each([
+  "Peter E0900",
+  "Peter Pirihi",
+  "Peter Pirihi E0900 INV-9999",
+  "Peter Pirihi E0900 E0901",
+])(
+  "does not infer quote payments with insufficient or conflicting reference: %s",
+  (text) => {
+    const d = input();
+    Object.assign(d.invoices[0], {
+      reference: "E0900",
+      contact: "Peter Pirihi",
+    });
+    d.jobs = [
+      {
+        id: "j",
+        number: "1",
+        quote: "E0900",
+        status: "INSTALLED_AS_QUOTED",
+        archived: false,
+        name: "Site",
+        invoiceNumbers: ["INV-0001"],
+      },
+    ];
+    d.receipts[0].amount = 100000;
+    d.receipts[0].description = text;
+    expect(recentReceiptAdjustments(d, []).size).toBe(0);
+  },
+);
+
+it("keeps short surnames as required payer evidence and blocks partial quote refunds", () => {
+  const d = input();
+  Object.assign(d.invoices[0], { reference: "E0900", contact: "Mary Ann Li" });
+  d.jobs = [
+    {
+      id: "j",
+      number: "1",
+      quote: "E0900",
+      status: "INSTALLED_AS_QUOTED",
+      archived: false,
+      name: "Site",
+      invoiceNumbers: ["INV-0001"],
+    },
+  ];
+  d.receipts[0].amount = 100000;
+  d.receipts[0].description = "Mary Ann Wu E0900";
+  expect(recentReceiptAdjustments(d, []).size).toBe(0);
+  d.receipts[0].description = "Mary Ann Li E0900";
+  expect(recentReceiptAdjustments(d, []).get("i")).toBe(100000);
+  d.receipts.push({ ...d.receipts[0], id: "refund", amount: -20000 });
+  expect(recentReceiptAdjustments(d, []).size).toBe(0);
+});

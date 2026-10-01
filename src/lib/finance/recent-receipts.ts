@@ -68,10 +68,56 @@ export function recentReceiptAdjustments(
         text.match(/\bINV-\d+\b/gi)?.map((v) => v.toUpperCase()) || [],
       );
       if (invoiceTokens.size > 1) continue;
-      const candidates = input.invoices.filter((i) => has(text, i.number));
+      let candidates = input.invoices.filter((i) => has(text, i.number));
+      method = "Full invoice number in bank reference";
+      if (!candidates.length && invoiceTokens.size === 0) {
+        const quoteTokens = new Set(
+          text.toUpperCase().match(/\b[A-Z]{1,4}\d{3,}(?:[-/]\d+)?\b/g) || [],
+        );
+        if (quoteTokens.size !== 1) continue;
+        candidates = input.invoices.filter((candidate) => {
+          const quote = quoteReference(candidate.reference);
+          const job = input.jobs.find(
+            (j) => j.id === links.get(candidate.id)?.jobId,
+          );
+          // Full named payer (including c/o contacts), explicit quote, installed job,
+          // and exact full invoice value. Keep paid invoices as competitors so Xero
+          // catch-up cannot redirect an old receipt onto a later invoice.
+          const payer =
+            candidate.contact.split(/c\s*\/\s*o\s*:?/i).at(-1) || "";
+          const nameWords = (value: string) =>
+            value
+              .normalize("NFKD")
+              .replace(/\p{M}/gu, "")
+              .toLowerCase()
+              .match(/\p{L}+/gu) || [];
+          const words = [...new Set(nameWords(payer))];
+          const bankWords = new Set(nameWords(text));
+          return (
+            quoteTokens.has(quote) &&
+            has(text, quote) &&
+            words.length >= 2 &&
+            words.join("").length >= 6 &&
+            words.every((word) => bankWords.has(word)) &&
+            candidate.currency === "NZD" &&
+            !!job &&
+            isJobInstalled(job)
+          );
+        });
+        // A related partial refund makes all matching invoices uncertain; never
+        // ignore it simply because it is smaller than the original full payment.
+        if (r.amount < 0) {
+          for (const candidate of candidates) blocked.add(candidate.id);
+          continue;
+        }
+        candidates = candidates.filter(
+          (candidate) => r.amount === candidate.total - candidate.credited,
+        );
+        method =
+          "Explicit quote, full payer name and unique full invoice amount on installed CRM job";
+      }
       if (candidates.length !== 1) continue;
       let i = candidates[0];
-      method = "Full invoice number in bank reference";
       if (
         input.invoices.some(
           (other) =>
