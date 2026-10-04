@@ -19,7 +19,7 @@ it('shows scope and price without the removed explanation panels',async()=>{
   expect(screen.getByText(/90 m²/)).toBeTruthy();
   expect(screen.getAllByText(/12,500/).length).toBeGreaterThan(0);
   expect(screen.queryByText('Estimated from a note — not confirmed')).toBeNull();
-  expect(screen.queryByRole('button',{name:/send/i})).toBeNull();
+  expect(screen.getByRole('button',{name:'Send Offer'}).matches(':disabled')).toBe(true);
   expect(screen.getByRole('link',{name:/Open full quote/}).getAttribute('href')).toContain('/jobs/quote1');
 });
 it('retains loaded quotes on refresh failure and offers retry, not an empty queue',async()=>{
@@ -51,13 +51,6 @@ it('clears customer details when access expires during refresh',async()=>{
   expect(screen.queryByRole('region',{name:'Selected quote'})).toBeNull();
   expect(screen.queryByText('12 Test Street')).toBeNull();
 });
-it('skip hides a quote for this session, with an undo control',async()=>{
- render(<DeadFollowupsPage/>);fireEvent.click(await screen.findByRole('button',{name:/Alex Example/}));
- fireEvent.click(screen.getByRole('button',{name:'Skip for now'}));
- expect(screen.queryByRole('button',{name:/Alex Example/})).toBeNull();
- fireEvent.click(screen.getByRole('button',{name:'Undo skip'}));
- expect(screen.getByRole('button',{name:/Alex Example/})).toBeTruthy();
-});
 it('shows staff-reviewed date rather than unknown when there was no note suggestion',async()=>{
  const state={draftDiscountCents:null,snoozedUntil:null,exclusionReason:null,deadDate:'2026-09-01T11:59:59.999Z',dateEvidence:'Staff evidence',reviewedVersion:'v1',offers:[]};
  vi.mocked(fetch).mockResolvedValue(Response.json({...payload,historyAvailable:true,readOnly:false,items:[{...payload.items[0],suggestion:null,controls:{revision:1,state,actorName:'Staff',updatedAt:null}}]}));
@@ -71,7 +64,7 @@ it('keeps controls disabled while retrying a failed refresh',async()=>{
  render(<DeadFollowupsPage/>);fireEvent.click(await screen.findByRole('button',{name:/Alex Example/}));
  vi.mocked(fetch).mockResolvedValueOnce(new Response('',{status:503}));fireEvent.click(screen.getByRole('button',{name:'Refresh'}));await screen.findByRole('alert');
  vi.mocked(fetch).mockImplementationOnce(()=>new Promise(()=>{}));fireEvent.click(screen.getByRole('button',{name:'Retry'}));
- expect(screen.getByRole('button',{name:'Save discount draft'}).matches(':disabled')).toBe(true);
+ expect(screen.getByRole('button',{name:'Skip for now'}).matches(':disabled')).toBe(true);
 });
 it('hides pending sends and has no filter dropdown or pills',async()=>{
  vi.mocked(fetch).mockResolvedValue(Response.json({...payload,items:[{...payload.items[0],eligibility:{state:'attention',reason:'Check saved sending status'}}]}));
@@ -89,3 +82,5 @@ it('shows the last verified queue immediately on return while refreshing in the 
  vi.mocked(fetch).mockImplementation(()=>new Promise(()=>{}));render(<DeadFollowupsPage/>);
  expect(await screen.findByRole('button',{name:/Alex Example/})).toBeTruthy();expect(screen.getByRole('button',{name:'Loading…'}).matches(':disabled')).toBe(true);
 });
+
+it('preserves cents when displaying existing discounts',async()=>{const row=payload.items[0];vi.mocked(fetch).mockResolvedValue(Response.json({...payload,items:[{...row,job:{...row.job,quote:{...row.job.quote,extras:[{name:'Promo',price:-750.25}]}}}]}));render(<DeadFollowupsPage/>);fireEvent.click(await screen.findByRole('button',{name:/Alex Example/}));expect(screen.getByText('Existing discount: $750.25 excl. GST')).toBeTruthy();});

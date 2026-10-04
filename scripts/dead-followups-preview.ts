@@ -28,6 +28,7 @@ createServer(async(req,res)=>{
    const jobs=model.queue().items.map(x=>x.job);const id=input.variables?._id;
    return json(res,{data:{me:{_id:'preview',firstname:'Preview',lastname:'Staff',role:'ADMIN'},job:jobs.find(j=>j._id===id)||jobs[0],jobs:{results:jobs,total:jobs.length},users:{results:[],total:0},listEmailLogs:{results:[],total:0}}});
   }
+  if(path==='/api/contact-templates'&&method==='GET')return json(res,{templates:[]});
   if(path==='/api/dead-followups'&&method==='GET')return json(res,model.queue());
   if(path==='/api/dead-followups/templates'){
    if(method==='GET')return json(res,model.templateRead());
@@ -41,7 +42,7 @@ createServer(async(req,res)=>{
   }
   // No business APIs or mutations ever go to the Next server, even unrecognised ones.
   if(path.startsWith('/api/')||!['GET','HEAD'].includes(method))return json(res,{error:'This action is unavailable in the local sample preview.'},403);
-  const allowedPage=path==='/jobs'||path==='/jobs/follow-ups'||path==='/jobs/follow-ups/templates'||/^\/jobs\/[a-f\d]{24}(?:\/follow-up-history)?$/.test(path);
+  const allowedPage=path==='/jobs'||path==='/jobs/follow-ups'||path==='/jobs/follow-ups/templates'||path==='/jobs/settings'||path==='/jobs/settings/templates/follow-ups'||/^\/jobs\/[a-f\d]{24}(?:\/follow-up-history)?$/.test(path);
   const allowedAsset=path.startsWith('/_next/static/')||['/favicon.ico','/manifest.json','/manifest.webmanifest'].includes(path)||/^\/(?:icons|images)\/[a-zA-Z0-9_./-]+$/.test(path);
   if(path.includes('%')||(!allowedPage&&!allowedAsset))return json(res,{error:'This local preview covers the follow-up workflow only.'},404);
   const target=new URL(upstream);target.pathname=path;target.search=url.search;

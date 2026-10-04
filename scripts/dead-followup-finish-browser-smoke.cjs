@@ -23,7 +23,7 @@ if(!/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(base))throw Error('Local prev
    if(url.pathname.startsWith('/api/'))return route.fulfill({json:{}});
    if(url.origin!==base)return route.abort();return route.continue();
   });
-  await page.goto(base+'/jobs/follow-ups/templates');await expect(page.getByRole('button',{name:'Quotes',exact:true})).toHaveCSS('background-color','rgb(232, 93, 4)');const body=page.getByRole('textbox',{name:'First SMS message',exact:true});await expect(body).toBeVisible();await body.fill('Hi {{name}}, updated offer {{discount}} for quote {{quoteNumber}}.');
+  await page.goto(base+'/jobs/settings/templates/follow-ups');const body=page.getByRole('textbox',{name:'First SMS message',exact:true});await expect(body).toBeVisible();await body.fill('Hi {{name}}, updated offer {{discount}} for quote {{quoteNumber}}.');
   await expect(page.getByText('Hi Alex, updated offer $500.00 for quote 123.',{exact:true})).toBeVisible();await page.getByRole('button',{name:'Save shared templates'}).click();await expect(page.getByRole('status')).toContainText('Shared templates saved');await page.getByRole('button',{name:'Reload saved templates'}).click();await expect(body).toHaveValue('Hi {{name}}, updated offer {{discount}} for quote {{quoteNumber}}.');
   await page.evaluate(()=>scrollTo(0,0));await page.screenshot({path:`/tmp/dead-followup-templates-${width}.png`,fullPage:true});
   canManage=false;await page.getByRole('button',{name:'Reload saved templates'}).click();await expect(page.getByRole('button',{name:'Save shared templates'})).toBeDisabled();if(writes!==1)throw Error('Unexpected template mutation count');

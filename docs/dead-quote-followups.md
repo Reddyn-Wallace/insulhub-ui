@@ -74,3 +74,16 @@ Canonical page reads run with bounded concurrency (four), overlay reads run conc
 For interactive local review, start the built Next server on 3116 with capture/preparation/sending flags false, then run `npm run preview:dead-followups`. Open http://127.0.0.1:3117/jobs/follow-ups?stage=QUOTE. This separate origin uses sample data and simulated sends only; changes persist in a temporary local JSON file and can be cleared with Reset sample data. Business API requests terminate locally; upstream access is limited to local UI/static assets.
 
 Verified: 194 follow-up tests passed (including local PostgreSQL cases), production build/TypeScript and targeted lint passed, all five browser regression scripts passed at 390px and 1280px, and the actual sample server passed editable discounts, simulated SMS/email, notes/history persistence and shared-template checks at both sizes with no external requests. Independent review completed. Nothing deployed, merged or migrated in production.
+
+
+## Follow-up action flow — 4 October 2026
+
+Quote details now contain job notes, recorded offer amounts/dates and a full-history link. The three actions below are Send Offer, Skip for now and Ignore. Historical offer entry/correction, standalone date review, snooze and exclusion forms have been removed from the UI; historical records remain available.
+
+Skip opens a duration/date modal and persists the existing shared snooze control. It resumes after the selected NZ date. Ignore requires a nonblank reason and persists exclusion from further follow-ups. Existing ignored/skipped records can still be restored from full history.
+
+Send Offer opens an amount/channel/template/account/message form. A confirmation modal shows the exact recipient, discount and message and asks staff to confirm prior-history accuracy. Only explicit confirmation saves the discount and history review with current revisions, then submits the individually claimed send. Successful sends return to the queue. Conflicts/uncertain outcomes lock the form and direct staff to history; they never silently retry. Existing server eligibility, concurrency and idempotency checks remain authoritative. Note recovery remains available in history.
+
+Follow-up defaults live at Settings → Templates → Dead quote follow-up templates (`/jobs/settings/templates/follow-ups`). The former URL redirects there. The interactive localhost preview supports the same flow using sample data and simulated sends only.
+
+Validation: the full test suite passed; the final follow-up suite has 198 passing tests, including local PostgreSQL integration cases. Production build/TypeScript, targeted lint and independent code review passed. Updated browser checks cover the new actions and confirmation flow, Settings templates, access-disabled views and date/send recovery at 390px and 1280px. The sample-server tests verify no external requests. No deployment or production writes.

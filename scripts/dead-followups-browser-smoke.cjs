@@ -25,7 +25,7 @@ if(!/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(base))throw Error('Local prev
       await page.getByRole('button',{name:/Alex Example/}).click();
       await expect(page.getByText('Previous offers not yet reviewed')).toHaveCount(0);
       await expect(page.getByText('Estimated from a note — not confirmed')).toHaveCount(0);
-      await expect(page.getByRole('button',{name:/send/i})).toHaveCount(0);
+      await expect(page.getByRole('button',{name:'Send Offer',exact:true})).toBeDisabled();
       if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Horizontal overflow');
       await page.screenshot({path:`/tmp/dead-followups-${width}.png`,fullPage:true});
       if(width<768)await page.getByRole('button',{name:'Back to quotes'}).click();

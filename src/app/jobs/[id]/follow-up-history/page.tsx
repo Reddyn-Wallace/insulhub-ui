@@ -5,8 +5,8 @@ import FollowupSender from '@/components/FollowupSender';
 import FollowupControls from '@/components/FollowupControls';
 import {classifyQuote,evaluateFollowup} from '@/lib/dead-followups/rules';
 import {controlHistory} from '@/lib/dead-followups/controls';
-import type {ControlRecord,DeadQuote,QueueItem} from '@/lib/dead-followups/types';
-type Saved={job:DeadQuote;record:ControlRecord;readOnly:boolean;preview?:boolean};
+import type {ControlEvent,ControlRecord,DeadQuote,QueueItem} from '@/lib/dead-followups/types';
+type Saved={events?:ControlEvent[];job:DeadQuote;record:ControlRecord;readOnly:boolean;preview?:boolean};
 export default function FollowupHistory({params}:{params:Promise<{id:string}>}){
  const {id}=use(params);return <History key={id} id={id}/>;
 }
@@ -21,6 +21,7 @@ function History({id}:{id:string}){
   {error&&<p role="alert">{error}</p>}
   {saved?.job.deadDateUncertain&&<div className="rounded-xl bg-amber-50 p-4 text-sm"><p>The last job save was interrupted.</p><button type="button" disabled={checking} className="min-h-11 font-semibold underline" onClick={()=>void checkDate()}>Check saved Dead date</button></div>}
   {saved&&classifyQuote(saved.job)==='dead'&&<FollowupControls key={`${saved.record.revision}:${saved.job.updatedAt}:${saved.job.deadDateUncertain}`} item={item} readOnly={saved.readOnly||Boolean(error)||checking} onSaved={()=>void load()} onAccessLost={()=>{setSaved(null);window.location.assign('/login');}}/>}
+  {saved?.events&&<details className="rounded-xl border p-4"><summary className="cursor-pointer font-semibold">Change history</summary><ol className="mt-3 space-y-3">{saved.events.map(event=><li key={event.revision} className="text-sm"><p className="font-semibold">{event.action.replaceAll('_',' ')} · {event.actorName}</p><p>{new Date(event.createdAt).toLocaleString('en-NZ',{timeZone:'Pacific/Auckland'})}</p>{event.reason&&<p>{event.reason}</p>}{event.state.exclusionReason&&<p>Ignored: {event.state.exclusionReason}</p>}</li>)}</ol></details>}
   <FollowupSender item={item} readOnly onChanged={()=>void load()} onAccessLost={()=>window.location.assign('/login')}/>
  </main>;
 }

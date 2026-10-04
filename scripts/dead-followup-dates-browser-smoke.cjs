@@ -25,9 +25,8 @@ if(!/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(base))throw Error('Local prev
   });
   await page.goto(base+'/jobs/follow-ups?stage=QUOTE');await page.getByRole('button',{name:/Alex Example/}).click();
   await expect(page.getByText('Assumed from last dated note: 1 Mar 2026',{exact:true})).toHaveCount(0);
-  await page.getByText('Review the Dead date and prior offers',{exact:true}).click();
+  await expect(page.getByText('Review the Dead date and prior offers',{exact:true})).toHaveCount(0);
   await expect(page.getByLabel('Estimated date this quote entered Dead')).toHaveCount(0);
-  await page.getByRole('checkbox').check();await page.getByRole('button',{name:'Save reviewed history'}).click();
   await expect(page.getByRole('combobox',{name:'Show quotes'})).toHaveCount(0);
   await page.evaluate(()=>scrollTo(0,0));await page.screenshot({path:`/tmp/dead-followup-dates-${width}.png`,fullPage:true});
   uncertain=true;await page.getByRole('button',{name:'Refresh',exact:true}).click();await expect(page.getByRole('button',{name:/Alex Example/})).toHaveCount(0);await page.goto(base+'/jobs/'+job()._id+'/follow-up-history');await page.getByRole('button',{name:'Check saved Dead date'}).click();

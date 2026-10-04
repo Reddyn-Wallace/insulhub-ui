@@ -1,44 +1,20 @@
 // @vitest-environment jsdom
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
-import {cleanup,fireEvent,render,screen} from '@testing-library/react';
+import {cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react';
 import FollowupControls from '@/components/FollowupControls';
+import FollowupActions from '@/components/FollowupActions';
 import {emptyControls} from './controls';
-const item={job:{_id:'aaaaaaaaaaaaaaaaaaaaaaaa',stage:'QUOTE',updatedAt:'2026-09-01T00:00:00Z',quote:{status:'DECLINED',c_total:10000}},suggestion:null,earliestFirstApproach:null,eligibility:{state:'review' as const,reason:'Check history'},controls:{revision:0,state:emptyControls(),actorName:'',updatedAt:null}};
-beforeEach(()=>{vi.stubGlobal('localStorage',{getItem:()=> 'token'});});
+const item={job:{_id:'aaaaaaaaaaaaaaaaaaaaaaaa',stage:'QUOTE',updatedAt:'v',quote:{status:'DECLINED',c_total:10000}},suggestion:null,earliestFirstApproach:null,eligibility:{state:'review' as const,reason:'Check history'},controls:{revision:3,state:emptyControls(),actorName:'',updatedAt:null}};
+beforeEach(()=>{vi.stubGlobal('localStorage',{getItem:()=> 'token'});HTMLDialogElement.prototype.showModal=function(){this.setAttribute('open','');};HTMLDialogElement.prototype.close=function(){this.removeAttribute('open');};vi.stubGlobal('fetch',vi.fn(async()=>Response.json({record:item.controls})));});
 afterEach(()=>{cleanup();vi.unstubAllGlobals();});
-it('saves a draft discount with revision and canonical version, without sending',async()=>{
- const sent:unknown[]=[];vi.stubGlobal('fetch',vi.fn(async(_url,init)=>{sent.push(JSON.parse(init.body));return Response.json({record:{...item.controls,revision:1,state:{...emptyControls(),draftDiscountCents:50000}}});}));
- render(<FollowupControls item={item} onSaved={()=>{}}/>);
- fireEvent.change(screen.getByLabelText('Discount offered (NZD)'),{target:{value:'500'}});fireEvent.click(screen.getByRole('button',{name:'Save discount draft'}));
- expect(await screen.findByRole('status')).toBeTruthy();expect(sent[0]).toMatchObject({revision:0,jobVersion:item.job.updatedAt,command:{action:'discount',amount:'500'}});
- expect(screen.queryByRole('button',{name:/send/i})).toBeNull();
+it('saves a shared skip date only after modal confirmation',async()=>{
+ const done=vi.fn();render(<FollowupActions item={item} readOnly={false} onDone={done} onAccessLost={()=>{}}/>);fireEvent.click(screen.getByRole('button',{name:'Skip for now'}));expect(fetch).not.toHaveBeenCalled();fireEvent.change(screen.getByLabelText('Skip for'),{target:{value:'custom'}});fireEvent.change(screen.getByLabelText('Skip through'),{target:{value:'2027-01-15'}});fireEvent.click(screen.getByRole('button',{name:'Confirm skip'}));await waitFor(()=>expect(done).toHaveBeenCalled());expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string)).toEqual({revision:3,jobVersion:'v',command:{action:'snooze',date:'2027-01-15'}});
 });
-it('keeps the edited amount on conflict and asks for refresh',async()=>{
- vi.stubGlobal('fetch',vi.fn(async()=>Response.json({error:'Another staff member changed this follow-up. Refresh before saving again.'},{status:409})));
- render(<FollowupControls item={item} onSaved={()=>{}}/>);fireEvent.change(screen.getByLabelText('Discount offered (NZD)'),{target:{value:'250'}});fireEvent.click(screen.getByRole('button',{name:'Save discount draft'}));
- expect(await screen.findByRole('alert')).toBeTruthy();expect((screen.getByLabelText('Discount offered (NZD)') as HTMLInputElement).value).toBe('250');
- expect((screen.getByRole('button',{name:'Save discount draft'}) as HTMLButtonElement).matches(':disabled')).toBe(true);
+it('ignore saves its reason and returns to the queue',async()=>{
+ const done=vi.fn();render(<FollowupActions item={item} readOnly={false} onDone={done} onAccessLost={()=>{}}/>);fireEvent.click(screen.getByRole('button',{name:'Ignore'}));const reason=screen.getByLabelText('Reason for ignoring') as HTMLTextAreaElement;expect(reason.required).toBe(true);fireEvent.change(reason,{target:{value:'Customer no longer interested'}});fireEvent.click(screen.getByRole('button',{name:'Ignore quote'}));await waitFor(()=>expect(done).toHaveBeenCalled());expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string).command).toEqual({action:'exclude',reason:'Customer no longer interested'});
 });
-it('shows historical discount and its evidence independently of the draft',()=>{
- render(<FollowupControls item={{...item,controls:{...item.controls,state:{...emptyControls(),draftDiscountCents:90000,offers:[{number:1,sentAt:'2026-05-01T00:00:00Z',discountCents:50000,channel:'sms',source:'staff_recorded',evidence:'Phone sent folder'}]}}}} onSaved={()=>{}}/>);
- expect(screen.getByText(/First approach/)).toBeTruthy();expect(screen.getByText(/500.00/)).toBeTruthy();expect(screen.getByText('Phone sent folder')).toBeTruthy();expect((screen.getByLabelText('Discount offered (NZD)') as HTMLInputElement).value).toBe('900.00');
-});
-it('requires refresh after an uncertain network failure rather than retrying blindly',async()=>{
- vi.stubGlobal('fetch',vi.fn(async()=>{throw Error('Connection lost');}));render(<FollowupControls item={item} onSaved={()=>{}}/>);
- fireEvent.change(screen.getByLabelText('Discount offered (NZD)'),{target:{value:'250'}});fireEvent.click(screen.getByRole('button',{name:'Save discount draft'}));
- await screen.findByRole('alert');expect((screen.getByRole('button',{name:'Save discount draft'}) as HTMLButtonElement).matches(':disabled')).toBe(true);
-});
-it('re-review preserves the saved NZ Dead date instead of reverting to an older note suggestion',()=>{
- render(<FollowupControls item={{...item,suggestion:{date:'2026-01-29',at:'2026-01-29T10:59:59.999Z',provenance:'note',evidence:'Old note'},controls:{...item.controls,state:{...emptyControls(),deadDate:'2026-09-01T11:59:59.999Z',dateEvidence:'Corrected current Dead episode',reviewedVersion:'older-version'}}}} onSaved={()=>{}}/>);
- expect((screen.getByLabelText('Estimated date this quote entered Dead') as HTMLInputElement).value).toBe('2026-09-01');
- expect((screen.getByLabelText('Date evidence') as HTMLTextAreaElement).value).toBe('Corrected current Dead episode');
-});
-it('shows the automatic date and reviews offers without requiring a replacement date',async()=>{
- const automatic={...item,job:{...item.job,deadEntry:{at:'2026-03-01T10:59:59Z',source:'last_note' as const,evidence:'01/03/26 - Called'}}};
- vi.stubGlobal('fetch',vi.fn(async()=>Response.json({record:item.controls})));
- render(<FollowupControls item={automatic} onSaved={()=>{}}/>);
- expect(screen.getByText(/Assumed from last dated note/)).toBeTruthy();
- expect(screen.queryByLabelText('Estimated date this quote entered Dead')).toBeNull();
- fireEvent.click(screen.getByRole('checkbox'));fireEvent.click(screen.getByRole('button',{name:'Save reviewed history'}));
- expect(await screen.findByRole('status')).toBeTruthy();
-});
+it('does not write when cancelling skip',()=>{render(<FollowupActions item={item} readOnly={false} onDone={()=>{}} onAccessLost={()=>{}}/>);fireEvent.click(screen.getByRole('button',{name:'Skip for now'}));fireEvent.click(screen.getByRole('button',{name:'Cancel'}));expect(fetch).not.toHaveBeenCalled();expect(screen.queryByRole('dialog')).toBeNull();});
+it('locks uncertain saves so they cannot be blindly repeated',async()=>{vi.mocked(fetch).mockRejectedValue(Error('Connection lost'));render(<FollowupActions item={item} readOnly={false} onDone={()=>{}} onAccessLost={()=>{}}/>);fireEvent.click(screen.getByRole('button',{name:'Skip for now'}));fireEvent.click(screen.getByRole('button',{name:'Confirm skip'}));await screen.findByRole('alert');expect(screen.getByRole('button',{name:'Confirm skip'}).matches(':disabled')).toBe(true);});
+it('restores an ignored quote from history without any removed edit sections',async()=>{const saved=vi.fn();render(<FollowupControls item={{...item,controls:{...item.controls,state:{...emptyControls(),exclusionReason:'Not interested'}}}} onSaved={saved}/>);expect(screen.queryByText('Record an earlier offer')).toBeNull();expect(screen.queryByText('Review the Dead date and prior offers')).toBeNull();fireEvent.click(screen.getByRole('button',{name:'Restore follow-ups'}));await waitFor(()=>expect(saved).toHaveBeenCalled());expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string).command).toEqual({action:'restore'});});
+
+it('keeps ignore editable when the reason is blank or validation fails',async()=>{render(<FollowupActions item={item} readOnly={false} onDone={()=>{}} onAccessLost={()=>{}}/>);fireEvent.click(screen.getByRole('button',{name:'Ignore'}));fireEvent.change(screen.getByLabelText('Reason for ignoring'),{target:{value:'   '}});fireEvent.click(screen.getByRole('button',{name:'Ignore quote'}));await screen.findByRole('alert');expect(fetch).not.toHaveBeenCalled();expect(screen.getByRole('button',{name:'Ignore quote'}).matches(':disabled')).toBe(false);vi.mocked(fetch).mockResolvedValueOnce(Response.json({error:'Correct the reason'},{status:400}));fireEvent.change(screen.getByLabelText('Reason for ignoring'),{target:{value:'Reason'}});fireEvent.click(screen.getByRole('button',{name:'Ignore quote'}));await screen.findByText('Correct the reason');expect(screen.getByRole('button',{name:'Ignore quote'}).matches(':disabled')).toBe(false);});

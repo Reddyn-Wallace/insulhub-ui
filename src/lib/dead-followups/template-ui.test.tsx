@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {cleanup,fireEvent,render,screen} from '@testing-library/react';
-import FollowupTemplates from '@/app/jobs/follow-ups/templates/page';
+import FollowupTemplates from '@/app/jobs/settings/templates/follow-ups/page';
 import {defaultTemplates} from './templates';
 beforeEach(()=>{vi.stubGlobal('localStorage',{getItem:()=> 'token'});vi.stubGlobal('fetch',vi.fn(async()=>Response.json({record:{revision:2,templates:defaultTemplates()},events:[],canManage:true})));});
 afterEach(()=>{cleanup();vi.unstubAllGlobals();});
