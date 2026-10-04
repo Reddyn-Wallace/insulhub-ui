@@ -23,14 +23,14 @@ if(!/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(base))throw Error('Local prev
       await page.goto(`${base}/jobs/follow-ups?stage=QUOTE`);
       await expect(page.getByRole('heading',{name:'Follow-ups',exact:true})).toBeVisible();
       await page.getByRole('button',{name:/Alex Example/}).click();
-      await expect(page.getByText('Previous offers not yet reviewed')).toBeVisible();
-      await expect(page.getByText('Estimated from a note — not confirmed')).toBeVisible();
+      await expect(page.getByText('Previous offers not yet reviewed')).toHaveCount(0);
+      await expect(page.getByText('Estimated from a note — not confirmed')).toHaveCount(0);
       await expect(page.getByRole('button',{name:/send/i})).toHaveCount(0);
       if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Horizontal overflow');
       await page.screenshot({path:`/tmp/dead-followups-${width}.png`,fullPage:true});
       if(width<768)await page.getByRole('button',{name:'Back to quotes'}).click();
       await page.getByRole('button',{name:/Taylor Example/}).click();
-      await expect(page.getByRole('heading',{name:'Dead entry date unknown'})).toBeVisible();
+      await expect(page.getByRole('heading',{name:'Dead entry date unknown'})).toHaveCount(0);
       if(errors.length)throw Error(errors.join('\n'));
       console.log(`PASS ${width}px: queue/detail navigation, evidence labels, no send controls, no overflow or page errors`);
       await context.close();

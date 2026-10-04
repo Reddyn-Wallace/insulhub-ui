@@ -8,7 +8,7 @@ const QUERY = `query DeadQuoteReview($skip: Int, $limit: Int) {
     total results {
       _id jobNumber stage notes archivedAt updatedAt
       lead { leadStatus callbackDate }
-      quote { status date quoteNumber c_total quoteNote wall { SQM } ceiling { SQM } }
+      quote { extras { name price } status date quoteNumber c_total quoteNote wall { SQM } ceiling { SQM } }
       client { contactDetails { name streetAddress suburb city } }
     }
   }
@@ -26,6 +26,7 @@ export function validQuote(value: unknown): value is DeadQuote {
   if (record(value.quote)) {
     for (const key of ['date','quoteNote']) if (value.quote[key] != null && typeof value.quote[key] !== 'string') return false;
     if (value.quote.c_total != null && (typeof value.quote.c_total !== 'number' || !Number.isFinite(value.quote.c_total))) return false;
+    if(value.quote.extras != null && (!Array.isArray(value.quote.extras)||value.quote.extras.some(extra=>!record(extra)||(extra.name!=null&&typeof extra.name!=='string')||(extra.price!=null&&(typeof extra.price!=='number'||!Number.isFinite(extra.price))))))return false;
     for (const key of ['wall','ceiling']) {
       const scope=value.quote[key];
       if (scope != null && (!record(scope) || (scope.SQM != null && (typeof scope.SQM !== 'number' || !Number.isFinite(scope.SQM))))) return false;
@@ -46,39 +47,34 @@ const SCAN_ERROR = 'The full quote list could not be verified. Refresh and try a
 export async function loadDeadQuoteQueue(token: string, checkedAt = new Date().toISOString()): Promise<QueueResponse> {
   const items: QueueItem[] = [];
   const seen = new Set<string>();
-  let total: number | null = null;
-  let skip = 0;
   const signal = AbortSignal.timeout(40000);
   try {
-    do {
-      const response = await fetch('https://api.insulhub.nz/graphql', {
-        method: 'POST', cache: 'no-store', redirect: 'error', signal,
-        headers: {'content-type':'application/json','x-access-token':token},
-        body: JSON.stringify({query:QUERY,variables:{skip,limit:250}}),
-      });
-      if (!response.ok) throw Error(SCAN_ERROR);
-      const json = await response.json();
-      const page = json.data?.jobs;
-      if (json.errors?.length || !Number.isInteger(page?.total) || page.total < 0 || page.total > 10000 || !Array.isArray(page.results) || (total !== null && page.total !== total)) throw Error(SCAN_ERROR);
-      total = page.total;
-      if (page.results.length === 0 && skip < total!) throw Error(SCAN_ERROR);
-      for (const value of page.results) {
-        if (!validQuote(value) || seen.has(value._id)) throw Error(SCAN_ERROR);
-        seen.add(value._id);
-        const job = value;
-        if (classifyQuote(job) === 'excluded' || !quoteInCohort(job)) continue;
-        job.deadEntry=assumedEntry(job,checkedAt);
-        const suggestion = suggestDeadDate(job.notes,checkedAt);
-        items.push({job,suggestion,
-          earliestFirstApproach:job.deadEntry ? addNzMonths(job.deadEntry.at,2) : null,
-          // Historical communication is not yet classified as individual offers.
-          // Even a plausible note date must not silently authorise an approach.
-          eligibility:evaluateFollowup(job,{entry:suggestion ? {at:suggestion.at,provenance:'note'} : null,historyReviewed:false,approaches:[]},checkedAt),
-        });
+    async function page(skip:number){
+      const response=await fetch('https://api.insulhub.nz/graphql',{method:'POST',cache:'no-store',redirect:'error',signal,headers:{'content-type':'application/json','x-access-token':token},body:JSON.stringify({query:QUERY,variables:{skip,limit:250}})});
+      if(!response.ok)throw Error(SCAN_ERROR);
+      const json=await response.json();const value=json.data?.jobs;
+      if(json.errors?.length||!Number.isInteger(value?.total)||value.total<0||value.total>10000||!Array.isArray(value.results))throw Error(SCAN_ERROR);
+      return value as {total:number;results:unknown[]};
+    }
+    const first=await page(0);const total=first.total;const size=first.results.length;
+    if((!size&&total>0)||size>total)throw Error(SCAN_ERROR);
+    function consume(result:{total:number;results:unknown[]},offset:number){
+      if(result.total!==total||result.results.length!==Math.min(size,total-offset))throw Error(SCAN_ERROR);
+      for(const value of result.results){
+        if(!validQuote(value)||seen.has(value._id))throw Error(SCAN_ERROR);seen.add(value._id);
+        const job=value;if(classifyQuote(job)==='excluded'||!quoteInCohort(job))continue;
+        job.deadEntry=assumedEntry(job,checkedAt);const suggestion=suggestDeadDate(job.notes,checkedAt);
+        items.push({job,suggestion,earliestFirstApproach:job.deadEntry?addNzMonths(job.deadEntry.at,2):null,eligibility:evaluateFollowup(job,{entry:suggestion?{at:suggestion.at,provenance:'note'}:null,historyReviewed:false,approaches:[]},checkedAt)});
       }
-      skip += page.results.length;
-      if (skip > total!) throw Error(SCAN_ERROR);
-    } while (skip < total!);
+    }
+    consume(first,0);
+    // The first actual page size honours backend caps. Never assume requested limit was returned.
+    for(let offset=size;offset<total;offset+=size*4){
+      const offsets=Array.from({length:4},(_,i)=>offset+i*size).filter(skip=>skip<total);
+      const results=await Promise.all(offsets.map(skip=>page(skip)));
+      results.forEach((result,i)=>consume(result,offsets[i]));
+    }
+    if(seen.size!==total)throw Error(SCAN_ERROR);
   } catch { throw Error(SCAN_ERROR); }
   items.sort((a,b) => (a.suggestion?.at || '9999').localeCompare(b.suggestion?.at || '9999') || a.job._id.localeCompare(b.job._id));
   return {items,checkedAt,readOnly:true,historyAvailable:false};

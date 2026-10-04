@@ -45,3 +45,12 @@ it('never returns pre-2026 quotes even with recent notes, and supplies the agree
  expect(result.items.map(x=>x.job._id)).toEqual(['current']);
  expect(result.items[0].job.deadEntry).toMatchObject({source:'quote_plus_30',at:'2026-01-31T10:59:59.999Z'});
 });
+it('loads remaining pages concurrently with a limit of four requests',async()=>{
+ let active=0,peak=0;
+ vi.stubGlobal('fetch',vi.fn(async(_url,init)=>{
+  const {variables,query}=JSON.parse(init.body);expect(query).toContain('extras { name price }');
+  if(variables.skip){active++;peak=Math.max(peak,active);await new Promise(resolve=>setTimeout(resolve,15));active--;}
+  return Response.json({data:{jobs:{total:12,results:[0,1].map(n=>({...quote,_id:String(variables.skip+n)}))}}});
+ }));
+ const result=await loadDeadQuoteQueue('token');expect(result.items).toHaveLength(12);expect(peak).toBe(4);
+});

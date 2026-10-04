@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "preview:dead-followups": "tsx scripts/dead-followups-preview.ts",
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",

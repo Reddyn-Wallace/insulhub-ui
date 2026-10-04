@@ -9,10 +9,10 @@ function failure(error:unknown){return NextResponse.json({error:error instanceof
 export async function GET(request:NextRequest,context:Context){
   try{
     const unauthorized=await requireInsulhubAuth(request);if(unauthorized)return unauthorized;
-    const {id}=await context.params;await readControlJob(tokenFromRequest(request),id);
+    const {id}=await context.params;const {job}=await readControlJob(tokenFromRequest(request),id);
     const repo=controlsRepository();if(!repo)throw new ControlError('Follow-up storage needs setup.',503);
     const [records,events]=await Promise.all([repo.list([id]),repo.events(id)]);
-    return NextResponse.json({record:records[id] || emptyRecord(),events,readOnly:process.env.DEAD_QUOTE_FOLLOWUPS_ENABLED!=='true'},{headers});
+    return NextResponse.json({job,record:records[id] || emptyRecord(),events,readOnly:process.env.DEAD_QUOTE_FOLLOWUPS_ENABLED!=='true'},{headers});
   }catch(error){return failure(error);}
 }
 export async function POST(request:NextRequest,context:Context){

@@ -63,3 +63,14 @@ No production migration, backfill, deployment or flag change has been performed.
 Independent review covered concurrent staff edits, uncertain saves, authentication loss, stale reviews and discount history. Regression tests cover saved dates surviving re-review, consistent estimate labels and controls remaining disabled during refresh. Local tests do not establish live schema compatibility, historical data accuracy or operational sending behaviour.
 
 Run npm run dead-followups:readiness for read-only storage checks, and npm run test:dead-followups:browser for all five browser checks. See [release handoff](dead-quote-followups-release.md) for completed scope, remaining external checks, enablement order and rollback behaviour.
+
+
+## Simplified queue and interactive preview — 4 October 2026
+
+The queue now shows only quotes needing follow-up, with search but no state filters. Absent/zero ceiling areas are blank. Negative quote extras produce an existing-discount flag, with individual and total amounts excluding GST. Positive extras do not reduce that displayed discount. Snoozed/excluded records and uncertain-date recovery remain manageable through the job’s follow-up history.
+
+Canonical page reads run with bounded concurrency (four), overlay reads run concurrently, and repeat visits can display a token-scoped 30-second snapshot while refreshing. Editing stays disabled until fresh data succeeds. These changes are tested, but live loading latency has not been benchmarked.
+
+For interactive local review, start the built Next server on 3116 with capture/preparation/sending flags false, then run `npm run preview:dead-followups`. Open http://127.0.0.1:3117/jobs/follow-ups?stage=QUOTE. This separate origin uses sample data and simulated sends only; changes persist in a temporary local JSON file and can be cleared with Reset sample data. Business API requests terminate locally; upstream access is limited to local UI/static assets.
+
+Verified: 194 follow-up tests passed (including local PostgreSQL cases), production build/TypeScript and targeted lint passed, all five browser regression scripts passed at 390px and 1280px, and the actual sample server passed editable discounts, simulated SMS/email, notes/history persistence and shared-template checks at both sizes with no external requests. Independent review completed. Nothing deployed, merged or migrated in production.

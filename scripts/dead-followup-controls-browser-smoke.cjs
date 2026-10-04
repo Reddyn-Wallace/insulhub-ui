@@ -14,7 +14,7 @@ if(!/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(base))throw Error('Local prev
    const url=new URL(route.request().url());
    if(url.pathname==='/api/dead-followups')return route.fulfill({json:{readOnly:false,historyAvailable:true,checkedAt:new Date().toISOString(),items:[{job,controls:record,suggestion:null,earliestFirstApproach:null,eligibility:{state:record.state.exclusionReason?'excluded':'review',reason:'Review date and history'}}]}});
    if(url.pathname.endsWith('/dead-followup')){
-    if(route.request().method()==='GET')return route.fulfill({json:{record,events,readOnly:false}});
+    if(route.request().method()==='GET')return route.fulfill({json:{job,record,events,readOnly:false}});
     const body=route.request().postDataJSON();if(body.revision!==record.revision || body.jobVersion!==job.updatedAt)throw Error('Incorrect revision guard');
     const command=body.command;const state=structuredClone(record.state);mutationCount++;
     if(command.action==='discount')state.draftDiscountCents=Math.round(Number(command.amount)*100);
@@ -35,11 +35,11 @@ if(!/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(base))throw Error('Local prev
   await page.getByLabel('Discount offered (NZD)',{exact:true}).fill('500');await page.getByRole('button',{name:'Save discount draft'}).click();
   await expect(page.getByText(/Last changed by Test Staff/)).toBeVisible();await expect(page.getByLabel('Discount offered (NZD)',{exact:true})).toHaveValue('500.00');
   await page.getByText('Record an earlier offer',{exact:true}).click();await page.getByLabel('Historical discount (NZD)').fill('250');await page.getByLabel('Date sent',{exact:true}).fill('2026-05-15');await page.getByLabel('Evidence of sending').fill('Checked the company phone sent folder.');await page.getByRole('button',{name:'Record historical offer'}).click();await expect(page.getByText(/First approach.*250.00/)).toBeVisible();
-  await page.getByRole('button',{name:'1 week',exact:true}).click();await expect(page.getByText(/Snoozed through/)).toBeVisible();
+  await page.getByRole('button',{name:'1 week',exact:true}).click();await expect(page.getByRole('button',{name:/Alex Example/})).toHaveCount(0);await page.goto(base+'/jobs/'+job._id+'/follow-up-history');await expect(page.getByText(/Snoozed through/)).toBeVisible();
   await page.getByText('Exclude from individual follow-ups',{exact:true}).click();await page.getByLabel('Exclusion reason').fill('Not suitable for another individual approach');await page.getByRole('button',{name:'Exclude follow-ups',exact:true}).click();await expect(page.getByRole('button',{name:'Restore follow-ups'})).toBeVisible();
-  await page.getByRole('button',{name:'Excluded',exact:true}).click();await page.getByRole('button',{name:/Alex Example/}).click();await page.getByRole('button',{name:'Restore follow-ups'}).click();await expect(page.getByText('Exclude from individual follow-ups',{exact:true})).toBeVisible();
-  await page.getByRole('button',{name:'All Dead quotes',exact:true}).click();await page.getByRole('button',{name:/Alex Example/}).click();
-  await page.getByRole('button',{name:'Skip for now'}).click();await expect(page.getByRole('button',{name:/Alex Example/})).toHaveCount(0);await page.getByRole('button',{name:'Undo skip'}).click();await page.getByRole('button',{name:/Alex Example/}).click();
+  await page.getByRole('button',{name:'Restore follow-ups'}).click();await expect(page.getByText('Exclude from individual follow-ups',{exact:true})).toBeVisible();
+
+  record.state.snoozedUntil=null;await page.goto(base+'/jobs/follow-ups');await page.getByRole('button',{name:/Alex Example/}).click();await page.getByRole('button',{name:'Skip for now'}).click();await expect(page.getByRole('button',{name:/Alex Example/})).toHaveCount(0);await page.getByRole('button',{name:'Undo skip'}).click();await page.getByRole('button',{name:/Alex Example/}).click();
   if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Horizontal overflow');
   await expect(page.getByRole('button',{name:/send/i})).toHaveCount(0);if(errors.length)throw Error(errors.join('\n'));if(mutationCount!==5)throw Error(`Unexpected mutation count: ${mutationCount}`);
   await page.screenshot({path:`/tmp/dead-followup-controls-${width}.png`,fullPage:true});
