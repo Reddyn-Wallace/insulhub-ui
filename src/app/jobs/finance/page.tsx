@@ -463,7 +463,7 @@ export default function FinancePage() {
                 value={data.uninvoiced.total}
                 onOpen={() => openDetail("uninvoiced")}
                 actionLabel="View jobs awaiting invoice"
-                note={`${data.uninvoiced.rows.length} jobs · estimated remaining invoice value, included in net position.${data.uninvoiced.needsConfirmation ? ` ${data.uninvoiced.needsConfirmation} need amount confirmation and are excluded from the total.` : ""}${data.uninvoiced.over30 ? ` ${data.uninvoiced.over30} remain unresolved after 30 days.` : ""}`}
+                note={`${data.uninvoiced.rows.length} ${data.uninvoiced.rows.length === 1 ? "job" : "jobs"} · estimated remaining invoice value, included in net position.${data.uninvoiced.needsConfirmation ? ` ${data.uninvoiced.needsConfirmation} ${data.uninvoiced.needsConfirmation === 1 ? "needs" : "need"} amount confirmation and ${data.uninvoiced.needsConfirmation === 1 ? "is" : "are"} excluded from the total.` : ""}${data.uninvoiced.over30 ? ` ${data.uninvoiced.over30} remain unresolved after 30 days.` : ""}`}
               />
               <Metric
                 label="Net position"

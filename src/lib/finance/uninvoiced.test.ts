@@ -184,3 +184,14 @@ it("flags an unmatched invoice with the same punctuated customer name", () => {
     ).rows[0].amount,
   ).toBeNull();
 });
+it("does not flag a fully invoiced job merely because the CRM has a stale deposit relation", () => {
+  expect(
+    uninvoicedWork(
+      input(
+        [{ ...job, depositInvoiceNumber: "INV-OLD" }],
+        [{ ...invoice, number: "INV-FULL", total: 296700, paid: 296700 }],
+      ),
+      [],
+    ).rows,
+  ).toEqual([]);
+});

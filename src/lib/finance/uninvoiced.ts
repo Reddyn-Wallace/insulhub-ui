@@ -74,6 +74,20 @@ export function uninvoicedWork(
     ].filter(Boolean);
     const agreed = job.agreedCents ?? job.quoteCents ?? null;
     const invoiced = invoices.reduce((sum, i) => sum + i.total, 0);
+    // A verified full value already invoiced leaves nothing to estimate, even
+    // when the CRM still points at an obsolete deposit invoice.
+    if (
+      job.finalInvoiceChecked &&
+      agreed !== null &&
+      Number.isSafeInteger(agreed) &&
+      agreed > 0 &&
+      (job.status !== "INSTALLED_WITH_VARIATIONS_FROM_QUOTE" ||
+        job.agreedCents != null) &&
+      invoices.length > 0 &&
+      invoices.every((i) => i.currency === "NZD" && i.credited === 0) &&
+      invoiced >= agreed
+    )
+      continue;
     let issue = "";
     if (!job.finalInvoiceChecked)
       issue = "Final invoice status could not be verified in the CRM.";
