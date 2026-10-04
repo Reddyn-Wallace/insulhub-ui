@@ -37,6 +37,8 @@ const fs = require('node:fs');
       let pdfBytes;
       const job = { _id: id, jobNumber: 99999, quote: { files_QuoteSitePlan: [] }, client: { contactDetails: { streetAddress: '14 Kauri Street' } } };
       await page.addInitScript(() => {
+        // This isolated fixture has no service-worker support; avoid registration against blocked routes.
+        delete Navigator.prototype.serviceWorker;
         localStorage.setItem('token', 'local-test-token');
         localStorage.setItem('me', JSON.stringify({ _id: 'tester', firstname: 'Test', role: 'ADMIN' }));
       });
