@@ -15,7 +15,7 @@ const attempt={id:'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb',jobId:id,channel:'sms',
 const repo={claim:vi.fn(),list:vi.fn(),setOutcome:vi.fn(),messageOutcome:vi.fn(),withNoteLock:vi.fn(),verifySent:vi.fn()};
 const req=(body:unknown)=>new NextRequest('http://localhost/api/send',{method:'POST',body:JSON.stringify(body)});
 const ctx={params:Promise.resolve({id})};
-beforeEach(()=>{vi.stubEnv('DEAD_QUOTE_FOLLOWUPS_ENABLED','true');vi.stubEnv('DEAD_QUOTE_FOLLOWUP_SEND_ENABLED','true');vi.mocked(requireInsulhubAuth).mockResolvedValue(null);vi.mocked(readControlJob).mockResolvedValue({job:{_id:id,stage:'QUOTE',updatedAt:'v',quote:{status:'DECLINED'}},actor:{id:'staff',name:'Staff'}});vi.mocked(sendsRepository).mockReturnValue(repo as never);repo.claim.mockResolvedValue({claimed:false,attempt});repo.list.mockResolvedValue([attempt]);repo.messageOutcome.mockResolvedValue(undefined);repo.setOutcome.mockResolvedValue(attempt);});
+beforeEach(()=>{vi.stubEnv('DEAD_QUOTE_FOLLOWUPS_ENABLED','true');vi.stubEnv('DEAD_QUOTE_FOLLOWUP_SEND_ENABLED','true');vi.mocked(requireInsulhubAuth).mockResolvedValue(null);vi.mocked(readControlJob).mockResolvedValue({job:{_id:id,stage:'QUOTE',updatedAt:'v',quote:{date:'2026-01-01',status:'DECLINED'}},actor:{id:'staff',name:'Staff'}});vi.mocked(sendsRepository).mockReturnValue(repo as never);repo.claim.mockResolvedValue({claimed:false,attempt});repo.list.mockResolvedValue([attempt]);repo.messageOutcome.mockResolvedValue(undefined);repo.setOutcome.mockResolvedValue(attempt);});
 afterEach(()=>{vi.resetAllMocks();vi.unstubAllEnvs();});
 it('authentication and feature flag prevent dispatch',async()=>{vi.mocked(requireInsulhubAuth).mockResolvedValue(NextResponse.json({}, {status:401}));expect((await POST(req({}),ctx)).status).toBe(401);expect(smsPost).not.toHaveBeenCalled();});
 it('repeated send request returns saved attempt without dispatch',async()=>{const r=await POST(req({action:'send',requestId:'cccccccc-cccc-4ccc-cccc-cccccccccccc',jobVersion:'v'}),ctx);expect(r.status).toBe(200);expect(smsPost).not.toHaveBeenCalled();});
@@ -39,4 +39,11 @@ it('staff verification never invokes the sending provider and ignores forged act
  repo.verifySent.mockResolvedValue({...attempt,status:'sent',noteStatus:'saved',verification:{actorName:'Staff',evidence:'Checked sent folder'}});
  const r=await POST(req({action:'verify',attemptId:attempt.id,confirmed:true,evidence:'Verified recipient and content in sent folder.',actor:{id:'forged'}}),ctx);
  expect(r.status).toBe(200);expect(smsPost).not.toHaveBeenCalled();expect(repo.verifySent).toHaveBeenCalledWith(attempt.id,expect.any(Object),{id:'staff',name:'Staff'});
+});
+it('does not dispatch when the fresh date observation becomes uncertain with the same job version',async()=>{
+ repo.claim.mockResolvedValue({claimed:true,attempt});
+ vi.mocked(readControlJob).mockResolvedValueOnce({job:{_id:id,stage:'QUOTE',updatedAt:'v',quote:{date:'2026-01-01',status:'DECLINED'}},actor:{id:'staff',name:'Staff'}}).mockResolvedValueOnce({job:{_id:id,stage:'QUOTE',updatedAt:'v',quote:{date:'2026-01-01',status:'DECLINED'},deadDateUncertain:true},actor:{id:'staff',name:'Staff'}});
+ vi.mocked(smsPost).mockResolvedValue(NextResponse.json({error:'simulated'}));
+ await POST(req({action:'send',requestId:'cccccccc-cccc-4ccc-cccc-cccccccccccc',jobVersion:'v'}),ctx);
+ expect(smsPost).not.toHaveBeenCalled();expect(repo.setOutcome).toHaveBeenCalledWith(attempt.id,'failed',expect.any(String));
 });

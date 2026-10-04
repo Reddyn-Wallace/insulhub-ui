@@ -1,7 +1,7 @@
 import {expect,it} from 'vitest';
 import {prepareSend,followupTemplate,offerNote,confirmedStatus} from './sending';
 import {emptyControls} from './controls';
-const job={_id:'aaaaaaaaaaaaaaaaaaaaaaaa',stage:'QUOTE',updatedAt:'2026-09-01T00:00:00Z',quote:{status:'DECLINED',c_total:10000}};
+const job={_id:'aaaaaaaaaaaaaaaaaaaaaaaa',stage:'QUOTE',updatedAt:'2026-09-01T00:00:00Z',quote:{date:'2026-01-01',status:'DECLINED',c_total:10000}};
 const state={...emptyControls(),draftDiscountCents:50000,deadDate:'2026-01-01T00:00:00Z',reviewedVersion:job.updatedAt};
 const input={requestId:'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa',revision:1,jobVersion:job.updatedAt,channel:'sms',senderId:'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb',destination:'0211234567',body:'We can offer $500.00 off your quote.',subject:''};
 it('snapshots validated amount, approach and normalised destination',()=>{expect(prepareSend(input,state,job,'2026-09-30T00:00:00Z')).toMatchObject({discountCents:50000,approach:1,destination:'+64211234567'});});

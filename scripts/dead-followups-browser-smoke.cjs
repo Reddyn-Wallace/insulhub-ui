@@ -10,7 +10,7 @@ if(!/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(base))throw Error('Local prev
       const page=await context.newPage();const errors=[];
       page.on('pageerror',e=>errors.push(e.message));
       await context.addInitScript(()=>{localStorage.setItem('token','simulation-only');localStorage.setItem('me',JSON.stringify({_id:'tester',firstname:'Test',lastname:'Staff',role:'ADMIN'}));});
-      const quote={_id:'111111111111111111111111',jobNumber:123,stage:'QUOTE',notes:'29/01/26 - Marked as Dead: timing did not suit - Staff',quote:{status:'DECLINED',date:'2025-12-01T00:00:00Z',c_total:12500,wall:{SQM:90},ceiling:{SQM:50}},client:{contactDetails:{name:'Alex Example',streetAddress:'12 Test Street',city:'Wellington'}}};
+      const quote={_id:'111111111111111111111111',jobNumber:123,stage:'QUOTE',notes:'29/01/26 - Marked as Dead: timing did not suit - Staff',quote:{status:'DECLINED',date:'2026-01-01T00:00:00Z',c_total:12500,wall:{SQM:90},ceiling:{SQM:50}},client:{contactDetails:{name:'Alex Example',streetAddress:'12 Test Street',city:'Wellington'}}};
       const items=[{job:quote,eligibility:{state:'review',reason:'Review previous offers before deciding the next approach.'},suggestion:{date:'2026-01-29',provenance:'note',evidence:quote.notes,at:'2026-01-29T10:59:59.999Z'},earliestFirstApproach:'2026-03-29T10:59:59.999Z'},{job:{...quote,_id:'222222222222222222222222',jobNumber:124,notes:'Customer not ready',client:{contactDetails:{name:'Taylor Example',streetAddress:'8 Sample Road'}}},eligibility:{state:'review',reason:'Review previous offers before deciding the next approach.'},suggestion:null,earliestFirstApproach:null}];
       await context.route('**/*',async route=>{
         const url=new URL(route.request().url());

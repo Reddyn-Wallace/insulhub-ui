@@ -8,7 +8,7 @@ if(!/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(base))throw Error('Local prev
  try{for(const width of [390,1280]){
   const context=await browser.newContext({viewport:{width,height:1000},serviceWorkers:'block'});const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await context.addInitScript(()=>{localStorage.setItem('token','simulation-only');localStorage.setItem('me',JSON.stringify({_id:'test-staff',firstname:'Test',lastname:'Staff',role:'ADMIN'}));});
-  const job={_id:'aaaaaaaaaaaaaaaaaaaaaaaa',jobNumber:123,stage:'QUOTE',updatedAt:'2026-09-01T00:00:00Z',notes:'29/01/26 - Marked as Dead: timing did not suit - Staff',quote:{status:'DECLINED',c_total:12500,date:'2025-12-01T00:00:00Z',wall:{SQM:90},ceiling:{SQM:50}},client:{contactDetails:{name:'Alex Example',streetAddress:'12 Test Street',city:'Wellington'}}};
+  const job={_id:'aaaaaaaaaaaaaaaaaaaaaaaa',jobNumber:123,stage:'QUOTE',updatedAt:'2026-09-01T00:00:00Z',notes:'29/01/26 - Marked as Dead: timing did not suit - Staff',quote:{status:'DECLINED',c_total:12500,date:'2026-01-01T00:00:00Z',wall:{SQM:90},ceiling:{SQM:50}},client:{contactDetails:{name:'Alex Example',streetAddress:'12 Test Street',city:'Wellington'}}};
   let record={revision:0,state:{draftDiscountCents:null,snoozedUntil:null,exclusionReason:null,deadDate:null,dateEvidence:'',reviewedVersion:null,offers:[]},updatedAt:null,actorName:''};const events=[];let mutationCount=0;
   await context.route('**/*',async route=>{
    const url=new URL(route.request().url());

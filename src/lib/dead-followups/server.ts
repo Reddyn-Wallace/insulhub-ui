@@ -1,3 +1,4 @@
+import {assumedEntry,quoteInCohort} from './dates';
 import 'server-only';
 import { addNzMonths, classifyQuote, evaluateFollowup, suggestDeadDate } from './rules';
 import type { DeadQuote, QueueItem, QueueResponse } from './types';
@@ -65,10 +66,11 @@ export async function loadDeadQuoteQueue(token: string, checkedAt = new Date().t
         if (!validQuote(value) || seen.has(value._id)) throw Error(SCAN_ERROR);
         seen.add(value._id);
         const job = value;
-        if (classifyQuote(job) === 'excluded') continue;
+        if (classifyQuote(job) === 'excluded' || !quoteInCohort(job)) continue;
+        job.deadEntry=assumedEntry(job,checkedAt);
         const suggestion = suggestDeadDate(job.notes,checkedAt);
         items.push({job,suggestion,
-          earliestFirstApproach:suggestion ? addNzMonths(suggestion.at,2) : null,
+          earliestFirstApproach:job.deadEntry ? addNzMonths(job.deadEntry.at,2) : null,
           // Historical communication is not yet classified as individual offers.
           // Even a plausible note date must not silently authorise an approach.
           eligibility:evaluateFollowup(job,{entry:suggestion ? {at:suggestion.at,provenance:'note'} : null,historyReviewed:false,approaches:[]},checkedAt),

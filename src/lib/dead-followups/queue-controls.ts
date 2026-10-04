@@ -1,3 +1,4 @@
+import {attachDeadDates} from './date-repository';
 import 'server-only';
 import {controlsRepository,emptyRecord} from './repository';
 import {controlHistory} from './controls';
@@ -5,6 +6,8 @@ import {sendsRepository} from './send-repository';
 import {evaluateFollowup} from './rules';
 import type {QueueResponse} from './types';
 export async function decorateQueue(queue:QueueResponse):Promise<QueueResponse>{
+  const jobs=await attachDeadDates(queue.items.map(item=>item.job));
+  queue={...queue,items:queue.items.map((item,i)=>({...item,job:jobs[i]}))};
   const repo=controlsRepository();
   if(!repo)return queue;
   try {

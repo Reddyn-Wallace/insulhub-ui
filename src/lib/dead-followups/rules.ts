@@ -1,3 +1,4 @@
+import {quoteInCohort} from './dates';
 import type { DeadQuote, FollowupHistory, Eligibility, DateSuggestion } from './types';
 
 export function classifyQuote(job: DeadQuote): 'excluded' | 'conflict' | 'dead' {
@@ -32,6 +33,8 @@ export function addNzMonths(at: string, months: number): string {
 }
 
 export function evaluateFollowup(job: DeadQuote, history: FollowupHistory, now: string): Eligibility {
+  if (!quoteInCohort(job)) return {state:'excluded',reason:'Only quotes dated from 1 January 2026 qualify.'};
+  if (job.deadDateUncertain) return {state:'attention',reason:'The last job save needs its Dead date checked. Refresh and check the date before sending.'};
   const classification = classifyQuote(job);
   if (classification === 'excluded' || history.excluded) return {state:'excluded',reason:'Not an eligible Dead quote.'};
   if (classification === 'conflict') return {state:'review',reason:'Dead and callback statuses conflict. Review the quote status.'};
@@ -41,7 +44,7 @@ export function evaluateFollowup(job: DeadQuote, history: FollowupHistory, now: 
   if (sent.length === 2) return {state:'complete',reason:'Two approaches recorded. No more individual reminders.'};
   if (!history.historyReviewed || history.reentryReviewRequired) return {state:'review',reason:'Review previous offers before deciding the next approach.'};
   const entry = history.entry;
-  if (!entry || (entry.provenance !== 'canonical' && !entry.reviewed) || !Number.isFinite(Date.parse(entry.at)) || Date.parse(entry.at) > Date.parse(now)) return {state:'review',reason:'The current Dead entry date needs review.'};
+  if (!entry || (!['canonical','assumed','ui'].includes(entry.provenance) && !entry.reviewed) || !Number.isFinite(Date.parse(entry.at)) || (Date.parse(entry.at) > Date.parse(now) && entry.provenance !== 'assumed')) return {state:'review',reason:'The current Dead entry date needs review.'};
   try {
     let due = Date.parse(addNzMonths(entry.at,2));
     if (sent.length) due = Math.max(due,Date.parse(addNzMonths(sent[0].sentAt!,4)));

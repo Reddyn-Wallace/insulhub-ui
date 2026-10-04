@@ -6,7 +6,7 @@ import {ControlRepository} from './repository';
 import {prepareSend} from './sending';
 import {emptyControls} from './controls';
 const url=process.env.DEAD_FOLLOWUPS_TEST_DATABASE_URL;
-const job={_id:'bbbbbbbbbbbbbbbbbbbbbbbb',stage:'QUOTE',updatedAt:'2026-09-01T00:00:00Z',quote:{status:'DECLINED',c_total:10000}};
+const job={_id:'bbbbbbbbbbbbbbbbbbbbbbbb',stage:'QUOTE',updatedAt:'2026-09-01T00:00:00Z',quote:{date:'2026-01-01',status:'DECLINED',c_total:10000}};
 const input={requestId:'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa',revision:1,jobVersion:job.updatedAt,channel:'sms',senderId:'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb',destination:'0211234567',body:'Discount $500.00',subject:''};
 describe.skipIf(!url)('durable send claims',()=>{
  let pool:Pool;let repo:SendRepository;

@@ -7,6 +7,7 @@ import {dispatchAttempt,reconcileAttempt,appendOfferNote} from '@/lib/dead-follo
 import {uuid,type SendAttempt} from '@/lib/dead-followups/sending';
 import {templateRepository} from '@/lib/dead-followups/template-repository';
 import {defaultTemplates} from '@/lib/dead-followups/templates';
+import {quoteInCohort} from '@/lib/dead-followups/dates';
 import {classifyQuote} from '@/lib/dead-followups/rules';
 import {POST as smsPost,GET as smsGet} from '@/app/api/jobs/[id]/sms/route';
 import {POST as emailPost,GET as emailGet} from '@/app/api/jobs/[id]/email/route';
@@ -51,7 +52,7 @@ export async function POST(request:NextRequest,context:Context){
    const claim=await repo.claim(job,input,actor);a=claim.attempt;
    if(claim.claimed){
     const fresh=await readControlJob(token,id);
-    if(fresh.job.updatedAt!==input.jobVersion||classifyQuote(fresh.job)!=='dead'){
+    if(fresh.job.updatedAt!==input.jobVersion||classifyQuote(fresh.job)!=='dead'||!quoteInCohort(fresh.job)||fresh.job.deadDateUncertain||fresh.job.deadEntry?.at!==job.deadEntry?.at){
      a=await repo.setOutcome(a.id,'failed','Quote changed before dispatch. Refresh and review again.');
     }else{
      await dispatchAttempt(true,async()=>{

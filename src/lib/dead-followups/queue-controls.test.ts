@@ -1,3 +1,4 @@
+vi.mock('./date-repository',()=>({attachDeadDates:async(jobs:unknown)=>jobs}));
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 vi.mock('./repository',()=>({controlsRepository:vi.fn(),emptyRecord:()=>({revision:0,state:emptyControls(),updatedAt:null,actorName:''})}));
 vi.mock('./send-repository',()=>({sendsRepository:vi.fn(()=>null)}));
@@ -6,7 +7,7 @@ import {controlsRepository} from './repository';
 import {emptyControls} from './controls';
 import {decorateQueue} from './queue-controls';
 import type {QueueResponse} from './types';
-const queue:QueueResponse={items:[{job:{_id:'a',stage:'QUOTE',updatedAt:'v1',quote:{status:'DECLINED'}},eligibility:{state:'review',reason:'Unknown'},suggestion:null,earliestFirstApproach:null}],checkedAt:'2026-09-30T00:00:00Z',readOnly:true,historyAvailable:false};
+const queue:QueueResponse={items:[{job:{_id:'a',stage:'QUOTE',updatedAt:'v1',quote:{date:'2026-01-01',status:'DECLINED'}},eligibility:{state:'review',reason:'Unknown'},suggestion:null,earliestFirstApproach:null}],checkedAt:'2026-09-30T00:00:00Z',readOnly:true,historyAvailable:false};
 const state={...emptyControls(),deadDate:'2026-01-01T00:00:00Z',dateEvidence:'Dated notes',reviewedVersion:'v1'};
 beforeEach(()=>vi.stubEnv('DEAD_QUOTE_FOLLOWUPS_ENABLED','true'));
 afterEach(()=>{vi.resetAllMocks();vi.unstubAllEnvs();});

@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { loadDeadQuoteQueue } from './server';
-const quote = {_id:'1',stage:'QUOTE',lead:null,jobNumber:12,notes:'29/01/26 - Marked as Dead - Staff',quote:{status:'DECLINED',c_total:12000}};
+const quote = {_id:'1',stage:'QUOTE',lead:null,jobNumber:12,notes:'29/01/26 - Marked as Dead - Staff',quote:{date:'2026-01-01',status:'DECLINED',c_total:12000}};
 afterEach(()=>vi.unstubAllGlobals());
 it('paginates using actual page sizes, filters leads/accepted, and never assumes offer history is empty', async()=>{
   const calls: number[]=[];
@@ -36,4 +36,12 @@ it('rejects upstream HTTP failure',async()=>{
 it.each([{quote:{},lead:{}},{quote:{status:'DECLINED'},lead:[]},{quote:{status:12}},{quote:{status:'DECLINED'},notes:42}])('rejects malformed status-bearing data instead of silently excluding it: %j',async(fields)=>{
   vi.stubGlobal('fetch',vi.fn(async()=>Response.json({data:{jobs:{total:1,results:[{...quote,...fields}]}}})));
   await expect(loadDeadQuoteQueue('token')).rejects.toThrow('The full quote list');
+});
+it('never returns pre-2026 quotes even with recent notes, and supplies the agreed fallback for eligible quotes',async()=>{
+ const old={...quote,_id:'old',quote:{...quote.quote,date:'2025-12-31'},notes:'01/09/26 - Recent call'};
+ const current={...quote,_id:'current',quote:{...quote.quote,date:'2026-01-01'},notes:'No dated note'};
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json({data:{jobs:{total:2,results:[old,current]}}})));
+ const result=await loadDeadQuoteQueue('token','2026-10-04T00:00:00Z');
+ expect(result.items.map(x=>x.job._id)).toEqual(['current']);
+ expect(result.items[0].job.deadEntry).toMatchObject({source:'quote_plus_30',at:'2026-01-31T10:59:59.999Z'});
 });

@@ -1,7 +1,7 @@
 import { expect,it } from 'vitest';
 import { applyControl, emptyControls, parseDiscount, controlHistory } from './controls';
 const now='2026-09-30T01:00:00Z';
-const job={_id:'abc',stage:'QUOTE',updatedAt:'2026-09-01T00:00:00Z',quote:{status:'DECLINED',c_total:10000},lead:{leadStatus:'DEAD'}};
+const job={_id:'abc',stage:'QUOTE',deadEntry:null,updatedAt:'2026-09-01T00:00:00Z',quote:{date:'2026-01-01',status:'DECLINED',c_total:10000},lead:{leadStatus:'DEAD'}};
 it.each([['500',50000],['12.35',1235],['0',0]])('stores NZD %s exactly in cents',(s,n)=>expect(parseDiscount(s)).toBe(n));
 it.each(['-1','1.005','NaN','1e3','', 'Infinity'])('rejects invalid discount %s',s=>expect(()=>parseDiscount(s)).toThrow());
 it('draft discount does not become an offer or change eligibility history',()=>{

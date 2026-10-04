@@ -7,7 +7,7 @@ if(!/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(base))throw Error('Local prev
  try{for(const width of [390,1280])for(const channel of ['sms','email']){
   const context=await browser.newContext({viewport:{width,height:1000},serviceWorkers:'block'});const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await context.addInitScript(()=>{localStorage.setItem('token','simulation-only');localStorage.setItem('me',JSON.stringify({_id:'staff',firstname:'Test',lastname:'Staff',role:'ADMIN'}));});
-  const job={_id:'aaaaaaaaaaaaaaaaaaaaaaaa',jobNumber:123,stage:'QUOTE',updatedAt:'2026-09-01T00:00:00Z',quote:{status:'DECLINED',c_total:12500,date:'2025-12-01T00:00:00Z'},client:{contactDetails:{name:'Alex Example',streetAddress:'12 Test Street'}}};
+  const job={_id:'aaaaaaaaaaaaaaaaaaaaaaaa',jobNumber:123,stage:'QUOTE',updatedAt:'2026-09-01T00:00:00Z',quote:{status:'DECLINED',c_total:12500,date:'2026-01-01T00:00:00Z'},client:{contactDetails:{name:'Alex Example',streetAddress:'12 Test Street'}}};
   const controls={revision:1,state:{draftDiscountCents:50000,snoozedUntil:null,exclusionReason:null,deadDate:'2026-01-01T00:00:00Z',dateEvidence:'Reviewed notes',reviewedVersion:job.updatedAt,offers:[]},actorName:'Test Staff',updatedAt:null};
   let saved=null;let sends=0;let notes=0;
   await context.route('**/*',async route=>{
@@ -33,7 +33,7 @@ if(!/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(base))throw Error('Local prev
   await page.getByRole('button',{name:'Send offer',exact:true}).scrollIntoViewIfNeeded();
   await page.screenshot({path:`/tmp/dead-followup-compose-${channel}-${width}.png`,fullPage:true});
   await page.getByRole('button',{name:'Send offer',exact:true}).click();
-  if(channel==='sms'){await expect(page.getByRole('alert')).toBeVisible();await expect(page.getByRole('button',{name:'Send offer',exact:true})).toHaveCount(0);await page.getByRole('button',{name:'Compose or check follow-up'}).click();await page.getByRole('button',{name:'Check saved send status'}).click();}
+  if(channel==='sms'){await expect(page.getByRole('alert').filter({hasText:'Failed to fetch'})).toBeVisible();await expect(page.getByRole('button',{name:'Send offer',exact:true})).toHaveCount(0);await page.getByRole('button',{name:'Compose or check follow-up'}).click();await page.getByRole('button',{name:'Check saved send status'}).click();}
   await page.getByRole('button',{name:'Retry job note only'}).click();await expect(page.getByText('Job note: saved',{exact:true})).toBeVisible();
   if(sends!==1||notes!==1)throw Error('Unexpected dispatch or note count');
   // Recovery remains available after leaving the Dead queue.

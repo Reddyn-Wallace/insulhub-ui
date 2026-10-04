@@ -1,3 +1,4 @@
+import {isTrackedMutation} from './dead-followups/dates';
 import {
   type BrowserCacheStorage,
   clearBrowserCachePrefixes,
@@ -78,7 +79,7 @@ export async function gql<T>(
     : "";
 
   const run = async () => {
-    const res = await fetch("https://api.insulhub.nz/graphql", {
+    const res = await fetch(isTrackedMutation(query,variables) ? "/api/jobs/mutate" : "https://api.insulhub.nz/graphql", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -102,6 +103,7 @@ export async function gql<T>(
       throw new Error(message);
     }
 
+    if (!res.ok) throw new Error(json.error || "Request failed. Refresh before retrying.");
     const data = json.data as T;
     if (cacheKey) writeBrowserCache(cacheKey, data, options.storage);
     if (!isQuery) invalidateDataCachesAfterMutation();

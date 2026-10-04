@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { addNzMonths, classifyQuote, evaluateFollowup, suggestDeadDate } from './rules';
-const job = { _id: 'a', stage: 'QUOTE', quote: { status: 'DECLINED' }, lead: { leadStatus: 'DEAD' } };
+const job = { _id: 'a', stage: 'QUOTE', quote: { date:'2026-01-01', status: 'DECLINED' }, lead: { leadStatus: 'DEAD' } };
 const known = { at: '2026-01-29T21:00:00.000Z', provenance: 'canonical' as const };
 const now = '2026-09-29T00:00:00Z';
 describe('quote-only classification', () => {

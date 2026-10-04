@@ -1,3 +1,4 @@
+import {assumedEntry,entryLabel,quoteInCohort} from './dates';
 import { classifyQuote, nzDateEnd } from './rules';
 import type { ControlState, DeadQuote, FollowupHistory } from './types';
 export class ControlError extends Error {
@@ -25,7 +26,7 @@ function date(value: unknown, now: string, future: boolean): string {
   return new Date(Math.min(Date.parse(at),Date.parse(now))).toISOString();
 }
 export function applyControl(current: ControlState, input: unknown, job: DeadQuote, now: string): ControlState {
-  if(classifyQuote(job)!=='dead' || !job.updatedAt)throw new ControlError('This quote is no longer eligible or its current version could not be verified. Refresh it.',409);
+  if(!quoteInCohort(job) || job.deadDateUncertain || classifyQuote(job)!=='dead' || !job.updatedAt)throw new ControlError('This quote is no longer eligible or its current version could not be verified. Refresh it.',409);
   if(!input || typeof input!=='object' || Array.isArray(input))throw new ControlError('Invalid follow-up change.');
   const value=input as Record<string,unknown>;
   const next:ControlState={...current,offers:[...current.offers]};
@@ -41,7 +42,8 @@ export function applyControl(current: ControlState, input: unknown, job: DeadQuo
     case 'restore': next.exclusionReason=null;break;
     case 'review':
       if(value.historyConfirmed!==true)throw new ControlError('Review the notes and prior communications, then confirm all earlier offers are recorded.');
-      next.deadDate=date(value.date,now,false);next.dateEvidence=text(value.evidence,'Date evidence');next.reviewedVersion=job.updatedAt;break;
+      {const entry=job.deadEntry===undefined?assumedEntry(job,now):job.deadEntry;
+      next.deadDate=entry?.at || date(value.date,now,false);next.dateEvidence=entry?`${entryLabel(entry)}: ${entry.evidence}`:text(value.evidence,'Date evidence');next.reviewedVersion=job.updatedAt;break;}
     case 'record_offer': {
       if(current.offers.length>=2)throw new ControlError('Two individual approaches are already recorded.');
       if(value.channel!=='sms' && value.channel!=='email')throw new ControlError('Choose SMS or email.');
@@ -60,7 +62,8 @@ export function applyControl(current: ControlState, input: unknown, job: DeadQuo
   return next;
 }
 export function controlHistory(state: ControlState, job: DeadQuote): FollowupHistory {
-  return {entry:state.deadDate?{at:state.deadDate,provenance:'staff',reviewed:true}:null,
+  const automatic=job.deadEntry===undefined?assumedEntry(job,new Date().toISOString()):job.deadEntry;
+  return {entry:automatic?{at:automatic.at,provenance:automatic.source.startsWith('ui_')?'ui':'assumed',reviewed:true}:state.deadDate?{at:state.deadDate,provenance:'staff',reviewed:true}:null,
     historyReviewed:Boolean(state.reviewedVersion && state.reviewedVersion===job.updatedAt),
     approaches:state.offers.map(offer=>({...offer,status:'sent' as const})),
     snoozedUntil:state.snoozedUntil || undefined,excluded:Boolean(state.exclusionReason)};

@@ -3,7 +3,7 @@ import {Pool} from 'pg';
 import {readFileSync} from 'node:fs';
 import {ControlRepository} from './repository';
 const url=process.env.DEAD_FOLLOWUPS_TEST_DATABASE_URL;
-const job={_id:'aaaaaaaaaaaaaaaaaaaaaaaa',stage:'QUOTE',updatedAt:'2026-09-01T00:00:00Z',quote:{status:'DECLINED',c_total:10000},lead:{leadStatus:'DEAD'}};
+const job={_id:'aaaaaaaaaaaaaaaaaaaaaaaa',stage:'QUOTE',updatedAt:'2026-09-01T00:00:00Z',quote:{date:'2026-01-01',status:'DECLINED',c_total:10000},lead:{leadStatus:'DEAD'}};
 describe.skipIf(!url)('real Postgres control persistence',()=>{
  let pool:Pool;let repo:ControlRepository;
  beforeAll(async()=>{if(!url || !['localhost','127.0.0.1'].includes(new URL(url).hostname) || new URL(url).port!=='55687')throw Error('Dedicated local test database only');pool=new Pool({connectionString:url});repo=new ControlRepository(pool);const sql=readFileSync('scripts/dead-followups-schema.sql','utf8');await pool.query(sql);await pool.query(sql);});

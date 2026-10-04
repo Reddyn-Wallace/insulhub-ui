@@ -4,7 +4,7 @@ The Quotes tab links to `/jobs/follow-ups?stage=QUOTE`. The queue excludes leads
 
 ## Saved preparation
 
-With the overlay migration applied and `DEAD_QUOTE_FOLLOWUPS_ENABLED=true`, staff can save an NZD discount draft, record evidence of earlier offers, review an estimated Dead date and offer history, snooze, exclude and restore a quote. Skip/Undo is personal to the user's browser session. Shared changes have immutable audit snapshots and revision checks so concurrent edits cannot overwrite one another silently.
+With the overlay migration applied and `DEAD_QUOTE_FOLLOWUPS_ENABLED=true`, staff can save an NZD discount draft, record evidence of earlier offers, review previous offers alongside the recorded or assumed Dead date, snooze, exclude and restore a quote. Skip/Undo is personal to the user's browser session. Shared changes have immutable audit snapshots and revision checks so concurrent edits cannot overwrite one another silently.
 
 Drafts never count as sent offers. Historical offers are explicitly staff attestations with evidence, date, channel and amount. Correcting the latest entry preserves the original audit record. The previous offered amount is displayed independently of the next draft.
 
@@ -32,22 +32,27 @@ Confirmed sends append a stable, identifiable job note with the actual NZD disco
 - The queue does not automatically poll or send in the background. Staff use Check saved send status for pending SMS. The shared guard covers this follow-up workflow; ordinary manual communications outside it still require history review.
 - Auto-appending a note changes the canonical version and may require another history review. Estimates remain estimates; exact cross-CRM Dead transitions are still unavailable.
 
-## Timing and backend limitation
+## Dead dates and timing
 
-The canonical `api.insulhub.nz` repository is unavailable. Exact Dead transitions across both CRMs cannot currently be recorded. Note suggestions and staff-reviewed dates remain labelled estimates, using a conservative end-of-NZ-day boundary. Quote creation and update dates are never substituted for a Dead date.
+Only quotes with a valid quote date on or after **1 January 2026 (NZ time)** qualify. The cutoff is fixed, not rolling. Older quotes remain Dead in the CRM but never appear in this follow-up queue, including its excluded view. Missing/invalid quote dates are also withheld. The same guard applies to direct preparation and send requests.
 
-A reviewed first approach becomes eligible two calendar months after the estimated Dead date. A second requires at least four calendar months after the recorded successful first offer, and the first-date threshold must also be satisfied. Two recorded successful approaches exhaust the sequence. NZ daylight saving and month ends are handled explicitly.
+For existing Dead quotes, the latest valid dated CRM note is the assumed entry date, regardless of its wording. Recognised note stamps are day/month/two- or four-digit-year or ISO year-month-day, followed by a spaced hyphen. Dates embedded in prose and invalid/future stamps do not qualify. If none exists, use the quote date plus 30 NZ calendar days. Date-only assumptions use the end of the NZ day; a future fallback waits normally. Assumptions are labelled and frozen at first enabled observation in `dead_quote_dates`, with an immutable `assumed` event, so later follow-up notes do not shift the date. No customer notes or quote statuses are changed by backfill. This is a lazy backfill as the queue/access loads, not a production script already run.
 
-Canonical quote changes invalidate the history review, requiring staff to check it again. This intentionally includes unrelated edits because exact transition events are unavailable. Exhausted two-offer histories remain exhausted. Re-review preserves the date staff already saved.
+The shared browser GraphQL helper routes existing job updates and archive operations through an authenticated server endpoint. With date capture enabled, relevant quote saves acquire a per-job lock, persist intent before the canonical write, then record confirmed effective Dead entry/exit with actor and server observation time in `dead_quote_date_events`. Repeated saves in the same state do not create entries. Leaving clears the active entry; returning records a new one without deleting offers or discounts. Leads are not captured as Dead quotes.
+
+This UI-only observation is not an atomic backend event and cannot capture changes made in the other CRM. An interrupted save retains a durable blocker; no send can proceed while its outcome is uncertain. After at least a minute, Check saved Dead date obtains a fresh canonical observation without replaying the mutation. A recovered entry uses that later observation time, never a guessed original time. A subsequent attempted job save also reconciles an older pending intent and asks for refresh before any new mutation.
+
+A first approach becomes eligible two NZ calendar months after the recorded/assumed entry. A second requires at least four NZ calendar months after the first confirmed successful offer and also satisfies the current-entry threshold. Two recorded successful approaches exhaust the sequence. Historical offers must still be reviewed before sending; accepting the agreed date assumption does not assert that no earlier offers exist. Canonical edits continue to invalidate that history review conservatively.
 
 ## Enablement
 
-1. Apply `npm run dead-followups:migrate` to the intended overlay database using its `DATABASE_URL`.
-2. Set `DEAD_QUOTE_FOLLOWUPS_ENABLED=true` for preparation controls.
-3. Verify authenticated staff access, connected sender ownership and real canonical schema. Enable manual sends separately with `DEAD_QUOTE_FOLLOWUP_SEND_ENABLED=true`.
-4. Turning sending off blocks new dispatches while preserving status checks and note recovery.
+1. Apply `npm run dead-followups:migrate` to the intended overlay database. This now includes dates and immutable transition history as well as controls, send attempts and templates. Run read-only readiness checks.
+2. To start recording UI transitions without enabling preparation or sends, set `DEAD_QUOTE_DATE_CAPTURE_ENABLED=true`. This requires the date tables. Relevant quote saves fail before dispatch when storage cannot record intent; uncertain saves require checking before another mutation.
+3. `DEAD_QUOTE_FOLLOWUPS_ENABLED=true` enables preparation and also requires/enables date capture, even if the separate capture flag is absent. Date assumptions are persisted as eligible quotes are first observed.
+4. Verify authenticated canonical access and connected sender ownership. Enable sending separately with `DEAD_QUOTE_FOLLOWUP_SEND_ENABLED=true` only after controlled acceptance.
+5. Turning sending off blocks new dispatches. Turning preparation off also blocks preparation/template edits and new sends. Keep the independent capture flag true if you want ongoing dates. Turn both preparation and capture off to stop new transition recording. Existing send/note and interrupted-date recovery remain available.
 
-The migration now includes send attempts, staff verification and shared templates and can be rerun. Neither production migration nor enablement has been performed. Missing tables retain the read-only foundation. Other storage failures surface an error rather than silently discarding exclusions/history. Turning the preparation flag off blocks preparation/template edits and new sends. Status checks, positive-evidence verification and note-only retries remain available for existing attempts.
+No production migration, backfill, deployment or flag change has been performed. Preview flags remain off. Missing date schema is tolerated for read-only review only when both capture/preparation flags are off. Other storage failures are surfaced rather than silently discarding history.
 
 ## Verification
 
@@ -57,4 +62,4 @@ The migration now includes send attempts, staff verification and shared template
 
 Independent review covered concurrent staff edits, uncertain saves, authentication loss, stale reviews and discount history. Regression tests cover saved dates surviving re-review, consistent estimate labels and controls remaining disabled during refresh. Local tests do not establish live schema compatibility, historical data accuracy or operational sending behaviour.
 
-Run npm run dead-followups:readiness for read-only storage checks, and npm run test:dead-followups:browser for all four browser checks. See [release handoff](dead-quote-followups-release.md) for completed scope, remaining external checks, enablement order and rollback behaviour.
+Run npm run dead-followups:readiness for read-only storage checks, and npm run test:dead-followups:browser for all five browser checks. See [release handoff](dead-quote-followups-release.md) for completed scope, remaining external checks, enablement order and rollback behaviour.

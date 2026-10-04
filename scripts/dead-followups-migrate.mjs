@@ -8,5 +8,6 @@ try {
   await pool.query(await readFile(new URL('./dead-followups-schema.sql', import.meta.url), 'utf8'));
   await pool.query(await readFile(new URL('./dead-followups-send-schema.sql', import.meta.url), 'utf8'));
   await pool.query(await readFile(new URL('./dead-followups-template-schema.sql', import.meta.url), 'utf8'));
+  await pool.query(await readFile(new URL('./dead-followups-date-schema.sql', import.meta.url), 'utf8'));
   console.log('Dead quote follow-up storage ready. Sending requires its separate feature flag.');
 } finally { await pool.end(); }

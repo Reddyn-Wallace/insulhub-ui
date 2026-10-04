@@ -33,3 +33,12 @@ it('re-review preserves the saved NZ Dead date instead of reverting to an older 
  expect((screen.getByLabelText('Estimated date this quote entered Dead') as HTMLInputElement).value).toBe('2026-09-01');
  expect((screen.getByLabelText('Date evidence') as HTMLTextAreaElement).value).toBe('Corrected current Dead episode');
 });
+it('shows the automatic date and reviews offers without requiring a replacement date',async()=>{
+ const automatic={...item,job:{...item.job,deadEntry:{at:'2026-03-01T10:59:59Z',source:'last_note' as const,evidence:'01/03/26 - Called'}}};
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json({record:item.controls})));
+ render(<FollowupControls item={automatic} onSaved={()=>{}}/>);
+ expect(screen.getByText(/Assumed from last dated note/)).toBeTruthy();
+ expect(screen.queryByLabelText('Estimated date this quote entered Dead')).toBeNull();
+ fireEvent.click(screen.getByRole('checkbox'));fireEvent.click(screen.getByRole('button',{name:'Save reviewed history'}));
+ expect(await screen.findByRole('status')).toBeTruthy();
+});
