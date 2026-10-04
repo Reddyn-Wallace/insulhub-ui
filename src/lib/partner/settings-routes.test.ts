@@ -6,10 +6,11 @@ import { requireInsulhubAuth } from "../insulhub-auth";
 import { createPartnerAuth, getAuthenticatedPrincipalWith } from "./auth";
 import { partnerSettingsRoute, type SettingsDependencies } from "./settings-routes";
 import { PARTNER_SETTINGS_SERVICE_ID } from "./settings-service";
+import { PartnerRepository } from "./repository";
 import { PartnerOperationsRepository } from "./operations-repository";
 import { getOpsDashboard } from "./operations-routes";
 import { createPartnerTestDatabase } from "./test-db";
-import { PRODUCT_QUOTE_DEFAULTS } from "./quote";
+import { createQuoteDraft, setQuoteProductEnabled, PRODUCT_QUOTE_DEFAULTS } from "./quote";
 import { PartnerNotificationSettingsRepository } from "./notification-settings";
 
 const origin = "https://insulhub.example.test";
@@ -42,8 +43,37 @@ describe("normal InsulHub Settings partner management", () => {
   it("allows any verified normal user and returns only minimal company fields", async () => {
     const response = await call(request());
     expect(response.status).toBe(200); expect(response.headers.get("cache-control")).toBe("private, no-store");
-    expect(await response.json()).toEqual({ companies: [{ id: companyId, name: "Existing Partner", revision: 0, isActive: true }] });
+    expect(await response.json()).toEqual({ companies: [{ id: companyId, name: "Existing Partner", revision: 0, isActive: true, pricingDefaults: { wallRateCents: null, ceilingRateCents: null, councilFeeCents: 33000 } }] });
     expect(upstream).toHaveBeenCalledWith("https://api.insulhub.nz/graphql", expect.objectContaining({ redirect: "error", cache: "no-store", headers: expect.objectContaining({ "x-access-token": token }) }));
+  });
+  it("saves company pricing, prefills new quotes, and preserves earlier quote defaults", async () => {
+    const pricingDefaults = { wallRateCents: 9550, ceilingRateCents: 6525, councilFeeCents: 42500 };
+    const created = await call(request("POST", { ...newCompany, pricingDefaults }));
+    expect(created.status).toBe(201);
+    const id = (await created.json()).company.id;
+    const repository = new PartnerRepository(pool);
+    const principal = { principalType: "PARTNER" as const, companyId: id, userId: "unused" };
+    const defaults = (await repository.getQuoteDefaults(principal))!;
+    const earlierQuote = createQuoteDraft(defaults);
+    expect(setQuoteProductEnabled(earlierQuote, "wall", true).wall.rateCentsPerSqm).toBe(9550);
+    expect(setQuoteProductEnabled(earlierQuote, "ceiling", true).ceiling.rateCentsPerSqm).toBe(6525);
+    expect(earlierQuote.extras).toEqual([{ id: "council-fee", name: "Council Fee", priceCents: 42500 }]);
+    expect((await call(request("PUT", { revision: 0, name: "Updated", pricingDefaults: { wallRateCents: null, ceilingRateCents: 7000, councilFeeCents: 0 } }), id)).status).toBe(200);
+    expect((await call(request("PUT", { revision: 1, name: "Renamed" }), id)).status).toBe(200);
+    const listed = (await (await call(request())).json()).companies.find((company: { id: string }) => company.id === id);
+    expect(listed.pricingDefaults).toEqual({ wallRateCents: null, ceilingRateCents: 7000, councilFeeCents: 0 });
+    const laterQuote = createQuoteDraft((await repository.getQuoteDefaults(principal))!);
+    expect(setQuoteProductEnabled(laterQuote, "ceiling", true).ceiling.rateCentsPerSqm).toBe(7000);
+    expect(laterQuote.extras[0].priceCents).toBe(0);
+    expect(setQuoteProductEnabled(earlierQuote, "ceiling", true).ceiling.rateCentsPerSqm).toBe(6525);
+    expect(earlierQuote.extras[0].priceCents).toBe(42500);
+  });
+  it("rejects invalid or injected pricing without changing the company", async () => {
+    const valid = { wallRateCents: 9550, ceilingRateCents: null, councilFeeCents: 0 };
+    for (const pricingDefaults of [null, {}, { ...valid, wallRateCents: 0 }, { ...valid, wallRateCents: 10000001 }, { ...valid, ceilingRateCents: -1 }, { ...valid, councilFeeCents: -1 }, { ...valid, councilFeeCents: 1.5 }, { ...valid, councilFeeCents: 1000000001 }, { ...valid, depositBasisPoints: 5000 }]) {
+      expect((await call(request("PUT", { revision: 0, name: "Invalid", pricingDefaults }), companyId)).status).toBe(400);
+    }
+    expect((await pool.query("SELECT name,revision FROM partner_companies WHERE id=$1", [companyId])).rows[0]).toEqual({ name: "Existing Partner", revision: 0 });
   });
   it("reads and updates one global notification email with exact auth, Origin and revision checks",async()=>{
     const read=new Request(`${origin}/api/settings/partners/notifications`,{headers:{"x-access-token":token}});const initial=await notifications(read);expect(initial.status).toBe(200);expect(await initial.json()).toMatchObject({settings:{recipientEmail:null,revision:0}});

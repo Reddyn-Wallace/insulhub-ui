@@ -148,22 +148,23 @@ describe("partner draft browser recovery", () => {
     expect(screen.getByText("All changes saved.")).toBeTruthy();
   });
 
-  it("starts with blank rates, preserves entered pricing, and clears products without confirmation", async () => {
+  it("prefills company rates, allows overrides, and clears products without confirmation", async () => {
     const user = userEvent.setup(); const confirm = vi.spyOn(window, "confirm");
     render(<PartnerDraftForm recoveryScope="northwind-scope" initialQuote={pricedQuote} />);
     await user.click(screen.getByLabelText("Wall insulation"));
     await user.type(screen.getByLabelText("Area (m²)"), "10");
     await user.selectOptions(screen.getByLabelText("Cavity depth"), "10");
     expect(screen.queryByText(/R 2.8 · 1.5 bags/)).toBeNull();
-    expect(screen.getByLabelText("Rate per m² ($)")).toHaveProperty("value", "");
-    await user.type(screen.getByLabelText("Rate per m² ($)"), "155");
+    expect(screen.getByLabelText("Rate per m² ($)")).toHaveProperty("value", "155.00");
+    await user.clear(screen.getByLabelText("Rate per m² ($)"));
+    await user.type(screen.getByLabelText("Rate per m² ($)"), "160");
     await user.click(screen.getByLabelText("Area (m²)"));
-    expect(screen.getByText("$2,162.00")).toBeTruthy();
+    expect(screen.getByText("$2,219.50")).toBeTruthy();
 
     await user.click(screen.getByLabelText("Wall insulation"));
     expect(screen.queryByLabelText("Area (m²)")).toBeNull();
     await user.click(screen.getByLabelText("Wall insulation"));
-    expect(screen.getByLabelText("Rate per m² ($)")).toHaveProperty("value", "");
+    expect(screen.getByLabelText("Rate per m² ($)")).toHaveProperty("value", "155.00");
     expect(confirm).not.toHaveBeenCalled();
   });
 

@@ -74,7 +74,7 @@ describe("partner quote domain", () => {
     const wallOff = setQuoteProductEnabled(quote, "wall", false);
     expect(wallOff.wall).toEqual({ enabled: false, areaSqm: null, rateCentsPerSqm: null, cavityDepthCm: null });
     expect(calculateQuote(wallOff).wall.lineCents).toBe(0);
-    expect(setQuoteProductEnabled(wallOff, "wall", true).wall).toEqual({ enabled: true, areaSqm: null, rateCentsPerSqm: null, cavityDepthCm: 10 });
+    expect(setQuoteProductEnabled(wallOff, "wall", true).wall).toEqual({ enabled: true, areaSqm: null, rateCentsPerSqm: 15_000, cavityDepthCm: 10 });
     const ceilingOff = setQuoteProductEnabled(quote, "ceiling", false);
     expect(ceilingOff.ceiling).toEqual({ enabled: false, areaSqm: null, rateCentsPerSqm: null, rValue: null, downlights: null });
     expect(setQuoteProductEnabled(ceilingOff, "ceiling", true).ceiling.downlights).toBe(0);
