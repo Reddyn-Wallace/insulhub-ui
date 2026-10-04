@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { UninvoicedTable } from "@/components/finance/UninvoicedTable";
 import {
   useCallback,
   useEffect,
@@ -22,6 +23,7 @@ import {
   buttonClass,
 } from "@/components/finance/format";
 type View =
+  | "uninvoiced"
   | "deposits"
   | "owed"
   | "settled"
@@ -199,6 +201,15 @@ export default function FinancePage() {
         ) || [],
     [data, view, search],
   );
+  const uninvoicedRows = useMemo(
+    () =>
+      data?.uninvoiced.rows.filter((r) =>
+        `${r.contact} ${r.name} ${r.quote}`
+          .toLowerCase()
+          .includes(search.toLowerCase()),
+      ) || [],
+    [data, search],
+  );
   const receipts = useMemo(
     () =>
       data?.matches
@@ -227,63 +238,86 @@ export default function FinancePage() {
       return '"' + t.replaceAll('"', '""') + '"';
     };
     const values =
-      view === "review"
+      view === "uninvoiced"
         ? [
             [
-              "Date",
-              "Bank amount NZD",
-              "Description",
+              "Customer",
+              "Address",
+              "Quote",
+              "Install date",
+              "Agreed NZD",
+              "Invoiced NZD",
+              "Awaiting invoice NZD",
               "Evidence",
-              "Allocation",
             ],
-            ...receipts.map((m) => [
-              m.receipt.date,
-              (m.receipt.amount / 100).toFixed(2),
-              m.receipt.description,
-              m.reason,
-              m.method,
+            ...uninvoicedRows.map((r) => [
+              r.contact,
+              r.name,
+              r.quote,
+              r.installDate,
+              r.agreed === null ? "" : (r.agreed / 100).toFixed(2),
+              (r.invoiced / 100).toFixed(2),
+              r.amount === null ? "" : (r.amount / 100).toFixed(2),
+              r.issue || (r.over30 ? "Over 30 days; estimated" : "Estimated"),
             ]),
           ]
-        : [
-            [
-              "Invoice",
-              "Reference",
-              "Customer",
-              "Job",
-              "Status",
-              "Currency",
-              "Xero due",
-              "Bank adjustment",
-              "Awaiting settlement",
-              "Known reserved",
-              "Known owed",
-              "Paid settlement unconfirmed",
-              "Evidence",
-            ],
-            ...rows.map((r) => [
-              r.number,
-              r.reference,
-              r.contact,
-              r.job?.quote || "",
-              r.job?.status || "Unlinked",
-              r.currency,
-              (r.due / 100).toFixed(2),
-              (r.localAdjustment / 100).toFixed(2),
-              (r.pendingSettlement / 100).toFixed(2),
-              (r.reserved / 100).toFixed(2),
-              (r.owed / 100).toFixed(2),
-              (r.unconfirmed / 100).toFixed(2),
+        : view === "review"
+          ? [
               [
-                r.link.method,
-                r.classification
-                  ? `Owner confirmed ${r.classification.classification}: ${r.classification.reason}`
-                  : "",
-                ...r.issues,
-              ]
-                .filter(Boolean)
-                .join("; "),
-            ]),
-          ];
+                "Date",
+                "Bank amount NZD",
+                "Description",
+                "Evidence",
+                "Allocation",
+              ],
+              ...receipts.map((m) => [
+                m.receipt.date,
+                (m.receipt.amount / 100).toFixed(2),
+                m.receipt.description,
+                m.reason,
+                m.method,
+              ]),
+            ]
+          : [
+              [
+                "Invoice",
+                "Reference",
+                "Customer",
+                "Job",
+                "Status",
+                "Currency",
+                "Xero due",
+                "Bank adjustment",
+                "Awaiting settlement",
+                "Known reserved",
+                "Known owed",
+                "Paid settlement unconfirmed",
+                "Evidence",
+              ],
+              ...rows.map((r) => [
+                r.number,
+                r.reference,
+                r.contact,
+                r.job?.quote || "",
+                r.job?.status || "Unlinked",
+                r.currency,
+                (r.due / 100).toFixed(2),
+                (r.localAdjustment / 100).toFixed(2),
+                (r.pendingSettlement / 100).toFixed(2),
+                (r.reserved / 100).toFixed(2),
+                (r.owed / 100).toFixed(2),
+                (r.unconfirmed / 100).toFixed(2),
+                [
+                  r.link.method,
+                  r.classification
+                    ? `Owner confirmed ${r.classification.classification}: ${r.classification.reason}`
+                    : "",
+                  ...r.issues,
+                ]
+                  .filter(Boolean)
+                  .join("; "),
+              ]),
+            ];
     const blob = new Blob(
         ["\uFEFF" + values.map((row) => row.map(cell).join(",")).join("\r\n")],
         { type: "text/csv;charset=utf-8;" },
@@ -355,7 +389,7 @@ export default function FinancePage() {
         )}
         {data && (
           <>
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               <Metric
                 label="Bank less credit card"
                 value={data.bankLessCreditCard ?? "Unavailable"}
@@ -422,17 +456,29 @@ export default function FinancePage() {
                   </>
                 }
               />
+            </div>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <Metric
+                label="Completed work awaiting invoice"
+                value={data.uninvoiced.total}
+                onOpen={() => openDetail("uninvoiced")}
+                actionLabel="View jobs awaiting invoice"
+                note={`${data.uninvoiced.rows.length} jobs · estimated remaining invoice value, included in net position.${data.uninvoiced.needsConfirmation ? ` ${data.uninvoiced.needsConfirmation} need amount confirmation and are excluded from the total.` : ""}${data.uninvoiced.over30 ? ` ${data.uninvoiced.over30} remain unresolved after 30 days.` : ""}`}
+              />
               <Metric
                 label="Net position"
                 value={
                   data.bankLessCreditCard === null
                     ? "Unavailable"
-                    : data.bankLessCreditCard - data.reserved + data.owed
+                    : data.bankLessCreditCard -
+                      data.reserved +
+                      data.owed +
+                      data.uninvoiced.total
                 }
                 note={
                   data.bankLessCreditCard === null
                     ? "Credit card balance needed to calculate net position."
-                    : "Bank less credit card − deposits + completed work still to collect. Not all cash available today."
+                    : "Bank less credit card − deposits + completed invoices still to collect + work awaiting invoice. Includes estimates; not all cash available today."
                 }
               />
             </div>
@@ -580,64 +626,87 @@ export default function FinancePage() {
                     </dl>
                   </div>
                 )}
-                {view !== "review" && view !== "history" && (
+                {view !== "review" &&
+                  view !== "history" &&
+                  view !== "uninvoiced" && (
+                    <div className="border-b border-slate-200 bg-teal-50 px-5 py-4">
+                      <h2 className="font-semibold text-teal-950">
+                        {view === "deposits"
+                          ? "Deposits included in the total"
+                          : view === "owed"
+                            ? "Completed invoices and payments"
+                            : view === "settled"
+                              ? "In the bank, awaiting Xero"
+                              : view === "pending"
+                                ? "Payments awaiting bank settlement"
+                                : "Invoice details"}
+                      </h2>
+                      <p className="mt-1 text-sm text-slate-600">
+                        {rows.length}{" "}
+                        {rows.length === 1 ? "invoice" : "invoices"}
+                        {search ? " matching your search" : ""}
+                        {["deposits", "owed", "settled", "pending"].includes(
+                          view,
+                        ) && (
+                          <>
+                            {" "}
+                            ·{" "}
+                            {money(
+                              rows.reduce(
+                                (sum, r) =>
+                                  sum +
+                                  (view === "deposits"
+                                    ? r.reserved
+                                    : view === "owed"
+                                      ? r.owed
+                                      : view === "settled"
+                                        ? r.localAdjustment
+                                        : r.pendingSettlement),
+                                0,
+                              ),
+                            )}{" "}
+                            {view === "deposits"
+                              ? "held for work to do"
+                              : view === "owed"
+                                ? "still to collect"
+                                : "deducted from completed-job debt"}
+                          </>
+                        )}
+                        .
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Click an invoice to see the source amounts and matching
+                        evidence.{" "}
+                        {view === "deposits"
+                          ? "Only payments for jobs not yet installed are included."
+                          : "Xero due less the two payment deductions equals still to collect."}
+                      </p>
+                      <button
+                        className="mt-2 text-xs font-semibold text-teal-800 underline"
+                        onClick={() => openDetail("review")}
+                      >
+                        Review unallocated bank payments
+                      </button>
+                    </div>
+                  )}
+                {view === "uninvoiced" && (
                   <div className="border-b border-slate-200 bg-teal-50 px-5 py-4">
                     <h2 className="font-semibold text-teal-950">
-                      {view === "deposits"
-                        ? "Deposits included in the total"
-                        : view === "owed"
-                          ? "Completed invoices and payments"
-                          : view === "settled"
-                            ? "In the bank, awaiting Xero"
-                            : view === "pending"
-                              ? "Payments awaiting bank settlement"
-                              : "Invoice details"}
+                      Completed work awaiting invoice
                     </h2>
                     <p className="mt-1 text-sm text-slate-600">
-                      {rows.length} {rows.length === 1 ? "invoice" : "invoices"}
-                      {search ? " matching your search" : ""}
-                      {["deposits", "owed", "settled", "pending"].includes(
-                        view,
-                      ) && (
-                        <>
-                          {" "}
-                          ·{" "}
-                          {money(
-                            rows.reduce(
-                              (sum, r) =>
-                                sum +
-                                (view === "deposits"
-                                  ? r.reserved
-                                  : view === "owed"
-                                    ? r.owed
-                                    : view === "settled"
-                                      ? r.localAdjustment
-                                      : r.pendingSettlement),
-                              0,
-                            ),
-                          )}{" "}
-                          {view === "deposits"
-                            ? "held for work to do"
-                            : view === "owed"
-                              ? "still to collect"
-                              : "deducted from completed-job debt"}
-                        </>
-                      )}
-                      .
+                      Installed jobs dated within the last 30 NZ calendar days,
+                      with no final invoice. Once captured, unresolved jobs stay
+                      visible beyond 30 days.
                     </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Click an invoice to see the source amounts and matching
-                      evidence.{" "}
-                      {view === "deposits"
-                        ? "Only payments for jobs not yet installed are included."
-                        : "Xero due less the two payment deductions equals still to collect."}
+                    <p className="mt-2 text-xs text-slate-500">
+                      Agreed value less deposit and instalment invoices, whether
+                      paid or unpaid. Estimates include GST. Variations and
+                      uncertain invoice matches need confirmation before
+                      inclusion. A final invoice removes the estimate
+                      automatically. Archived or no-longer-installed jobs are
+                      excluded.
                     </p>
-                    <button
-                      className="mt-2 text-xs font-semibold text-teal-800 underline"
-                      onClick={() => openDetail("review")}
-                    >
-                      Review unallocated bank payments
-                    </button>
                   </div>
                 )}
                 <div className="border-b border-slate-200 px-5 pt-5">
@@ -650,6 +719,7 @@ export default function FinancePage() {
                       [
                         ["deposits", "Unfinished work"],
                         ["owed", "To collect"],
+                        ["uninvoiced", "Awaiting invoice"],
                         ["settled", "Awaiting Xero"],
                         ["pending", "Pending settlement"],
                         ["all", "All invoices"],
@@ -693,7 +763,11 @@ export default function FinancePage() {
                     />
                     <div className="flex items-center gap-4">
                       <span className="text-xs text-slate-500">
-                        {view === "review" ? receipts.length : rows.length}{" "}
+                        {view === "uninvoiced"
+                          ? uninvoicedRows.length
+                          : view === "review"
+                            ? receipts.length
+                            : rows.length}{" "}
                         records
                       </span>
                       <button
@@ -704,6 +778,9 @@ export default function FinancePage() {
                       </button>
                     </div>
                   </div>
+                )}
+                {view === "uninvoiced" && (
+                  <UninvoicedTable rows={uninvoicedRows} />
                 )}
                 {view === "review" && !data.bankChecked && (
                   <div className="p-6">
@@ -803,297 +880,302 @@ export default function FinancePage() {
                     )}
                   </>
                 )}
-                {view !== "review" && view !== "history" && (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm">
-                      <thead className="bg-slate-50 text-xs text-slate-500">
-                        <tr>
-                          {[
-                            "Invoice / customer",
-                            "CRM job",
-                            "Xero due",
-                            "Deposits included",
-                            "In bank, awaiting Xero",
-                            "Pending settlement",
-                            "Still to collect",
-                            "Evidence",
-                          ].map((t) => (
-                            <th
-                              key={t}
-                              className="whitespace-nowrap px-5 py-3 font-medium"
-                            >
-                              {t}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {rows.slice(0, limit).map((r) => (
-                          <tr key={r.id} className="align-top">
-                            <td className="min-w-52 px-5 py-4">
-                              <button
-                                className="font-semibold text-slate-900 underline decoration-slate-300 underline-offset-4"
-                                onClick={() =>
-                                  setExpanded(expanded === r.id ? null : r.id)
-                                }
-                                aria-expanded={expanded === r.id}
+                {view !== "review" &&
+                  view !== "history" &&
+                  view !== "uninvoiced" && (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm">
+                        <thead className="bg-slate-50 text-xs text-slate-500">
+                          <tr>
+                            {[
+                              "Invoice / customer",
+                              "CRM job",
+                              "Xero due",
+                              "Deposits included",
+                              "In bank, awaiting Xero",
+                              "Pending settlement",
+                              "Still to collect",
+                              "Evidence",
+                            ].map((t) => (
+                              <th
+                                key={t}
+                                className="whitespace-nowrap px-5 py-3 font-medium"
                               >
-                                {r.number}
-                              </button>
-                              <p className="mt-1 text-xs text-slate-500">
-                                {r.contact}
-                              </p>
-                              <p className="mt-1 text-xs text-slate-500">
-                                {r.reference || "No reference"}
-                              </p>
-                              {expanded === r.id && (
-                                <div className="mt-4 max-w-sm space-y-3 rounded-xl bg-slate-50 p-4 text-xs">
-                                  <p>{r.description}</p>
-                                  <p>
-                                    {r.currency} · Total{" "}
-                                    {(r.total / 100).toFixed(2)} · Xero paid{" "}
-                                    {(r.paid / 100).toFixed(2)} · Credits{" "}
-                                    {(r.credited / 100).toFixed(2)}
-                                  </p>
-                                  <p>
-                                    {data.bankChecked
-                                      ? `Bank settlement unconfirmed ${money(r.unconfirmed)}`
-                                      : "Recent bank receipts checked; older settlement history is not loaded."}
-                                  </p>
-                                  {r.localAdjustment > 0 && (
+                                {t}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {rows.slice(0, limit).map((r) => (
+                            <tr key={r.id} className="align-top">
+                              <td className="min-w-52 px-5 py-4">
+                                <button
+                                  className="font-semibold text-slate-900 underline decoration-slate-300 underline-offset-4"
+                                  onClick={() =>
+                                    setExpanded(expanded === r.id ? null : r.id)
+                                  }
+                                  aria-expanded={expanded === r.id}
+                                >
+                                  {r.number}
+                                </button>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {r.contact}
+                                </p>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {r.reference || "No reference"}
+                                </p>
+                                {expanded === r.id && (
+                                  <div className="mt-4 max-w-sm space-y-3 rounded-xl bg-slate-50 p-4 text-xs">
+                                    <p>{r.description}</p>
                                     <p>
-                                      Already received in bank:{" "}
-                                      {money(r.localAdjustment)} deducted from
-                                      this invoice.
+                                      {r.currency} · Total{" "}
+                                      {(r.total / 100).toFixed(2)} · Xero paid{" "}
+                                      {(r.paid / 100).toFixed(2)} · Credits{" "}
+                                      {(r.credited / 100).toFixed(2)}
                                     </p>
-                                  )}
-                                  {r.pendingSettlement > 0 && (
-                                    <p className="mt-2 text-amber-800">
-                                      Payment received — awaiting settlement:{" "}
-                                      {money(r.pendingSettlement)}. Not counted
-                                      again as settled cash.
-                                    </p>
-                                  )}
-                                  {r.pendingEvidence.map((e) => (
-                                    <p
-                                      key={e.receiptId}
-                                      className="mt-1 text-xs text-amber-800"
-                                    >
-                                      {when(e.date)} · {money(e.amount)} ·{" "}
-                                      {e.description} · Pending bank entry
-                                    </p>
-                                  ))}
-                                  {r.recentEvidence.map((e) => (
-                                    <p key={e.receiptId}>
-                                      {when(e.date)} · {money(e.amount)} ·{" "}
-                                      {e.description} · {e.method}
-                                    </p>
-                                  ))}
-                                  {r.classification && (
                                     <p>
-                                      Owner confirmed:{" "}
-                                      {r.classification.classification ===
-                                      "refunded"
-                                        ? "Cancelled and fully refunded"
-                                        : r.classification.classification ===
-                                            "earned"
-                                          ? "Paid work completed; CRM job remains open"
-                                          : "Not installation work"}
-                                      . {r.classification.reason}
+                                      {data.bankChecked
+                                        ? `Bank settlement unconfirmed ${money(r.unconfirmed)}`
+                                        : "Recent bank receipts checked; older settlement history is not loaded."}
                                     </p>
-                                  )}
-                                  <p>{r.link.method}</p>
-                                  <p>
-                                    CRM: {r.job?.status || "Unknown"} · stage{" "}
-                                    {r.job?.stage || "Unknown"}
-                                    {r.job?.detailVerified
-                                      ? " · verified from job detail"
-                                      : ""}
-                                  </p>
-                                  {r.allocations.map((a, n) => (
-                                    <p key={n}>
-                                      {money(a.gross)} customer amount · fee{" "}
-                                      {money(a.fee)} · {a.method}
-                                      {a.paymentId
-                                        ? " · recorded in Xero"
-                                        : " · no identified Xero payment"}
+                                    {r.localAdjustment > 0 && (
+                                      <p>
+                                        Already received in bank:{" "}
+                                        {money(r.localAdjustment)} deducted from
+                                        this invoice.
+                                      </p>
+                                    )}
+                                    {r.pendingSettlement > 0 && (
+                                      <p className="mt-2 text-amber-800">
+                                        Payment received — awaiting settlement:{" "}
+                                        {money(r.pendingSettlement)}. Not
+                                        counted again as settled cash.
+                                      </p>
+                                    )}
+                                    {r.pendingEvidence.map((e) => (
+                                      <p
+                                        key={e.receiptId}
+                                        className="mt-1 text-xs text-amber-800"
+                                      >
+                                        {when(e.date)} · {money(e.amount)} ·{" "}
+                                        {e.description} · Pending bank entry
+                                      </p>
+                                    ))}
+                                    {r.recentEvidence.map((e) => (
+                                      <p key={e.receiptId}>
+                                        {when(e.date)} · {money(e.amount)} ·{" "}
+                                        {e.description} · {e.method}
+                                      </p>
+                                    ))}
+                                    {r.classification && (
+                                      <p>
+                                        Owner confirmed:{" "}
+                                        {r.classification.classification ===
+                                        "refunded"
+                                          ? "Cancelled and fully refunded"
+                                          : r.classification.classification ===
+                                              "earned"
+                                            ? "Paid work completed; CRM job remains open"
+                                            : "Not installation work"}
+                                        . {r.classification.reason}
+                                      </p>
+                                    )}
+                                    <p>{r.link.method}</p>
+                                    <p>
+                                      CRM: {r.job?.status || "Unknown"} · stage{" "}
+                                      {r.job?.stage || "Unknown"}
+                                      {r.job?.detailVerified
+                                        ? " · verified from job detail"
+                                        : ""}
                                     </p>
-                                  ))}
-                                  {r.issues.map((x) => (
-                                    <p className="text-amber-800" key={x}>
-                                      {x}
-                                    </p>
-                                  ))}
-                                  <div className="flex flex-wrap gap-3">
-                                    <button
-                                      className="font-semibold text-teal-700"
-                                      onClick={() =>
-                                        setTarget({ kind: "link", id: r.id })
-                                      }
-                                    >
-                                      Confirm/change job
-                                    </button>
-                                    <button
-                                      className="font-semibold text-teal-700"
-                                      onClick={() =>
-                                        setTarget({ kind: "opening", id: r.id })
-                                      }
-                                    >
-                                      Historical bank evidence
-                                    </button>
-                                    {r.due === 0 && (
+                                    {r.allocations.map((a, n) => (
+                                      <p key={n}>
+                                        {money(a.gross)} customer amount · fee{" "}
+                                        {money(a.fee)} · {a.method}
+                                        {a.paymentId
+                                          ? " · recorded in Xero"
+                                          : " · no identified Xero payment"}
+                                      </p>
+                                    ))}
+                                    {r.issues.map((x) => (
+                                      <p className="text-amber-800" key={x}>
+                                        {x}
+                                      </p>
+                                    ))}
+                                    <div className="flex flex-wrap gap-3">
+                                      <button
+                                        className="font-semibold text-teal-700"
+                                        onClick={() =>
+                                          setTarget({ kind: "link", id: r.id })
+                                        }
+                                      >
+                                        Confirm/change job
+                                      </button>
                                       <button
                                         className="font-semibold text-teal-700"
                                         onClick={() =>
                                           setTarget({
-                                            kind: "classification",
+                                            kind: "opening",
                                             id: r.id,
                                           })
                                         }
                                       >
-                                        Classify closed invoice
+                                        Historical bank evidence
                                       </button>
-                                    )}
+                                      {r.due === 0 && (
+                                        <button
+                                          className="font-semibold text-teal-700"
+                                          onClick={() =>
+                                            setTarget({
+                                              kind: "classification",
+                                              id: r.id,
+                                            })
+                                          }
+                                        >
+                                          Classify closed invoice
+                                        </button>
+                                      )}
+                                    </div>
                                   </div>
-                                </div>
-                              )}
-                            </td>
-                            <td className="max-w-56 px-5 py-4">
-                              {r.classification ? (
-                                <button
-                                  className="text-teal-800 underline"
-                                  onClick={() =>
-                                    setTarget({
-                                      kind: "classification",
-                                      id: r.id,
-                                    })
-                                  }
-                                >
-                                  {r.classification.classification ===
-                                  "refunded"
-                                    ? "Cancelled · refunded"
-                                    : r.classification.classification ===
-                                        "earned"
-                                      ? "Paid work completed"
-                                      : "Not installation work"}
-                                </button>
-                              ) : r.job ? (
-                                <>
-                                  <Link
-                                    className="text-teal-800 underline underline-offset-4"
-                                    href={"/jobs/" + r.job.id}
+                                )}
+                              </td>
+                              <td className="max-w-56 px-5 py-4">
+                                {r.classification ? (
+                                  <button
+                                    className="text-teal-800 underline"
+                                    onClick={() =>
+                                      setTarget({
+                                        kind: "classification",
+                                        id: r.id,
+                                      })
+                                    }
                                   >
-                                    {r.job.quote || r.job.number}
-                                  </Link>
-                                  <p className="mt-1 text-xs text-slate-500">
-                                    {r.job.name}
-                                  </p>
-                                  <p className="mt-2 text-xs">
-                                    {isJobInstalled(r.job)
-                                      ? "Installed"
-                                      : r.job.status
-                                        ? "Not installed"
-                                        : "Status unknown"}
-                                    {r.job.archived ? " · archived" : ""}
-                                  </p>
-                                </>
-                              ) : (
-                                <button
-                                  className="text-amber-800 underline underline-offset-4"
-                                  onClick={() =>
-                                    setTarget({ kind: "link", id: r.id })
-                                  }
-                                >
-                                  Link job
-                                </button>
-                              )}
+                                    {r.classification.classification ===
+                                    "refunded"
+                                      ? "Cancelled · refunded"
+                                      : r.classification.classification ===
+                                          "earned"
+                                        ? "Paid work completed"
+                                        : "Not installation work"}
+                                  </button>
+                                ) : r.job ? (
+                                  <>
+                                    <Link
+                                      className="text-teal-800 underline underline-offset-4"
+                                      href={"/jobs/" + r.job.id}
+                                    >
+                                      {r.job.quote || r.job.number}
+                                    </Link>
+                                    <p className="mt-1 text-xs text-slate-500">
+                                      {r.job.name}
+                                    </p>
+                                    <p className="mt-2 text-xs">
+                                      {isJobInstalled(r.job)
+                                        ? "Installed"
+                                        : r.job.status
+                                          ? "Not installed"
+                                          : "Status unknown"}
+                                      {r.job.archived ? " · archived" : ""}
+                                    </p>
+                                  </>
+                                ) : (
+                                  <button
+                                    className="text-amber-800 underline underline-offset-4"
+                                    onClick={() =>
+                                      setTarget({ kind: "link", id: r.id })
+                                    }
+                                  >
+                                    Link job
+                                  </button>
+                                )}
+                              </td>
+                              <td className="whitespace-nowrap px-5 py-4 tabular-nums">
+                                {r.currency === "NZD"
+                                  ? money(r.due)
+                                  : r.currency + " " + (r.due / 100).toFixed(2)}
+                              </td>
+                              <td className="whitespace-nowrap px-5 py-4 font-medium tabular-nums">
+                                {money(r.reserved)}
+                              </td>
+                              <td className="whitespace-nowrap px-5 py-4 font-medium tabular-nums">
+                                {money(r.localAdjustment)}
+                              </td>
+                              <td className="whitespace-nowrap px-5 py-4 tabular-nums">
+                                {money(r.pendingSettlement)}
+                              </td>
+                              <td className="whitespace-nowrap px-5 py-4 font-medium tabular-nums">
+                                {money(r.owed)}
+                              </td>
+                              <td className="max-w-52 px-5 py-4 text-xs leading-5 text-slate-500">
+                                {r.classification
+                                  ? "Owner confirmed · excluded from deposits"
+                                  : r.pendingSettlement > 0
+                                    ? "Payment received — awaiting settlement"
+                                    : r.issues.length
+                                      ? r.issues.join(" · ")
+                                      : r.unconfirmed
+                                        ? "Paid; settlement needs evidence"
+                                        : r.localAdjustment > 0 ||
+                                            r.allocations.length
+                                          ? "Bank evidence linked"
+                                          : r.paid === 0
+                                            ? "No payment recorded"
+                                            : "Xero payment recorded"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot className="border-t border-slate-200 bg-slate-50 font-semibold">
+                          <tr>
+                            <td colSpan={2} className="px-5 py-4">
+                              Total · {rows.length}{" "}
+                              {rows.length === 1 ? "invoice" : "invoices"}
+                              {search ? " (filtered)" : ""}
                             </td>
-                            <td className="whitespace-nowrap px-5 py-4 tabular-nums">
-                              {r.currency === "NZD"
-                                ? money(r.due)
-                                : r.currency + " " + (r.due / 100).toFixed(2)}
-                            </td>
-                            <td className="whitespace-nowrap px-5 py-4 font-medium tabular-nums">
-                              {money(r.reserved)}
-                            </td>
-                            <td className="whitespace-nowrap px-5 py-4 font-medium tabular-nums">
-                              {money(r.localAdjustment)}
-                            </td>
-                            <td className="whitespace-nowrap px-5 py-4 tabular-nums">
-                              {money(r.pendingSettlement)}
-                            </td>
-                            <td className="whitespace-nowrap px-5 py-4 font-medium tabular-nums">
-                              {money(r.owed)}
-                            </td>
-                            <td className="max-w-52 px-5 py-4 text-xs leading-5 text-slate-500">
-                              {r.classification
-                                ? "Owner confirmed · excluded from deposits"
-                                : r.pendingSettlement > 0
-                                  ? "Payment received — awaiting settlement"
-                                  : r.issues.length
-                                    ? r.issues.join(" · ")
-                                    : r.unconfirmed
-                                      ? "Paid; settlement needs evidence"
-                                      : r.localAdjustment > 0 ||
-                                          r.allocations.length
-                                        ? "Bank evidence linked"
-                                        : r.paid === 0
-                                          ? "No payment recorded"
-                                          : "Xero payment recorded"}
+                            {[
+                              "due",
+                              "reserved",
+                              "localAdjustment",
+                              "pendingSettlement",
+                              "owed",
+                            ].map((key) => (
+                              <td
+                                key={key}
+                                className="whitespace-nowrap px-5 py-4 tabular-nums"
+                              >
+                                {money(
+                                  rows.reduce(
+                                    (sum, r) =>
+                                      sum +
+                                      (r.currency === "NZD"
+                                        ? r[
+                                            key as
+                                              | "due"
+                                              | "reserved"
+                                              | "localAdjustment"
+                                              | "pendingSettlement"
+                                              | "owed"
+                                          ]
+                                        : 0),
+                                    0,
+                                  ),
+                                )}
+                              </td>
+                            ))}
+                            <td className="px-5 py-4 text-xs font-normal">
+                              NZD only · all matching rows
                             </td>
                           </tr>
-                        ))}
-                      </tbody>
-                      <tfoot className="border-t border-slate-200 bg-slate-50 font-semibold">
-                        <tr>
-                          <td colSpan={2} className="px-5 py-4">
-                            Total · {rows.length}{" "}
-                            {rows.length === 1 ? "invoice" : "invoices"}
-                            {search ? " (filtered)" : ""}
-                          </td>
-                          {[
-                            "due",
-                            "reserved",
-                            "localAdjustment",
-                            "pendingSettlement",
-                            "owed",
-                          ].map((key) => (
-                            <td
-                              key={key}
-                              className="whitespace-nowrap px-5 py-4 tabular-nums"
-                            >
-                              {money(
-                                rows.reduce(
-                                  (sum, r) =>
-                                    sum +
-                                    (r.currency === "NZD"
-                                      ? r[
-                                          key as
-                                            | "due"
-                                            | "reserved"
-                                            | "localAdjustment"
-                                            | "pendingSettlement"
-                                            | "owed"
-                                        ]
-                                      : 0),
-                                  0,
-                                ),
-                              )}
-                            </td>
-                          ))}
-                          <td className="px-5 py-4 text-xs font-normal">
-                            NZD only · all matching rows
-                          </td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                    {!rows.length && (
-                      <p className="p-8 text-sm text-slate-500">
-                        No invoices match this view.
-                      </p>
-                    )}
-                  </div>
-                )}
+                        </tfoot>
+                      </table>
+                      {!rows.length && (
+                        <p className="p-8 text-sm text-slate-500">
+                          No invoices match this view.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 {view === "history" && (
                   <div className="divide-y divide-slate-100">
                     {data.history.length ? (
@@ -1141,6 +1223,7 @@ export default function FinancePage() {
                   </div>
                 )}
                 {view !== "history" &&
+                  view !== "uninvoiced" &&
                   (view === "review" ? receipts.length : rows.length) >
                     limit && (
                     <div className="border-t border-slate-100 p-5 text-center">

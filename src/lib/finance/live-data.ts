@@ -1,4 +1,6 @@
 import "server-only";
+import { recentInstalledJob } from "./uninvoiced";
+import { trackedUninvoicedJobs } from "./uninvoiced-store";
 import { linkInvoices } from "./linking";
 import { FinanceError, safeFetch } from "./errors";
 import {
@@ -128,7 +130,7 @@ export async function readCrmJobs(token: string): Promise<FinanceJob[]> {
       headers: { "content-type": "application/json", "x-access-token": token },
       body: JSON.stringify({
         query:
-          "query FinanceJobIndex($skip:Int,$limit:Int){jobs(skip:$skip,limit:$limit){total results{_id jobNumber stage archivedAt quote{quoteNumber} installation{installStatus} client{contactDetails{name streetAddress}}}}}",
+          "query FinanceJobIndex($skip:Int,$limit:Int){jobs(skip:$skip,limit:$limit){total results{_id jobNumber stage archivedAt quote{quoteNumber} installation{installStatus installDate} client{contactDetails{name streetAddress}}}}}",
         variables: { skip, limit: 500 },
       }),
     });
@@ -172,6 +174,7 @@ export async function readCrmJobs(token: string): Promise<FinanceJob[]> {
         number: String(j.jobNumber ?? ""),
         quote: String(j.quote?.quoteNumber || ""),
         status: String(j.installation?.installStatus || ""),
+        installDate: String(j.installation?.installDate || ""),
         stage: String(j.stage || ""),
         archived: !!j.archivedAt,
         contact: String(j.client?.contactDetails?.name || ""),
@@ -192,9 +195,12 @@ export async function verifyCrmDetails(
   token: string,
   jobs: FinanceJob[],
   invoices: FinanceInvoice[],
+  trackedIds: string[] = [],
 ) {
   const links = linkInvoices(invoices, jobs, []);
-  const selected = new Set<string>();
+  const selected = new Set<string>(trackedIds);
+  for (const job of jobs)
+    if (recentInstalledJob(job, new Date().toISOString())) selected.add(job.id);
   for (const link of links.values()) {
     if (!link.jobId || link.method.includes("customer/site"))
       for (const id of link.candidates) selected.add(id);
@@ -227,7 +233,7 @@ export async function verifyCrmDetails(
     const fields = batch
       .map(
         (_, i) =>
-          `j${i}:job(_id:$id${i}){_id stage installation{installStatus} depositInvoice{xeroInvoiceNumber} finalInvoice{xeroInvoiceNumber} additionalInstallmentInvoices{xeroInvoiceNumber}}`,
+          `j${i}:job(_id:$id${i}){_id stage totalPriceManagerOverride quote{c_total} installation{installStatus installDate} depositInvoice{xeroInvoiceNumber} finalInvoice{xeroInvoiceNumber} additionalInstallmentInvoices{xeroInvoiceNumber}}`,
       )
       .join(" ");
     const query = `query FinanceJobDetails(${batch.map((_, i) => `$id${i}:ObjectId!`).join(",")}){${fields}}`;
@@ -272,6 +278,29 @@ export async function verifyCrmDetails(
         status: String(detail.installation?.installStatus || ""),
         stage: String(detail.stage || ""),
         invoiceNumbers: numbers,
+        installDate: String(
+          detail.installation?.installDate || j.installDate || "",
+        ),
+        quoteCents:
+          typeof detail.quote?.c_total === "number" &&
+          Number.isFinite(detail.quote.c_total)
+            ? Math.round(detail.quote.c_total * 100)
+            : null,
+        agreedCents:
+          typeof detail.totalPriceManagerOverride === "number" &&
+          Number.isFinite(detail.totalPriceManagerOverride)
+            ? Math.round(detail.totalPriceManagerOverride * 100)
+            : null,
+        finalInvoiceChecked:
+          Object.hasOwn(detail, "finalInvoice") &&
+          !(d.errors || []).some(
+            (e: { path?: (string | number)[] }) => e.path?.[0] === "j" + i,
+          ),
+        finalInvoiceNumber: detail.finalInvoice?.xeroInvoiceNumber || null,
+        depositInvoiceNumber: detail.depositInvoice?.xeroInvoiceNumber || null,
+        installmentInvoiceNumbers: (detail.additionalInstallmentInvoices || [])
+          .map((v: { xeroInvoiceNumber?: string }) => v?.xeroInvoiceNumber)
+          .filter(Boolean),
         detailVerified: true,
         completionConflict:
           detail.stage === "COMPLETED" &&
@@ -359,7 +388,7 @@ export async function loadFinanceInputs(
     timings[name] = Date.now() - start;
     return result;
   }
-  const [bank, transactions, jobs, xero, creditCard, pendingBank] =
+  const [bank, transactions, jobs, xero, creditCard, pendingBank, trackedIds] =
     await Promise.all([
       timed("bank", getBankSnapshot()),
       getBankTransactions(historyStart, historyEnd),
@@ -378,6 +407,7 @@ export async function loadFinanceInputs(
             "Pending bank payments unavailable. Amounts shown as owed may include payments awaiting settlement.",
         })),
       ),
+      trackedUninvoicedJobs(owner.userId),
     ]);
   const receipts = transactions.map((t) => ({
     id: t.id,
@@ -388,7 +418,7 @@ export async function loadFinanceInputs(
   }));
   const verifiedJobs = await timed(
     "crmDetails",
-    verifyCrmDetails(owner.token, jobs, xero.invoices),
+    verifyCrmDetails(owner.token, jobs, xero.invoices, trackedIds),
   );
   console.info(
     "finance_load",
@@ -408,6 +438,7 @@ export async function loadFinanceInputs(
     historyStart,
     historyEnd,
     jobs: verifiedJobs,
+    trackedUninvoicedIds: trackedIds,
     bankChecked: bankCheck,
     recentBankChecked: true,
     ...xero,

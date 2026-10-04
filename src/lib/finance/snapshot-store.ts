@@ -2,7 +2,7 @@ import "server-only";
 import { financePool } from "./connection-store";
 import { decryptTokens, encryptTokens } from "./crypto";
 import type { FinanceInputs } from "./model";
-const version = "pending-payments-v7";
+const version = "uninvoiced-v8";
 export async function readSnapshot(
   owner: string,
   mode: string,

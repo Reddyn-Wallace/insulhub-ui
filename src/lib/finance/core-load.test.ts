@@ -1,5 +1,6 @@
 import { it, expect, vi } from "vitest";
 vi.mock("server-only", () => ({}));
+vi.mock("./uninvoiced-store", () => ({ trackedUninvoicedJobs: async () => [] }));
 vi.mock("./xero-oauth", () => ({
   withXeroAccess: async (
     _owner: string,

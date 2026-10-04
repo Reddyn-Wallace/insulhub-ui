@@ -151,3 +151,14 @@ The fourth overview card is bank less credit card minus deposits held plus compl
 ### Quote-reference receipt corroboration
 
 A receipt without any invoice-number token can match by exactly one full quote reference, the complete payer name (including short name components; c/o contact supported), a linked installed CRM job and a unique full invoice amount after credits. Paid invoices remain competing candidates to prevent redirecting old receipts after Xero catch-up. Related negative receipts block deductions even for partial refunds. Existing seven-day, owner-review, stale-evidence, overlap and pending/settled deduplication rules remain in force. The zero-deduction headline describes no matched deductions, not the absence of unreconciled transactions.
+
+### Completed work awaiting invoice (4 October 2026)
+
+- Discover non-archived jobs with an explicit installed status and a CRM installation date in the current NZ calendar date and preceding 29 days. This is the recorded installation date, not an inferred status-change timestamp.
+- Verify each recent job's final-invoice relation, quote total, manager total override, deposit and instalment invoice roles from CRM detail, including jobs with no invoices at all.
+- A final invoice removes the estimate; a quote/final-invoice price difference is never treated as more work to bill.
+- Estimate = agreed total (manager override when recorded, otherwise quote, GST inclusive) minus the full amounts already invoiced as deposits/instalments, paid or unpaid. Existing unpaid invoices remain in the separate owed figure.
+- Missing source values, unverified invoice roles, unmatched candidate invoices, credits, non-NZD invoices, owner-classified invoices and unconfirmed variation values are excluded from the amount and shown for confirmation.
+- Persist discovered job IDs per owner in `finance_uninvoiced_jobs`. Captured unresolved jobs remain visible and flagged once their date leaves the discovery window. Refresh recalculates all amounts/statuses; no financial amounts are stored in this tracker. Archived or no-longer-installed jobs stop contributing, and inaccessible tracked jobs are flagged.
+- Net position = bank less credit card − deposits + completed invoices still owed + confirmed-source estimates awaiting invoice. Search only filters the drill-down and its CSV, never headline totals.
+- Discovery occurs on dashboard source refresh; this does not backfill jobs that were never observed within the 30-day window.

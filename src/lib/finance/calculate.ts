@@ -1,3 +1,4 @@
+import { uninvoicedWork } from "./uninvoiced";
 import {
   isJobInstalled,
   type FinanceInputs,
@@ -13,6 +14,7 @@ export function calculateFinance(
   input: FinanceInputs,
   decisions: ReviewDecision[],
 ) {
+  const uninvoiced = uninvoicedWork(input, decisions);
   const links = linkInvoices(input.invoices, input.jobs, decisions),
     matches = matchReceipts(input, decisions);
   const uncertainRecent = new Set<string>();
@@ -212,6 +214,7 @@ export function calculateFinance(
     unlinked > 0 ||
     rows.some((r) => r.issues.length > 0);
   return {
+    uninvoiced,
     bankChecked: input.bankChecked !== false,
     recentBankChecked: !!input.recentBankChecked,
     uncertainRecentCount: uncertainRecent.size,

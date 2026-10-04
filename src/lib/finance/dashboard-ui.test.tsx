@@ -311,3 +311,77 @@ it("shows a pending invoice separately from the amount to collect and leaves ban
     screen.getByText("Payment received — awaiting settlement"),
   ).toBeTruthy();
 });
+it("adds uninvoiced completed work to net and opens a searchable job breakdown", async () => {
+  localStorage.setItem("token", "test-session");
+  const calculated = calculateFinance(
+    {
+      checkedAt: "2026-10-04T07:00:00Z",
+      bank: {
+        currentCents: 100000,
+        balanceUpdatedAt: "2026-10-04",
+        transactionsUpdatedAt: "2026-10-04",
+        stale: false,
+        accountName: "Trading",
+      },
+      creditCard: {
+        name: "Visa",
+        currentCents: 0,
+        owedCents: 0,
+        creditCents: 0,
+        stale: false,
+        balanceUpdatedAt: "2026-10-04",
+      },
+      pendingBank: { receipts: [] },
+      historyStart: "",
+      historyEnd: "",
+      jobs: [
+        {
+          id: "j",
+          number: "28697",
+          quote: "BW28697",
+          name: "44 Watt Street",
+          contact: "Alan Mirza",
+          archived: false,
+          status: "INSTALLED_AS_QUOTED",
+          invoiceNumbers: [],
+          installDate: "2026-10-01T19:00:00Z",
+          quoteCents: 222525,
+          finalInvoiceChecked: true,
+          finalInvoiceNumber: null,
+        },
+      ],
+      invoices: [],
+      receipts: [],
+      payments: [],
+      warnings: [],
+    },
+    [],
+  );
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json({
+        ...calculated,
+        jobs: [],
+        decisions: [],
+        history: [],
+        staleDecisions: [],
+        fingerprints: {},
+        payments: [],
+      }),
+    ),
+  );
+  render(<Page />);
+  const button = await screen.findByRole("button", {
+    name: /Completed work awaiting invoice: \$2,225.25/,
+  });
+  expect(screen.getByText("$3,225.25")).toBeTruthy();
+  fireEvent.click(button);
+  expect(screen.getByRole("link", { name: "Alan Mirza" })).toBeTruthy();
+  expect(screen.getByText("44 Watt Street")).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("Search financial records"), {
+    target: { value: "absent" },
+  });
+  expect(screen.queryByRole("link", { name: "Alan Mirza" })).toBeNull();
+  expect(screen.getByText("$3,225.25")).toBeTruthy();
+});

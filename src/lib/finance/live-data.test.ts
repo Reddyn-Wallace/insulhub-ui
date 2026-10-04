@@ -182,3 +182,45 @@ it("verifies every competing quote job before finalising customer-corroborated l
   expect(linkInvoices(invoices, verified, []).get("i")?.jobId).toBe("b");
   vi.unstubAllGlobals();
 });
+it("checks recent installed jobs even without any Xero invoices, and captures price and invoice roles", async () => {
+  const { verifyCrmDetails } = await import("./live-data");
+  const j = {
+    id: "new",
+    number: "1",
+    name: "Site",
+    quote: "Q1",
+    status: "INSTALLED_AS_QUOTED",
+    archived: false,
+    invoiceNumbers: [],
+    installDate: new Date().toISOString(),
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json({
+        data: {
+          j0: {
+            _id: "new",
+            stage: "INSTALLATION",
+            installation: {
+              installStatus: "INSTALLED_AS_QUOTED",
+              installDate: j.installDate,
+            },
+            quote: { c_total: 2967 },
+            totalPriceManagerOverride: null,
+            depositInvoice: null,
+            finalInvoice: null,
+            additionalInstallmentInvoices: [],
+          },
+        },
+      }),
+    ),
+  );
+  expect((await verifyCrmDetails("token", [j], []))[0]).toMatchObject({
+    finalInvoiceChecked: true,
+    finalInvoiceNumber: null,
+    quoteCents: 296700,
+    agreedCents: null,
+  });
+  vi.unstubAllGlobals();
+});

@@ -1,3 +1,4 @@
+import { trackUninvoicedJobs } from "./uninvoiced-store";
 import "server-only";
 import { dashboardInputs } from "./snapshot-cache";
 import { calculateFinance } from "./calculate";
@@ -35,6 +36,10 @@ export async function buildDashboard(
         .map((d) => d.key.slice("receipt:".length)),
     },
     active,
+  );
+  await trackUninvoicedJobs(
+    owner.userId,
+    dashboard.uninvoiced.rows.map((r) => r.jobId),
   );
   return {
     ...dashboard,

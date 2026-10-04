@@ -10,6 +10,13 @@ export type FinanceJob = {
   contact?: string;
   detailVerified?: boolean;
   completionConflict?: boolean;
+  installDate?: string;
+  quoteCents?: number | null;
+  agreedCents?: number | null;
+  finalInvoiceChecked?: boolean;
+  finalInvoiceNumber?: string | null;
+  depositInvoiceNumber?: string | null;
+  installmentInvoiceNumbers?: string[];
 };
 export type FinanceInvoice = {
   id: string;
@@ -57,6 +64,7 @@ export type PendingReceipt = {
   updatedAt: string;
 };
 export type FinanceInputs = {
+  trackedUninvoicedIds?: string[];
   pendingBank?: { receipts: PendingReceipt[] } | { error: string };
   creditCard?: CreditCardSnapshot;
   checkedAt: string;
