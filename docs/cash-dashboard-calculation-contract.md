@@ -162,3 +162,5 @@ A receipt without any invoice-number token can match by exactly one full quote r
 - Persist discovered job IDs per owner in `finance_uninvoiced_jobs`. Captured unresolved jobs remain visible and flagged once their date leaves the discovery window. Refresh recalculates all amounts/statuses; no financial amounts are stored in this tracker. Archived or no-longer-installed jobs stop contributing, and inaccessible tracked jobs are flagged.
 - Net position = bank less credit card − deposits + completed invoices still owed + confirmed-source estimates awaiting invoice. Search only filters the drill-down and its CSV, never headline totals.
 - Discovery occurs on dashboard source refresh; this does not backfill jobs that were never observed within the 30-day window.
+
+The overview combines completed invoice debt and awaiting-invoice estimates in **Owed for completed jobs**, with a clickable job-count callout. The detailed bridge separately shows the estimate; Net adds it exactly once. There is no separate awaiting-invoice headline card.

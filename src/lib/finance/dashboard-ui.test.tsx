@@ -373,10 +373,12 @@ it("adds uninvoiced completed work to net and opens a searchable job breakdown",
   );
   render(<Page />);
   const button = await screen.findByRole("button", {
-    name: /Completed work awaiting invoice: \$2,225.25/,
+    name: /Owed for completed jobs: \$2,225.25/,
   });
   expect(screen.getByText("$3,225.25")).toBeTruthy();
   fireEvent.click(button);
+  expect(screen.getByText("Plus: work awaiting invoice")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: /1 job needs invoicing/ }));
   expect(screen.getByRole("link", { name: "Alan Mirza" })).toBeTruthy();
   expect(screen.getByText("44 Watt Street")).toBeTruthy();
   fireEvent.change(screen.getByLabelText("Search financial records"), {

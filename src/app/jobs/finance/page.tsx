@@ -389,7 +389,7 @@ export default function FinancePage() {
         )}
         {data && (
           <>
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <Metric
                 label="Bank less credit card"
                 value={data.bankLessCreditCard ?? "Unavailable"}
@@ -445,25 +445,23 @@ export default function FinancePage() {
                 onOpen={() => openDetail("owed")}
                 actionLabel="View completed invoices and payments"
                 label="Owed for completed jobs"
-                value={data.owed}
+                value={data.owed + data.uninvoiced.total}
                 note={
                   <>
                     {data.localAdjustment + data.pendingSettlement > 0
                       ? `Already factors in ${money(data.localAdjustment + data.pendingSettlement)} in payments received, awaiting reconciliation.`
                       : "No payments have been matched and deducted from this figure."}
+                    {data.uninvoiced.rows.length > 0 && (
+                      <><br /><button className="text-left font-medium text-teal-800 underline underline-offset-2" onClick={() => openDetail("uninvoiced")}>
+                        {data.uninvoiced.rows.length} {data.uninvoiced.rows.length === 1 ? "job needs" : "jobs need"} invoicing · {money(data.uninvoiced.total)} estimated, included above.
+                      </button></>
+                    )}
+                    {data.uninvoiced.needsConfirmation > 0 && ` ${data.uninvoiced.needsConfirmation} need amount confirmation and are excluded.`}
+                    {data.uninvoiced.over30 > 0 && ` ${data.uninvoiced.over30} remain unresolved after 30 days.`}
                     {data.unclassifiedOwed > 0 &&
                       " Some unpaid invoices still need their job confirmed."}
                   </>
                 }
-              />
-            </div>
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <Metric
-                label="Completed work awaiting invoice"
-                value={data.uninvoiced.total}
-                onOpen={() => openDetail("uninvoiced")}
-                actionLabel="View jobs awaiting invoice"
-                note={`${data.uninvoiced.rows.length} ${data.uninvoiced.rows.length === 1 ? "job" : "jobs"} · estimated remaining invoice value, included in net position.${data.uninvoiced.needsConfirmation ? ` ${data.uninvoiced.needsConfirmation} ${data.uninvoiced.needsConfirmation === 1 ? "needs" : "need"} amount confirmation and ${data.uninvoiced.needsConfirmation === 1 ? "is" : "are"} excluded from the total.` : ""}${data.uninvoiced.over30 ? ` ${data.uninvoiced.over30} remain unresolved after 30 days.` : ""}`}
               />
               <Metric
                 label="Net position"
@@ -478,7 +476,7 @@ export default function FinancePage() {
                 note={
                   data.bankLessCreditCard === null
                     ? "Credit card balance needed to calculate net position."
-                    : "Bank less credit card − deposits + completed invoices still to collect + work awaiting invoice. Includes estimates; not all cash available today."
+                    : "Bank less credit card − deposits + owed for completed jobs. Includes work awaiting invoice; not all cash available today."
                 }
               />
             </div>
@@ -619,9 +617,13 @@ export default function FinancePage() {
                         </dt>
                         <dd>−{money(data.pendingSettlement)}</dd>
                       </div>
+                      <div className="flex justify-between gap-3">
+                        <dt><button className="text-left text-teal-800 underline underline-offset-2" onClick={() => openDetail("uninvoiced")}>Plus: work awaiting invoice</button></dt>
+                        <dd>{money(data.uninvoiced.total)}</dd>
+                      </div>
                       <div className="flex justify-between gap-3 font-semibold">
                         <dt>Still to collect</dt>
-                        <dd>{money(data.owed)}</dd>
+                        <dd>{money(data.owed + data.uninvoiced.total)}</dd>
                       </div>
                     </dl>
                   </div>
