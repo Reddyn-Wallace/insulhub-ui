@@ -23,7 +23,7 @@ function Detail({item,checkedAt,onBack,onDone,onAccessLost,readOnly}:{item:Queue
   const {job}=item;
   const existingDiscount=quoteDiscounts(job.quote);
   return <section aria-label="Selected quote" className="min-w-0 space-y-5">
-    <button type="button" onClick={onBack} className="min-h-11 text-sm font-semibold text-[#1a3a4a] md:hidden">← Back to quotes</button>
+    <button type="button" onClick={onBack} className="min-h-11 text-sm font-semibold text-[#1a3a4a] md:hidden">← Back to follow-ups</button>
     <div className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Quote · #{job.jobNumber}</p><h2 className="mt-2 text-2xl font-bold text-[#1a3a4a]">{job.client?.contactDetails?.name || 'Unnamed customer'}</h2><p className="mt-1 text-sm text-slate-500">{[job.client?.contactDetails?.streetAddress,job.client?.contactDetails?.suburb,job.client?.contactDetails?.city].filter(Boolean).join(', ') || 'Address not recorded'}</p></div>
@@ -38,7 +38,7 @@ function Detail({item,checkedAt,onBack,onDone,onAccessLost,readOnly}:{item:Queue
       <p className="mt-1 text-sm text-slate-600">{(job.quote?.wall?.SQM ?? 0) > 0 && <span>Wall: {job.quote?.wall?.SQM} m²</span>}{(job.quote?.wall?.SQM ?? 0) > 0 && (job.quote?.ceiling?.SQM ?? 0) > 0 && ' · '}{(job.quote?.ceiling?.SQM ?? 0) > 0 && <span>Ceiling: {job.quote?.ceiling?.SQM} m²</span>}</p>
       {job.quote?.quoteNote && <p className="mt-3 whitespace-pre-wrap break-words text-sm text-slate-600">{job.quote.quoteNote}</p>}
       <div className="mt-5 border-t border-slate-100 pt-4"><h3 className="font-semibold text-[#1a3a4a]">Job notes</h3><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-600">{job.notes || 'No notes recorded.'}</p></div>
-      <div className="mt-5 border-t border-slate-100 pt-4"><h3 className="font-semibold text-[#1a3a4a]">Follow-up history</h3>{item.controls?.state.offers.length?<ul className="mt-2 space-y-2">{item.controls.state.offers.map(offer=><li key={offer.number} className="text-sm text-slate-600">{offer.number===1?'First':'Second'} offer · {money(offer.discountCents/100)} discount · {offer.channel.toUpperCase()} · {date(offer.sentAt)}</li>)}</ul>:<p className="mt-2 text-sm text-slate-500">No follow-up offers recorded.</p>}<Link href={`/jobs/${encodeURIComponent(job._id)}/follow-up-history`} className="mt-2 inline-flex min-h-11 items-center text-sm font-semibold text-[#1a3a4a] underline">View full follow-up history</Link></div>
+      <div className="mt-5 border-t border-slate-100 pt-4"><h3 className="font-semibold text-[#1a3a4a]">Follow-up history</h3>{item.controls?.state.offers.length?<ul className="mt-2 space-y-2">{item.controls.state.offers.map(offer=><li key={offer.number} className="text-sm text-slate-600">{offer.number===1?'First':'Second'} offer · {money(offer.discountCents/100)} discount · {offer.channel.toUpperCase()} · {date(offer.sentAt)}</li>)}</ul>:<p className="mt-2 text-sm text-slate-500">No follow-up offers recorded.</p>}</div>
       <Link className="mt-4 inline-flex min-h-11 items-center text-sm font-semibold text-[#1a3a4a] underline underline-offset-4" href={`/jobs/${encodeURIComponent(job._id)}?returnTo=${encodeURIComponent('/jobs/follow-ups?stage=QUOTE')}`}>Open full quote and communications →</Link>
     </div>
     <FollowupActions item={item} readOnly={readOnly} onDone={onDone} onAccessLost={onAccessLost}/>
@@ -78,7 +78,6 @@ export default function DeadFollowupsPage() {
   const item=data?.items.find(item=>item.job._id===selected);
   return <main className="min-h-screen bg-[#f5f7f8] px-4 py-6 sm:px-6 lg:px-8">
     <div className="mx-auto max-w-7xl">
-      <Link href="/jobs?stage=QUOTE&subTab=DEAD" className="text-sm font-medium text-slate-500 hover:text-[#1a3a4a]">← Dead quotes</Link>
       <div className="mt-5 flex items-start justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#e85d04]">Quotes</p><h1 className="mt-1 text-3xl font-bold tracking-tight text-[#1a3a4a]">Follow-ups</h1><p className="mt-2 text-sm text-slate-600">Review the quote. Understand the history. Plan the next conversation.</p></div><button type="button" onClick={()=>void load()} disabled={loading} className="min-h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-[#1a3a4a] disabled:opacity-50">{loading?'Loading…':'Refresh'}</button></div>
       {data?.preview && <div className="my-5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-950"><span>Interactive preview · Sample quotes · Sends are simulated</span><button type="button" className="min-h-11 font-semibold underline" onClick={async()=>{await fetch('/api/preview/reset',{method:'POST'});setNotice('');setSelected(null);void load();}}>Reset sample data</button></div>}
       {data?.readOnly && <p className="my-5 text-sm text-slate-500">Changes are disabled in this view.</p>}
@@ -86,7 +85,6 @@ export default function DeadFollowupsPage() {
       {error && <div role="alert" className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{error} {data && 'Showing the last loaded quotes; they may be out of date.'} <button onClick={()=>void load()} className="min-h-11 px-2 font-semibold underline">Retry</button></div>}
       {loading && !data && <p role="status" className="py-12 text-center text-slate-500">Loading Dead quotes…</p>}
       {data && <>
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-semibold text-[#1a3a4a]">Quotes to follow up <span className="ml-2 rounded-full bg-slate-200 px-2.5 py-1 text-xs">{items.length}</span></p><p className="text-xs text-slate-500">Last checked {date(data.checkedAt)} · NZ time</p></div>
         <div className="grid items-start gap-6 md:grid-cols-[minmax(260px,0.85fr)_minmax(0,1.65fr)]">
           <section aria-label="Dead quote queue" className={`${item?'hidden md:block':''} overflow-hidden rounded-2xl border border-slate-200 bg-white`}>
             <div className="border-b border-slate-100 p-3"><label htmlFor="followup-search" className="sr-only">Search Dead quotes</label><input id="followup-search" type="search" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Search customer, address or quote…" className="min-h-11 w-full rounded-xl bg-slate-50 px-3 text-sm outline-none focus:ring-2 focus:ring-orange-400"/></div>

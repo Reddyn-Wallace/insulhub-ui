@@ -28,7 +28,7 @@ export function prepareSend(input:unknown,state:ControlState,job:DeadQuote,now:s
  if(!message.body.includes(amount)||new RegExp('\\'+amount.replace('.','\\.')+'[0-9]').test(message.body))throw new ControlError(`Include the saved discount ${amount} in the message.`);
  return {requestId:v.requestId,channel:v.channel,senderId:v.senderId,destination:message.destination,body:message.body,subject:message.subject||'',discountCents:cents,approach:eligibility.approach};
 }
-export function offerNote(attempt:Pick<SendAttempt,'id'|'approach'|'discountCents'|'channel'|'actorName'|'sentAt'|'verification'>){
+export function offerNote(attempt:Pick<SendAttempt,'id'|'approach'|'discountCents'|'channel'|'actorName'|'sentAt'|'verification'> & Partial<Pick<SendAttempt,'destination'|'subject'|'body'>>){
  const day=new Date(attempt.sentAt!).toLocaleString('en-NZ',{timeZone:'Pacific/Auckland'});
- return `[Dead quote follow-up ${attempt.id}]\n${day} (NZ time) — Approach ${attempt.approach} sent by ${attempt.channel.toUpperCase()}. Discount offered: NZD $${(attempt.discountCents/100).toFixed(2)}. Staff: ${attempt.actorName}.${attempt.verification?`\nSent verified by ${attempt.verification.actorName}: ${attempt.verification.evidence}`:''}`;
+ return `[Dead quote follow-up ${attempt.id}]\n${day} (NZ time) — Approach ${attempt.approach} sent by ${attempt.channel.toUpperCase()}. Discount offered: NZD $${(attempt.discountCents/100).toFixed(2)}. Staff: ${attempt.actorName}.${attempt.destination?`\nTo: ${attempt.destination}`:''}${attempt.subject?`\nSubject: ${attempt.subject}`:''}${attempt.body?`\nMessage:\n${attempt.body}`:''}${attempt.verification?`\nSent verified by ${attempt.verification.actorName}: ${attempt.verification.evidence}`:''}`;
 }

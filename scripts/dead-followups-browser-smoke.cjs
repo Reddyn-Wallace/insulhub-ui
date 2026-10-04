@@ -28,7 +28,7 @@ if(!/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(base))throw Error('Local prev
       await expect(page.getByRole('button',{name:'Send Offer',exact:true})).toBeDisabled();
       if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Horizontal overflow');
       await page.screenshot({path:`/tmp/dead-followups-${width}.png`,fullPage:true});
-      if(width<768)await page.getByRole('button',{name:'Back to quotes'}).click();
+      if(width<768)await page.getByRole('button',{name:'Back to follow-ups'}).click();
       await page.getByRole('button',{name:/Taylor Example/}).click();
       await expect(page.getByRole('heading',{name:'Dead entry date unknown'})).toHaveCount(0);
       if(errors.length)throw Error(errors.join('\n'));

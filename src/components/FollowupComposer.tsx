@@ -12,7 +12,7 @@ export default function FollowupComposer({item,readOnly,onCancel,onDone,onAccess
  const [data,setData]=useState<Loaded|null>(null);const [error,setError]=useState('');const [busy,setBusy]=useState(false);const active=useRef(false);const [locked,setLocked]=useState(false);
  const [amount,setAmount]=useState(item.controls?.state.draftDiscountCents==null?'':(item.controls.state.draftDiscountCents/100).toFixed(2));
  const [channel,setChannel]=useState<'sms'|'email'>('sms');const [sender,setSender]=useState('');const [approach,setApproach]=useState<1|2>(item.eligibility.approach||((item.controls?.state.offers.length||0)>0?2:1));
- const [body,setBody]=useState('');const [subject,setSubject]=useState('');const [confirm,setConfirm]=useState(false);const [reviewed,setReviewed]=useState(false);
+ const [body,setBody]=useState('');const [subject,setSubject]=useState('');const [confirm,setConfirm]=useState(false);
  const endpoint=`/api/jobs/${item.job._id}/dead-followup`;const requestId=useRef<string|null>(null);
  const headers=()=>({'content-type':'application/json','x-access-token':localStorage.getItem('token')||''});
  function template(loaded:Loaded,kind:'sms'|'email',number:1|2,value:string){let cents=0;try{cents=parseDiscount(value);}catch{}const selected=(loaded.templates||defaultTemplates()).find(t=>t.channel===kind&&t.approach===number);if(!selected)return;const text=renderTemplate(selected,{discountCents:cents,name:loaded.contact.name,quoteNumber:item.job.quote?.quoteNumber||item.job.jobNumber});setBody(text.body);setSubject(text.subject);}
@@ -23,7 +23,7 @@ export default function FollowupComposer({item,readOnly,onCancel,onDone,onAccess
  const destination=channel==='sms'?(data?.contact.phoneMobile||data?.contact.phoneSecondary):data?.contact.email;
  const blocked=data?.attempts.some(a=>['sending','accepted','unknown'].includes(a.status)||(a.status==='sent'&&a.approach===(item.eligibility.approach||((item.controls?.state.offers.length||0)>0?2:1))));
  async function post(path:string,value:unknown){const r=await fetch(path,{method:'POST',headers:headers(),body:JSON.stringify(value)});if(r.status===401||r.status===403)onAccessLost();const json=await r.json();if(!r.ok)throw Error(json.error||'The operation could not be confirmed.');return json;}
- async function send(){if(active.current||readOnly||locked||!reviewed||!confirm)return;active.current=true;setBusy(true);setError('');try{
+ async function send(){if(active.current||readOnly||locked||!confirm)return;active.current=true;setBusy(true);setError('');try{
   let record=item.controls!;
   for(const command of [{action:'discount',amount},{action:'review',historyConfirmed:true,date:item.suggestion?.date,evidence:item.suggestion?.evidence}]){
    const result=await post(endpoint,{revision:record.revision,jobVersion:item.job.updatedAt,command});if(!result.record)throw Error('Saved offer details could not be confirmed.');record=result.record as ControlRecord;
@@ -33,7 +33,7 @@ export default function FollowupComposer({item,readOnly,onCancel,onDone,onAccess
   if(result.attempt?.status==='sent'){onDone(result.noteError?'Offer sent. Its job note still needs saving—open follow-up history to retry the note.':'Offer sent. Discount saved in history and job notes.');}
   else throw Error('Sending is not yet confirmed. Open follow-up history to check saved status before trying again.');
  }catch(e){setLocked(true);setConfirm(false);setError(e instanceof Error?e.message:'Sending could not be confirmed. Check follow-up history before retrying.');}finally{active.current=false;setBusy(false);}}
- function review(){try{const cents=parseDiscount(amount);if(item.job.quote?.c_total==null||cents>Math.round(item.job.quote.c_total*100))throw Error('The discount must not exceed the quote total.');setError('');setReviewed(false);setConfirm(true);}catch(e){setError(e instanceof Error?e.message:'Enter a valid discount.');}}
+ function review(){try{const cents=parseDiscount(amount);if(item.job.quote?.c_total==null||cents>Math.round(item.job.quote.c_total*100))throw Error('The discount must not exceed the quote total.');setError('');setConfirm(true);}catch(e){setError(e instanceof Error?e.message:'Enter a valid discount.');}}
  const disabled=readOnly||busy||locked||!data?.enabled||!item.sendEnabled||blocked;
  return <section aria-label="Prepare offer" className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5"><h3 className="text-lg font-semibold text-[#1a3a4a]">Send Offer</h3>
   {error&&<p role="alert" className="text-sm text-amber-900">{error}</p>}
@@ -50,6 +50,6 @@ export default function FollowupComposer({item,readOnly,onCancel,onDone,onAccess
   </fieldset></form>}
   {data&&!data.enabled&&<p className="text-sm">Sending is switched off.</p>}{blocked&&<p className="text-sm">Check the saved send in follow-up history before sending another offer.</p>}
   <button type="button" disabled={busy} onClick={onCancel} className={button}>Cancel</button>
-  {confirm&&<FollowupModal title="Confirm offer" busy={busy} onClose={()=>setConfirm(false)}><div className="space-y-4"><p className="font-semibold">{item.job.client?.contactDetails?.name} · ${Number(amount).toFixed(2)} discount</p><p className="text-sm">{channel.toUpperCase()} to {destination}</p>{channel==='email'&&<p className="font-semibold">{subject}</p>}<p className="whitespace-pre-wrap break-words rounded-lg bg-slate-50 p-3 text-sm">{body}</p><label className="flex items-start gap-2 text-sm"><input type="checkbox" disabled={busy} checked={reviewed} onChange={e=>setReviewed(e.target.checked)}/>I checked the notes, previous offers, recipient and discount. The recorded follow-up history is correct.</label><div className="flex gap-3"><button type="button" disabled={disabled||!reviewed} onClick={()=>void send()} className={button+' bg-[#1a3a4a] text-white'}>{busy?'Sending…':'Confirm and send'}</button><button type="button" disabled={busy} onClick={()=>setConfirm(false)} className={button}>Back</button></div></div></FollowupModal>}
+  {confirm&&<FollowupModal title="Confirm offer" busy={busy} onClose={()=>setConfirm(false)}><div className="space-y-4"><p className="font-semibold">{item.job.client?.contactDetails?.name} · ${Number(amount).toFixed(2)} discount</p><p className="text-sm">{channel.toUpperCase()} to {destination}</p>{channel==='email'&&<p className="font-semibold">{subject}</p>}<p className="whitespace-pre-wrap break-words rounded-lg bg-slate-50 p-3 text-sm">{body}</p><div className="flex gap-3"><button type="button" disabled={disabled} onClick={()=>void send()} className={button+' bg-[#1a3a4a] text-white'}>{busy?'Sending…':'Confirm and send'}</button><button type="button" disabled={busy} onClick={()=>setConfirm(false)} className={button}>Back</button></div></div></FollowupModal>}
  </section>;
 }
