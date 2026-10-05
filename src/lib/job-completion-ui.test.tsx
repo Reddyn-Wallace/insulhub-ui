@@ -10,6 +10,7 @@ vi.mock("@/lib/graphql", () => ({ gql: vi.fn(async (query: string, variables: an
     state.job = { ...state.job, council: { ...state.job.council, ...variables.input.council } };
     return { updateJob: state.job };
   }
+  if (query.includes("mutation CreateFinalInvoices")) throw new Error("Xero API request failed: Unauthorized");
   if (query.includes("mutation SendCertificate")) { state.calls.push("send"); return {}; }
   return { job: state.job, users: { results: [] } };
 }) }));
@@ -110,4 +111,12 @@ it("saves N/A before opening the certificate for an existing exempt job", async 
   expect(state.job.council.consentNumber).toBe("N/A");
   expect(popup.opener).toBeNull();
   vi.restoreAllMocks();
+});
+
+it("shows invoice failures inside the open confirmation sheet", async () => {
+  render(<JobPage />);
+  fireEvent.click(await screen.findByRole("button", { name: "Create final invoice" }));
+  fireEvent.click(screen.getAllByRole("button", { name: "Create final invoice" })[1]);
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Xero API request failed: Unauthorized");
+  expect(screen.getByRole("heading", { name: "Create Final Invoice in Xero" })).toBeTruthy();
 });

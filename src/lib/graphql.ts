@@ -13,17 +13,58 @@ type GqlOptions = {
 
 const inFlightQueries = new Map<string, Promise<unknown>>();
 
-function forceLogout() {
-  if (typeof window !== "undefined") {
+function forceLogout(token: string | null) {
+  if (typeof window !== "undefined" && localStorage.getItem("token") === token) {
     localStorage.removeItem("token");
     localStorage.removeItem("me");
     window.location.href = "/login";
+    return true;
   }
+  return false;
 }
 
 function isUnauthenticatedMessage(message?: string) {
   const text = (message || "").toLowerCase();
   return text.includes("unauthenticated") || text.includes("unauthorized");
+}
+
+function displayError(message: string) {
+  // The legacy API sometimes serializes the entire upstream HTTP request,
+  // including authorization headers, into a GraphQL error message.
+  if (/xero/i.test(message) && /TokenExpired/i.test(message)) {
+    return "The CRM's Xero connection has expired. Reconnect Xero in the original InsulHub system before trying again.";
+  }
+  if (/Unexpected error value:|authorization|Bearer\s|set-cookie/i.test(message)) {
+    return "The server could not complete this request. Contact your CRM administrator.";
+  }
+  return message;
+}
+
+async function isSessionInvalid(token: string | null): Promise<boolean> {
+  // Invoice integrations can return their own authorization errors. Check CRM
+  // identity independently; never replay a mutation to diagnose a failed request.
+  try {
+    const response = await fetch("https://api.insulhub.nz/graphql", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { "x-access-token": token } : {}),
+      },
+      body: JSON.stringify({ query: "query SessionIdentityCheck { me { _id } }" }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(8000),
+    });
+    if (response.status === 401) return true;
+    if (!response.ok) return false;
+    const result = await response.json();
+    if (result.data?.me?._id) return false;
+    return result.errors?.some((error: { message?: string }) =>
+      /^(unauthenticated|unauthorized)[.!]?$/.test((error.message || "").trim().toLowerCase()),
+    ) === true;
+  } catch {
+    // An outage or timeout is not evidence that the user's session expired.
+    return false;
+  }
 }
 
 function isQueryOperation(query: string) {
@@ -87,19 +128,17 @@ export async function gql<T>(
       body: JSON.stringify({ query, variables }),
     });
 
-    if (res.status === 401) {
-      forceLogout();
-      throw new Error("Unauthorized");
-    }
-
-    const json = await res.json();
-    if (json.errors?.length) {
-      const message = json.errors[0]?.message || "Request failed";
-      if (isUnauthenticatedMessage(message)) {
-        forceLogout();
+    const json = await res.json().catch(() => {
+      if (res.status === 401) return null;
+      throw new Error("The server returned an unreadable response.");
+    });
+    if (res.status === 401 || json?.errors?.length) {
+      const message = json?.errors?.[0]?.message || (res.status === 401 ? "Unauthorized" : "Request failed");
+      if ((res.status === 401 || isUnauthenticatedMessage(message)) &&
+          await isSessionInvalid(token) && forceLogout(token)) {
         throw new Error("Unauthorized");
       }
-      throw new Error(message);
+      throw new Error(displayError(message));
     }
 
     const data = json.data as T;

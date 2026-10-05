@@ -2361,6 +2361,7 @@ export default function JobDetailPage() {
       wired: true,
       actionLabel: hasFinalInvoice ? undefined : "Create final invoice",
       action: hasFinalInvoice ? undefined : () => {
+        setError("");
         const baseTotal = Number(job.quote?.c_total || 0);
         const existingOverride = job.totalPriceManagerOverride;
         setManagerOverride(existingOverride != null ? String(existingOverride) : "");
@@ -3515,6 +3516,7 @@ export default function JobDetailPage() {
 
       <BottomSheet open={sheet === "finalInvoiceConfirm"} onClose={closeSheet} title="Create Final Invoice in Xero">
         <div className="space-y-5">
+          {error && <p role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
           <div className="text-center space-y-2 text-gray-700">
             <div className="flex justify-center gap-3 text-base">
               <span className="text-gray-500">Contract Price:</span>
