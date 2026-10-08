@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import DeadFollowupsPage from '@/app/jobs/follow-ups/page';
 import StageTabs from '@/components/StageTabs';
+vi.mock('next/navigation',()=>({useRouter:()=>({push:vi.fn()})}));
 const payload={items:[{job:{_id:'quote1',jobNumber:123,stage:'QUOTE',notes:'29/01/26 - Marked as Dead - Staff',quote:{status:'DECLINED',date:'2026-01-01T00:00:00Z',c_total:12500,wall:{SQM:90},ceiling:{SQM:50}},client:{contactDetails:{name:'Alex Example',streetAddress:'12 Test Street'}}},eligibility:{state:'review',reason:'Review previous offers before deciding the next approach.'},suggestion:{date:'2026-01-29',provenance:'note',evidence:'29/01/26 - Marked as Dead - Staff',at:'2026-01-29T10:59:59.999Z'},earliestFirstApproach:'2026-03-29T10:59:59.999Z'}],checkedAt:'2026-09-29T00:00:00Z',readOnly:true,historyAvailable:false};
 let tokenSequence=0;
 beforeEach(()=>{
@@ -38,9 +39,9 @@ it('distinguishes a verified empty list from loading/error',async()=>{
 });
 it('links follow-ups beside Dead for quotes only',()=>{
   const view=render(<StageTabs activeStage="LEAD" subTab="DEAD" onSubTabChange={()=>{}}/>);
-  expect(screen.queryByRole('link',{name:'Follow-ups'})).toBeNull();
+  expect(screen.queryByRole('link',{name:/^Follow-ups/})).toBeNull();
   view.rerender(<StageTabs activeStage="QUOTE" subTab="DEAD" onSubTabChange={()=>{}}/>);
-  expect(screen.getByRole('link',{name:'Follow-ups'}).getAttribute('href')).toBe('/jobs/follow-ups?stage=QUOTE');
+  expect(screen.getByRole('link',{name:/^Follow-ups/}).getAttribute('href')).toBe('/jobs/follow-ups?stage=QUOTE');
 });
 it('clears customer details when access expires during refresh',async()=>{
   render(<DeadFollowupsPage/>);fireEvent.click(await screen.findByRole('button',{name:/Alex Example/}));
@@ -84,3 +85,6 @@ it('shows the last verified queue immediately on return while refreshing in the 
 });
 
 it('preserves cents when displaying existing discounts',async()=>{const row=payload.items[0];vi.mocked(fetch).mockResolvedValue(Response.json({...payload,items:[{...row,job:{...row.job,quote:{...row.job.quote,extras:[{name:'Promo',price:-750.25}]}}}]}));render(<DeadFollowupsPage/>);fireEvent.click(await screen.findByRole('button',{name:/Alex Example/}));expect(screen.getByText('Existing discount: $750.25 excl. GST')).toBeTruthy();});
+
+it('keeps quote states visible and counts only due follow-ups on the active tab',async()=>{render(<DeadFollowupsPage/>);await screen.findByRole('button',{name:/Alex Example/});expect(screen.getByRole('button',{name:'Open'})).toBeTruthy();expect(screen.getByRole('button',{name:'Callback'})).toBeTruthy();expect(screen.getByRole('button',{name:'Dead'})).toBeTruthy();expect(screen.getByRole('link',{name:/Follow-ups\s*\(1\)/}).getAttribute('aria-current')).toBe('page');});
+it('loads the follow-up badge on the Quotes navigation',async()=>{render(<StageTabs activeStage="QUOTE" subTab="OPEN" onSubTabChange={()=>{}}/>);expect(await screen.findByRole('link',{name:/Follow-ups\s*\(1\)/})).toBeTruthy();});

@@ -1,5 +1,7 @@
 'use client';
 import Link from 'next/link';
+import {useRouter} from 'next/navigation';
+import StageTabs from '@/components/StageTabs';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {needsFollowup,sortQueueItems} from '@/lib/dead-followups/queue-view';
 import {quoteDiscounts} from '@/lib/dead-followups/discounts';
@@ -46,6 +48,7 @@ function Detail({item,checkedAt,onBack,onDone,onAccessLost,readOnly}:{item:Queue
   </section>;
 }
 export default function DeadFollowupsPage() {
+  const router=useRouter();
   const [data,setData]=useState<QueueResponse|null>(null);
   const [generation,setGeneration]=useState(0);
   const [loading,setLoading]=useState(true);
@@ -76,7 +79,7 @@ export default function DeadFollowupsPage() {
   const sorted=useMemo(()=>sortQueueItems(available),[available]);
   const items=sorted.filter(item=>[item.job.client?.contactDetails?.name,item.job.client?.contactDetails?.streetAddress,item.job.jobNumber].join(' ').toLowerCase().includes(search.trim().toLowerCase()));
   const item=data?.items.find(item=>item.job._id===selected);
-  return <main className="min-h-screen bg-[#f5f7f8] px-4 py-6 sm:px-6 lg:px-8">
+  return <><StageTabs activeStage="QUOTE" subTab="FOLLOW_UPS" followupCount={data?available.length:null} onSubTabChange={tab=>router.push(`/jobs?stage=QUOTE&subTab=${tab}`)}/><main className="min-h-screen bg-[#f5f7f8] px-4 py-6 sm:px-6 lg:px-8">
     <div className="mx-auto max-w-7xl">
       <div className="mt-5 flex items-start justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#e85d04]">Quotes</p><h1 className="mt-1 text-3xl font-bold tracking-tight text-[#1a3a4a]">Follow-ups</h1><p className="mt-2 text-sm text-slate-600">Review the quote. Understand the history. Plan the next conversation.</p></div><button type="button" onClick={()=>void load()} disabled={loading} className="min-h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-[#1a3a4a] disabled:opacity-50">{loading?'Loading…':'Refresh'}</button></div>
       {data?.preview && <div className="my-5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-950"><span>Interactive preview · Sample quotes · Sends are simulated</span><button type="button" className="min-h-11 font-semibold underline" onClick={async()=>{await fetch('/api/preview/reset',{method:'POST'});setNotice('');setSelected(null);void load();}}>Reset sample data</button></div>}
@@ -93,5 +96,5 @@ export default function DeadFollowupsPage() {
           {item?<Detail key={`${item.job._id}:${generation}`} item={item} checkedAt={data.checkedAt} onBack={()=>setSelected(null)} onDone={message=>{setNotice(message);setSelected(null);recentQueue=null;window.scrollTo(0,0);void load();}} onAccessLost={()=>{recentQueue=null;setData(null);setSelected(null);setError('Sign in again to view quotes.');}} readOnly={data.readOnly || loading || Boolean(error)}/>:<div className="hidden rounded-2xl border border-dashed border-slate-300 p-12 text-center md:block"><h2 className="font-semibold text-[#1a3a4a]">Select a quote to review</h2><p className="mt-2 text-sm leading-relaxed text-slate-500">View its scope, price, notes and possible Dead date here.</p></div>}
         </div></>}
     </div>
-  </main>;
+  </main></>;
 }
