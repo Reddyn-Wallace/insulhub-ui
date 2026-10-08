@@ -44,7 +44,8 @@ createServer(async(req,res)=>{
   if(path.startsWith('/api/')||!['GET','HEAD'].includes(method))return json(res,{error:'This action is unavailable in the local sample preview.'},403);
   const allowedPage=path==='/jobs'||path==='/jobs/follow-ups'||path==='/jobs/follow-ups/templates'||path==='/jobs/settings'||path==='/jobs/settings/templates/follow-ups'||/^\/jobs\/[a-f\d]{24}(?:\/follow-up-history)?$/.test(path);
   const allowedAsset=path.startsWith('/_next/static/')||['/favicon.ico','/manifest.json','/manifest.webmanifest'].includes(path)||/^\/(?:icons|images)\/[a-zA-Z0-9_./-]+$/.test(path);
-  if(path.includes('%')||(!allowedPage&&!allowedAsset))return json(res,{error:'This local preview covers the follow-up workflow only.'},404);
+  const unsupportedEncoding=(allowedAsset?path.replace(/%5B|%5D/gi,''):path).includes('%');
+  if(unsupportedEncoding||(!allowedPage&&!allowedAsset))return json(res,{error:'This local preview covers the follow-up workflow only.'},404);
   const target=new URL(upstream);target.pathname=path;target.search=url.search;
   const response=await fetch(target,{redirect:'manual',headers:{accept:req.headers.accept||'*/*',...(req.headers.rsc?{rsc:String(req.headers.rsc)}:{})}});
   const type=response.headers.get('content-type')||'application/octet-stream';

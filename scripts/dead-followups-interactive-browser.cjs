@@ -4,7 +4,7 @@ const base='http://127.0.0.1:3117';
 (async()=>{
  const browser=await chromium.launch({channel:'chrome',headless:true});
  try{for(const width of [390,1280]){
-  const context=await browser.newContext({viewport:{width,height:1000},serviceWorkers:'block'});const page=await context.newPage();const errors=[];const external=[];let sends=0;
+  const context=await browser.newContext({viewport:{width,height:1000},serviceWorkers:'block'});await context.addInitScript(()=>{delete Navigator.prototype.serviceWorker;});const page=await context.newPage();page.setDefaultTimeout(15000);const errors=[];const external=[];let sends=0;
   page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>{if(new URL(r.url()).origin!==base)external.push(r.url());if(r.method()==='POST'&&r.url().endsWith('/dead-followup/send'))sends++;});
   const queue=async()=>{await page.goto(base+'/jobs/follow-ups?stage=QUOTE');await expect(page.getByText('Interactive preview · Sample quotes · Sends are simulated')).toBeVisible();};
   const reset=async()=>{await page.request.post(base+'/api/preview/reset');await queue();};

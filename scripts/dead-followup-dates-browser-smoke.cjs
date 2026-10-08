@@ -6,7 +6,7 @@ if(!/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(base))throw Error('Local prev
  const browser=await chromium.launch({channel:'chrome',headless:true});
  try{for(const width of [390,1280]){
   const context=await browser.newContext({viewport:{width,height:1000},serviceWorkers:'block'});const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
-  await context.addInitScript(()=>{localStorage.setItem('token','simulation-only');localStorage.setItem('me',JSON.stringify({_id:'staff',firstname:'Test',lastname:'Staff',role:'ADMIN'}));});
+  await context.addInitScript(()=>{delete Navigator.prototype.serviceWorker;localStorage.setItem('token','simulation-only');localStorage.setItem('me',JSON.stringify({_id:'staff',firstname:'Test',lastname:'Staff',role:'ADMIN'}));});
   let source='last_note';let uncertain=false;let reviewed=false;let checks=0;
   let record={revision:0,state:{draftDiscountCents:50000,snoozedUntil:null,exclusionReason:null,deadDate:null,dateEvidence:'',reviewedVersion:null,offers:[]},updatedAt:null,actorName:''};
   const entry=()=>({at:'2026-03-01T10:59:59.999Z',source,evidence:source==='last_note'?'01/03/26 - Last customer note':'Server confirmed UI entry'});

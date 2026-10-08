@@ -6,7 +6,7 @@ if(!/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(base))throw Error('Local prev
  const browser=await chromium.launch({channel:'chrome',headless:true});
  try{for(const width of [390,1280]){
   const context=await browser.newContext({viewport:{width,height:1000},serviceWorkers:'block'});const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
-  await context.addInitScript(()=>{localStorage.setItem('token','simulation-only');localStorage.setItem('me',JSON.stringify({_id:'staff',firstname:'Test',lastname:'Staff',role:'ADMIN'}));});
+  await context.addInitScript(()=>{delete Navigator.prototype.serviceWorker;localStorage.setItem('token','simulation-only');localStorage.setItem('me',JSON.stringify({_id:'staff',firstname:'Test',lastname:'Staff',role:'ADMIN'}));});
   let templates=['sms','email'].flatMap(channel=>[1,2].map(approach=>({channel,approach,subject:channel==='email'?'Quote {{quoteNumber}}':'',body:'Hi {{name}}, offer {{discount}}.'})));let revision=0;let canManage=true;let writes=0;
   let attempt={id:'cccccccc-cccc-4ccc-cccc-cccccccccccc',actorId:'staff',actorName:'Test Staff',createdAt:'2026-01-01T00:00:00Z',approach:1,channel:'email',body:'An earlier offer $500.00',destination:'alex@example.test',discountCents:50000,status:'unknown',noteStatus:'pending',canVerify:true};let verificationCount=0;
   await context.route('**/*',async route=>{

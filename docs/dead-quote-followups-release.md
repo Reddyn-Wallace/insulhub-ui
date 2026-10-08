@@ -106,3 +106,7 @@ The Quotes navigation now prefetches the full follow-up queue into a shared, tok
 Rows show NZ calendar days in Dead before the first offer, or days since the first sent follow-up afterwards. The queue sorts by that waiting period, longest first, irrespective of review status. The canonical quote scan also returns Open/Callback/Dead/All counts before follow-up cohort filtering, so those badges remain available when Follow-ups is opened directly. Existing navigation counts carry across during loading.
 
 Validated with 45 focused tests covering shared requests, token isolation, expiry, invalidation, stale responses, waiting order, NZ daylight saving and preserved tab counts. Production build/TypeScript and targeted lint passed. No deployment or production writes.
+
+## Production build gate
+
+`vercel.json` runs `scripts/vercel-build.mjs`. In production, when date capture or follow-up controls are enabled, it applies the repeatable overlay migrations and requires storage readiness before building. Sensitive database credentials remain inside Vercel. Preview builds do not migrate. A migration/readiness failure stops the release; a later application build failure leaves the additive schema in place without promoting the app.
