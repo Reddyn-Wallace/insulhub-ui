@@ -35,10 +35,10 @@ export default function FollowupComposer({item,readOnly,onCancel,onDone,onAccess
  }catch(e){setLocked(true);setConfirm(false);setError(e instanceof Error?e.message:'Sending could not be confirmed. Check follow-up history before retrying.');}finally{active.current=false;setBusy(false);}}
  function review(){try{const cents=parseDiscount(amount);if(item.job.quote?.c_total==null||cents>Math.round(item.job.quote.c_total*100))throw Error('The discount must not exceed the quote total.');setError('');setConfirm(true);}catch(e){setError(e instanceof Error?e.message:'Enter a valid discount.');}}
  const disabled=readOnly||busy||locked||!data?.enabled||!item.sendEnabled||blocked;
- return <section aria-label="Prepare offer" className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5"><h3 className="text-lg font-semibold text-[#1a3a4a]">Send Offer</h3>
+ return <FollowupModal composer title={`Send offer to ${item.job.client?.contactDetails?.name||data?.contact.name||"customer"}`} busy={busy} onClose={onCancel}>
   {error&&<p role="alert" className="text-sm text-amber-900">{error}</p>}
   {!data?<p role="status">{error?'Sending details unavailable.':'Loading sending details…'}</p>:<form onSubmit={e=>{e.preventDefault();review();}}><fieldset disabled={disabled} className="space-y-4">
-   <label className="block text-sm font-semibold">Offer amount (NZD discount)<input required inputMode="decimal" value={amount} onChange={e=>{setAmount(e.target.value);template(data,channel,approach,e.target.value);}} className={field}/></label>
+   <label className="block text-sm font-semibold">Offer amount (NZD discount)<input autoFocus required inputMode="decimal" value={amount} onChange={e=>{setAmount(e.target.value);template(data,channel,approach,e.target.value);}} className={field}/></label>
    <label className="block text-sm">Send by<select value={channel} onChange={e=>{const kind=e.target.value as 'sms'|'email';setChannel(kind);setSender(data[kind].senders[0]?.id||'');template(data,kind,approach,amount);}} className={field}><option value="sms">SMS</option><option value="email">Email</option></select></label>
    <label className="block text-sm">Template<select className={field} value={approach} onChange={e=>{const number=Number(e.target.value) as 1|2;setApproach(number);template(data,channel,number,amount);}}><option value="1">First follow-up</option><option value="2">Second follow-up</option></select></label>
    <label className="block text-sm">Sending account<select required className={field} value={sender} onChange={e=>setSender(e.target.value)}><option value="">Choose an account</option>{data[channel].senders.map(s=><option key={s.id} value={s.id}>{s.label} {s.senderValue||''}</option>)}</select></label>
@@ -46,10 +46,10 @@ export default function FollowupComposer({item,readOnly,onCancel,onDone,onAccess
    {channel==='email'&&<label className="block text-sm">Subject<input required maxLength={200} value={subject} onChange={e=>setSubject(e.target.value)} className={field}/></label>}
    <label className="block text-sm">Message<textarea required rows={6} maxLength={channel==='sms'?1600:20000} className={field} value={body} onChange={e=>setBody(e.target.value)}/></label>
    <p className="text-xs text-slate-500">Changing the amount, channel or template resets the message to the selected template.{channel==='email'?' Your sending account’s signature will be appended.':''}</p>
-   <button type="submit" disabled={!sender||!destination} className={button+' bg-[#1a3a4a] text-white'}>Send offer</button>
+   <button type="submit" disabled={!sender||!destination} className={button+' bg-[#1a3a4a] text-white'}>Review offer</button>
   </fieldset></form>}
   {data&&!data.enabled&&<p className="text-sm">Sending is switched off.</p>}{blocked&&<p className="text-sm">Check the saved send in follow-up history before sending another offer.</p>}
   <button type="button" disabled={busy} onClick={onCancel} className={button}>Cancel</button>
   {confirm&&<FollowupModal title="Confirm offer" busy={busy} onClose={()=>setConfirm(false)}><div className="space-y-4"><p className="font-semibold">{item.job.client?.contactDetails?.name} · ${Number(amount).toFixed(2)} discount</p><p className="text-sm">{channel.toUpperCase()} to {destination}</p>{channel==='email'&&<p className="font-semibold">{subject}</p>}<p className="whitespace-pre-wrap break-words rounded-lg bg-slate-50 p-3 text-sm">{body}</p><div className="flex gap-3"><button type="button" disabled={disabled} onClick={()=>void send()} className={button+' bg-[#1a3a4a] text-white'}>{busy?'Sending…':'Confirm and send'}</button><button type="button" disabled={busy} onClick={()=>setConfirm(false)} className={button}>Back</button></div></div></FollowupModal>}
- </section>;
+ </FollowupModal>;
 }
