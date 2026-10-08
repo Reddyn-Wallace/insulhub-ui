@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import DeadFollowupsPage from '@/app/jobs/follow-ups/page';
 import StageTabs from '@/components/StageTabs';
 vi.mock('next/navigation',()=>({useRouter:()=>({push:vi.fn()})}));
@@ -23,15 +23,8 @@ it('shows scope and price without the removed explanation panels',async()=>{
   expect(screen.getByRole('button',{name:'Send Offer'}).matches(':disabled')).toBe(true);
   expect(screen.getByRole('link',{name:/Open full quote/}).getAttribute('href')).toContain('/jobs/quote1');
 });
-it('retains loaded quotes on refresh failure and offers retry, not an empty queue',async()=>{
-  render(<DeadFollowupsPage/>);await screen.findByRole('button',{name:/Alex Example/});
-  vi.mocked(fetch).mockResolvedValueOnce(new Response('',{status:503}));
-  fireEvent.click(screen.getByRole('button',{name:'Refresh'}));
-  expect(await screen.findByRole('alert')).toBeTruthy();
-  expect(screen.getByRole('button',{name:/Alex Example/})).toBeTruthy();
-  expect(screen.queryByText('No quotes need following up right now.')).toBeNull();
-  fireEvent.click(screen.getByRole('button',{name:'Retry'}));
-  await waitFor(()=>expect(screen.queryByRole('alert')).toBeNull());
+it('offers retry when loading fails without showing a false empty queue',async()=>{
+ vi.mocked(fetch).mockResolvedValueOnce(new Response('',{status:503}));render(<DeadFollowupsPage/>);await screen.findByRole('alert');expect(screen.queryByText('No quotes need following up right now.')).toBeNull();fireEvent.click(screen.getByRole('button',{name:'Retry'}));await screen.findByRole('button',{name:/Alex Example/});expect(screen.queryByRole('alert')).toBeNull();
 });
 it('distinguishes a verified empty list from loading/error',async()=>{
   vi.mocked(fetch).mockResolvedValue(Response.json({...payload,items:[]}));render(<DeadFollowupsPage/>);
@@ -43,29 +36,13 @@ it('links follow-ups beside Dead for quotes only',()=>{
   view.rerender(<StageTabs activeStage="QUOTE" subTab="DEAD" onSubTabChange={()=>{}}/>);
   expect(screen.getByRole('link',{name:/^Follow-ups/}).getAttribute('href')).toBe('/jobs/follow-ups?stage=QUOTE');
 });
-it('clears customer details when access expires during refresh',async()=>{
-  render(<DeadFollowupsPage/>);fireEvent.click(await screen.findByRole('button',{name:/Alex Example/}));
-  vi.mocked(fetch).mockResolvedValueOnce(new Response('',{status:401}));
-  fireEvent.click(screen.getByRole('button',{name:'Refresh'}));
-  expect(await screen.findByRole('alert')).toBeTruthy();
-  expect(screen.queryByRole('button',{name:/Alex Example/})).toBeNull();
-  expect(screen.queryByRole('region',{name:'Selected quote'})).toBeNull();
-  expect(screen.queryByText('12 Test Street')).toBeNull();
-});
+it('does not show customer data after access is refused',async()=>{vi.mocked(fetch).mockResolvedValueOnce(new Response('',{status:401}));render(<DeadFollowupsPage/>);await screen.findByRole('alert');expect(screen.queryByRole('button',{name:/Alex Example/})).toBeNull();});
 it('shows staff-reviewed date rather than unknown when there was no note suggestion',async()=>{
  const state={draftDiscountCents:null,snoozedUntil:null,exclusionReason:null,deadDate:'2026-09-01T11:59:59.999Z',dateEvidence:'Staff evidence',reviewedVersion:'v1',offers:[]};
  vi.mocked(fetch).mockResolvedValue(Response.json({...payload,historyAvailable:true,readOnly:false,items:[{...payload.items[0],suggestion:null,controls:{revision:1,state,actorName:'Staff',updatedAt:null}}]}));
  render(<DeadFollowupsPage/>);fireEvent.click(await screen.findByRole('button',{name:/Alex Example/}));
  expect(screen.queryByRole('heading',{name:'Dead entry date unknown'})).toBeNull();
  expect(screen.queryByText('Dead date unknown')).toBeNull();
-});
-it('keeps controls disabled while retrying a failed refresh',async()=>{
- const state={draftDiscountCents:null,snoozedUntil:null,exclusionReason:null,deadDate:null,dateEvidence:'',reviewedVersion:null,offers:[]};
- vi.mocked(fetch).mockResolvedValueOnce(Response.json({...payload,historyAvailable:true,readOnly:false,items:[{...payload.items[0],controls:{revision:0,state,actorName:'',updatedAt:null}}]}));
- render(<DeadFollowupsPage/>);fireEvent.click(await screen.findByRole('button',{name:/Alex Example/}));
- vi.mocked(fetch).mockResolvedValueOnce(new Response('',{status:503}));fireEvent.click(screen.getByRole('button',{name:'Refresh'}));await screen.findByRole('alert');
- vi.mocked(fetch).mockImplementationOnce(()=>new Promise(()=>{}));fireEvent.click(screen.getByRole('button',{name:'Retry'}));
- expect(screen.getByRole('button',{name:'Skip for now'}).matches(':disabled')).toBe(true);
 });
 it('hides pending sends and has no filter dropdown or pills',async()=>{
  vi.mocked(fetch).mockResolvedValue(Response.json({...payload,items:[{...payload.items[0],eligibility:{state:'attention',reason:'Check saved sending status'}}]}));
@@ -81,7 +58,7 @@ it.each([null,{SQM:0}])('flags negative extras and omits absent ceiling %j',asyn
 it('shows the last verified queue immediately on return without refetching a fresh snapshot',async()=>{
  const view=render(<DeadFollowupsPage/>);await screen.findByRole('button',{name:/Alex Example/});view.unmount();
  vi.mocked(fetch).mockImplementation(()=>new Promise(()=>{}));render(<DeadFollowupsPage/>);
- expect(await screen.findByRole('button',{name:/Alex Example/})).toBeTruthy();await waitFor(()=>expect(screen.getByRole('button',{name:'Refresh'}).matches(':disabled')).toBe(false));expect(fetch).toHaveBeenCalledTimes(1);
+ expect(await screen.findByRole('button',{name:/Alex Example/})).toBeTruthy();expect(screen.queryByRole('button',{name:'Refresh'})).toBeNull();expect(fetch).toHaveBeenCalledTimes(1);
 });
 
 it('preserves cents when displaying existing discounts',async()=>{const row=payload.items[0];vi.mocked(fetch).mockResolvedValue(Response.json({...payload,items:[{...row,job:{...row.job,quote:{...row.job.quote,extras:[{name:'Promo',price:-750.25}]}}}]}));render(<DeadFollowupsPage/>);fireEvent.click(await screen.findByRole('button',{name:/Alex Example/}));expect(screen.getByText('Existing discount: $750.25 excl. GST')).toBeTruthy();});

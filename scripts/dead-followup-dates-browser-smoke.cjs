@@ -29,7 +29,7 @@ if(!/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(base))throw Error('Local prev
   await expect(page.getByLabel('Estimated date this quote entered Dead')).toHaveCount(0);
   await expect(page.getByRole('combobox',{name:'Show quotes'})).toHaveCount(0);
   await page.evaluate(()=>scrollTo(0,0));await page.screenshot({path:`/tmp/dead-followup-dates-${width}.png`,fullPage:true});
-  uncertain=true;await page.getByRole('button',{name:'Refresh',exact:true}).click();await expect(page.getByRole('button',{name:/Alex Example/})).toHaveCount(0);await page.goto(base+'/jobs/'+job()._id+'/follow-up-history');await page.getByRole('button',{name:'Check saved Dead date'}).click();
+  uncertain=true;await page.reload();await expect(page.getByRole('button',{name:/Alex Example/})).toHaveCount(0);await page.goto(base+'/jobs/'+job()._id+'/follow-up-history');await page.getByRole('button',{name:'Check saved Dead date'}).click();
   await expect(page.getByRole('button',{name:'Check saved Dead date'})).toHaveCount(0);
   if(checks!==1)throw Error('Unexpected recovery calls');
   if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Horizontal overflow');if(errors.length)throw Error(errors.join('\n'));
