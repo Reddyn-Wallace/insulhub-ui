@@ -41,3 +41,9 @@ export async function dashboardInputs(
   pending.set(pendingKey, promise);
   return promise;
 }
+
+// Refresh callers must not reuse a source load started before the bank update.
+export async function settleDashboardLoads(ownerId: string) {
+  const key = ownerId + ":overview";
+  await Promise.allSettled([pending.get(key), pending.get(key + ":fresh")].filter(Boolean));
+}

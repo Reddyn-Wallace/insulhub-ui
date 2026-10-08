@@ -378,7 +378,9 @@ it("adds uninvoiced completed work to net and opens a searchable job breakdown",
   expect(screen.getByText("$3,225.25")).toBeTruthy();
   fireEvent.click(button);
   expect(screen.getByText("Plus: work awaiting invoice")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: /1 job needs invoicing/ }));
+  fireEvent.click(
+    screen.getByRole("button", { name: /1 job needs invoicing/ }),
+  );
   expect(screen.getByRole("link", { name: "Alan Mirza" })).toBeTruthy();
   expect(screen.getByText("44 Watt Street")).toBeTruthy();
   fireEvent.change(screen.getByLabelText("Search financial records"), {
@@ -386,4 +388,68 @@ it("adds uninvoiced completed work to net and opens a searchable job breakdown",
   });
   expect(screen.queryByRole("link", { name: "Alan Mirza" })).toBeNull();
   expect(screen.getByText("$3,225.25")).toBeTruthy();
+  expect(vi.mocked(fetch).mock.calls[0][1]?.method).toBe("GET");
+  fireEvent.click(screen.getByRole("button", { name: "Refresh figures" }));
+  await waitFor(() =>
+    expect(vi.mocked(fetch).mock.lastCall?.[1]?.method).toBe("POST"),
+  );
+  await screen.findByRole("button", { name: "Refresh figures" });
+});
+
+it("shows an expired snapshot while updating and keeps it if the update fails", async () => {
+  localStorage.setItem("token", "snapshot-owner");
+  const saved = {
+    ...calculateFinance(
+      {
+        checkedAt: "2026-01-01T00:00:00Z",
+        historyStart: "2025-01-01",
+        historyEnd: "2026-01-01",
+        bank: {
+          accountName: "Trading",
+          currentCents: 1234500,
+          balanceUpdatedAt: "2026-01-01T00:00:00Z",
+          transactionsUpdatedAt: "2026-01-01T00:00:00Z",
+          stale: true,
+        },
+        jobs: [],
+        invoices: [],
+        payments: [],
+        receipts: [],
+        warnings: [],
+      },
+      [],
+    ),
+    jobs: [],
+    decisions: [],
+    staleDecisions: [],
+    history: [],
+    payments: [],
+    fingerprints: {},
+    snapshotStale: true,
+  };
+  let fail!: (e: Error) => void;
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValueOnce(Response.json(saved))
+      .mockImplementationOnce(
+        () =>
+          new Promise((_r, reject) => {
+            fail = reject;
+          }),
+      ),
+  );
+  render(<Page />);
+  await screen.findByText(/Showing saved figures checked/);
+  expect(screen.getAllByText("$12,345.00").length).toBeGreaterThan(0);
+  await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+  fail(Error("Source offline"));
+  await screen.findByText("Could not update figures");
+  expect(screen.getAllByText("$12,345.00").length).toBeGreaterThan(0);
+  expect(screen.getByText(/These have not been refreshed/)).toBeTruthy();
+  localStorage.clear();
+  fireEvent.click(screen.getByRole("button", {name:"Refresh figures"}));
+  await screen.findByText("Figures unavailable");
+  expect(screen.queryByText("$12,345.00")).toBeNull();
 });

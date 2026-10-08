@@ -1,5 +1,6 @@
 "use client";
 
+import { loadFinanceOverview, clearFinanceOverview } from "@/lib/finance/overview-client";
 import { ReactNode, Suspense, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { clearBrowserCachePrefixes } from "@/lib/client-cache";
@@ -72,7 +73,16 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
     router.prefetch("/jobs/reports/sales-installs");
   }, [router]);
 
+  useEffect(() => {
+    // Begin after the main screen has had a chance to load; failures stay quiet here.
+    const timer = window.setTimeout(() => {
+      if (localStorage.getItem("token")) void loadFinanceOverview().catch(() => undefined);
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   const handleLogout = () => {
+    clearFinanceOverview();
     if (typeof window !== "undefined") {
       clearBrowserCachePrefixes(["gql:", "jobs-cache:", "job-cache:", "users-cache", "calendar:", "install-planning:", "calendar-placeholders:"], ["session", "local"]);
       localStorage.removeItem("token");

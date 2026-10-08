@@ -6,10 +6,11 @@ const version = "uninvoiced-v8";
 export async function readSnapshot(
   owner: string,
   mode: string,
+  allowExpired = false,
 ): Promise<FinanceInputs | null> {
   const r = await financePool().query(
-    `SELECT payload FROM finance_snapshots WHERE owner_id=$1 AND mode=$2 AND version=$3 AND expires_at>now()`,
-    [owner, mode, version],
+    `SELECT payload FROM finance_snapshots WHERE owner_id=$1 AND mode=$2 AND version=$3 AND ($4 OR expires_at>now())`,
+    [owner, mode, version, allowExpired],
   );
   return r.rows[0]
     ? decryptTokens<FinanceInputs>(

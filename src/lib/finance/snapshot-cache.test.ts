@@ -7,7 +7,7 @@ vi.mock("./snapshot-store", () => ({
 }));
 import { readSnapshot, writeSnapshot } from "./snapshot-store";
 import { loadFinanceInputs } from "./live-data";
-import { dashboardInputs, clearDashboardInputs } from "./snapshot-cache";
+import { dashboardInputs, clearDashboardInputs, settleDashboardLoads } from "./snapshot-cache";
 afterEach(() => {
   clearDashboardInputs();
   vi.clearAllMocks();
@@ -70,4 +70,18 @@ it("forced refresh does not join a pending shared-cache lookup", async () => {
     marker: "old",
   } as never);
   await normal;
+});
+
+it("post-bank-refresh waits out an older source load before requesting fresh figures", async () => {
+ let resolveOld!: (input: never) => void;
+ vi.mocked(loadFinanceInputs).mockReturnValueOnce(new Promise(resolve => {resolveOld=resolve;}));
+ const owner={userId:"refresh-race",token:"private"};
+ const old=dashboardInputs(owner,false,true);
+ const refreshed=(async()=>{await settleDashboardLoads(owner.userId);return dashboardInputs(owner,false,true);})();
+ const fresh={checkedAt:new Date().toISOString(),bank:{currentCents:200}} as never;
+ vi.mocked(loadFinanceInputs).mockResolvedValueOnce(fresh);
+ resolveOld({checkedAt:new Date().toISOString(),bank:{currentCents:100}} as never);
+ await old;
+ expect(await refreshed).toBe(fresh);
+ expect(loadFinanceInputs).toHaveBeenCalledTimes(2);
 });

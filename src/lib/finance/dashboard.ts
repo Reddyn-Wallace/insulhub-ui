@@ -1,3 +1,4 @@
+import type { FinanceInputs } from "./model";
 import { trackUninvoicedJobs } from "./uninvoiced-store";
 import "server-only";
 import { dashboardInputs } from "./snapshot-cache";
@@ -8,9 +9,10 @@ export async function buildDashboard(
   owner: { userId: string; token: string },
   bankCheck = false,
   force = false,
+  savedInput?: FinanceInputs,
 ) {
   const [input, decisions, history] = await Promise.all([
-    dashboardInputs(owner, bankCheck, force),
+    savedInput || dashboardInputs(owner, bankCheck, force),
     listReviewDecisions(owner.userId),
     reviewHistory(owner.userId),
   ]);
@@ -37,10 +39,11 @@ export async function buildDashboard(
     },
     active,
   );
-  await trackUninvoicedJobs(
-    owner.userId,
-    dashboard.uninvoiced.rows.map((r) => r.jobId),
-  );
+  if (!savedInput)
+    await trackUninvoicedJobs(
+      owner.userId,
+      dashboard.uninvoiced.rows.map((r) => r.jobId),
+    );
   return {
     ...dashboard,
     provisional: dashboard.provisional || stale.length > 0,
