@@ -1,0 +1,3 @@
+import {expect,it} from 'vitest';
+import {displayFollowupNotes} from './note-display';
+it('hides only internal follow-up markers and preserves ordinary notes',()=>{const text='Customer called\n[Dead quote follow-up aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa]\n8 Oct 2026 — Follow-up sent by SMS with a NZD $500.00 discount offer.\nCustomer replied';expect(displayFollowupNotes(text)).toBe('Customer called\n8 Oct 2026 — Follow-up sent by SMS with a NZD $500.00 discount offer.\nCustomer replied');expect(displayFollowupNotes('Customer called')).toBe('Customer called');expect(displayFollowupNotes(null)).toBe('');});

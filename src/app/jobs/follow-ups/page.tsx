@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {cachedQueue,fetchQueue,invalidateQueue} from '@/lib/dead-followups/queue-cache';
 import {needsFollowup,sortQueueItems,waitingLabel} from '@/lib/dead-followups/queue-view';
 import {quoteDiscounts} from '@/lib/dead-followups/discounts';
+import {displayFollowupNotes} from '@/lib/dead-followups/note-display';
 import FollowupActions from '@/components/FollowupActions';
 import type { QueueItem, QueueResponse } from '@/lib/dead-followups/types';
 
@@ -37,7 +38,7 @@ function Detail({item,checkedAt,onBack,onDone,onAccessLost,readOnly}:{item:Queue
       <h3 className="text-sm font-semibold text-slate-800">Quoted scope</h3>
       <p className="mt-1 text-sm text-slate-600">{(job.quote?.wall?.SQM ?? 0) > 0 && <span>Wall: {job.quote?.wall?.SQM} m²</span>}{(job.quote?.wall?.SQM ?? 0) > 0 && (job.quote?.ceiling?.SQM ?? 0) > 0 && ' · '}{(job.quote?.ceiling?.SQM ?? 0) > 0 && <span>Ceiling: {job.quote?.ceiling?.SQM} m²</span>}</p>
       {job.quote?.quoteNote && <p className="mt-3 whitespace-pre-wrap break-words text-sm text-slate-600">{job.quote.quoteNote}</p>}
-      <div className="mt-5 border-t border-slate-100 pt-4"><h3 className="font-semibold text-[#1a3a4a]">Job notes</h3><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-600">{job.notes || 'No notes recorded.'}</p></div>
+      <div className="mt-5 border-t border-slate-100 pt-4"><h3 className="font-semibold text-[#1a3a4a]">Job notes</h3><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-600">{displayFollowupNotes(job.notes) || 'No notes recorded.'}</p></div>
       <div className="mt-5 border-t border-slate-100 pt-4"><h3 className="font-semibold text-[#1a3a4a]">Follow-up history</h3>{item.controls?.state.offers.length?<ul className="mt-2 space-y-2">{item.controls.state.offers.map(offer=><li key={offer.number} className="text-sm text-slate-600">{offer.number===1?'First':'Second'} offer · {money(offer.discountCents/100)} discount · {offer.channel.toUpperCase()} · {date(offer.sentAt)}</li>)}</ul>:<p className="mt-2 text-sm text-slate-500">No follow-up offers recorded.</p>}</div>
       <Link className="mt-4 inline-flex min-h-11 items-center text-sm font-semibold text-[#1a3a4a] underline underline-offset-4" href={`/jobs/${encodeURIComponent(job._id)}?returnTo=${encodeURIComponent('/jobs/follow-ups?stage=QUOTE')}`}>Open full quote and communications →</Link>
     </div>

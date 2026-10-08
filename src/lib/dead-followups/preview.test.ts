@@ -13,7 +13,7 @@ it('simulates an offer exactly once, retains discount in notes, and persists acr
  const first=demo.send(item.job._id,input);expect(first.attempt.status).toBe('sent');expect(demo.send(item.job._id,input).attempt.id).toBe(first.attempt.id);
  const loaded=new FollowupPreview(JSON.parse(JSON.stringify(demo.state)),()=>now);const saved=loaded.queue().items[0];
  expect(saved.controls!.state.offers).toHaveLength(1);expect(saved.job.notes).toContain('NZD $500.00');
- expect(saved.job.notes!.match(/Discount offered:/g)).toHaveLength(1);
+ expect(saved.job.notes!.match(/Follow-up sent by/g)).toHaveLength(1);
 });
 it('uses production validation for edits and cannot forward unknown actions',()=>{
  const demo=new FollowupPreview(undefined,()=>now);const row=demo.queue().items[0];

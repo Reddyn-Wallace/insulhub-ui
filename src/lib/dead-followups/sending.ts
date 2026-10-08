@@ -29,6 +29,6 @@ export function prepareSend(input:unknown,state:ControlState,job:DeadQuote,now:s
  return {requestId:v.requestId,channel:v.channel,senderId:v.senderId,destination:message.destination,body:message.body,subject:message.subject||'',discountCents:cents,approach:eligibility.approach};
 }
 export function offerNote(attempt:Pick<SendAttempt,'id'|'approach'|'discountCents'|'channel'|'actorName'|'sentAt'|'verification'> & Partial<Pick<SendAttempt,'destination'|'subject'|'body'>>){
- const day=new Date(attempt.sentAt!).toLocaleString('en-NZ',{timeZone:'Pacific/Auckland'});
- return `[Dead quote follow-up ${attempt.id}]\n${day} (NZ time) — Approach ${attempt.approach} sent by ${attempt.channel.toUpperCase()}. Discount offered: NZD $${(attempt.discountCents/100).toFixed(2)}. Staff: ${attempt.actorName}.${attempt.destination?`\nTo: ${attempt.destination}`:''}${attempt.subject?`\nSubject: ${attempt.subject}`:''}${attempt.body?`\nMessage:\n${attempt.body}`:''}${attempt.verification?`\nSent verified by ${attempt.verification.actorName}: ${attempt.verification.evidence}`:''}`;
+ const day=new Date(attempt.sentAt!).toLocaleDateString('en-NZ',{timeZone:'Pacific/Auckland',day:'numeric',month:'short',year:'numeric'});
+ return `[Dead quote follow-up ${attempt.id}]\n${day} — Follow-up sent by ${attempt.channel==='sms'?'SMS':'email'} with a NZD $${(attempt.discountCents/100).toFixed(2)} discount offer.`;
 }
