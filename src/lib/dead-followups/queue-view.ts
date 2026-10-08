@@ -9,10 +9,21 @@ export function matchesView(row:QueueItem,view:string,now:string){
  if(view==='due')return row.eligibility.state==='due'&&!snoozed;
  return row.eligibility.state===view;
 }
+export function waitingSince(row:QueueItem):string|null {
+ const first=row.controls?.state.offers.find(offer=>offer.number===1);
+ const at=first?.sentAt||controlHistory(row.controls?.state||emptyControls(),row.job).entry?.at;
+ return at&&Number.isFinite(Date.parse(at))?at:null;
+}
+export function waitingLabel(row:QueueItem,now:string):string|null {
+ const at=waitingSince(row);if(!at||!Number.isFinite(Date.parse(now)))return null;
+ const nzDay=(value:string)=>new Intl.DateTimeFormat('en-CA',{timeZone:'Pacific/Auckland',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(value));
+ const days=Math.max(0,Math.round((Date.parse(nzDay(now))-Date.parse(nzDay(at)))/86400000));
+ const duration=`${days} ${days===1?'day':'days'}`;
+ return row.controls?.state.offers.some(offer=>offer.number===1)?`${duration} since first follow-up`:`In Dead for ${duration}`;
+}
 export function sortQueueItems(items:QueueItem[]){
- const priority=(x:QueueItem)=>x.notePending?0:({attention:0,due:1,review:2,waiting:3,complete:4,excluded:5}[x.eligibility.state]);
- const due=(x:QueueItem)=>Number.isFinite(Date.parse(x.eligibility.dueAt||''))?Date.parse(x.eligibility.dueAt!):Number.MAX_SAFE_INTEGER;
- return [...items].sort((a,b)=>priority(a)-priority(b)||due(a)-due(b)||a.job._id.localeCompare(b.job._id));
+ const start=(row:QueueItem)=>{const at=waitingSince(row);return at?Date.parse(at):Number.MAX_SAFE_INTEGER;};
+ return [...items].sort((a,b)=>start(a)-start(b)||a.job._id.localeCompare(b.job._id));
 }
 
 /** Display due work only; the send endpoint still requires a real history review. */

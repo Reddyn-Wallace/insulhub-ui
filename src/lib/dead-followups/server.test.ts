@@ -18,6 +18,7 @@ it('paginates using actual page sizes, filters leads/accepted, and never assumes
   expect(result.items[0].suggestion?.date).toBe('2026-01-29');
   expect(result.items[1].suggestion).toBeNull();
   expect(result.historyAvailable).toBe(false);
+  expect(result.quoteCounts).toEqual({OPEN:1,CALLBACK:0,DEAD:2,ALL:3});
 });
 it.each(['empty','duplicate','changed-total','error','malformed'])('rejects an incomplete scan (%s) instead of a false empty/complete queue',async(kind)=>{
   vi.stubGlobal('fetch',vi.fn(async(_url,init)=>{
@@ -43,6 +44,7 @@ it('never returns pre-2026 quotes even with recent notes, and supplies the agree
  vi.stubGlobal('fetch',vi.fn(async()=>Response.json({data:{jobs:{total:2,results:[old,current]}}})));
  const result=await loadDeadQuoteQueue('token','2026-10-04T00:00:00Z');
  expect(result.items.map(x=>x.job._id)).toEqual(['current']);
+ expect(result.quoteCounts).toEqual({OPEN:0,CALLBACK:0,DEAD:2,ALL:2});
  expect(result.items[0].job.deadEntry).toMatchObject({source:'quote_plus_30',at:'2026-01-31T10:59:59.999Z'});
 });
 it('loads remaining pages concurrently with a limit of four requests',async()=>{

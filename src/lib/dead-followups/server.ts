@@ -46,6 +46,7 @@ const SCAN_ERROR = 'The full quote list could not be verified. Refresh and try a
 
 export async function loadDeadQuoteQueue(token: string, checkedAt = new Date().toISOString()): Promise<QueueResponse> {
   const items: QueueItem[] = [];
+  const quoteCounts={OPEN:0,CALLBACK:0,DEAD:0,ALL:0};
   const seen = new Set<string>();
   const signal = AbortSignal.timeout(40000);
   try {
@@ -62,7 +63,14 @@ export async function loadDeadQuoteQueue(token: string, checkedAt = new Date().t
       if(result.total!==total||result.results.length!==Math.min(size,total-offset))throw Error(SCAN_ERROR);
       for(const value of result.results){
         if(!validQuote(value)||seen.has(value._id))throw Error(SCAN_ERROR);seen.add(value._id);
-        const job=value;if(classifyQuote(job)==='excluded'||!quoteInCohort(job))continue;
+        const job=value;
+        if(job.stage==='QUOTE'&&!job.archivedAt){
+          quoteCounts.ALL++;
+          if(job.lead?.leadStatus==='DEAD'||job.quote?.status==='DECLINED')quoteCounts.DEAD++;
+          else if(job.quote?.status==='DEFERRED'||['CALLBACK','ON_HOLD'].includes((job.lead?.leadStatus||'').toUpperCase()))quoteCounts.CALLBACK++;
+          else quoteCounts.OPEN++;
+        }
+        if(classifyQuote(job)==='excluded'||!quoteInCohort(job))continue;
         job.deadEntry=assumedEntry(job,checkedAt);const suggestion=suggestDeadDate(job.notes,checkedAt);
         items.push({job,suggestion,earliestFirstApproach:job.deadEntry?addNzMonths(job.deadEntry.at,2):null,eligibility:evaluateFollowup(job,{entry:suggestion?{at:suggestion.at,provenance:'note'}:null,historyReviewed:false,approaches:[]},checkedAt)});
       }
@@ -77,5 +85,5 @@ export async function loadDeadQuoteQueue(token: string, checkedAt = new Date().t
     if(seen.size!==total)throw Error(SCAN_ERROR);
   } catch { throw Error(SCAN_ERROR); }
   items.sort((a,b) => (a.suggestion?.at || '9999').localeCompare(b.suggestion?.at || '9999') || a.job._id.localeCompare(b.job._id));
-  return {items,checkedAt,readOnly:true,historyAvailable:false};
+  return {items,quoteCounts,checkedAt,readOnly:true,historyAvailable:false};
 }

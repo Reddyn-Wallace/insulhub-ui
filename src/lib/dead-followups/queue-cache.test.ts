@@ -1,0 +1,10 @@
+import {afterEach,beforeEach,expect,it,vi} from 'vitest';
+import {fetchQueue,cachedQueue,invalidateQueue} from './queue-cache';
+const data={items:[],readOnly:true,checkedAt:'2026-10-08T00:00:00Z'};
+beforeEach(()=>{invalidateQueue('test');invalidateQueue('other');vi.stubGlobal('fetch',vi.fn(async()=>Response.json(data)));});
+afterEach(()=>{vi.unstubAllGlobals();vi.useRealTimers();});
+it('reuses a prefetched queue without a second request',async()=>{await fetchQueue('test');expect(await fetchQueue('test')).toEqual(data);expect(fetch).toHaveBeenCalledTimes(1);});
+it('shares an in-flight request between the badge and queue',async()=>{let finish!:(r:Response)=>void;vi.mocked(fetch).mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));const badge=fetchQueue('test');const queue=fetchQueue('test');expect(fetch).toHaveBeenCalledTimes(1);finish(Response.json(data));expect(await queue).toEqual(await badge);});
+it('expires after 30 seconds and isolates sign-ins',async()=>{vi.useFakeTimers();await fetchQueue('test');vi.advanceTimersByTime(30001);expect(cachedQueue('test')).toBeNull();await fetchQueue('test');expect(cachedQueue('other')).toBeNull();await fetchQueue('other');expect(fetch).toHaveBeenCalledTimes(3);});
+it('invalidation prevents an old pending request repopulating the cache',async()=>{let finish!:(r:Response)=>void;vi.mocked(fetch).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));const pending=fetchQueue('test');invalidateQueue('test');const updated={...data,checkedAt:'2026-10-09T00:00:00Z'};vi.mocked(fetch).mockResolvedValueOnce(Response.json(updated));await fetchQueue('test');finish(Response.json(data));await pending;expect(cachedQueue('test')).toEqual(updated);});
+it('does not cache failed requests and retries them',async()=>{vi.mocked(fetch).mockResolvedValueOnce(new Response('',{status:401}));await expect(fetchQueue('test')).rejects.toMatchObject({status:401});expect(cachedQueue('test')).toBeNull();await fetchQueue('test');expect(fetch).toHaveBeenCalledTimes(2);});

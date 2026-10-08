@@ -78,16 +78,20 @@ it.each([null,{SQM:0}])('flags negative extras and omits absent ceiling %j',asyn
  expect(screen.getByText('Already discounted')).toBeTruthy();expect(screen.getByText('Existing discount: $750 excl. GST')).toBeTruthy();expect(screen.queryByText(/Ceiling:/)).toBeNull();
 });
 
-it('shows the last verified queue immediately on return while refreshing in the background',async()=>{
+it('shows the last verified queue immediately on return without refetching a fresh snapshot',async()=>{
  const view=render(<DeadFollowupsPage/>);await screen.findByRole('button',{name:/Alex Example/});view.unmount();
  vi.mocked(fetch).mockImplementation(()=>new Promise(()=>{}));render(<DeadFollowupsPage/>);
- expect(await screen.findByRole('button',{name:/Alex Example/})).toBeTruthy();expect(screen.getByRole('button',{name:'Loading…'}).matches(':disabled')).toBe(true);
+ expect(await screen.findByRole('button',{name:/Alex Example/})).toBeTruthy();await waitFor(()=>expect(screen.getByRole('button',{name:'Refresh'}).matches(':disabled')).toBe(false));expect(fetch).toHaveBeenCalledTimes(1);
 });
 
 it('preserves cents when displaying existing discounts',async()=>{const row=payload.items[0];vi.mocked(fetch).mockResolvedValue(Response.json({...payload,items:[{...row,job:{...row.job,quote:{...row.job.quote,extras:[{name:'Promo',price:-750.25}]}}}]}));render(<DeadFollowupsPage/>);fireEvent.click(await screen.findByRole('button',{name:/Alex Example/}));expect(screen.getByText('Existing discount: $750.25 excl. GST')).toBeTruthy();});
 
-it('keeps quote states visible and counts only due follow-ups on the active tab',async()=>{render(<DeadFollowupsPage/>);await screen.findByRole('button',{name:/Alex Example/});expect(screen.getByRole('button',{name:'Open'})).toBeTruthy();expect(screen.getByRole('button',{name:'Callback'})).toBeTruthy();expect(screen.getByRole('button',{name:'Dead'})).toBeTruthy();expect(screen.getByRole('link',{name:/Follow-ups\s*\(1\)/}).getAttribute('aria-current')).toBe('page');});
+it('keeps quote states visible and counts only due follow-ups on the active tab',async()=>{render(<DeadFollowupsPage/>);await screen.findByRole('button',{name:/Alex Example/});expect(screen.getByRole('button',{name:/^Open/})).toBeTruthy();expect(screen.getByRole('button',{name:/^Callback/})).toBeTruthy();expect(screen.getByRole('button',{name:/^Dead/})).toBeTruthy();expect(screen.getByRole('link',{name:/Follow-ups\s*\(1\)/}).getAttribute('aria-current')).toBe('page');});
 it('loads the follow-up badge on the Quotes navigation',async()=>{render(<StageTabs activeStage="QUOTE" subTab="OPEN" onSubTabChange={()=>{}}/>);expect(await screen.findByRole('link',{name:/Follow-ups\s*\(1\)/})).toBeTruthy();});
 
 it('retains the verified badge when returning from Follow-ups before its request completes',()=>{const first=render(<StageTabs activeStage="QUOTE" subTab="FOLLOW_UPS" followupCount={94} onSubTabChange={()=>{}}/>);first.unmount();vi.mocked(fetch).mockImplementation(()=>new Promise(()=>{}));render(<StageTabs activeStage="QUOTE" subTab="DEAD" onSubTabChange={()=>{}}/>);expect(screen.getByRole('link',{name:/Follow-ups\s*\(94\)/})).toBeTruthy();});
 it('does not restart the count request when switching quote state tabs',async()=>{const view=render(<StageTabs activeStage="QUOTE" subTab="OPEN" onSubTabChange={()=>{}}/>);await screen.findByRole('link',{name:/Follow-ups\s*\(1\)/});view.rerender(<StageTabs activeStage="QUOTE" subTab="DEAD" onSubTabChange={()=>{}}/>);expect(fetch).toHaveBeenCalledTimes(1);});
+
+it('reuses the queue prefetched by the quote navigation',async()=>{const nav=render(<StageTabs activeStage="QUOTE" subTab="OPEN" onSubTabChange={()=>{}}/>);await screen.findByRole('link',{name:/Follow-ups\s*\(1\)/});nav.unmount();render(<DeadFollowupsPage/>);await screen.findByRole('button',{name:/Alex Example/});expect(fetch).toHaveBeenCalledTimes(1);});
+
+it('preserves all quote tab counts when entering Follow-ups',()=>{const nav=render(<StageTabs activeStage="QUOTE" subTab="OPEN" counts={{OPEN:43,CALLBACK:33,DEAD:1057,ALL:1133}} onSubTabChange={()=>{}}/>);nav.unmount();render(<StageTabs activeStage="QUOTE" subTab="FOLLOW_UPS" followupCount={94} onSubTabChange={()=>{}}/>);expect(screen.getByRole('button',{name:/Open\s*\(43\)/})).toBeTruthy();expect(screen.getByRole('button',{name:/Dead\s*\(1057\)/})).toBeTruthy();});

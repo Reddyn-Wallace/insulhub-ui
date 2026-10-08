@@ -23,7 +23,7 @@ export class FollowupPreview{
  readonly state:PreviewState;
  constructor(saved?:PreviewState,private readonly now=()=>new Date().toISOString()) {this.state=saved?.version===1?saved:seed(now());}
  private sample(id:string){const s=this.state.samples.find(s=>s.job._id===id);if(!s)throw new ControlError('Sample quote not found.',404);return s;}
- queue():QueueResponse{return {preview:true,readOnly:false,historyAvailable:true,checkedAt:this.now(),items:this.state.samples.map(s=>({job:s.job,controls:s.record,eligibility:evaluateFollowup(s.job,controlHistory(s.record.state,s.job),this.now()),suggestion:null,earliestFirstApproach:null,sendAvailable:true,sendEnabled:true}))};}
+ queue():QueueResponse{return {quoteCounts:{OPEN:0,CALLBACK:0,DEAD:this.state.samples.length,ALL:this.state.samples.length},preview:true,readOnly:false,historyAvailable:true,checkedAt:this.now(),items:this.state.samples.map(s=>({job:s.job,controls:s.record,eligibility:evaluateFollowup(s.job,controlHistory(s.record.state,s.job),this.now()),suggestion:null,earliestFirstApproach:null,sendAvailable:true,sendEnabled:true}))};}
  history(id:string){const s=this.sample(id);return {job:s.job,record:s.record,events:s.events,readOnly:false,preview:true};}
  change(id:string,input:{revision:number;jobVersion:string;command:unknown}){
   const s=this.sample(id);if(input.revision!==s.record.revision||input.jobVersion!==s.job.updatedAt)throw new ControlError('Refresh this sample quote before saving.',409);

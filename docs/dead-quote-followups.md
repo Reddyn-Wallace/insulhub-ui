@@ -89,3 +89,11 @@ Follow-up defaults live at Settings → Templates → Dead quote follow-up templ
 Validation: the full test suite passed; the final follow-up suite has 198 passing tests, including local PostgreSQL integration cases. Production build/TypeScript, targeted lint and independent code review passed. Updated browser checks cover the new actions and confirmation flow, Settings templates, access-disabled views and date/send recovery at 390px and 1280px. The sample-server tests verify no external requests. No deployment or production writes.
 
 Follow-up cleanup: removed the confirmation checkbox, Dead-quotes back link, queue count/last-checked row and full-history link from quote details. Mobile detail navigation now says Back to follow-ups. Confirm and send is the explicit confirmation action. Newly appended sent-offer job notes include recipient, email subject where present and the exact message body alongside discount/date/channel/staff; existing notes are not rewritten. Focused tests (35), production build/TypeScript and targeted lint passed.
+
+## Queue cache and waiting order — 8 October 2026
+
+The Quotes navigation now prefetches the full follow-up queue into a shared, token-scoped 30-second memory cache. Opening Follow-ups reuses that payload or joins the same in-flight request. Leaving the navigation does not abort shared work. Refresh, reset, completed follow-up actions and lost access invalidate the cache; old pending responses cannot repopulate an invalidated cache. Cached queues still use server-side version and eligibility checks for every mutation/send.
+
+Rows show NZ calendar days in Dead before the first offer, or days since the first sent follow-up afterwards. The queue sorts by that waiting period, longest first, irrespective of review status. The canonical quote scan also returns Open/Callback/Dead/All counts before follow-up cohort filtering, so those badges remain available when Follow-ups is opened directly. Existing navigation counts carry across during loading.
+
+Validated with 45 focused tests covering shared requests, token isolation, expiry, invalidation, stale responses, waiting order, NZ daylight saving and preserved tab counts. Production build/TypeScript and targeted lint passed. No deployment or production writes.
