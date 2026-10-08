@@ -6,12 +6,18 @@ const mocks = vi.hoisted(() => ({
   build: vi.fn(),
   load: vi.fn(),
   save: vi.fn(),
+  refresh: vi.fn(),
 }));
+vi.mock("./snapshot-cache", () => ({ settleDashboardLoads: async () => undefined }));
+vi.mock("./bank-refresh", () => ({ refreshBankAccounts: mocks.refresh }));
 vi.mock("./access", () => ({ requireFinanceOwner: mocks.auth }));
 vi.mock("./dashboard", () => ({ buildDashboard: mocks.build }));
 vi.mock("./live-data", () => ({ loadFinanceInputs: mocks.load }));
 vi.mock("./review-store", () => ({ saveReviewDecision: mocks.save }));
-import { GET } from "../../app/api/finance/dashboard/route";
+import {
+  GET,
+  POST as refreshDashboard,
+} from "../../app/api/finance/dashboard/route";
 import { POST } from "../../app/api/finance/review/route";
 import { FinanceError } from "./errors";
 it("denies a different CRM identity before reading data or saving decisions", async () => {
@@ -42,4 +48,40 @@ it("marks the dashboard private and uncacheable", async () => {
   expect(r.status).toBe(200);
   expect(r.headers.get("cache-control")).toBe("no-store, private");
   expect(await r.json()).toEqual({ reserved: 10000 });
+});
+
+it("requests upstream refresh only after owner authentication and bypasses cached data", async () => {
+  mocks.auth.mockResolvedValue({ userId: "owner", token: "private" });
+  mocks.refresh.mockResolvedValue([
+    {
+      account: "Operating account",
+      status: "unchanged",
+      message: "No new timestamp",
+    },
+  ]);
+  mocks.build.mockResolvedValue({ owed: 100 });
+  const response = await refreshDashboard(
+    new NextRequest("https://example.com/api/finance/dashboard", {
+      method: "POST",
+    }),
+  );
+  expect(response.status).toBe(200);
+  expect(mocks.build).toHaveBeenLastCalledWith(
+    { userId: "owner", token: "private" },
+    false,
+    true,
+  );
+  expect((await response.json()).bankRefresh[0].status).toBe("unchanged");
+  mocks.refresh.mockClear();
+  mocks.auth.mockRejectedValue(new FinanceError(403, "Owner only"));
+  expect(
+    (
+      await refreshDashboard(
+        new NextRequest("https://example.com/api/finance/dashboard", {
+          method: "POST",
+        }),
+      )
+    ).status,
+  ).toBe(403);
+  expect(mocks.refresh).not.toHaveBeenCalled();
 });

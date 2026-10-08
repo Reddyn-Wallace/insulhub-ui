@@ -386,4 +386,9 @@ it("adds uninvoiced completed work to net and opens a searchable job breakdown",
   });
   expect(screen.queryByRole("link", { name: "Alan Mirza" })).toBeNull();
   expect(screen.getByText("$3,225.25")).toBeTruthy();
+  expect(vi.mocked(fetch).mock.calls[0][1]?.method).toBe("GET");
+  fireEvent.click(screen.getByRole("button", { name: "Refresh figures" }));
+  await waitFor(() => expect(vi.mocked(fetch).mock.lastCall?.[1]?.method).toBe("POST"));
+  await screen.findByRole("button", { name: "Refresh figures" });
+
 });

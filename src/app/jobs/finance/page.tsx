@@ -9,6 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import type { BankRefreshResult } from "@/lib/finance/bank-refresh";
 import type { DashboardResponse } from "@/lib/finance/dashboard";
 import { isJobInstalled } from "@/lib/finance/model";
 import {
@@ -115,6 +116,8 @@ export default function FinancePage() {
     [includeMatched, setIncludeMatched] = useState(false),
     [target, setTarget] = useState<ReviewTarget | null>(null),
     [expanded, setExpanded] = useState<string | null>(null);
+  const [bankRefresh, setBankRefresh] = useState<BankRefreshResult[]>([]);
+  const [refreshingBank, setRefreshingBank] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const detailSection = useRef<HTMLElement>(null);
   const [drillRequest, setDrillRequest] = useState(0);
@@ -132,15 +135,23 @@ export default function FinancePage() {
     setDetailsOpen(true);
     setDrillRequest((n) => n + 1);
   }
-  const load = useCallback(async (refresh = false) => {
+  const load = useCallback(async (refresh = false, requestBank = false) => {
     setBusy(true);
     setError("");
+    setBankRefresh([]);
+    setRefreshingBank(requestBank);
     try {
-      setData(await financeApi(refresh ? "dashboard?refresh=1" : "dashboard"));
+      const result = await financeApi(
+        refresh && !requestBank ? "dashboard?refresh=1" : "dashboard",
+        requestBank ? { refresh: true } : undefined,
+      );
+      setData(result);
+      setBankRefresh(result.bankRefresh || []);
     } catch (e) {
       setData(null);
       setError(e instanceof Error ? e.message : "Could not load cash data.");
     } finally {
+      setRefreshingBank(false);
       setBusy(false);
     }
   }, []);
@@ -354,13 +365,40 @@ export default function FinancePage() {
             </Link>
             <button
               className={buttonClass}
-              onClick={() => void load(true)}
+              onClick={() => void load(true, true)}
               disabled={busy}
             >
-              {busy ? "Checking sources…" : "Refresh figures"}
+              {busy
+                ? refreshingBank
+                  ? "Refreshing bank and figures…"
+                  : "Checking sources…"
+                : "Refresh figures"}
             </button>
           </div>
         </header>
+        {refreshingBank && (
+          <p role="status" className="mb-5 text-sm text-teal-800">
+            Requesting new bank data from Akahu, then updating invoices and
+            jobs. This can take a minute.
+          </p>
+        )}
+        {bankRefresh.length > 0 && (
+          <div
+            role="status"
+            className="mb-5 rounded-xl border border-slate-200 bg-white p-4 text-sm"
+          >
+            {bankRefresh.map((r) => (
+              <p
+                key={r.account}
+                className={
+                  r.status === "updated" ? "text-teal-800" : "text-amber-800"
+                }
+              >
+                <strong>{r.account}:</strong> {r.message}
+              </p>
+            ))}
+          </div>
+        )}
         {error && (
           <div
             role="alert"
@@ -452,12 +490,25 @@ export default function FinancePage() {
                       ? `Already factors in ${money(data.localAdjustment + data.pendingSettlement)} in payments received, awaiting reconciliation.`
                       : "No payments have been matched and deducted from this figure."}
                     {data.uninvoiced.rows.length > 0 && (
-                      <><br /><button className="text-left font-medium text-teal-800 underline underline-offset-2" onClick={() => openDetail("uninvoiced")}>
-                        {data.uninvoiced.rows.length} {data.uninvoiced.rows.length === 1 ? "job needs" : "jobs need"} invoicing · {money(data.uninvoiced.total)} estimated, included above.
-                      </button></>
+                      <>
+                        <br />
+                        <button
+                          className="text-left font-medium text-teal-800 underline underline-offset-2"
+                          onClick={() => openDetail("uninvoiced")}
+                        >
+                          {data.uninvoiced.rows.length}{" "}
+                          {data.uninvoiced.rows.length === 1
+                            ? "job needs"
+                            : "jobs need"}{" "}
+                          invoicing · {money(data.uninvoiced.total)} estimated,
+                          included above.
+                        </button>
+                      </>
                     )}
-                    {data.uninvoiced.needsConfirmation > 0 && ` ${data.uninvoiced.needsConfirmation} need amount confirmation and are excluded.`}
-                    {data.uninvoiced.over30 > 0 && ` ${data.uninvoiced.over30} remain unresolved after 30 days.`}
+                    {data.uninvoiced.needsConfirmation > 0 &&
+                      ` ${data.uninvoiced.needsConfirmation} need amount confirmation and are excluded.`}
+                    {data.uninvoiced.over30 > 0 &&
+                      ` ${data.uninvoiced.over30} remain unresolved after 30 days.`}
                     {data.unclassifiedOwed > 0 &&
                       " Some unpaid invoices still need their job confirmed."}
                   </>
@@ -561,8 +612,9 @@ export default function FinancePage() {
                   overlap recent bank receipts, even if their dates differ.
                   Where an old deposit prevents a confident adjustment, the
                   uncertain amount stays owed until Xero is reconciled. Figures
-                  include GST. Refresh reads the latest available data; it does
-                  not force an Akahu bank update.
+                  include GST. Refresh figures requests new bank data from Akahu
+                  and checks for a newer balance timestamp. Personal apps have a
+                  one-hour refresh rest period.
                 </p>
                 <button
                   className={buttonClass + " mt-4"}
@@ -618,7 +670,14 @@ export default function FinancePage() {
                         <dd>−{money(data.pendingSettlement)}</dd>
                       </div>
                       <div className="flex justify-between gap-3">
-                        <dt><button className="text-left text-teal-800 underline underline-offset-2" onClick={() => openDetail("uninvoiced")}>Plus: work awaiting invoice</button></dt>
+                        <dt>
+                          <button
+                            className="text-left text-teal-800 underline underline-offset-2"
+                            onClick={() => openDetail("uninvoiced")}
+                          >
+                            Plus: work awaiting invoice
+                          </button>
+                        </dt>
                         <dd>{money(data.uninvoiced.total)}</dd>
                       </div>
                       <div className="flex justify-between gap-3 font-semibold">
