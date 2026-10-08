@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { canResumeCampaignRecipient, canRetryCampaignRecipient } from "@/lib/campaign-resume";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAppDialog } from "@/components/AppDialog";
@@ -199,6 +200,9 @@ export default function CampaignBuilderPage() {
   const [sendersLoading, setSendersLoading] = useState(false);
   const [savingSender, setSavingSender] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [retrySelection, setRetrySelection] = useState<string[]>([]);
+  const [resuming, setResuming] = useState(false);
   const [sending, setSending] = useState(false);
   const [viewingRecipient, setViewingRecipient] = useState<SavedRecipient | null>(null);
   const [communicationSettings, setCommunicationSettings] = useState<CommunicationSettings>(DEFAULT_COMMUNICATION_SETTINGS);
@@ -299,6 +303,9 @@ export default function CampaignBuilderPage() {
   const isTerminal = campaign?.status === "sent" || campaign?.status === "failed" || campaign?.status === "halted";
   const isSetupLocked = Boolean(isQueued || isTerminal);
   const deliveryRecipients = isSetupLocked ? recipients : recipients.filter((recipient) => recipient.status !== "pending");
+  const retryableRecipients = recipients.filter(canRetryCampaignRecipient);
+  const selectedRetryIds = retryableRecipients.filter(row => retrySelection.includes(row.id)).map(row => row.id);
+  const resumableRecipientCount = recipients.filter(canResumeCampaignRecipient).length;
   const pendingRecipientCount = recipients.filter((recipient) => recipient.status === "pending").length;
   const sentRecipientCount = recipients.filter((recipient) => recipient.status === "sent").length;
   const failedRecipientCount = recipients.filter((recipient) => recipient.status === "failed").length;
@@ -400,6 +407,73 @@ export default function CampaignBuilderPage() {
       }
     }
   }, [campaign, ownsCampaignSender, router]);
+
+  async function retryFailedRecipients(recipientIds: string[]) {
+    if (!campaign || retrying || !recipientIds.length) return;
+    const confirmed = await confirm({
+      title: "Retry failed deliveries?",
+      description: `${recipientIds.length} failed recipient${recipientIds.length === 1 ? "" : "s"} will be queued again. Messages already sent will not be resent. Check the failure reasons before retrying. Sending hours and limits still apply.`,
+      confirmLabel: "Retry Failed",
+    });
+    if (!confirmed) return;
+    const token = getToken();
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+    setRetrying(true);
+    setMessage(null);
+    try {
+      const res = await fetch(`/api/campaigns/${campaign.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "x-access-token": token },
+        body: JSON.stringify({ retryFailed: true, recipientIds }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "Failed to retry deliveries");
+      setCampaign(json.campaign);
+      setRecipients(json.recipients || []);
+      setRetrySelection([]);
+      setMessage({ type: "success", text: json.sendResult || "Failed deliveries queued for retry." });
+    } catch (err) {
+      setMessage({ type: "error", text: err instanceof Error ? err.message : "Failed to retry deliveries" });
+    } finally {
+      setRetrying(false);
+    }
+  }
+
+  async function resumeCampaign() {
+    if (!campaign || campaign.status !== "halted" || resuming) return;
+    const confirmed = await confirm({
+      title: "Resume campaign?",
+      description: `${resumableRecipientCount} recipient${resumableRecipientCount === 1 ? "" : "s"} skipped when the campaign halted will be queued again. Messages already sent will not be resent. Sending hours and limits still apply.`,
+      confirmLabel: "Resume Campaign",
+    });
+    if (!confirmed) return;
+    const token = getToken();
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+    setResuming(true);
+    setMessage(null);
+    try {
+      const res = await fetch(`/api/campaigns/${campaign.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "x-access-token": token },
+        body: JSON.stringify({ resumeCampaign: true }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "Failed to resume campaign");
+      setCampaign(json.campaign);
+      setRecipients(json.recipients || []);
+      setMessage({ type: "success", text: json.sendResult || "Campaign resumed." });
+    } catch (err) {
+      setMessage({ type: "error", text: err instanceof Error ? err.message : "Failed to resume campaign" });
+    } finally {
+      setResuming(false);
+    }
+  }
 
   async function haltCampaign() {
     if (!campaign || !isQueued) return;
@@ -532,6 +606,34 @@ export default function CampaignBuilderPage() {
                       </button>
                     </>
                   )}
+                  {campaign.status === "halted" && resumableRecipientCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={resumeCampaign}
+                      disabled={resuming || retrying || !ownsCampaignSender}
+                      title={!ownsCampaignSender ? "The sending connection's owner must resume this campaign" : undefined}
+                      className="rounded-lg bg-[#1a3a4a] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      {resuming ? "Resuming…" : "Resume Campaign"}
+                    </button>
+                  )}
+                  {retryableRecipients.length > 0 && (
+                    <>
+                      {selectedRetryIds.length > 0 && (
+                        <button type="button" onClick={() => retryFailedRecipients(selectedRetryIds)}
+                          disabled={retrying || resuming || !ownsCampaignSender}
+                          className="rounded-lg bg-[#1a3a4a] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                          Retry Selected ({selectedRetryIds.length})
+                        </button>
+                      )}
+                      <button type="button" onClick={() => retryFailedRecipients(retryableRecipients.map(row => row.id))}
+                        disabled={retrying || resuming || !ownsCampaignSender}
+                        title={!ownsCampaignSender ? "The sending connection's owner must retry deliveries" : undefined}
+                        className="rounded-lg bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800 ring-1 ring-amber-200 disabled:opacity-50">
+                        {retrying ? "Queuing retries…" : `Retry All Failed (${retryableRecipients.length})`}
+                      </button>
+                    </>
+                  )}
                   {!isQueued && (
                     <span className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">
                       Audit ready
@@ -544,6 +646,12 @@ export default function CampaignBuilderPage() {
                   <table className="min-w-full divide-y divide-gray-200 text-sm">
                     <thead className="sticky top-0 bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
                       <tr>
+                        {retryableRecipients.length > 0 && <th className="px-3 py-2">
+                          <input type="checkbox" aria-label="Select all failed recipients"
+                            disabled={retrying || resuming || !ownsCampaignSender}
+                            checked={selectedRetryIds.length === retryableRecipients.length}
+                            onChange={event => setRetrySelection(event.target.checked ? retryableRecipients.map(row => row.id) : [])} />
+                        </th>}
                         <th className="px-3 py-2">Recipient</th>
                         <th className="px-3 py-2">Job</th>
                         <th className="px-3 py-2">Status</th>
@@ -554,6 +662,14 @@ export default function CampaignBuilderPage() {
                     <tbody className="divide-y divide-gray-100 bg-white">
                       {deliveryRecipients.map((recipient) => (
                         <tr key={recipient.id}>
+                          {retryableRecipients.length > 0 && <td className="px-3 py-2">
+                            {canRetryCampaignRecipient(recipient) && <input type="checkbox"
+                              aria-label={`Select ${recipient.contactName || recipient.destination} for retry`}
+                              disabled={retrying || resuming || !ownsCampaignSender}
+                              checked={selectedRetryIds.includes(recipient.id)}
+                              onChange={event => setRetrySelection(current => event.target.checked
+                                ? [...current, recipient.id] : current.filter(id => id !== recipient.id))} />}
+                          </td>}
                           <td className="px-3 py-2">
                             <div className="font-semibold text-gray-900">{recipient.contactName || "Unknown"}</div>
                             <div className="text-xs text-gray-500">{recipient.destination}</div>
@@ -575,11 +691,22 @@ export default function CampaignBuilderPage() {
                             }`}>
                               {recipient.status}
                             </span>
+                            {recipient.status === "failed" && recipient.failureReason && (
+                              <p className="mt-1 max-w-xs text-xs text-rose-700">{recipient.failureReason}</p>
+                            )}
                           </td>
                           <td className="px-3 py-2 text-gray-600">
                             {recipient.status === "pending" ? fmtDateTime(recipient.scheduledAt) : fmtDateTime(recipient.sentAt)}
                           </td>
                           <td className="px-3 py-2 text-right">
+                            {canRetryCampaignRecipient(recipient) && (
+                              <button type="button" aria-label={`Retry ${recipient.contactName || recipient.destination}`}
+                                disabled={retrying || resuming || !ownsCampaignSender}
+                                onClick={() => retryFailedRecipients([recipient.id])}
+                                className="mr-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 disabled:opacity-50">
+                                Retry
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => setViewingRecipient(recipient)}

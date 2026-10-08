@@ -1,3 +1,4 @@
+import { CAMPAIGN_HALTED_REASON, CAMPAIGN_CONNECTION_HALTED_REASON } from "@/lib/campaign-resume";
 import {
   communicationSendWindowError,
   loadCommunicationSettings,
@@ -117,7 +118,10 @@ async function finalizeCampaignIfDone(id: string) {
       COUNT(*) FILTER (WHERE selected = true AND status = 'pending')::int AS pending_count,
       COUNT(*) FILTER (WHERE selected = true AND status = 'sent')::int AS sent_count,
       COUNT(*) FILTER (WHERE selected = true AND status = 'failed')::int AS failed_count,
-      COUNT(*) FILTER (WHERE selected = true AND status = 'skipped')::int AS skipped_count
+      COUNT(*) FILTER (WHERE selected = true AND status = 'skipped')::int AS skipped_count,
+      COUNT(*) FILTER (WHERE selected = true AND status = 'skipped'
+        AND sent_at IS NULL AND COALESCE(provider_message_id, '') = ''
+        AND failure_reason IN (${CAMPAIGN_HALTED_REASON}, ${CAMPAIGN_CONNECTION_HALTED_REASON}))::int AS halted_count
     FROM campaign_recipients
     WHERE campaign_id = ${id}
   `;
@@ -136,10 +140,12 @@ async function finalizeCampaignIfDone(id: string) {
     return { campaign: rows[0], pendingCount, sentCount, failedCount, skippedCount };
   }
 
-  const finalStatus = sentCount > 0 || skippedCount > 0 ? "sent" : "failed";
+  const hasHaltedRecipients = Number(countRows[0]?.halted_count || 0) > 0;
+  const finalStatus = hasHaltedRecipients ? "halted" : sentCount > 0 || skippedCount > 0 ? "sent" : "failed";
   const rows = await overlaySql`
     UPDATE campaigns
-    SET status = ${finalStatus}, sent_at = COALESCE(sent_at, now()), updated_at = now()
+    SET status = ${finalStatus},
+        sent_at = CASE WHEN ${hasHaltedRecipients} THEN NULL ELSE COALESCE(sent_at, now()) END, updated_at = now()
     WHERE id = ${id} AND status IN ('pending', 'sending')
     RETURNING *
   `;
