@@ -2,6 +2,8 @@ import Link from "next/link";
 import { Fragment, useEffect, useState } from "react";
 import {needsFollowup} from '@/lib/dead-followups/queue-view';
 import type {QueueResponse} from '@/lib/dead-followups/types';
+let lastFollowupCount:{token:string;count:number}|null=null;
+const cachedCount=()=>lastFollowupCount?.token===localStorage.getItem('token')?lastFollowupCount.count:null;
 const LEAD_SUB_TABS = [
   { label: "New", value: "NEW" },
   { label: "Quote booked", value: "QUOTE_BOOKED" },
@@ -34,18 +36,20 @@ export default function StageTabs({
   searchMode,
   followupCount,
 }: StageTabsProps) {
-  const [loadedCount,setLoadedCount]=useState<number|null>(null);
+  const [loadedCount,setLoadedCount]=useState<number|null>(()=>typeof window!=='undefined'?cachedCount():null);
   useEffect(()=>{
-    if(activeStage!=="QUOTE"||followupCount!==undefined)return;
+    if(activeStage!=="QUOTE")return;
+    const token=localStorage.getItem('token')||'';
+    if(followupCount!==undefined){if(followupCount!==null)lastFollowupCount={token,count:followupCount};return;}
     const controller=new AbortController();
-    void fetch('/api/dead-followups',{headers:{'x-access-token':localStorage.getItem('token')||''},cache:'no-store',signal:controller.signal}).then(async response=>{
+    void fetch('/api/dead-followups',{headers:{'x-access-token':token},cache:'no-store',signal:controller.signal}).then(async response=>{
       if(!response.ok)throw Error('Count unavailable');
       const queue:QueueResponse=await response.json();
-      if(!controller.signal.aborted)setLoadedCount(queue.items.filter(row=>needsFollowup(row,queue.checkedAt)).length);
-    }).catch(()=>{if(!controller.signal.aborted)setLoadedCount(null);});
+      if(!controller.signal.aborted){const count=queue.items.filter(row=>needsFollowup(row,queue.checkedAt)).length;lastFollowupCount={token,count};setLoadedCount(count);}
+    }).catch(()=>{/* Keep the last verified count during a failed refresh. */});
     return()=>controller.abort();
-  },[activeStage,subTab,followupCount]);
-  const count=followupCount===undefined?loadedCount:followupCount;
+  },[activeStage,followupCount]);
+  const count=followupCount==null?loadedCount:followupCount;
   const subTabs =
     activeStage === "LEAD"
       ? LEAD_SUB_TABS
@@ -81,7 +85,7 @@ export default function StageTabs({
                 <span className="ml-1 opacity-70">({counts[t.value] ?? 0})</span>
               )}
             </button>
-            {activeStage === "QUOTE" && t.value === "DEAD" && <Link href="/jobs/follow-ups?stage=QUOTE" aria-current={subTab==='FOLLOW_UPS'?'page':undefined} className={`flex-shrink-0 px-4 py-1.5 text-xs font-semibold rounded-full ${subTab==='FOLLOW_UPS'?'bg-[#e85d04] text-white shadow-md shadow-orange-500/20':'bg-gray-50 text-gray-500 hover:bg-gray-100 hover:text-gray-800'}`}>Follow-ups{count!=null&&<span className="ml-1 opacity-70">({count})</span>}</Link>}
+            {activeStage === "QUOTE" && t.value === "DEAD" && <Link href="/jobs/follow-ups?stage=QUOTE" aria-current={subTab==='FOLLOW_UPS'?'page':undefined} className={`flex-shrink-0 px-4 py-1.5 text-xs font-semibold rounded-full ${subTab==='FOLLOW_UPS'?'bg-[#e85d04] text-white shadow-md shadow-orange-500/20':'bg-gray-50 text-gray-500 hover:bg-gray-100 hover:text-gray-800'}`}>Follow-ups<span className="ml-1 opacity-70">({count??'…'})</span></Link>}
             </Fragment>
           ))}
         </div>
