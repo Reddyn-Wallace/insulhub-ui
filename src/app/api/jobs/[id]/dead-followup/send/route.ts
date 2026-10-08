@@ -31,8 +31,7 @@ export async function GET(request:NextRequest,context:Context){
   const denied=await requireInsulhubAuth(request);if(denied)return denied;
   const {id}=await context.params;const {job,actor}=await readControlJob(tokenFromRequest(request),id);
   const repo=sendsRepository();if(!repo)throw new ControlError('Sending storage needs setup.',503);
-  const [attempts,sms,email]=await Promise.all([repo.list(id),smsGet(request,context),emailGet(request,context)]);
-  const templates=await templateRepository()?.read();
+  const [attempts,sms,email,templates]=await Promise.all([repo.list(id),smsGet(request,context),emailGet(request,context),templateRepository()?.read()]);
   return NextResponse.json({templates:templates?.templates||defaultTemplates(),templateRevision:templates?.revision||0,attempts:attempts.map(a=>({...a,canVerify:(a.actorId===actor.id||actor.role==='ADMIN')&&['sending','accepted','unknown'].includes(a.status)&&Date.now()-Date.parse(a.createdAt)>=60000})),enabled:enabled(),contact:job.client?.contactDetails||{},sms:sms.ok?await sms.json():{senders:[]},email:email.ok?await email.json():{senders:[]}},{headers});
  }catch(e){return failure(e);}
 }
