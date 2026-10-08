@@ -39,5 +39,7 @@ describe.skipIf(!db)("encrypted shared finance snapshots", () => {
       ["snapshot-test"],
     );
     expect(await readSnapshot("snapshot-test", "overview")).toBeNull();
+    expect(await readSnapshot("snapshot-test", "overview", true)).toEqual(input);
+    expect(await readSnapshot("other-owner", "overview", true)).toBeNull();
   });
 });

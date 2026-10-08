@@ -135,3 +135,11 @@ afd6d16 deployed successfully as8DPs3RmfBbNsrLHR6yoG1pjBA6EP and aliased product
 The explicit **Refresh figures** button now POSTs to the owner-only dashboard endpoint. It requests Akahu `/v1/refresh/{accountId}` for the operating account and configured Visa, then polls each account's balance update timestamp for up to 45 seconds. A 200 response is only an accepted request, not proof of fresh data. Newer timestamps, unchanged/rate-limited data and unavailable refresh checks are reported per account. A recent unchanged timestamp ends polling early because personal apps have a one-hour rest period. Akahu may refresh other accounts sharing the same bank login.
 
 After this check, any earlier in-flight dashboard source loads are allowed to settle, then figures are forced to reload. Opening the page, checking old bank history and saving review decisions do not trigger upstream bank refreshes. Transaction timestamps remain independent of balance timestamps. Sources: https://developers.akahu.nz/docs/personal-apps and https://developers.akahu.nz/reference/post_refresh-id .
+
+### Fast dashboard opening
+
+Opening the signed-in jobs area starts an owner-authenticated finance prefetch after a short delay. The dashboard and prefetch share the same browser request. Responses stay in memory only, are scoped to the current login token, and are cleared on logout or explicit refresh.
+
+The snapshot read can return an expired encrypted overview, labelled with its original source-check time. If older than five minutes, the client reads current source data in the background and replaces the figures when complete. Expired snapshots are display-only: they do not update uninvoiced-job tracking. Failed background updates keep the saved figures with a warning; rejected owner/session authentication removes them. Snapshot access continues to require server-side owner verification and uses private, no-store HTTP responses.
+
+Automatic prefetch/revalidation only reads Akahu's available data. Only the explicit Refresh figures action requests an upstream bank update. Bank balance and transaction timestamps retain their independent meaning. No scheduled finance refresh is introduced.

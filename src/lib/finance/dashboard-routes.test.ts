@@ -7,8 +7,12 @@ const mocks = vi.hoisted(() => ({
   load: vi.fn(),
   save: vi.fn(),
   refresh: vi.fn(),
+  snapshot: vi.fn(),
 }));
-vi.mock("./snapshot-cache", () => ({ settleDashboardLoads: async () => undefined }));
+vi.mock("./snapshot-store", () => ({ readSnapshot: mocks.snapshot }));
+vi.mock("./snapshot-cache", () => ({
+  settleDashboardLoads: async () => undefined,
+}));
 vi.mock("./bank-refresh", () => ({ refreshBankAccounts: mocks.refresh }));
 vi.mock("./access", () => ({ requireFinanceOwner: mocks.auth }));
 vi.mock("./dashboard", () => ({ buildDashboard: mocks.build }));
@@ -84,4 +88,40 @@ it("requests upstream refresh only after owner authentication and bypasses cache
     ).status,
   ).toBe(403);
   expect(mocks.refresh).not.toHaveBeenCalled();
+});
+
+it("returns an owner-authorised expired snapshot without loading upstream sources", async () => {
+  mocks.auth.mockResolvedValue({ userId: "owner", token: "private" });
+  const saved = { checkedAt: "2020-01-01T00:00:00Z" };
+  mocks.snapshot.mockResolvedValue(saved);
+  mocks.build.mockResolvedValue({ checkedAt: saved.checkedAt, owed: 100 });
+  const r = await GET(
+    new NextRequest("https://example.com/api/finance/dashboard?snapshot=1"),
+  );
+  expect(mocks.snapshot).toHaveBeenLastCalledWith("owner", "overview", true);
+  expect(mocks.build).toHaveBeenLastCalledWith(
+    { userId: "owner", token: "private" },
+    false,
+    false,
+    saved,
+  );
+  expect((await r.json()).snapshotStale).toBe(true);
+  mocks.snapshot.mockResolvedValue(null);
+  expect(
+    await (
+      await GET(
+        new NextRequest("https://example.com/api/finance/dashboard?snapshot=1"),
+      )
+    ).json(),
+  ).toBeNull();
+  mocks.snapshot.mockClear();
+  mocks.auth.mockRejectedValue(new FinanceError(403, "Owner only"));
+  expect(
+    (
+      await GET(
+        new NextRequest("https://example.com/api/finance/dashboard?snapshot=1"),
+      )
+    ).status,
+  ).toBe(403);
+  expect(mocks.snapshot).not.toHaveBeenCalled();
 });

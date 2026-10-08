@@ -1,4 +1,8 @@
 "use client";
+import {
+  loadFinanceOverview,
+  clearFinanceOverview,
+} from "@/lib/finance/overview-client";
 import Link from "next/link";
 import { UninvoicedTable } from "@/components/finance/UninvoicedTable";
 import {
@@ -17,6 +21,7 @@ import {
   type ReviewTarget,
 } from "@/components/finance/ReviewPanel";
 import {
+  FinanceRequestError,
   money,
   when,
   financeApi,
@@ -135,24 +140,41 @@ export default function FinancePage() {
     setDetailsOpen(true);
     setDrillRequest((n) => n + 1);
   }
+  const loadSequence = useRef(0);
   const load = useCallback(async (refresh = false, requestBank = false) => {
+    const sequence = ++loadSequence.current;
     setBusy(true);
     setError("");
     setBankRefresh([]);
     setRefreshingBank(requestBank);
     try {
+      if (!refresh) {
+        await loadFinanceOverview((result) => {
+          if (sequence === loadSequence.current) setData(result);
+        });
+        return;
+      }
+      clearFinanceOverview();
       const result = await financeApi(
         refresh && !requestBank ? "dashboard?refresh=1" : "dashboard",
         requestBank ? { refresh: true } : undefined,
       );
+      if (sequence !== loadSequence.current) return;
       setData(result);
       setBankRefresh(result.bankRefresh || []);
     } catch (e) {
-      setData(null);
+      if (sequence !== loadSequence.current) return;
+      if (
+        e instanceof FinanceRequestError &&
+        (e.status === 401 || e.status === 403)
+      )
+        setData(null);
       setError(e instanceof Error ? e.message : "Could not load cash data.");
     } finally {
-      setRefreshingBank(false);
-      setBusy(false);
+      if (sequence === loadSequence.current) {
+        setRefreshingBank(false);
+        setBusy(false);
+      }
     }
   }, []);
   useEffect(() => {
@@ -366,7 +388,7 @@ export default function FinancePage() {
             <button
               className={buttonClass}
               onClick={() => void load(true, true)}
-              disabled={busy}
+              disabled={busy || bankBusy}
             >
               {busy
                 ? refreshingBank
@@ -376,6 +398,12 @@ export default function FinancePage() {
             </button>
           </div>
         </header>
+        {busy && data && !refreshingBank && (
+          <p role="status" className="mb-5 text-sm text-teal-800">
+            Showing saved figures checked {when(data.checkedAt)}. Updating in
+            the background…
+          </p>
+        )}
         {refreshingBank && (
           <p role="status" className="mb-5 text-sm text-teal-800">
             Requesting new bank data from Akahu, then updating invoices and
@@ -404,10 +432,14 @@ export default function FinancePage() {
             role="alert"
             className="mb-6 rounded-2xl border border-rose-200 bg-rose-50 p-6"
           >
-            <h2 className="font-semibold">Figures unavailable</h2>
+            <h2 className="font-semibold">
+              {data ? "Could not update figures" : "Figures unavailable"}
+            </h2>
             <p className="mt-2 text-sm">{error}</p>
             <p className="mt-2 text-sm">
-              No missing source has been counted as zero.
+              {data
+                ? `Showing saved figures checked ${when(data.checkedAt)}. These have not been refreshed.`
+                : "No missing source has been counted as zero."}
             </p>
           </div>
         )}
@@ -618,7 +650,7 @@ export default function FinancePage() {
                 </p>
                 <button
                   className={buttonClass + " mt-4"}
-                  disabled={bankBusy}
+                  disabled={bankBusy || busy}
                   onClick={() => void loadBank()}
                 >
                   {bankBusy ? "Checking history…" : "Check older bank history"}
@@ -851,7 +883,7 @@ export default function FinancePage() {
                     </p>
                     <button
                       className={buttonClass}
-                      disabled={bankBusy}
+                      disabled={bankBusy || busy}
                       onClick={() => void loadBank()}
                     >
                       {bankBusy
