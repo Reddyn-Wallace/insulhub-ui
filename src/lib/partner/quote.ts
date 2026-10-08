@@ -148,8 +148,8 @@ export function createQuoteDraft(defaults: QuoteDefaults, quoteNumber = "", quot
 }
 
 export function setQuoteProductEnabled(quote: QuoteDraft, product: "wall" | "ceiling", enabled: boolean): QuoteDraft {
-  if (product === "wall") return { ...quote, wall: enabled ? { ...EMPTY_WALL, enabled: true, rateCentsPerSqm: null, cavityDepthCm: 10 } : { ...EMPTY_WALL } };
-  return { ...quote, ceiling: enabled ? { ...EMPTY_CEILING, enabled: true, rateCentsPerSqm: null, downlights: 0 } : { ...EMPTY_CEILING } };
+  if (product === "wall") return { ...quote, wall: enabled ? { ...EMPTY_WALL, enabled: true, rateCentsPerSqm: quote.defaultsSnapshot.wallRateCents, cavityDepthCm: 10 } : { ...EMPTY_WALL } };
+  return { ...quote, ceiling: enabled ? { ...EMPTY_CEILING, enabled: true, rateCentsPerSqm: quote.defaultsSnapshot.ceilingRateCents, downlights: 0 } : { ...EMPTY_CEILING } };
 }
 
 type DecimalFraction = { numerator: bigint; denominator: bigint };

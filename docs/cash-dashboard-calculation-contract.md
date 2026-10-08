@@ -1,0 +1,166 @@
+# Active update — 29 September 2026
+
+The main view has three figures: operating account less business credit card with signed components and actual feed times, Xero payments held for not-installed jobs, and money owed for installed jobs only. Other detail is collapsed. No partial-work status exists.
+
+The overview reads the past seven days of posted bank receipts. A unique full invoice number (including bank space/hyphen normalisation) or active owner allocation is required. Amount alone, unknown/multiple invoice references, processor payouts, conflicting references, stale decisions and ambiguous evidence do not establish automatic adjustments.
+
+For each invoice, the adjustment is max(0, min(Xero due, confidently allocated recent receipts minus Xero paid)). Only installed NZD jobs use it. Bank balance and deposit amounts are unchanged. Negative/refund evidence blocks automatic adjustment. Xero paid amounts are offset in aggregate, preventing double deduction as Xero catches up, even with grouped/backdated records. When an older deposit exceeds a recent final receipt on the same invoice, these sources alone cannot establish distinct payment identity: leave the uncertain amount owed and explain the overlap in details. Do not assume payment dates prove independence.
+
+Unlinked paid amounts qualify the deposit headline in plain language; unlinked debt similarly qualifies the completed-debt headline. Counts and matching workflow are in the expandable detail only. Source snapshots remain encrypted, owner-scoped and valid for five minutes; version is bumped to prevent prior calculation inputs being reused.
+
+---
+
+# Current calculation contract — 28 September 2026
+
+This section supersedes the original bank-evidence-only contract below, following the owner's reviewer feedback and explicit binary installation clarification.
+
+- **A — Bank balance:** latest Akahu Trading Account current balance, excluding overdraft availability, with its source timestamp.
+- **B — Paid advances for jobs not installed:** sum Xero invoice AmountPaid for NZD invoices linked to CRM jobs not installed. Bank matching is not a prerequisite. Historical opening allocations, bank receipts and retained-release decisions never add to or subtract from this total. Paid final invoices are also advances until installation is done.
+- **C — Owed for installed jobs:** sum Xero invoice AmountDue for NZD invoices linked to installed CRM jobs. Credits are already represented in Xero due. Bank receipts do not create an extra deduction; potential unreconciled receipts appear in the separate bank check.
+- **Job status is binary:** installed or not installed. Detailed CRM installed-result enums establish installed. Completed CRM stage supports legacy records whose default installation result was not maintained. An explicit INSTALL_NOT_FINISHED result blocks that fallback and is flagged if the stage says completed. No completed-work valuation or partial-payment reserve percentage is introduced.
+- **Links:** whole verified quote labels and direct CRM invoice numbers; names only select candidate jobs for direct invoice verification. Conflicting or missing evidence remains unlinked. Unlinked outstanding debt is shown separately, never silently dropped or called installed debt.
+- **Bank reconciliation:** optional, separate and timestamped. Paid-but-unmatched in Xero can include settlement delay or historical missing evidence; it is not extra debt. Bank-check failure does not remove an already loaded overview.
+- **Freshness/performance:** overview skips historical bank/payment reads. A five-minute owner-scoped encrypted shared cache and in-flight deduplication reduce repeat loading; explicit refresh bypasses it. Every request still verifies the canonical owner. HTTP responses remain no-store/private.
+- **Old review records:** preserved for audit. Historical retained releases are incompatible with the new binary calculation and must be flagged rather than applied. Owner invoice links still apply; bank allocations remain separate evidence.
+
+Examples: Xero paid 1,000/not installed/unmatched bank => B 1,000. Same job installed => B 0. Installed invoice due 600 with a 400 unmatched bank receipt => C 600 until Xero is reconciled. Unlinked invoice due 600 => 600 in unclassified outstanding, not silently assumed installed.
+
+## Historical contract — superseded
+
+# Insulmax cash dashboard — chunk 1
+
+Status: calculation rules and acceptance examples approved by the owner, including the three highlighted advance-payment, cancellation and processing-fee policies. No live connections or product changes. Prepared 27 September 2026.
+
+## Agreed scope
+
+One main NZD bank account through the owner's personal Akahu app; Xero invoices and payments; CRM jobs. Owner-only access. No Windcave integration initially. Clear, uniquely supported bank receipt matches may adjust the dashboard automatically; ambiguous matches require review. Xero itself remains unchanged.
+
+Purpose: explain bank cash, customer advances attached to unfinished installations, and money customers still owe for installed jobs. This is a management cash view, not a statutory deferred-revenue calculation or a measure of spendable profit.
+
+## Definitions
+
+- **A — Bank balance:** Akahu's reported current balance for the selected main account, with its balance timestamp. Never calculate this by adding invoice payments to the bank balance. Show available balance separately if useful; credit facilities are not cash owned.
+- **B — Deposits reserved for unfinished jobs:** gross customer advances evidenced as settled into the selected bank account and allocated to unfinished jobs, less settled refunds or explicitly approved releases. Keep the full remaining advance reserved for partial installations. Do not cap B at A: money may already have been spent and A minus B may be negative.
+- **C — Still owed for installed jobs:** sum of Xero outstanding invoice amounts on installed jobs, less confirmed bank receipts allocated to those invoices that Xero has not yet reflected. Show the original Xero amount and local adjustment alongside the result. Never deduct the same receipt twice, or allow an allocation beyond the outstanding amount; excess is an overpayment requiring classification.
+- **A minus B — Bank cash less reserved deposits, before other commitments:** excludes supplier bills, wages and tax reserves. Never label it free cash or safe to spend. It is provisional whenever unresolved receipts or missing job links could change B.
+- **Paid in Xero, bank receipt unconfirmed:** payment recorded in Xero without sufficient bank settlement evidence. Split between unfinished and installed jobs. This is not proven Windcave money in transit, is not extra bank cash, and is not customer debt. A manually recorded payment can also be wrong.
+- **Receipts needing matching:** bank receipts whose purpose or allocation is unresolved. Already included in A; do not add them again or guess which job they belong to. Show their total and flag affected headline figures as provisional.
+
+All amounts are NZD including GST, calculated in cents. This cash reserve does not also deduct a separate GST reserve. Invoice status alone is insufficient: credits can settle an invoice without a cash receipt.
+
+## Installation and matching rules
+
+Installed means CRM `installation.installStatus` is `INSTALLED_AS_QUOTED` or `INSTALLED_WITH_VARIATIONS_FROM_QUOTE`. Both release B and allow outstanding job invoices into C. `JOB_NOT_STARTED_YET` and `INSTALL_NOT_FINISHED` retain B. A calendar date, final invoice, signed paperwork or whole-job `COMPLETED` stage is not a substitute. Missing or conflicting status goes to review, not automatic release. Reopening an installation restores the applicable remaining advance reserve and removes its invoices from C; preserve the change history.
+
+Link invoices using CRM Xero invoice IDs first, then confirmed invoice-number/quote-reference links. Include additional instalments and advance payments of final invoices for unfinished work; excluding them merely because they lack the word deposit would understate the reserve. A final invoice's negative deposit line reduces its bill total; it is neither a bank refund nor another deposit receipt.
+
+Automatically allocate posted receipts only where a unique invoice/reference, amount and plausible timing support the match and neither side has already been allocated. Amount-only or name-only matches are suggestions. Partial receipts may match a unique reference when the remaining amount supports them. Combined receipts, net processor payouts and conflicting invoice links require review. Transfers, loans and owner contributions are not customer payments.
+
+Track each allocation through local matching and later Xero recording. Once Xero reflects that same receipt, remove its local adjustment in the same calculation update. Matching is reversible and auditable. A refreshed Xero balance alone does not prove which receipt it includes.
+
+Bank balance and transactions may refresh at different times. Display both timestamps and all source health states. Never combine missing data with zero or call a mismatched snapshot fully confirmed. Historical opening deposits need settlement evidence or an explicit owner-confirmed opening allocation; lack of old bank data must not silently make B zero.
+
+## Worked examples
+
+Each row is independent. Opening bank balance is a hypothetical $10,000.00 with no other reserves or debts. Receipts/outgoings stated below have posted unless explicitly unconfirmed. CRM status and bank evidence in every example are assumptions, not observations of the live accounts. Rows using real invoice values are marked **export**; the others are synthetic acceptance cases.
+
+| Case | Inputs and event | A bank | B reserved | C owed, installed | A minus B | Other required display |
+|---|---|---:|---:|---:|---:|---|
+| 1 — received deposit (export) | INV-0426 / AP28968: $1,388.63 paid; assume bank receipt confirmed, job unfinished | $11,388.63 | $1,388.63 | $0.00 | $10,000.00 | Linked deposit and job |
+| 2 — unpaid deposit (export) | INV-0434 / AP28894: $2,063.53 due; job unfinished; no receipt | $10,000.00 | $0.00 | $0.00 | $10,000.00 | Future-job invoice due $2,063.53, outside C |
+| 3 — installed, final invoice unpaid (export) | INV-0420 deposit $860.34 settled; INV-0447 final balance $1,804.79 due; assume AP28896 installed | $10,860.34 | $0.00 | $1,804.79 | $10,860.34 | Do not deduct deposit again from final balance |
+| 4 — partially paid deposit | $2,000 deposit invoice; $600 received; unfinished | $10,600.00 | $600.00 | $0.00 | $10,000.00 | Remaining $1,400 is unpaid future-job billing |
+| 5 — online deposit unconfirmed | $1,000 payment recorded in Xero; unfinished; no bank settlement confirmed | $10,000.00 | $0.00 | $0.00 | $10,000.00 | $1,000 paid, bank receipt unconfirmed; provisional |
+| 6 — online final payment unconfirmed | Installed job; $3,000 invoice paid in Xero; no bank settlement confirmed | $10,000.00 | $0.00 | $0.00 | $10,000.00 | $3,000 paid, bank receipt unconfirmed |
+| 7 — bank deposit before Xero | Unfinished; $1,000 invoice still due in Xero; $1,000 posted receipt uniquely matched | $11,000.00 | $1,000.00 | $0.00 | $10,000.00 | Local match awaiting Xero |
+| 8 — bank final payment before Xero | Installed; Xero due $3,000; uniquely matched posted receipt $1,200 not recorded by Xero | $11,200.00 | $0.00 | $1,800.00 | $11,200.00 | Xero $3,000 minus local $1,200 |
+| 9 — Xero catches up to case 8 | Same bank cash; Xero now due $1,800 and its $1,200 payment is linked to the local receipt | $11,200.00 | $0.00 | $1,800.00 | $11,200.00 | Local adjustment now $0; no second deduction |
+| 10 — installation finishes | $1,000 deposit settled; job moves from unfinished to installed; final invoice $3,000 due | $11,000.00 | $0.00 | $3,000.00 | $11,000.00 | Reserve falls $1,000; bank cash does not move |
+| 11 — installation partly finished | $1,000 deposit settled; status INSTALL_NOT_FINISHED | $11,000.00 | $1,000.00 | $0.00 | $10,000.00 | Full reserve retained |
+| 12 — cancellation, refund pending | $1,000 deposit settled; cancellation with full refund still owed | $11,000.00 | $1,000.00 | $0.00 | $10,000.00 | $1,000 refund owed, included once in B |
+| 13 — cancellation, refund settled | Same $1,000 receipt followed by $1,000 bank refund | $10,000.00 | $0.00 | $0.00 | $10,000.00 | Refund history retained |
+| 14 — partial refund | Unfinished job; $1,000 deposit received, $200 refund settled | $10,800.00 | $800.00 | $0.00 | $10,000.00 | Remaining customer advance $800 |
+| 15 — unidentified receipt | $1,000 incoming bank receipt, no reliable invoice/job match | $11,000.00 | unknown | unknown | unknown | $1,000 needs matching; no invented reserve or debt reduction |
+| 16 — processor fee | Unfinished job; customer paid $1,000; payout $980 and fee $20 explicitly evidenced and allocated | $10,980.00 | $1,000.00 | $0.00 | $9,980.00 | Full customer advance reserved; fee borne by business |
+| 17 — grouped payout unresolved | Bank receives $2,940; Xero has several paid invoices, no proven payout allocation | $12,940.00 | unknown | unknown | unknown | Review payout; never guess allocation from net amount |
+| 18 — advance on final invoice | Unfinished job; $3,000 final invoice paid directly into bank in advance | $13,000.00 | $3,000.00 | $0.00 | $10,000.00 | Reserve despite invoice being labelled final |
+| 19 — credit note, no cash | Installed job; $3,000 invoice reduced by approved $500 credit; no payment | $10,000.00 | $0.00 | $2,500.00 | $10,000.00 | No bank receipt or settlement-unconfirmed payment created |
+
+Unknown means the complete figure is not defensible from the example's inputs. In the actual dashboard show known subtotals plus the unresolved amount, not an empty screen and not a falsely precise total. For case 15, if this is the only unresolved receipt, known B is $0 and possible additional reserve is up to $1,000; A minus B is between $10,000 and $11,000 until classified. C's existing confirmed subtotal stays visible, with potential adjustments unresolved.
+
+## Approved policy choices
+
+1. Reserve gross settled customer advances, even where a confirmed processor fee reduces the bank payout. The fee does not reduce the work owed to the customer. Without evidence of gross-to-net allocation, the payout remains unresolved.
+2. Retain cancelled-job money as a refund reserve within B, separately labelled. Release only when a refund settles or an owner-approved retained amount is resolved. Do not assume a deposit is non-refundable.
+3. Keep all advance receipts on unfinished jobs in B, including additional instalments and early final-invoice payments. Do not release amounts automatically for partial completion.
+4. Show uncertain amounts openly. Unmatched paid invoices are not automatically Windcave settlements; unknown job links do not imply completed work.
+
+## Source evidence and limits
+
+Invoice values were reread from `SalesInvoices_Insulmax Insulation (Wellington and Wairarapa) Limited_2026-Sep-27.12.40.53.csv` in the owner's Downloads folder. Invoice-level fields repeat across line items; group by invoice number before counting or summing. No customer names, addresses or emails are reproduced here.
+
+AP28896 final invoice: $3,441.38 gross work less $860.34 deposit deduction less $776.25 variation discount = $1,804.79 due. The export proves invoice values and recorded payment amounts only, not actual bank settlement, payment channel or installation status.
+
+Current CRM source evidence: `src/app/jobs/[id]/page.tsx` defines the installed statuses above; `src/lib/queries.ts` requests installation status and Xero invoice links. Live completeness and consistency remain unverified.
+
+Previously identified exceptions to carry into the live register: INV-0389 and INV-0444 share BW28592 and each show $1,496.44 paid; confirm whether distinct real payments. Some deposit references are opaque CRM IDs. INV-0408 is future-dated relative to the export. Do not silently discard, merge or re-date these records.
+
+## Chunk 1 acceptance and next boundary
+
+- Invoice examples traced to export; arithmetic checked independently.
+- Synthetic scenarios explicitly separated from observed data.
+- Installation trigger, settlement uncertainty, credits, refunds, fees and double-counting behaviour specified.
+- Owner approved the proposed rules after clarification that a reserve is a dashboard deduction only: no funds are moved or locked. Use “Deposits for unfinished jobs” as the primary dashboard label.
+
+Chunk 1 review is complete. Chunk 2 covers source connections. No credentials, production records, schema, payment instructions or application code are changed in chunk 1.
+
+29September receipt matching refinement: compact `Inv0441` is accepted without losing digits. A reused paid-deposit number can identify the later full invoice only with explicit same quote, same installed CRM job, receipt exceeding the entire fully paid deposit, and a unique later full invoice value. Paid target invoices remain in the candidate set. Ambiguous or partial reused-reference receipts remain conservative. Details show the supporting receipt and rule; the receipt refinement does not change the headline cash or deposit figures.
+
+## Operating account less business credit card
+
+Latest owner instruction supersedes the standalone fourth card. The cash headline is operating account plus Akahu's signed card current balance: a negative card balance reduces cash; positive card credit increases the combined amount and is labelled in credit. Display the operating-account amount and negative card component separately within that card, with both source update times. Visa Business remains pinned through `AKAHU_CREDIT_CARD_ACCOUNT_ID`. Never use available credit or the limit. If card data is unavailable, the combined headline is unavailable while the known operating account component and other metrics remain visible.
+
+Bank receipts retain their full timestamp for the rolling seven-day boundary and NZ display. Existing review fingerprints retain their historical UTC date normalisation.
+
+## Deposit audit, 29 September
+
+Calculation iterates approved NZD Xero sales invoices, links to a unique CRM job, and sums full AmountPaid where that job is not installed. There is no deposit-label filter. Both installed statuses qualify; COMPLETED stage is a fallback except explicit INSTALL_NOT_FINISHED. An installed job still in INVOICE or INSTALLATION stage therefore does not retain deposits. Archived jobs remain included. No partial valuation is used.
+
+13 unlinked invoices with39,534.04 paid and0due are excluded, producing the deposit qualification:8 have no verified link,5 conflicting references. This is potential unclassified advance money, not proof that the whole amount belongs in deposits. If the intended metric is strictly deposit-labelled invoices or strictly CRM COMPLETED stage, that would be a different rule requiring owner clarification; no such change was made.
+
+## Pending bank payments
+
+Read Akahu pending transactions separately and rebuild them each source snapshot: they have no stable IDs and cannot receive persisted receipt decisions. Show signed amount, reference, transaction time and provider update time. Only the existing conservative explicit invoice-reference rules can identify invoice deductions. Pending receipts do not change reported bank cash or Xero-based uninstalled deposits.
+
+For installed invoices, split awaiting settlement from money still to collect. Pending deduction = max(0, pending evidence adjustment minus settled evidence adjustment), with both evidence adjustments independently net of Xero paid amounts. Never sum potentially overlapping pending and settled copies. When Xero catches up, both deductions disappear. All confidently identified settled refunds block pending deductions too; equal-value pending entries overlapping reviewed/stale settled receipts remain uncertain. Exact duplicate pending rows count once. Feed failure is visible and makes no pending deductions. Unmatched pending entries remain visible. Export includes a separate awaiting-settlement column.
+
+### Owner-confirmed closed invoice classifications
+
+For an NZD invoice with zero outstanding balance, the owner can confirm it is unrelated to installation work or belongs to a cancelled job that was fully refunded. Keep the invoice's original Xero amounts visible, the reason in history/CSV, and provide undo. Exclude it from installation deposits and unresolved job-linking totals. This is an owner assertion, not independent proof of a refund or an accounting entry. Changes to invoice identity, description, payment, credit or due amounts invalidate the assertion for review. A reopened unpaid invoice cannot retain the exclusion.
+
+Keep the top-level completed-work card to its net amount and one line stating the combined payment deduction awaiting reconciliation. Clicking opens the completed-work bridge: Xero unpaid minus bank receipts awaiting Xero minus pending bank settlement equals still to collect. Individual invoices and evidence are available below and in the payment tabs. Pending funds do not increase supplied bank cash.
+
+### Completed paid scope while the CRM job remains open
+
+Owner classification `earned` confirms that all work covered by a particular closed invoice has been completed. It removes that invoice's paid amount from deposits without changing its Xero amounts or the CRM job status. Apply per invoice, never per job: subsequent deposits for remaining work remain reserved. The existing zero-due validation, evidence fingerprint invalidation, history and undo apply.
+
+### Net position
+
+The fourth overview card is bank less credit card minus deposits held plus completed work still to collect. It uses the existing adjusted owed figure, so payments already deducted while awaiting reconciliation are not counted twice. The result includes receivables and is not available cash today. If the card balance is unavailable, net position is unavailable rather than substituting zero card debt.
+
+### Quote-reference receipt corroboration
+
+A receipt without any invoice-number token can match by exactly one full quote reference, the complete payer name (including short name components; c/o contact supported), a linked installed CRM job and a unique full invoice amount after credits. Paid invoices remain competing candidates to prevent redirecting old receipts after Xero catch-up. Related negative receipts block deductions even for partial refunds. Existing seven-day, owner-review, stale-evidence, overlap and pending/settled deduplication rules remain in force. The zero-deduction headline describes no matched deductions, not the absence of unreconciled transactions.
+
+### Completed work awaiting invoice (4 October 2026)
+
+- Discover non-archived jobs with an explicit installed status and a CRM installation date in the current NZ calendar date and preceding 29 days. This is the recorded installation date, not an inferred status-change timestamp.
+- Verify each recent job's final-invoice relation, quote total, manager total override, deposit and instalment invoice roles from CRM detail, including jobs with no invoices at all.
+- A final invoice removes the estimate; a quote/final-invoice price difference is never treated as more work to bill.
+- Estimate = agreed total (manager override when recorded, otherwise quote, GST inclusive) minus the full amounts already invoiced as deposits/instalments, paid or unpaid. Existing unpaid invoices remain in the separate owed figure.
+- Missing source values, unverified invoice roles, unmatched candidate invoices, credits, non-NZD invoices, owner-classified invoices and unconfirmed variation values are excluded from the amount and shown for confirmation.
+- Persist discovered job IDs per owner in `finance_uninvoiced_jobs`. Captured unresolved jobs remain visible and flagged once their date leaves the discovery window. Refresh recalculates all amounts/statuses; no financial amounts are stored in this tracker. Archived or no-longer-installed jobs stop contributing, and inaccessible tracked jobs are flagged.
+- Net position = bank less credit card − deposits + completed invoices still owed + confirmed-source estimates awaiting invoice. Search only filters the drill-down and its CSV, never headline totals.
+- Discovery occurs on dashboard source refresh; this does not backfill jobs that were never observed within the 30-day window.
+
+The overview combines completed invoice debt and awaiting-invoice estimates in **Owed for completed jobs**, with a clickable job-count callout. The detailed bridge separately shows the estimate; Net adds it exactly once. There is no separate awaiting-invoice headline card.

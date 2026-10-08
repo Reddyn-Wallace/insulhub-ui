@@ -1,0 +1,671 @@
+import { it, expect } from "vitest";
+import { calculateFinance } from "./calculate";
+import { matchReceipts } from "./matching";
+const bankMatched = (d: FinanceInputs) =>
+  matchReceipts(d, [])
+    .flatMap((m) => m.allocations)
+    .reduce((n, a) => n + a.gross, 0);
+import type { FinanceInputs, ReviewDecision, ReviewValue } from "./model";
+const base = (): FinanceInputs => ({
+  checkedAt: "2026-09-27T10:00:00Z",
+  bank: {
+    accountName: "Trading",
+    currentCents: 1000000,
+    balanceUpdatedAt: "2026-09-27T09:00:00Z",
+    transactionsUpdatedAt: "2026-09-27T09:00:00Z",
+    stale: false,
+  },
+  historyStart: "2024-09-27",
+  historyEnd: "2026-09-27",
+  jobs: [
+    {
+      id: "j",
+      number: "1",
+      quote: "AP1",
+      status: "JOB_NOT_STARTED_YET",
+      name: "Test",
+      archived: false,
+      invoiceNumbers: [],
+    },
+  ],
+  invoices: [
+    {
+      id: "i",
+      number: "INV-0001",
+      reference: "AP1",
+      contact: "Test",
+      date: "2026-09-01",
+      dueDate: "2026-09-20",
+      status: "AUTHORISED",
+      currency: "NZD",
+      total: 100000,
+      paid: 0,
+      due: 100000,
+      credited: 0,
+      description: "Deposit",
+    },
+  ],
+  payments: [],
+  receipts: [],
+  warnings: [],
+});
+const decision = (value: ReviewValue): ReviewDecision => ({
+  key: "test",
+  revision: 1,
+  fingerprint: "test",
+  value,
+  updatedAt: "",
+});
+const receipt = (d: FinanceInputs, amount = 100000, id = "r") =>
+  d.receipts.push({
+    id,
+    amount,
+    date: "2026-09-10",
+    description: "INV-0001",
+    reference: "",
+  });
+const paid = (d: FinanceInputs, amount = 100000) => {
+  d.invoices[0].paid = amount;
+  d.invoices[0].due = d.invoices[0].total - amount;
+  d.payments.push({
+    id: "p",
+    invoiceId: "i",
+    amount,
+    date: "2026-09-10",
+    reference: "",
+  });
+};
+const installed = (d: FinanceInputs) => {
+  d.jobs[0].status = "INSTALLED_AS_QUOTED";
+};
+it("matches plain bank quote references against labelled Xero references", () => {
+  const d = base();
+  d.invoices[0].reference = "AP1 (deposit)";
+  receipt(d);
+  paid(d);
+  d.receipts[0].description = "Customer AP1";
+  expect(bankMatched(d)).toBe(100000);
+  d.invoices.push({
+    ...d.invoices[0],
+    id: "other",
+    number: "INV-0002",
+    reference: "Quote #AP1",
+  });
+  expect(bankMatched(d)).toBe(0);
+  d.receipts[0].description = "Customer INV 0001 AP1";
+  expect(bankMatched(d)).toBe(100000);
+  d.receipts[0].description = "Customer 0001";
+  expect(bankMatched(d)).toBe(0);
+});
+it("keeps shared quote ambiguity even when only one invoice can hold the whole receipt", () => {
+  const d = base();
+  d.invoices[0].reference = "AP1 (deposit)";
+  d.invoices.push({
+    ...d.invoices[0],
+    id: "other",
+    number: "INV-0002",
+    reference: "Quote #AP1",
+    total: 300000,
+    due: 300000,
+  });
+  receipt(d, 200000);
+  d.receipts[0].description = "Customer AP1";
+  expect(bankMatched(d)).toBe(0);
+});
+it("reserves received deposits, partial deposits and early final payments; unpaid future billing is excluded", () => {
+  const d = base();
+  expect(calculateFinance(d, []).reserved).toBe(0);
+  receipt(d, 60000);
+  paid(d, 60000);
+  expect(calculateFinance(d, [])).toMatchObject({ reserved: 60000, owed: 0 });
+  d.invoices[0].description = "Final invoice";
+  expect(calculateFinance(d, []).reserved).toBe(60000);
+});
+it("paid Xero invoices reserve advances independently of bank evidence", () => {
+  const d = base();
+  paid(d);
+  expect(calculateFinance(d, [])).toMatchObject({
+    reserved: 100000,
+    unconfirmedUnfinished: 100000,
+  });
+  installed(d);
+  expect(calculateFinance(d, [])).toMatchObject({
+    owed: 0,
+    unconfirmedInstalled: 100000,
+  });
+});
+it("bank payments only change debt when Xero catches up", () => {
+  const d = base();
+  d.invoices[0].total = 300000;
+  d.invoices[0].due = 300000;
+  installed(d);
+  receipt(d, 120000);
+  expect(calculateFinance(d, [])).toMatchObject({
+    owed: 300000,
+    localAdjustment: 0,
+  });
+  paid(d, 120000);
+  expect(calculateFinance(d, [])).toMatchObject({
+    owed: 180000,
+    localAdjustment: 0,
+  });
+});
+it("installation releases reserves, partial work retains them, reopening restores them", () => {
+  const d = base();
+  receipt(d);
+  paid(d);
+  expect(calculateFinance(d, []).reserved).toBe(100000);
+  installed(d);
+  expect(calculateFinance(d, []).reserved).toBe(0);
+  d.jobs[0].status = "INSTALL_NOT_FINISHED";
+  expect(calculateFinance(d, []).reserved).toBe(100000);
+});
+it("archived and unknown-status jobs use Xero amounts, ignoring historic bank-only releases", () => {
+  const d = base();
+  d.jobs[0].archived = true;
+  d.jobs[0].status = "";
+  receipt(d);
+  paid(d, 80000);
+  const refund = decision({
+    kind: "receipt",
+    receiptId: "refund",
+    allocations: [{ invoiceId: "i", gross: -20000, fee: 0, paymentId: null }],
+    nonCustomer: false,
+    reason: "Settled refund",
+  });
+  d.receipts.push({
+    id: "refund",
+    amount: -20000,
+    date: "2026-09-11",
+    description: "Refund",
+    reference: "",
+  });
+  expect(calculateFinance(d, [refund]).reserved).toBe(80000);
+  expect(
+    calculateFinance(d, [
+      refund,
+      decision({
+        kind: "release",
+        invoiceId: "i",
+        amount: 80000,
+        reason: "Retained by agreement",
+      }),
+    ]).reserved,
+  ).toBe(80000);
+});
+it("gross customer advance includes evidenced processor fees", () => {
+  const d = base();
+  receipt(d, 98000);
+  paid(d);
+  const a = decision({
+    kind: "receipt",
+    receiptId: "r",
+    allocations: [{ invoiceId: "i", gross: 100000, fee: 2000, paymentId: "p" }],
+    nonCustomer: false,
+    reason: "Payout statement",
+  });
+  expect(calculateFinance(d, [a]).reserved).toBe(100000);
+});
+it("unknown receipts and grouped payouts stay in review; name/amount alone never matches", () => {
+  const d = base();
+  receipt(d);
+  d.receipts[0].description = "Test";
+  expect(calculateFinance(d, [])).toMatchObject({
+    reserved: 0,
+    unmatchedReceipts: 100000,
+    provisional: true,
+  });
+});
+it("credits reduce Xero due without inventing payments or cash", () => {
+  const d = base();
+  installed(d);
+  d.invoices[0].total = 300000;
+  d.invoices[0].due = 250000;
+  d.invoices[0].credited = 50000;
+  expect(calculateFinance(d, [])).toMatchObject({
+    owed: 250000,
+    reserved: 0,
+    unconfirmedInstalled: 0,
+  });
+});
+it("duplicate bank receipts cannot both claim the same Xero payment", () => {
+  const d = base();
+  paid(d);
+  receipt(d);
+  receipt(d, 100000, "r2");
+  const r = calculateFinance(d, []);
+  expect(r.reserved).toBe(100000);
+  expect(r.unmatchedReceipts).toBe(200000);
+});
+it("does not cap reserves at bank cash", () => {
+  const d = base();
+  d.bank.currentCents = 10000;
+  receipt(d);
+  paid(d);
+  expect(calculateFinance(d, []).cashAfterDeposits).toBe(-90000);
+});
+it("conflicting quote links and unsupported currencies never count as verified debt", () => {
+  const d = base();
+  installed(d);
+  d.jobs.push({ ...d.jobs[0], id: "j2" });
+  expect(calculateFinance(d, []).owed).toBe(0);
+  d.jobs.pop();
+  d.invoices[0].currency = "USD";
+  expect(calculateFinance(d, []).owed).toBe(0);
+});
+it("a lowered Xero balance with missing payment evidence never causes a second local deduction", () => {
+  const d = base();
+  installed(d);
+  receipt(d, 40000);
+  d.invoices[0].paid = 40000;
+  d.invoices[0].due = 60000;
+  expect(calculateFinance(d, [])).toMatchObject({
+    owed: 60000,
+    localAdjustment: 0,
+  });
+});
+it("unidentified overpayments are not forced onto an invoice", () => {
+  const d = base();
+  receipt(d, 120000);
+  expect(calculateFinance(d, [])).toMatchObject({
+    reserved: 0,
+    unmatchedReceipts: 120000,
+  });
+});
+it("opening allocations reserve evidenced historical advances without inventing current bank cash", () => {
+  const d = base();
+  paid(d);
+  const r = calculateFinance(d, [
+    decision({
+      kind: "opening",
+      invoiceId: "i",
+      amount: 100000,
+      date: "2024-01-01",
+      reason: "Owner confirmed bank statement",
+    }),
+  ]);
+  expect(r.reserved).toBe(100000);
+  expect(r.bank.currentCents).toBe(1000000);
+});
+it("does not deduct an already recorded payment again when the bank settlement is more than three days later", () => {
+  const d = base();
+  installed(d);
+  d.invoices[0].total = 300000;
+  d.invoices[0].due = 300000;
+  paid(d, 120000);
+  receipt(d, 120000);
+  d.receipts[0].date = "2026-09-17";
+  expect(calculateFinance(d, [])).toMatchObject({
+    owed: 180000,
+    localAdjustment: 0,
+  });
+});
+it("net processor payouts with invoice references remain in review", () => {
+  const d = base();
+  receipt(d, 98000);
+  d.receipts[0].description = "WINDCAVE payout INV-0001";
+  expect(calculateFinance(d, [])).toMatchObject({
+    reserved: 0,
+    unmatchedReceipts: 98000,
+  });
+});
+it("manual bank allocation without identified Xero payment cannot duplicate an existing paid amount", () => {
+  const d = base();
+  installed(d);
+  d.invoices[0].total = 300000;
+  d.invoices[0].due = 300000;
+  paid(d, 120000);
+  receipt(d, 120000);
+  d.receipts[0].date = "2026-09-17";
+  const a = decision({
+    kind: "receipt",
+    receiptId: "r",
+    allocations: [{ invoiceId: "i", gross: 120000, fee: 0, paymentId: null }],
+    nonCustomer: false,
+    reason: "Customer receipt",
+  });
+  expect(calculateFinance(d, [a])).toMatchObject({
+    owed: 180000,
+    localAdjustment: 0,
+  });
+});
+it("competing equal reference receipts without Xero payments all require review", () => {
+  const d = base();
+  receipt(d);
+  receipt(d, 100000, "r2");
+  expect(calculateFinance(d, [])).toMatchObject({
+    reserved: 0,
+    unmatchedReceipts: 200000,
+  });
+});
+it("bank refunds do not independently change Xero debt", () => {
+  const d = base();
+  installed(d);
+  receipt(d);
+  d.receipts.push({
+    id: "refund",
+    amount: -20000,
+    date: "2026-09-11",
+    description: "Refund",
+    reference: "",
+  });
+  const a = decision({
+    kind: "receipt",
+    receiptId: "refund",
+    allocations: [{ invoiceId: "i", gross: -20000, fee: 0, paymentId: null }],
+    nonCustomer: false,
+    reason: "Settled partial refund",
+  });
+  expect(calculateFinance(d, [a])).toMatchObject({
+    owed: 100000,
+    localAdjustment: 0,
+  });
+  d.receipts[1].amount = -100000;
+  a.value = {
+    ...(a.value as Extract<ReviewValue, { kind: "receipt" }>),
+    allocations: [{ invoiceId: "i", gross: -100000, fee: 0, paymentId: null }],
+  };
+  expect(calculateFinance(d, [a])).toMatchObject({
+    owed: 100000,
+    localAdjustment: 0,
+  });
+});
+it("preserves two owner-confirmed receipts when only one owns the existing Xero payment", () => {
+  const d = base();
+  d.invoices[0].total = 300000;
+  d.invoices[0].due = 300000;
+  paid(d, 100000);
+  receipt(d);
+  receipt(d, 100000, "r2");
+  const first = decision({
+      kind: "receipt",
+      receiptId: "r",
+      allocations: [{ invoiceId: "i", gross: 100000, fee: 0, paymentId: "p" }],
+      nonCustomer: false,
+      reason: "First received payment",
+    }),
+    second = {
+      ...decision({
+        kind: "receipt",
+        receiptId: "r2",
+        allocations: [
+          { invoiceId: "i", gross: 100000, fee: 0, paymentId: null },
+        ],
+        nonCustomer: false,
+        reason: "Second received payment",
+      }),
+      key: "second",
+    };
+  expect(calculateFinance(d, [first, second])).toMatchObject({
+    reserved: 100000,
+    unmatchedReceipts: 0,
+  });
+});
+
+it("counts Xero-paid advances without requiring a bank match", () => {
+  const d = base();
+  paid(d, 60000);
+  expect(calculateFinance(d, [])).toMatchObject({ reserved: 60000, owed: 0 });
+});
+it("uses completed CRM stage even where the legacy installation field is not updated", () => {
+  const d = base();
+  d.jobs[0].stage = "COMPLETED";
+  paid(d, 40000);
+  expect(calculateFinance(d, [])).toMatchObject({ reserved: 0, owed: 60000 });
+});
+it("keeps bank receipts separate from the Xero debt amount", () => {
+  const d = base();
+  installed(d);
+  receipt(d, 40000);
+  expect(calculateFinance(d, [])).toMatchObject({
+    owed: 100000,
+    localAdjustment: 0,
+  });
+});
+it("exposes debt for unlinked invoices rather than silently losing it", () => {
+  const d = base();
+  d.jobs = [];
+  expect(calculateFinance(d, [])).toMatchObject({
+    owed: 0,
+    unclassifiedOwed: 100000,
+    totalXeroOwed: 100000,
+  });
+});
+it("historical retained releases cannot override the Xero-paid binary reserve rule", () => {
+  const d = base();
+  paid(d);
+  expect(
+    calculateFinance(d, [
+      decision({
+        kind: "release",
+        invoiceId: "i",
+        amount: 40000,
+        reason: "Old retained release",
+      }),
+    ]).reserved,
+  ).toBe(100000);
+});
+it("an explicitly unfinished installation does not become installed from a stale completed stage", () => {
+  const d = base();
+  d.jobs[0].stage = "COMPLETED";
+  d.jobs[0].status = "INSTALL_NOT_FINISHED";
+  paid(d);
+  expect(calculateFinance(d, [])).toMatchObject({ reserved: 100000, owed: 0 });
+});
+it("recent bank receipts reduce only installed debt, never bank balance or deposits", () => {
+  const d = base();
+  d.recentBankChecked = true;
+  d.receipts = [
+    {
+      id: "recent",
+      amount: 40000,
+      date: "2026-09-26T09:00:00Z",
+      description: "INV-0001",
+      reference: "",
+    },
+  ];
+  let result = calculateFinance(d, []);
+  expect(result.owed).toBe(0);
+  expect(result.reserved).toBe(0);
+  installed(d);
+  result = calculateFinance(d, []);
+  expect(result.owed).toBe(60000);
+  expect(result.localAdjustment).toBe(40000);
+  expect(result.bank.currentCents).toBe(d.bank.currentCents);
+  d.invoices[0].paid = 40000;
+  d.invoices[0].due = 60000;
+  result = calculateFinance(d, []);
+  expect(result.owed).toBe(60000);
+  expect(result.localAdjustment).toBe(0);
+  d.jobs[0].status = "JOB_NOT_STARTED_YET";
+  result = calculateFinance(d, []);
+  expect(result.reserved).toBe(40000);
+  expect(result.owed).toBe(0);
+});
+
+it.each([-358530, 12345, 0])(
+  "combines signed card balance %i with operating cash without changing invoice totals",
+  (currentCents) => {
+    const d = base();
+    d.creditCard = {
+      name: "Visa Business",
+      currentCents,
+      owedCents: Math.max(0, -currentCents),
+      creditCents: Math.max(0, currentCents),
+      balanceUpdatedAt: d.checkedAt,
+      stale: false,
+    };
+    const result = calculateFinance(d, []);
+    expect(result.bankLessCreditCard).toBe(1000000 + currentCents);
+    expect(result.bank.currentCents).toBe(1000000);
+    expect(result.reserved).toBe(0);
+    expect(result.owed).toBe(0);
+  },
+);
+it("does not substitute zero when the credit card is unavailable", () => {
+  const d = base();
+  expect(calculateFinance(d, []).bankLessCreditCard).toBeNull();
+  d.creditCard = { error: "Unavailable" };
+  expect(calculateFinance(d, []).bankLessCreditCard).toBeNull();
+});
+it("separates pending invoice receipts without changing cash or counting settlement/Xero twice", () => {
+  const d = base();
+  installed(d);
+  d.recentBankChecked = true;
+  d.pendingBank = {
+    receipts: [
+      {
+        date: "2026-09-26T10:00:00Z",
+        amount: 40000,
+        description: "Da Silva K Inv 0001",
+        updatedAt: d.checkedAt,
+      },
+    ],
+  };
+  let r = calculateFinance(d, []);
+  expect(r.pendingSettlement).toBe(40000);
+  expect(r.owed).toBe(60000);
+  expect(r.bank.currentCents).toBe(1000000);
+  expect(r.reserved).toBe(0);
+  const savedPending = d.pendingBank;
+  d.pendingBank = { receipts: [] };
+  expect(calculateFinance(d, []).owed).toBe(100000);
+  d.pendingBank = savedPending;
+  d.receipts = [
+    {
+      id: "settled",
+      date: "2026-09-26T10:00:00Z",
+      amount: 40000,
+      description: "Da Silva K Inv 0001",
+      reference: "",
+    },
+  ];
+  r = calculateFinance(d, []);
+  expect(r.pendingSettlement).toBe(0);
+  expect(r.owed).toBe(60000);
+  expect(r.localAdjustment).toBe(40000);
+  d.invoices[0].paid = 40000;
+  d.invoices[0].due = 60000;
+  r = calculateFinance(d, []);
+  expect(r.pendingSettlement).toBe(0);
+  expect(r.localAdjustment).toBe(0);
+  expect(r.owed).toBe(60000);
+});
+it("pending duplicates, absent references and unavailable feed never invent deductions", () => {
+  const d = base();
+  installed(d);
+  d.recentBankChecked = true;
+  const p = {
+    date: "2026-09-26",
+    amount: 40000,
+    description: "INV-0001",
+    updatedAt: d.checkedAt,
+  };
+  d.pendingBank = { receipts: [p, p] };
+  expect(calculateFinance(d, []).pendingSettlement).toBe(40000);
+  d.pendingBank = { receipts: [{ ...p, description: "Customer" }] };
+  expect(calculateFinance(d, []).owed).toBe(100000);
+  d.pendingBank = { error: "Unavailable" };
+  expect(calculateFinance(d, []).owed).toBe(100000);
+  d.pendingBank = { receipts: [p] };
+  d.jobs[0].status = "JOB_NOT_STARTED_YET";
+  expect(calculateFinance(d, []).pendingSettlement).toBe(0);
+  expect(calculateFinance(d, []).reserved).toBe(0);
+});
+it("pending copies cannot undo owner exclusions, stale decisions or settled refunds", () => {
+  const d = base();
+  installed(d);
+  d.recentBankChecked = true;
+  d.pendingBank = {
+    receipts: [
+      {
+        date: "2026-09-26",
+        amount: 100000,
+        description: "INV-0001",
+        updatedAt: d.checkedAt,
+      },
+    ],
+  };
+  d.receipts = [
+    {
+      id: "r",
+      date: "2026-09-26",
+      amount: 100000,
+      description: "INV-0001",
+      reference: "",
+    },
+  ];
+  const nonCustomer = decision({
+    kind: "receipt",
+    receiptId: "r",
+    allocations: [],
+    nonCustomer: true,
+    reason: "Not customer funds",
+  });
+  expect(calculateFinance(d, [nonCustomer]).owed).toBe(100000);
+  d.excludedReceiptIds = ["r"];
+  expect(calculateFinance(d, []).owed).toBe(100000);
+  d.excludedReceiptIds = [];
+  d.receipts.push({
+    id: "refund",
+    date: "2026-09-26",
+    amount: -100000,
+    description: "INV-0001 refund",
+    reference: "",
+  });
+  const result = calculateFinance(d, []);
+  expect(result.owed).toBe(100000);
+  expect(result.pendingSettlement).toBe(0);
+});
+
+it("retains owner-classified invoices for audit without false deposit or linking totals; undo restores them", () => {
+  const d = base();
+  Object.assign(d.invoices[0], { paid: 100000, due: 0 });
+  d.jobs[0].archived = true;
+  const v = decision({
+    kind: "classification",
+    invoiceId: "i",
+    classification: "refunded",
+    reason: "Owner confirms cancelled and fully refunded",
+  });
+  expect(calculateFinance(d, []).reserved).toBe(100000);
+  const result = calculateFinance(d, [v]);
+  expect(result.reserved).toBe(0);
+  expect(result.rows[0].paid).toBe(100000);
+  expect(result.rows[0].issues).not.toContain("Non-NZD invoice excluded");
+  expect(result.rows[0].issues).not.toContain(
+    "Archived unfinished job; refund/release review required",
+  );
+  expect(result.rows[0].classification?.classification).toBe("refunded");
+  d.jobs = [];
+  expect(calculateFinance(d, []).unclassifiedPaid).toBe(100000);
+  expect(calculateFinance(d, [v]).unclassifiedPaid).toBe(0);
+  expect(calculateFinance(d, [v]).unlinked).toBe(0);
+  expect(calculateFinance(d, [{ ...v, value: null }]).unclassifiedPaid).toBe(
+    100000,
+  );
+});
+
+it("completed paid work is excluded per invoice, without releasing later deposits on the same open job", () => {
+  const d = base();
+  Object.assign(d.invoices[0], { paid: 100000, due: 0 });
+  d.invoices.push({
+    ...d.invoices[0],
+    id: "later",
+    number: "INV-0002",
+    paid: 20000,
+    due: 80000,
+  });
+  const result = calculateFinance(d, [
+    decision({
+      kind: "classification",
+      invoiceId: "i",
+      classification: "earned",
+      reason: "Owner confirms paid scope is completed",
+    }),
+  ]);
+  expect(result.reserved).toBe(20000);
+  expect(result.owed).toBe(0);
+  expect(result.rows[0].paid).toBe(100000);
+  expect(result.rows[0].job?.status).toBe("JOB_NOT_STARTED_YET");
+});

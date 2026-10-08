@@ -24,7 +24,8 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
     return new URLSearchParams(qs).get("stage");
   })();
   const isFollowupView = pathname.startsWith("/jobs/follow-ups") || pathname.endsWith("/follow-up-history");
-  const stage = isFollowupView ? "QUOTE" : searchParams.get("stage") || returnToStage || "LEAD";
+  const requestedStage = isFollowupView ? "QUOTE" : searchParams.get("stage") || returnToStage || "LEAD";
+  const stage = requestedStage === "AWAITING_COMPLETION" ? "JOBS" : requestedStage;
   const isCalendarView = pathname === "/jobs/calendar";
   const isReportsView = pathname.startsWith("/jobs/reports");
   const isSettingsView = pathname.startsWith("/jobs/settings");
@@ -194,7 +195,7 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
           </button>
 
           {isMenuOpen && (
-            <div className="absolute right-0 top-full mt-1.5 w-44 max-w-[calc(100vw-1rem)] bg-white rounded-xl shadow-xl border border-gray-100 py-1.5 z-50">
+            <div className="absolute right-0 top-full mt-1.5 w-56 max-w-[calc(100vw-1rem)] bg-white rounded-xl shadow-xl border border-gray-100 py-1.5 z-50">
               <button
                 onClick={() => {
                   setIsMenuOpen(false);

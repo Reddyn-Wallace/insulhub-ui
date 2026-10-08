@@ -1,0 +1,194 @@
+import { expect, it } from "vitest";
+import { linkInvoices } from "./linking";
+const job = (id: string, quote = "AP28968") => ({
+  id,
+  number: "28968",
+  quote,
+  status: "JOB_NOT_STARTED_YET",
+  archived: false,
+  name: "Test job",
+  invoiceNumbers: [],
+});
+const invoice = (reference = "AP28968") => ({
+  id: "i1",
+  number: "INV-0426",
+  reference,
+});
+it("links unique exact quote and canonical job-ID references", () => {
+  expect(linkInvoices([invoice()], [job("j1")], []).get("i1")).toMatchObject({
+    jobId: "j1",
+    method: "quote reference",
+  });
+  expect(
+    linkInvoices([invoice("j1")], [job("j1")], []).get("i1"),
+  ).toMatchObject({ jobId: "j1" });
+});
+it("rejects duplicate quote references and conflicting direct/reference evidence", () => {
+  expect(
+    linkInvoices([invoice()], [job("j1"), job("j2")], []).get("i1")?.jobId,
+  ).toBeNull();
+  expect(
+    linkInvoices(
+      [invoice()],
+      [job("j1"), { ...job("j2", "BW1"), invoiceNumbers: ["INV-0426"] }],
+      [],
+    ).get("i1")?.jobId,
+  ).toBeNull();
+});
+it("never infers a job from a bare number, customer name or partial quote substring", () => {
+  for (const ref of ["28968", "Test job", "AP289680"])
+    expect(
+      linkInvoices([invoice(ref)], [job("j1")], []).get("i1")?.jobId,
+    ).toBeNull();
+});
+it("retains archived jobs and uses direct invoice-number links", () => {
+  expect(
+    linkInvoices(
+      [invoice("")],
+      [{ ...job("j1"), archived: true, invoiceNumbers: ["INV-0426"] }],
+      [],
+    ).get("i1")?.jobId,
+  ).toBe("j1");
+});
+it("recognises the observed Xero quote and deposit labels without fuzzy matching", () => {
+  for (const ref of ["Quote #AP28968", "AP28968 (deposit)", " quote #ap28968 "])
+    expect(linkInvoices([invoice(ref)], [job("j1")], []).get("i1")?.jobId).toBe(
+      "j1",
+    );
+  for (const ref of [
+    "AP28968 and BW123",
+    "Quote #AP289680",
+    "AP28968 (deposit) extra",
+    "Quote #AP28968 / BW123",
+  ])
+    expect(
+      linkInvoices([invoice(ref)], [job("j1")], []).get("i1")?.jobId,
+    ).toBeNull();
+  expect(
+    linkInvoices([invoice("Quote #AP28968")], [job("j1"), job("j2")], []).get(
+      "i1",
+    )?.jobId,
+  ).toBeNull();
+});
+it("normalises other observed whole quote labels and preserves revision suffixes", () => {
+  for (const ref of [
+    "#AP28968 (deposit)",
+    "Quote AP28968",
+    "Quote#AP28968",
+    "Deposit #AP28968",
+    "#AP28968",
+  ])
+    expect(linkInvoices([invoice(ref)], [job("j1")], []).get("i1")?.jobId).toBe(
+      "j1",
+    );
+  expect(
+    linkInvoices([invoice("Quote #AP28968-2")], [job("j1")], []).get("i1")
+      ?.jobId,
+  ).toBeNull();
+  expect(
+    linkInvoices(
+      [invoice("Quote #AP28968-2")],
+      [job("j2", "AP28968-2")],
+      [],
+    ).get("i1")?.jobId,
+  ).toBe("j2");
+});
+it("uses one exact CRM invoice link to disambiguate a duplicated quote, but never conflicting references", () => {
+  const a = { ...job("a"), invoiceNumbers: ["INV-0426"] },
+    b = job("b");
+  expect(linkInvoices([invoice()], [a, b], []).get("i1")).toMatchObject({
+    jobId: "a",
+    method: "CRM invoice number",
+  });
+  expect(
+    linkInvoices([invoice()], [{ ...a, quote: "OTHER" }, b], []).get("i1")
+      ?.jobId,
+  ).toBeNull();
+  expect(
+    linkInvoices(
+      [invoice()],
+      [a, { ...b, invoiceNumbers: ["INV-0426"] }],
+      [],
+    ).get("i1")?.jobId,
+  ).toBeNull();
+});
+it("disambiguates duplicate quotes with exact full customer or exact site-address evidence", () => {
+  const a = { ...job("a"), contact: "Jenny Eagle", name: "50 Dundas Street" },
+    b = { ...job("b"), contact: "Susan Hes", name: "14 Wye Street" };
+  expect(
+    linkInvoices([{ ...invoice(), contact: "Jenny Eagle" }], [a, b], []).get(
+      "i1",
+    )?.jobId,
+  ).toBe("a");
+  expect(
+    linkInvoices(
+      [
+        {
+          ...invoice(),
+          description: "Installation at 50 Dundas Street - Wellington",
+        },
+      ],
+      [a, b],
+      [],
+    ).get("i1")?.jobId,
+  ).toBe("a");
+  expect(
+    linkInvoices([{ ...invoice(), contact: "Jenny" }], [a, b], []).get("i1")
+      ?.jobId,
+  ).toBeNull();
+  expect(
+    linkInvoices(
+      [{ ...invoice(), contact: "Jenny Eagle", description: "14 Wye Street" }],
+      [a, b],
+      [],
+    ).get("i1")?.jobId,
+  ).toBeNull();
+  expect(
+    linkInvoices(
+      [{ ...invoice(), contact: "Jenny Eagle" }],
+      [a, { ...b, contact: "Jenny Eagle" }],
+      [],
+    ).get("i1")?.jobId,
+  ).toBeNull();
+  expect(
+    linkInvoices(
+      [{ ...invoice(), description: "150 Dundas Street" }],
+      [a, b],
+      [],
+    ).get("i1")?.jobId,
+  ).toBeNull();
+});
+it("accepts exact slash quote punctuation and corroborated revision references", () => {
+  expect(
+    linkInvoices([invoice("#R25184/2)")], [job("a", "R25184/2")], []).get("i1")
+      ?.jobId,
+  ).toBe("a");
+  const a = {
+    ...job("a", "E03051"),
+    contact: "Stephen Hart and Amber Von Espy",
+  };
+  expect(
+    linkInvoices(
+      [{ ...invoice("#E03051/2"), contact: a.contact }],
+      [a],
+      [],
+    ).get("i1")?.jobId,
+  ).toBe("a");
+  expect(
+    linkInvoices([invoice("#E03051/2")], [a], []).get("i1")?.jobId,
+  ).toBeNull();
+  expect(
+    linkInvoices(
+      [{ ...invoice("#E03051/2"), contact: a.contact }],
+      [a, { ...job("b", "E03051/2"), contact: "Different Customer" }],
+      [],
+    ).get("i1")?.jobId,
+  ).toBe("b");
+  expect(
+    linkInvoices(
+      [{ ...invoice("#E03051/2"), contact: a.contact }],
+      [a, { ...job("b", "OTHER"), invoiceNumbers: ["INV-0426"] }],
+      [],
+    ).get("i1")?.jobId,
+  ).toBeNull();
+});

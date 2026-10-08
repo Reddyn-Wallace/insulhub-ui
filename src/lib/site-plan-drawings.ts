@@ -2,7 +2,7 @@ export type SitePlanWallStyle = "solid" | "dotted";
 export type SitePlanWallColor = "slate" | "teal" | "blue" | "amber" | "red";
 export type SitePlanPoint = { x: number; y: number };
 export type SitePlanWall = { id: string; start: SitePlanPoint; end: SitePlanPoint; style: SitePlanWallStyle; color?: SitePlanWallColor; lengthOverride?: number | null };
-export type SitePlanTextNote = { id: string; text: string; x: number; y: number; fontSize: number; boxWidth?: number; boxHeight?: number };
+export type SitePlanTextNote = { id: string; text: string; x: number; y: number; fontSize: number; boxWidth?: number; boxHeight?: number; rotation?: number };
 export type SitePlanDrawingDocument = { schemaVersion: 1; templateVersion: "site-plan-template-v2"; walls: SitePlanWall[]; textNotes: SitePlanTextNote[]; showDimensions: boolean };
 export type SitePlanDrawing = { id: string; source: "overlay"; jobId: string; name: string; document: SitePlanDrawingDocument; revision: number; sortOrder?: number; lastPdfFileName: string | null; lastExportedAt: string | null; createdAt: string; updatedAt: string };
 export type SitePlanDrawingSummary = Omit<SitePlanDrawing, "document"> & { wallCount: number; textNoteCount: number; pdfReady?: boolean };
@@ -30,21 +30,23 @@ function parseWall(value: unknown): SitePlanWall | null {
   const start = parsePoint(value.start); const end = parsePoint(value.end); if (!start || !end || (start.x === end.x && start.y === end.y)) return null;
   return { id: value.id, start, end, style: value.style as SitePlanWallStyle, ...(value.color === undefined ? {} : { color: value.color as SitePlanWallColor }), ...(value.lengthOverride === undefined ? {} : { lengthOverride: value.lengthOverride as number | null }) };
 }
-function parseTextNote(value: unknown): SitePlanTextNote | null {
-  if (!isRecord(value) || !exactKeys(value, ["id", "text", "x", "y", "fontSize"], ["boxWidth", "boxHeight"])) return null;
+function parseTextNote(value: unknown, noteTransforms: boolean): SitePlanTextNote | null {
+  if (!isRecord(value) || !exactKeys(value, ["id", "text", "x", "y", "fontSize"], ["boxWidth", "boxHeight", ...(noteTransforms ? ["rotation"] : [])])) return null;
   if (typeof value.id !== "string" || !SAFE_ID.test(value.id) || typeof value.text !== "string") return null;
   const text = normalizeText(value.text);
-  if (text === null || [...text].length > SITE_PLAN_LIMITS.noteText || !finiteNumber(value.x, 0, SITE_PLAN_LIMITS.x) || !finiteNumber(value.y, 0, SITE_PLAN_LIMITS.y) || !finiteNumber(value.fontSize, 0.32, 0.82)) return null;
-  if (value.boxWidth !== undefined && !finiteNumber(value.boxWidth, 0.8, 10.5)) return null;
-  if (value.boxHeight !== undefined && !finiteNumber(value.boxHeight, 0.8, 17)) return null;
-  return { id: value.id, text, x: Object.is(value.x, -0) ? 0 : value.x, y: Object.is(value.y, -0) ? 0 : value.y, fontSize: value.fontSize, ...(value.boxWidth === undefined ? {} : { boxWidth: value.boxWidth }), ...(value.boxHeight === undefined ? {} : { boxHeight: value.boxHeight }) };
+  if (text === null || [...text].length > SITE_PLAN_LIMITS.noteText || !finiteNumber(value.x, 0, SITE_PLAN_LIMITS.x) || !finiteNumber(value.y, 0, SITE_PLAN_LIMITS.y) || !finiteNumber(value.fontSize, noteTransforms ? 0.16 : 0.32, noteTransforms ? 3.28 : 0.82)) return null;
+  if (value.boxWidth !== undefined && !finiteNumber(value.boxWidth, noteTransforms ? 0.16 : 0.8, noteTransforms ? 18 : 10.5)) return null;
+  if (value.boxHeight !== undefined && !finiteNumber(value.boxHeight, noteTransforms ? 0.16 : 0.8, 17)) return null;
+  if (value.rotation !== undefined && !finiteNumber(value.rotation, -360, 360)) return null;
+  return { ...(value.rotation === undefined ? {} : { rotation: value.rotation }), id: value.id, text, x: Object.is(value.x, -0) ? 0 : value.x, y: Object.is(value.y, -0) ? 0 : value.y, fontSize: value.fontSize, ...(value.boxWidth === undefined ? {} : { boxWidth: value.boxWidth }), ...(value.boxHeight === undefined ? {} : { boxHeight: value.boxHeight }) };
 }
 
-export function parseSitePlanDocument(value: unknown): SitePlanDrawingDocument | null {
+// The CRM supports note transforms; partner submissions retain their existing document contract.
+export function parseSitePlanDocument(value: unknown, options: { noteTransforms?: boolean } = {}): SitePlanDrawingDocument | null {
   if (!isRecord(value) || !exactKeys(value, ["schemaVersion", "templateVersion", "walls", "textNotes", "showDimensions"])) return null;
   if (value.schemaVersion !== 1 || value.templateVersion !== SITE_PLAN_TEMPLATE_VERSION || typeof value.showDimensions !== "boolean") return null;
   if (!Array.isArray(value.walls) || value.walls.length > SITE_PLAN_LIMITS.walls || !Array.isArray(value.textNotes) || value.textNotes.length > SITE_PLAN_LIMITS.notes) return null;
-  const walls = value.walls.map(parseWall); const textNotes = value.textNotes.map(parseTextNote); if (walls.some((wall) => wall === null) || textNotes.some((note) => note === null)) return null;
+  const walls = value.walls.map(parseWall); const textNotes = value.textNotes.map((note) => parseTextNote(note, options.noteTransforms === true)); if (walls.some((wall) => wall === null) || textNotes.some((note) => note === null)) return null;
   const wallIds = new Set(walls.map((wall) => wall!.id)); const noteIds = new Set(textNotes.map((note) => note!.id));
   if (wallIds.size !== walls.length || noteIds.size !== textNotes.length || textNotes.reduce((sum, note) => sum + [...note!.text].length, 0) > SITE_PLAN_LIMITS.aggregateNoteText) return null;
   const document: SitePlanDrawingDocument = { schemaVersion: 1, templateVersion: SITE_PLAN_TEMPLATE_VERSION, walls: walls as SitePlanWall[], textNotes: textNotes as SitePlanTextNote[], showDimensions: value.showDimensions };

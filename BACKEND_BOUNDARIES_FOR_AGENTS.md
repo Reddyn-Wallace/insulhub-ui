@@ -112,6 +112,7 @@ Current Neon-owned concepts:
 - install-planning overlay flags such as `status`, `install_scope`, `planning_note`, and `council_approval_na`
 - calendar placeholder rows that are not real Insulhub jobs
 - editable SMS/email contact templates used by this UI
+- manual invoice confirmations under `overlay_settings` keys `job-manual-invoice:<jobId>`: UI-owned attestations (reference, verified actor and confirmation time) that an invoice was sent externally; these never create or replace canonical invoices or Xero references
 - one-off overlay settings such as seed markers
 
 Typical browser usage:

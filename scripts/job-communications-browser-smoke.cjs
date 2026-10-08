@@ -16,7 +16,7 @@ const assert = require('node:assert/strict');
    {id:'33333333-3333-4333-8333-333333333333',source:'campaign',channel:'email',campaignName:'Winter follow-up',senderName:'Wellington team',actorName:'Andrew Potter',destination:'sophie@example.test',renderedSubject:'A warmer home this winter',renderedBody:'Just checking whether you had any questions about your insulation quote.',status:'sent',sentAt:'2026-09-05T02:00:00Z'},
    {id:'44444444-4444-4444-8444-444444444444',source:'job',channel:'sms',destination:'+64211234567',renderedBody:'Manual SMS draft',status:'launched',sentAt:'2026-09-04T02:00:00Z'},
   ];
-  await context.addInitScript(()=>{if(window!==window.top)return;localStorage.setItem('token','simulation-only');localStorage.setItem('me',JSON.stringify({_id:'tester',firstname:'Reddyn',lastname:'Wallace',role:'ADMIN'}));});
+  await context.addInitScript(()=>{if(window!==window.top)return;delete Navigator.prototype.serviceWorker;localStorage.setItem('token','simulation-only');localStorage.setItem('me',JSON.stringify({_id:'tester',firstname:'Reddyn',lastname:'Wallace',role:'ADMIN'}));});
   await page.route('**/*',async route=>{
    const req=route.request(),url=new URL(req.url());const json=body=>route.fulfill({contentType:'application/json',body:JSON.stringify(body)});
    if(url.pathname==='/graphql')return json({data:{job,me:{_id:'tester'},users:{results:[]},jobs:{results:[],total:0}}});
@@ -35,7 +35,7 @@ const assert = require('node:assert/strict');
   });
   await page.goto(`${base}/jobs/${id}`);
   await expect(page.getByRole('alert').filter({hasText:/Could not/})).toContainText(/Could not/);
-  await expect(page.getByRole('button',{name:'💬 Text',exact:true})).toBeDisabled();
+  await expect(page.getByRole('button',{name:'💬 Text',exact:true})).toBeEnabled();
   await page.getByRole('button',{name:'Try again'}).click();
   const section=page.getByRole('region',{name:'Job communications'});await expect(section).toBeVisible();
   await expect(section.getByRole('list',{name:'CRM-sent messages'}).getByRole('listitem')).toHaveCount(1);

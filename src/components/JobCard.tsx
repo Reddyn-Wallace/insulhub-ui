@@ -1,3 +1,4 @@
+import { isAwaitingCompletion } from "@/lib/awaiting-completion";
 import { useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -10,6 +11,7 @@ interface Job {
   updatedAt: string;
   installation?: {
     installDate?: string;
+    installStatus?: string;
   };
   ebaForm?: {
     complete?: boolean;
@@ -128,7 +130,7 @@ export default function JobCard({ job }: { job: Job }) {
   const searchParams = useSearchParams();
   const returnTo = `/jobs${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
   const stageParam = searchParams.get("stage");
-  const isInstallWorkflowTab = stageParam === "JOBS" || stageParam === "COMPLETED";
+  const isInstallWorkflowTab = stageParam === "JOBS" || stageParam === "COMPLETED" || stageParam === "AWAITING_COMPLETION";
   const missingInstallDate = isInstallWorkflowTab && !job.installation?.installDate;
 
   const [now] = useState(() => Date.now());
@@ -154,7 +156,8 @@ export default function JobCard({ job }: { job: Job }) {
         : leadStatus;
 
   const cardStyle = STATUS_STYLE[cardState] || STATUS_STYLE.NEW;
-  const cardBorder = missingInstallDate ? "border-l-red-500" : cardStyle.border;
+  const awaitingCompletion = isInstallWorkflowTab && isAwaitingCompletion(job);
+  const cardBorder = awaitingCompletion ? "border-l-amber-500" : missingInstallDate ? "border-l-red-500" : cardStyle.border;
   const ebaStatus = job.ebaForm?.clientApproved
     ? "Signed"
     : job.ebaLastSentAt
@@ -201,7 +204,7 @@ export default function JobCard({ job }: { job: Job }) {
 
   return (
     <Link href={{ pathname: `/jobs/${job._id}`, query: returnTo ? { returnTo } : {} }}>
-      <div className={`rounded-xl shadow-sm border border-gray-100 border-l-4 ${cardBorder} ${missingInstallDate ? "bg-red-50/40" : "bg-white"} px-3 py-2.5 mb-2 active:bg-gray-50 transition-colors cursor-pointer`}>
+      <div className={`rounded-xl shadow-sm border border-gray-100 border-l-4 ${cardBorder} ${awaitingCompletion ? "bg-amber-50" : missingInstallDate ? "bg-red-50/40" : "bg-white"} px-3 py-2.5 mb-2 active:bg-gray-50 transition-colors cursor-pointer`}>
         <div className="flex items-start justify-between gap-3 mb-1">
           <div className="min-w-0">
             <p className="font-semibold text-gray-900 text-[15px] leading-tight truncate">{c?.name || "Unknown"}</p>

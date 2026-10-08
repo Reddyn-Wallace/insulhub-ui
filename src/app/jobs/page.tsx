@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { gql } from "@/lib/graphql";
 import { JOBS_QUERY, USERS_QUERY } from "@/lib/queries";
+import { isActiveJob } from "@/lib/awaiting-completion";
 import StageTabs from "@/components/StageTabs";
 import JobCard from "@/components/JobCard";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
@@ -14,7 +15,7 @@ const PAGE_SIZE = 40;
 const UNASSIGNED_SALESPERSON = "UNASSIGNED";
 const STAGE_CACHE_TTL_MS = 30 * 60 * 1000;
 const SORT_PREFERENCE_KEY = "jobs-sort-order";
-const CACHE_KEY_VERSION = "v3";
+const CACHE_KEY_VERSION = "v5";
 const EMAIL_LOGS_QUERY = `
   query EmailLogs($skip: Int, $limit: Int) {
     listEmailLogs(skip: $skip, limit: $limit) {
@@ -83,7 +84,15 @@ function JobsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const initSearch = searchParams.get("search") || "";
-  const initStage = searchParams.get("stage") || "LEAD";
+  const requestedStage = searchParams.get("stage") || "LEAD";
+  const initStage = requestedStage === "AWAITING_COMPLETION" ? "JOBS" : requestedStage;
+  useEffect(() => {
+    if (requestedStage !== "AWAITING_COMPLETION") return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("stage", "JOBS");
+    params.delete("subTab");
+    router.replace(`/jobs?${params.toString()}`);
+  }, [requestedStage, router, searchParams]);
   const initSubTab = searchParams.get("subTab") || (initStage === "QUOTE" ? "OPEN" : initStage === "LEAD" ? "NEW" : "ALL");
   const initSalespersonFilters = useMemo(() => searchParams.getAll("salesperson").filter(Boolean), [searchParams]);
   const initLeadSourceFilters = useMemo(() => searchParams.getAll("leadSource").map(normalizeLeadSourceValue).filter(Boolean), [searchParams]);
@@ -115,7 +124,7 @@ function JobsPageContent() {
   // Cache for first page of stage jobs to enable instant switching
   const cacheRef = useRef<Record<string, { jobs: Job[]; total: number }>>({});
 
-  const cacheKey = useCallback((stage: string) => `jobs-cache-${CACHE_KEY_VERSION}:${stage}`, []);
+  const cacheKey = useCallback((stage: string) => `jobs-cache:${CACHE_KEY_VERSION}:${stage}`, []);
   const sortPreferenceKey = useCallback((stage: string) => `${SORT_PREFERENCE_KEY}:${stage}`, []);
 
   const readStageCache = useCallback((stage: string): { jobs: Job[]; total: number; counts?: Record<string, number>; ts: number } | null => {
@@ -136,13 +145,10 @@ function JobsPageContent() {
     sessionStorage.setItem(cacheKey(stage), JSON.stringify({ ...data, ts: Date.now() }));
   }, [cacheKey]);
 
-  const installedStatuses = useMemo(() => new Set(["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"]), []);
-  const isInstalledJob = useCallback((job: Job) => installedStatuses.has((job.installation?.installStatus || "").trim().toUpperCase()), [installedStatuses]);
   const isActiveForStage = useCallback((job: Job, stage: string) => {
-    if (job.archivedAt) return false;
-    if (stage === "JOBS" && isInstalledJob(job)) return false;
-    return true;
-  }, [isInstalledJob]);
+    if (stage === "JOBS") return isActiveJob(job);
+    return !job.archivedAt;
+  }, []);
 
   const prefetchJobsForStage = useCallback(async (stage: string) => {
     try {

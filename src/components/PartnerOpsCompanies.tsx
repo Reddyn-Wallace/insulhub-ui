@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { opsButtonClass, opsInputClass } from "@/lib/partner/operations-client";
 import { settingsRequest as opsRequest, type PartnerCompanySummary } from "@/lib/partner/settings-client";
+import { DEFAULT_COUNCIL_FEE, dollarsFromCents, moneyFromDollars, QUOTE_LIMITS } from "@/lib/partner/quote";
 import { useAppDialog } from "@/components/AppDialog";
 
 type PartnerUser = { id: string; name: string; email: string; disabledAt: string | null; invitationPending?: boolean; role?: "ADMIN" | "SALES" };
@@ -104,6 +105,9 @@ export function LegacyConnection({company,onLock,onUpdated,disabled}:{company:Co
 
 export function CompanyForm({ company, close, onLock, onSaved, disabled = false, submitLabel }: { company: CompanyDraft; close: () => void; onLock: (locked: boolean) => void; onSaved: (company: CompanyDraft, created: boolean) => void; disabled?: boolean; submitLabel?: string }) {
   const [name, setName] = useState(company.name);
+  const [wallRate, setWallRate] = useState(dollarsFromCents(company.pricingDefaults?.wallRateCents ?? null));
+  const [ceilingRate, setCeilingRate] = useState(dollarsFromCents(company.pricingDefaults?.ceilingRateCents ?? null));
+  const [councilFee, setCouncilFee] = useState(dollarsFromCents(company.pricingDefaults?.councilFeeCents ?? DEFAULT_COUNCIL_FEE.priceCents));
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [locked, setLocked] = useState(false);
@@ -112,10 +116,17 @@ export function CompanyForm({ company, close, onLock, onSaved, disabled = false,
     event.preventDefault();
     if (locked || disabled || inFlight.current) return;
     if (!name.trim() || name.trim().length > 160) { setError("Enter a company name."); return; }
+    const wallRateCents = moneyFromDollars(wallRate.trim());
+    const ceilingRateCents = moneyFromDollars(ceilingRate.trim());
+    const councilFeeCents = moneyFromDollars(councilFee.trim());
+    for (const [label, text, cents] of [["Wall rate", wallRate, wallRateCents], ["Ceiling rate", ceilingRate, ceilingRateCents]] as const) {
+      if (text.trim() && (cents === null || cents <= 0 || cents > QUOTE_LIMITS.rate)) { setError(`${label} must be greater than $0 and no more than $100,000 per m², or left blank.`); return; }
+    }
+    if (councilFeeCents === null || councilFeeCents > QUOTE_LIMITS.money) { setError("Enter a valid council fee extra, including $0 if there is no fee."); return; }
     inFlight.current = true; onLock(true); setBusy(true); setError("");
     let persisted = false;
     try {
-      const companyInput = { name: name.trim() };
+      const companyInput = { name: name.trim(), pricingDefaults: { wallRateCents, ceilingRateCents, councilFeeCents } };
       let id = company.id;
       if (id) await opsRequest(`/api/settings/partners/${encodeURIComponent(id)}`, "PUT", { revision: company.revision, ...companyInput });
       else id = (await opsRequest<{ company: { id: string } }>("/api/settings/partners", "POST", { creationKey: company.creationKey, ...companyInput })).company.id;
@@ -133,10 +144,19 @@ export function CompanyForm({ company, close, onLock, onSaved, disabled = false,
   }
   return <form onSubmit={submit} className="mt-5 grid gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4" noValidate>
     <h2 className="font-bold text-[#1a3a4a]">{company.id ? "Edit company" : "Add company"}</h2>
-    {!company.id ? <p className="text-sm text-slate-600">Start with the company name. Next, add users who can sign in to the partner portal.</p> : null}
+    {!company.id ? <p className="text-sm text-slate-600">Set the company name and default pricing. Next, add users who can sign in to the partner portal.</p> : null}
     <div className="grid gap-3">
       <label className="grid gap-1 text-sm font-semibold">Company name<input autoFocus disabled={busy || locked || disabled} required maxLength={160} value={name} onChange={(event) => setName(event.target.value)} className={opsInputClass} /></label>
     </div>
+    <fieldset disabled={busy || locked || disabled} className="grid gap-3">
+      <legend className="mb-2 font-semibold text-[#1a3a4a]">Default pricing</legend>
+      <p id="company-pricing-help" className="text-sm text-slate-600">NZD excluding GST. Used for new quotes and editable per quote. Leave a rate blank to enter it on each quote.</p>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <label className="grid gap-1 text-sm font-semibold">Wall rate (NZ$/m²)<input inputMode="decimal" aria-describedby="company-pricing-help" value={wallRate} onChange={event => setWallRate(event.target.value)} className={opsInputClass}/></label>
+        <label className="grid gap-1 text-sm font-semibold">Ceiling rate (NZ$/m²)<input inputMode="decimal" aria-describedby="company-pricing-help" value={ceilingRate} onChange={event => setCeilingRate(event.target.value)} className={opsInputClass}/></label>
+        <label className="grid gap-1 text-sm font-semibold">Council fee extra (NZ$)<input inputMode="decimal" required aria-describedby="company-pricing-help" value={councilFee} onChange={event => setCouncilFee(event.target.value)} className={opsInputClass}/></label>
+      </div>
+    </fieldset>
     {error ? <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}{locked ? " Reload required before another save." : ""}</p> : null}
     <div className="flex flex-wrap gap-2"><button disabled={busy || locked || disabled} className={opsButtonClass}>{busy ? "Saving…" : submitLabel ?? "Save company"}</button>{locked ? <button type="button" onClick={() => window.location.reload()} className="min-h-11 rounded-lg border border-slate-300 px-4 font-semibold">Reload latest details</button> : null}<button type="button" onClick={() => {setName(company.name); close();}} disabled={busy || locked || disabled} className="min-h-11 rounded-lg border border-slate-300 px-4 font-semibold">Cancel</button></div>
   </form>;
