@@ -1,5 +1,6 @@
-import {checkProductionSource} from './release/guard.mjs';
+import {checkProductionSource, checkProductionFiles} from './release/guard.mjs';
 await checkProductionSource();
+await checkProductionFiles();
 import { spawnSync } from 'node:child_process';
 // Sensitive production credentials stay within Vercel. All schema steps are repeatable.
 function run(script) {

@@ -328,7 +328,7 @@ describe("dialog accessibility", () => {
 describe("secure PDF download", () => {
   it("announces success, defers URL cleanup, and surfaces session expiry", async () => {
     const createObjectURL = vi.fn(() => "blob:site-plan"); const revokeObjectURL = vi.fn(); Object.defineProperty(URL, "createObjectURL", { configurable: true, value: createObjectURL }); Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: revokeObjectURL }); vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
-    vi.mocked(fetch).mockResolvedValueOnce(new Response(new Blob(["%PDF"]), { status: 200, headers: { "content-disposition": "attachment; filename*=UTF-8''M%C4%81ori.pdf" } })).mockResolvedValueOnce(response({ error: "expired" }, 401));
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("%PDF", { status: 200, headers: { "content-disposition": "attachment; filename*=UTF-8''M%C4%81ori.pdf" } })).mockResolvedValueOnce(response({ error: "expired" }, 401));
     const user = userEvent.setup(); render(<PartnerPdfDownloadButton href="/secure.pdf" className="button" />); await user.click(screen.getByRole("button", { name: "Download PDF" }));
     expect(await screen.findByRole("status")).toHaveProperty("textContent", "Māori.pdf download started."); await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith("blob:site-plan"));
     await user.click(screen.getByRole("button", { name: "Download PDF" })); expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("session expired")); expect(screen.getByRole("link", { name: "Sign in again" })).toBeTruthy();

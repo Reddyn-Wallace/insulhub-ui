@@ -2,7 +2,7 @@
 
 Read `docs/production-release-process.md` before any production release.
 
-- Production is Git-only from protected `master`. Do not use direct Vercel CLI/API source uploads, deploy hooks, manual aliases, or force promotion to bypass this.
+- Normal production releases must use protected Git `master`. Do not use direct Vercel CLI/API source uploads, deploy hooks, manual aliases, or force promotion to bypass this.
 - Work on a branch, open a pull request, wait for `CRM regression suite`, then merge. Required checks and Vercel's production source/ancestry checks must pass.
 - Always integrate all current master/live work. Never deploy an older worktree as a replacement for the combined CRM.
 - Add regression coverage and extend `scripts/release/contract.json` when shipping a new feature. Do not remove required routes, tests, or protection settings merely to obtain a green build.

@@ -17,3 +17,17 @@ test('allows rebuilding the exact live commit',async()=>{await checkProductionSo
 test('preview builds do not require production source access',async()=>{await checkProductionSource({VERCEL_ENV:'preview'},()=>{throw Error('Must not query');});});
 test('blocks a build where a shipped page or API route disappeared',()=>{const dir=mkdtempSync(join(tmpdir(),'crm-route-gate-'));try{mkdirSync(join(dir,'.next/server'),{recursive:true});writeFileSync(join(dir,'.next/server/app-paths-manifest.json'),JSON.stringify({'/jobs/follow-ups/page':'present'}));assert.throws(()=>checkBuiltRoutes(dir,['/jobs/follow-ups/page','/api/dead-followups/route']),/api\/dead-followups/);checkBuiltRoutes(dir,['/jobs/follow-ups/page']);}finally{rmSync(dir,{recursive:true,force:true});}});
 test('blocks deleting a required regression suite instead of running it',()=>{const dir=mkdtempSync(join(tmpdir(),'crm-files-gate-'));try{assert.throws(()=>checkRequiredFiles(dir,['followup.test.ts']),/followup.test.ts/);writeFileSync(join(dir,'followup.test.ts'),'test');checkRequiredFiles(dir,['followup.test.ts']);}finally{rmSync(dir,{recursive:true,force:true});}});
+
+test('uploaded source must match the committed tree, including deleted and extra files',async()=>{
+ const {checkSourceTree}=await import('./guard.mjs');
+ const dir=mkdtempSync(join(tmpdir(),'crm-source-gate-'));
+ const tree={truncated:false,tree:[{path:'src/page.ts',type:'blob',mode:'100644',sha:'ce013625030ba8dba906f756967f9e9ca394464a'}]};
+ try{
+  mkdirSync(join(dir,'src'));writeFileSync(join(dir,'src/page.ts'),'hello\n');
+  checkSourceTree(dir,tree);
+  writeFileSync(join(dir,'src/page.ts'),'different\n');assert.throws(()=>checkSourceTree(dir,tree),/source.*match/i);
+  rmSync(join(dir,'src/page.ts'));assert.throws(()=>checkSourceTree(dir,tree),/missing/i);
+  writeFileSync(join(dir,'src/page.ts'),'hello\n');writeFileSync(join(dir,'src/uncommitted.ts'),'extra');assert.throws(()=>checkSourceTree(dir,tree),/uncommitted/i);
+  assert.throws(()=>checkSourceTree(dir,{...tree,truncated:true}),/incomplete/i);
+ }finally{rmSync(dir,{recursive:true,force:true});}
+});

@@ -1,4 +1,5 @@
-import {existsSync, readFileSync} from 'node:fs';
+import {existsSync, readFileSync, readdirSync, lstatSync} from 'node:fs';
+import {createHash} from 'node:crypto';
 import {resolve} from 'node:path';
 export const RECOVERY_COMMIT='15671bd4b96ce162eadfc9a6d90520e508c425ca';
 export const REPOSITORY='Reddyn-Wallace/insulhub-ui';
@@ -36,4 +37,34 @@ export function checkBuiltRoutes(root,routes){
  const missing=routes.filter(route=>!Object.hasOwn(built,route));
  if(missing.length)throw Error(`Shipped CRM routes are missing from the build:\n${missing.join('\n')}`);
  console.log(`Shipped route check passed (${routes.length} routes).`);
+}
+
+const sourceDirectories=['src','scripts','migrations','public','app','pages'];
+const sourceFiles=['package.json','package-lock.json','next.config.ts','next.config.js','next.config.mjs','tsconfig.json','postcss.config.mjs','vercel.json','.vercelignore','middleware.ts','middleware.js','proxy.ts','instrumentation.ts'];
+const generated=path=>path==='public/sw.js'||/^public\/workbox-[^/]+\.js$/.test(path);
+const inScope=path=>!generated(path)&&(sourceFiles.includes(path)||sourceDirectories.some(dir=>path.startsWith(`${dir}/`)));
+export function checkSourceTree(root,remote){
+ if(remote.truncated||!Array.isArray(remote.tree))throw Error('Committed source inventory is incomplete; refusing release.');
+ const expected=new Map(remote.tree.filter(item=>item.type==='blob'&&inScope(item.path)).map(item=>[item.path,item]));
+ for(const [path,item] of expected){
+  const file=resolve(root,path);
+  if(!existsSync(file))throw Error(`Committed source file missing: ${path}`);
+  if(!lstatSync(file).isFile()||!['100644','100755'].includes(item.mode))throw Error(`Unsupported source file: ${path}`);
+  const contents=readFileSync(file);
+  const hash=createHash('sha1').update(`blob ${contents.length}\0`).update(contents).digest('hex');
+  if(hash!==item.sha)throw Error(`Uploaded source does not match committed source: ${path}`);
+ }
+ function visit(path){
+  if(generated(path)||!existsSync(resolve(root,path)))return;
+  const info=lstatSync(resolve(root,path));
+  if(info.isDirectory()){for(const name of readdirSync(resolve(root,path)))visit(`${path}/${name}`);}
+  else if(!expected.has(path))throw Error(`Uncommitted source file in release: ${path}`);
+ }
+ for(const path of [...sourceDirectories,...sourceFiles])visit(path);
+ console.log(`Committed source verified (${expected.size} files).`);
+}
+export async function checkProductionFiles(root=process.cwd(),env=process.env,get=readJson){
+ if(env.VERCEL_ENV!=='production')return;
+ const tree=await get(`https://api.github.com/repos/${REPOSITORY}/git/trees/${env.VERCEL_GIT_COMMIT_SHA}?recursive=1`);
+ checkSourceTree(root,tree);
 }
