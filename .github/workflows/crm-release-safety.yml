@@ -1,0 +1,80 @@
+name: CRM release safety
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master, 'codex/production-release-guard']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: crm-safety-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  regression:
+    name: CRM regression suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: local-test-only
+          POSTGRES_DB: crm_tests
+        ports:
+          - 55687:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DEAD_FOLLOWUPS_TEST_DATABASE_URL: postgresql://postgres:local-test-only@127.0.0.1:55687/crm_tests
+      CAMPAIGN_RESUME_TEST_DATABASE_URL: postgresql://postgres:local-test-only@127.0.0.1:55687/crm_tests
+      CAMPAIGN_SMS_TEST_DATABASE_URL: postgresql://postgres:local-test-only@127.0.0.1:55687/crm_tests
+      FINANCE_TEST_DATABASE_URL: postgresql://postgres:local-test-only@127.0.0.1:55687/crm_tests
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Reject missing shipped history or regression suites
+        run: npm run release:check
+      - name: Test deployment guard
+        run: npm run test:release
+      - name: CRM and database regressions
+        run: npm test
+      - name: Finance and shared CRM regressions
+        run: |
+          npm run test:finance
+          npx vitest run src/lib/graphql.test.ts src/lib/job-completion-ui.test.tsx
+      - name: Build and verify shipped routes
+        run: |
+          npm run build
+          npm run release:check-build
+      - name: Install test browser
+        run: npx playwright install --with-deps chrome
+      - name: Mobile and desktop follow-up and communications checks
+        env:
+          COMMUNICATIONS_SMOKE_BASE_URL: http://127.0.0.1:3116
+        run: |
+          npm run start -- --hostname 127.0.0.1 --port 3116 > /tmp/crm-server.log 2>&1 &
+          app_pid=$!
+          npm run preview:dead-followups > /tmp/crm-preview.log 2>&1 &
+          preview_pid=$!
+          trap 'kill "$app_pid" "$preview_pid" 2>/dev/null || true' EXIT
+          for port in 3116 3117; do
+            ready=false
+            for attempt in {1..60}; do
+              if curl --fail --silent "http://127.0.0.1:$port/jobs/follow-ups" > /dev/null; then ready=true; break; fi
+              sleep 1
+            done
+            if [ "$ready" != true ]; then cat /tmp/crm-server.log /tmp/crm-preview.log; exit 1; fi
+          done
+          npm run test:dead-followups:browser
+          npm run test:job-communications-browser
