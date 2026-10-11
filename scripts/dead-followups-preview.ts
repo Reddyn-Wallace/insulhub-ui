@@ -42,7 +42,7 @@ createServer(async(req,res)=>{
   }
   // No business APIs or mutations ever go to the Next server, even unrecognised ones.
   if(path.startsWith('/api/')||!['GET','HEAD'].includes(method))return json(res,{error:'This action is unavailable in the local sample preview.'},403);
-  const allowedPage=path==='/jobs'||path==='/jobs/follow-ups'||path==='/jobs/follow-ups/templates'||path==='/jobs/settings'||path==='/jobs/settings/templates/follow-ups'||/^\/jobs\/[a-f\d]{24}(?:\/follow-up-history)?$/.test(path);
+  const allowedPage=path==='/jobs'||path==='/jobs/follow-ups'||path==='/jobs/follow-ups/templates'||path==='/jobs/settings'||path==='/jobs/settings/templates/follow-ups'||/^\/jobs\/settings\/templates\/quote-followup-(sms|email)-[12]$/.test(path)||/^\/jobs\/[a-f\d]{24}(?:\/follow-up-history)?$/.test(path);
   const allowedAsset=path.startsWith('/_next/static/')||['/favicon.ico','/manifest.json','/manifest.webmanifest'].includes(path)||/^\/(?:icons|images)\/[a-zA-Z0-9_./-]+$/.test(path);
   const unsupportedEncoding=(allowedAsset?path.replace(/%5B|%5D/gi,''):path).includes('%');
   if(unsupportedEncoding||(!allowedPage&&!allowedAsset))return json(res,{error:'This local preview covers the follow-up workflow only.'},404);

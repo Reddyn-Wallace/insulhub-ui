@@ -10,7 +10,7 @@ Drafts never count as sent offers. Historical offers are explicitly staff attest
 
 ## Shared templates
 
-Offer templates are linked from the queue at /jobs/follow-ups/templates. There are four defaults: first/second SMS and first/second email. Administrators can edit them, with revision checks and immutable change history. Staff can edit each individual message without changing the shared defaults.
+Offer templates are managed in Settings → Templates under SMS or Email. There are four defaults: first/second SMS and first/second email. Administrators can edit them, with revision checks and immutable change history. Staff can edit each individual message without changing the shared defaults.
 
 Every template requires {{discount}}, rendered as the exact saved amount (for example $500.00). Optional fields are {{name}} and {{quoteNumber}}. Unknown merge fields are rejected. The editor includes a preview. Loading status never overwrites a staff-edited draft; Use saved template is an explicit reset.
 
@@ -84,7 +84,7 @@ Skip opens a duration/date modal and persists the existing shared snooze control
 
 Send Offer opens an amount/channel/template/account/message form. A confirmation modal shows the exact recipient, discount and message and asks staff to confirm prior-history accuracy. Only explicit confirmation saves the discount and history review with current revisions, then submits the individually claimed send. Successful sends return to the queue. Conflicts/uncertain outcomes lock the form and direct staff to history; they never silently retry. Existing server eligibility, concurrency and idempotency checks remain authoritative. Note recovery remains available in history.
 
-Follow-up defaults live at Settings → Templates → Dead quote follow-up templates (`/jobs/settings/templates/follow-ups`). The former URL redirects there. The interactive localhost preview supports the same flow using sample data and simulated sends only.
+Follow-up defaults appear alongside other templates under Settings → Templates → SMS or Email, named “Quote follow-up — first offer” and “Quote follow-up — second offer”. Each opens in the shared template editor. Both former follow-up template URLs redirect to the SMS template list. Saved wording, administrator permissions, revision checks and change history stay in the existing audited store used by follow-up sending; no data migration is needed. The interactive localhost preview supports the same flow using sample data and simulated sends only.
 
 Validation: the full test suite passed; the final follow-up suite has 198 passing tests, including local PostgreSQL integration cases. Production build/TypeScript, targeted lint and independent code review passed. Updated browser checks cover the new actions and confirmation flow, Settings templates, access-disabled views and date/send recovery at 390px and 1280px. The sample-server tests verify no external requests. No deployment or production writes.
 
