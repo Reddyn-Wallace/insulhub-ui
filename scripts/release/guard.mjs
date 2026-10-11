@@ -7,9 +7,6 @@ export const LIVE_RELEASE_URL='https://insulhub-ui.vercel.app/api/release';
 const sha=value=>typeof value==='string'&&/^[a-f0-9]{40}$/.test(value);
 export async function readJson(url){
  const response=await fetch(url,{headers:{accept:'application/json'},redirect:'error',signal:AbortSignal.timeout(15000),cache:'no-store'});
- // One-time compatibility with the recovery release, which predates this endpoint.
- // Every subsequent build must contain /api/release (checked after compilation).
- if(response.status===404&&url===LIVE_RELEASE_URL)return {commit:RECOVERY_COMMIT,bootstrap:true};
  if(!response.ok)throw Error(`Release verification unavailable (HTTP ${response.status}). Production is unchanged; retry later.`);
  return response.json();
 }
