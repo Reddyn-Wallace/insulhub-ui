@@ -5,8 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAppDialog } from "@/components/AppDialog";
 import PartnerSettings from "@/components/PartnerSettings";
-import { followupTemplateItem, followupTemplateKey } from "@/lib/dead-followups/template-settings";
-import type { TemplateRecord } from "@/lib/dead-followups/templates";
+import { clearComposerDetails } from "@/lib/dead-followups/composer-client";
 
 type ContactTemplate = {
   id: string;
@@ -76,7 +75,6 @@ export default function SettingsPage() {
   const router = useRouter();
   const { confirm, dialog } = useAppDialog();
   const [templates, setTemplates] = useState<ContactTemplate[]>([]);
-  const [templateError, setTemplateError] = useState("");
   const [senders, setSenders] = useState<CommunicationSender[]>([]);
   const [activeSection, setActiveSection] = useState<"templates" | "senders" | "communication-settings" | "partners">("templates");
   const [sectionReady, setSectionReady] = useState(false);
@@ -168,22 +166,19 @@ export default function SettingsPage() {
     }
 
     setLoading(true);
-    setTemplateError("");
-    const results = await Promise.allSettled([
-      fetch("/api/contact-templates", { headers: { "x-access-token": token } }).then(async (res) => {
-        const json = await res.json();
-        if (!res.ok) throw new Error(json?.error || "Failed to load templates");
-        return (json.templates || []) as ContactTemplate[];
-      }),
-      fetch("/api/dead-followups/templates", { headers: { "x-access-token": token }, cache: "no-store" }).then(async (res) => {
-        const json = await res.json();
-        if (!res.ok || !json.record) throw new Error("Quote follow-up templates could not be loaded.");
-        return (json.record as TemplateRecord).templates.map(followupTemplateItem);
-      }),
-    ]);
-    setTemplates(sortTemplates(results.flatMap((result) => result.status === "fulfilled" ? result.value : [])));
-    setTemplateError(results.flatMap((result) => result.status === "rejected" ? [result.reason instanceof Error ? result.reason.message : "Templates could not be loaded."] : []).join(" "));
-    setLoading(false);
+    try {
+      const res = await fetch("/api/contact-templates", {
+        cache: "no-store",
+        headers: { "x-access-token": token },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "Failed to load templates");
+      setTemplates(sortTemplates(json.templates || []));
+    } catch (err) {
+      setToast({ type: "error", text: err instanceof Error ? err.message : "Failed to load templates" });
+    } finally {
+      setLoading(false);
+    }
   }, [router]);
 
   const loadSenders = useCallback(async () => {
@@ -356,6 +351,7 @@ export default function SettingsPage() {
       if (!res.ok) throw new Error(json?.error || "Failed to delete template");
       setToast({ type: "success", text: "Template deleted." });
       setTemplates((current) => current.filter((item) => item.id !== template.id));
+      clearComposerDetails();
     } catch (err) {
       setToast({ type: "error", text: err instanceof Error ? err.message : "Failed to delete template" });
     } finally {
@@ -570,7 +566,6 @@ export default function SettingsPage() {
             </div>
 
             <div className="p-3">
-              {templateError && <div role="alert" className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{templateError} <button type="button" disabled={loading} onClick={() => void loadTemplates()} className="font-semibold underline">Retry</button></div>}
               {loading ? (
                 <div className="py-8 text-center text-sm text-gray-500">Loading templates...</div>
               ) : visibleTemplates.length ? (
@@ -592,14 +587,14 @@ export default function SettingsPage() {
                         >
                           Edit
                         </Link>
-                        {!followupTemplateKey(template.id) && <button
+                        <button
                           type="button"
                           onClick={() => deleteTemplate(template)}
                           disabled={deletingTemplateId === template.id}
                           className="rounded-lg bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 ring-1 ring-rose-200 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {deletingTemplateId === template.id ? "Deleting..." : "Delete"}
-                        </button>}
+                        </button>
                       </div>
                     </div>
                   ))}

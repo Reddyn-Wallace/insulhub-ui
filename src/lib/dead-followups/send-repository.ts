@@ -16,7 +16,7 @@ export class SendRepository{
   const v=input as {requestId?:string;revision?:number};const c=await this.pool.connect();
   try{await c.query('BEGIN');
    const control=await c.query('SELECT * FROM dead_quote_followup_controls WHERE insulhub_job_id=$1 FOR UPDATE',[job._id]);
-   if(!control.rows[0])throw new ControlError('Review and save a discount first.',409);
+   if(!control.rows[0])throw new ControlError('Review the quote before sending.',409);
    const existing=await c.query('SELECT * FROM dead_quote_followup_attempts WHERE request_id=$1',[v.requestId]);
    if(existing.rows[0]){const a=attempt(existing.rows[0]);if(a.jobId!==job._id||a.actorId!==actor.id)throw new ControlError('Send reference already used.',409);await c.query('COMMIT');return {claimed:false,attempt:a};}
    if(control.rows[0].revision!==v.revision)throw new ControlError('Follow-up changed. Refresh before sending.',409);

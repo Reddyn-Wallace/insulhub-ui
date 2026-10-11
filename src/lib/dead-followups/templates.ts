@@ -21,3 +21,9 @@ export function renderTemplate(template:OfferTemplate,input:{discountCents:numbe
  const render=(text:string)=>text.replace(/{{(discount|name|quoteNumber)}}/g,(_match,key:keyof typeof values)=>values[key]);
  return {subject:render(template.subject),body:render(template.body)};
 }
+
+// One-time import into the ordinary template library; the original audit stays intact.
+export function ordinaryTemplate(template:OfferTemplate){
+ const convert=(text:string)=>text.replace(/\{\{(name|discount|quoteNumber)\}\}/g,(_token,field:string)=>({name:'{customer name}',discount:'{discount}',quoteNumber:'{quote number}'})[field]!);
+ return {title:`Quote follow-up — ${template.approach===1?'first':'second'} offer`,channel:template.channel,description:'Quote follow-up',subject:convert(template.subject),body:convert(template.body),sortOrder:100+template.approach};
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { applyTemplateFields } from "@/lib/contact-template-fields";
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -34,12 +35,6 @@ function fmtDateTime(iso?: string | null) {
   });
 }
 
-function applyTemplateFields(template: string, fields: Record<string, string>) {
-  return template.replace(/\{([^}]+)\}/g, (_match, key) => {
-    const normalized = String(key).toLowerCase().replace(/[^a-z0-9]/g, "");
-    return fields[normalized] ?? "";
-  });
-}
 
 function googleCalendarUrl(input: {
   start: string;

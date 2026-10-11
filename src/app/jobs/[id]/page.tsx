@@ -25,7 +25,8 @@ import PartnerLinkedJobSync from "@/components/PartnerLinkedJobSync";
 import AddressAutocomplete from "@/components/AddressAutocomplete";
 import InstallPlanningForm, { DateTimeCalendarField, InstallPlanningActions } from "@/components/InstallPlanningForm";
 import { useAppDialog } from "@/components/AppDialog";
-import { firstNameForMerge, formatNameForMerge } from "@/lib/communication-merge-fields";
+import { formatNameForMerge } from "@/lib/communication-merge-fields";
+import { applyTemplateFields, buildContactTemplateFields } from "@/lib/contact-template-fields";
 import { buildInstallPlanningSummaryLines } from "@/lib/install-planning";
 import { LEAD_SOURCE_OPTIONS } from "@/lib/lead-sources";
 import type { SitePlanDrawingSummary } from "@/lib/site-plan-drawings";
@@ -354,12 +355,6 @@ function stripInstallMeta(notes?: string | null) {
     .trim();
 }
 
-function applyTemplateFields(template: string, fields: Record<string, string>) {
-  return template.replace(/\{([^}]+)\}/g, (_match, key) => {
-    const normalizedKey = String(key).trim().toLowerCase().replace(/[\s_-]+/g, "");
-    return fields[normalizedKey] || "";
-  });
-}
 
 function escapeIcsText(input: string) {
   return input
@@ -2163,7 +2158,6 @@ export default function JobDetailPage() {
   const address = [c?.streetAddress, c?.suburb, c?.city, c?.postCode].filter(Boolean).join(", ");
   const lotDPNumber = c?.lotDPNumber?.trim() || job.ebaForm?.lotOrDPNumber?.trim();
   const contactName = formatNameForMerge(c?.name?.trim() || "") || "there";
-  const firstName = firstNameForMerge(contactName) || "there";
   const statusRaw = (job.lead?.leadStatus || "NEW").toUpperCase();
   const leadStatus = statusRaw === "ON_HOLD" ? "CALLBACK" : statusRaw;
   const quoteStatus = (job.quote?.status || "").toUpperCase();
@@ -2176,7 +2170,6 @@ export default function JobDetailPage() {
     : leadStatus;
   const salesperson = job.lead?.allocatedTo
     ? `${job.lead.allocatedTo.firstname} ${job.lead.allocatedTo.lastname}` : "Unallocated";
-  const salespersonFirstName = job.lead?.allocatedTo?.firstname?.trim() || "";
   let loggedInUserName = "";
   let loggedInUserFirstName = "";
   try {
@@ -2189,21 +2182,7 @@ export default function JobDetailPage() {
     loggedInUserName = "";
     loggedInUserFirstName = "";
   }
-  const templateSalesperson = salespersonFirstName || loggedInUserFirstName || loggedInUserName || "Insulmax";
-  const templateFields = {
-    customername: contactName,
-    name: contactName,
-    firstname: firstName,
-    salesperson: templateSalesperson,
-    salespersonfirstname: templateSalesperson,
-    address: address || "your property",
-    quotebookingdate: fmtDateTime(job.lead?.quoteBookingDate, true) || "the booked time",
-    installdate: fmtDateOnly(fromDatetimeLocal(installDate) || job.installation?.installDate, true) || "the install date",
-    installtime: fmtTimeOnly(fromDatetimeLocal(installDate) || job.installation?.installDate) || "8:00 AM",
-    jobnumber: String(job.jobNumber),
-    phone: phone || "",
-    email: c?.email || "",
-  };
+  const templateFields = buildContactTemplateFields({ ...job, installation: { ...job.installation, installDate: fromDatetimeLocal(installDate) || job.installation?.installDate } }, loggedInUserFirstName || loggedInUserName);
   const visibleContactTemplates = contactTemplates.filter((template) => template.channel === contactTemplateMode);
   const assignableUsers = users.filter((u) => (u.role || "").toUpperCase() !== "INSTALLER");
   const hasWall = !!job.quote?.wall?.SQM;

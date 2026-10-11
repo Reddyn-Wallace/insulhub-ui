@@ -18,17 +18,14 @@ export function prepareSend(input:unknown,state:ControlState,job:DeadQuote,now:s
  if(typeof v.requestId!=='string'||!uuid.test(v.requestId)||typeof v.senderId!=='string'||!uuid.test(v.senderId)||!Number.isInteger(v.revision)||v.jobVersion!==job.updatedAt)throw new ControlError('Refresh and review this quote before sending.',409);
  const eligibility=evaluateFollowup(job,controlHistory(state,job),now);
  if(eligibility.state!=='due'||!eligibility.approach)throw new ControlError(eligibility.reason,409);
- const cents=state.draftDiscountCents;
- if(cents===null||!Number.isSafeInteger(cents)||cents<0||job.quote?.c_total==null||cents>Math.round(job.quote.c_total*100))throw new ControlError('Save a valid discount amount before sending.');
+ const cents=state.draftDiscountCents??0;
+ if(!Number.isSafeInteger(cents)||cents<0||(cents>0&&(job.quote?.c_total==null||cents>Math.round(job.quote.c_total*100))))throw new ControlError('Save a valid discount amount before sending.');
  if(v.channel!=='sms'&&v.channel!=='email')throw new ControlError('Choose SMS or email.');
  let message:{destination:string;body:string;subject?:string};
  try{message=v.channel==='sms'?validateSmsInput({body:v.body,destination:v.destination}):validateJobEmail(v);}catch(e){throw new ControlError((e as Error).message);}
- // Use an explicit exact amount in the edited message so the stored offer is visible to the customer.
- const amount='$'+(cents/100).toFixed(2);
- if(!message.body.includes(amount)||new RegExp('\\'+amount.replace('.','\\.')+'[0-9]').test(message.body))throw new ControlError(`Include the saved discount ${amount} in the message.`);
  return {requestId:v.requestId,channel:v.channel,senderId:v.senderId,destination:message.destination,body:message.body,subject:message.subject||'',discountCents:cents,approach:eligibility.approach};
 }
 export function offerNote(attempt:Pick<SendAttempt,'id'|'approach'|'discountCents'|'channel'|'actorName'|'sentAt'|'verification'> & Partial<Pick<SendAttempt,'destination'|'subject'|'body'>>){
  const day=new Date(attempt.sentAt!).toLocaleDateString('en-NZ',{timeZone:'Pacific/Auckland',day:'numeric',month:'short',year:'numeric'});
- return `[Dead quote follow-up ${attempt.id}]\n${day} — Follow-up sent by ${attempt.channel==='sms'?'SMS':'email'} with a NZD $${(attempt.discountCents/100).toFixed(2)} discount offer.`;
+ return `[Dead quote follow-up ${attempt.id}]\n${day} — Follow-up sent by ${attempt.channel==='sms'?'SMS':'email'}${attempt.discountCents>0?` with a NZD $${(attempt.discountCents/100).toFixed(2)} discount offer.`:'.'}`;
 }

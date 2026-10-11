@@ -1,5 +1,6 @@
 import {beforeEach,afterEach,expect,it,vi} from 'vitest';
 import {NextRequest,NextResponse} from 'next/server';
+vi.mock('@/app/api/contact-templates/route',()=>({GET:vi.fn()}));
 vi.mock('@/lib/insulhub-auth',()=>({requireInsulhubAuth:vi.fn(),tokenFromRequest:()=> 'token'}));
 vi.mock('./access',()=>({readControlJob:vi.fn()}));
 vi.mock('./send-repository',()=>({sendsRepository:vi.fn()}));
@@ -8,8 +9,10 @@ vi.mock('@/app/api/jobs/[id]/email/route',()=>({POST:vi.fn(),GET:vi.fn()}));
 import {requireInsulhubAuth} from '@/lib/insulhub-auth';
 import {readControlJob} from './access';
 import {sendsRepository} from './send-repository';
-import {POST as smsPost} from '@/app/api/jobs/[id]/sms/route';
-import {POST} from '@/app/api/jobs/[id]/dead-followup/send/route';
+import {POST as smsPost,GET as smsGet} from '@/app/api/jobs/[id]/sms/route';
+import {GET as emailGet} from '@/app/api/jobs/[id]/email/route';
+import {GET as contactTemplatesGet} from '@/app/api/contact-templates/route';
+import {GET,POST} from '@/app/api/jobs/[id]/dead-followup/send/route';
 const id='aaaaaaaaaaaaaaaaaaaaaaaa';
 const attempt={id:'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb',jobId:id,channel:'sms',status:'unknown',noteStatus:'pending'};
 const repo={claim:vi.fn(),list:vi.fn(),setOutcome:vi.fn(),messageOutcome:vi.fn(),withNoteLock:vi.fn(),verifySent:vi.fn()};
@@ -46,4 +49,16 @@ it('does not dispatch when the fresh date observation becomes uncertain with the
  vi.mocked(smsPost).mockResolvedValue(NextResponse.json({error:'simulated'}));
  await POST(req({action:'send',requestId:'cccccccc-cccc-4ccc-cccc-cccccccccccc',jobVersion:'v'}),ctx);
  expect(smsPost).not.toHaveBeenCalled();expect(repo.setOutcome).toHaveBeenCalledWith(attempt.id,'failed',expect.any(String));
+});
+
+it('loads the ordinary template library and the same job merge fields for follow-ups',async()=>{
+ vi.mocked(readControlJob).mockResolvedValueOnce({job:{_id:id,stage:'QUOTE',updatedAt:'v',jobNumber:123,lead:{leadStatus:'DEAD',allocatedTo:{firstname:'Reddyn'}},quote:{status:'DECLINED',quoteNumber:'Q123'},client:{contactDetails:{name:'ALEX EXAMPLE',streetAddress:'1 Test Street'}}},actor:{id:'staff',name:'Other Staff'}});
+ vi.mocked(contactTemplatesGet).mockResolvedValueOnce(NextResponse.json({templates:[{id:'normal',title:'Any saved SMS',channel:'sms',body:'Hi {first name}',subject:''}]}));
+ vi.mocked(smsGet).mockResolvedValueOnce(NextResponse.json({senders:[]}));vi.mocked(emailGet).mockResolvedValueOnce(NextResponse.json({senders:[]}));
+ const response=await GET(new NextRequest('http://localhost/api/send'),ctx);expect(response.status).toBe(200);
+ const json=await response.json();expect(json.templates).toHaveLength(1);expect(json.templates[0].id).toBe('normal');expect(json.templateFields).toMatchObject({firstname:'Alex',salesperson:'Reddyn',address:'1 Test Street',jobnumber:'123',quotenumber:'Q123'});
+});
+it('never falls back to deleted special defaults when no ordinary templates remain',async()=>{
+ vi.mocked(contactTemplatesGet).mockResolvedValueOnce(NextResponse.json({templates:[]}));vi.mocked(smsGet).mockResolvedValueOnce(NextResponse.json({senders:[]}));vi.mocked(emailGet).mockResolvedValueOnce(NextResponse.json({senders:[]}));
+ const response=await GET(new NextRequest('http://localhost/api/send'),ctx);expect((await response.json()).templates).toEqual([]);
 });

@@ -11,3 +11,9 @@ it('shares prefetch in flight and reuses fresh results',async()=>{const first=lo
 it('isolates accounts and refreshes changed quotes, revisions and expired entries',async()=>{vi.useFakeTimers();await loadComposerDetails(item);token='two';expect(cachedComposerDetails(item)).toBeUndefined();await loadComposerDetails(item);await loadComposerDetails({...item,job:{...item.job,updatedAt:'v2'}});await loadComposerDetails({...item,controls:{...item.controls!,revision:2}});vi.advanceTimersByTime(300001);expect(cachedComposerDetails(item)).toBeUndefined();await loadComposerDetails(item);expect(fetch).toHaveBeenCalledTimes(5);});
 it('evicts failures so reopening retries',async()=>{vi.mocked(fetch).mockRejectedValueOnce(Error('offline'));await expect(loadComposerDetails(item)).rejects.toThrow('offline');await loadComposerDetails(item);expect(fetch).toHaveBeenCalledTimes(2);});
 it('invalidates prefetched details before writes',async()=>{await loadComposerDetails(item);clearComposerDetails();expect(cachedComposerDetails(item)).toBeUndefined();await loadComposerDetails(item);expect(fetch).toHaveBeenCalledTimes(2);});
+it('retries a failed template load when the composer is reopened',async()=>{
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({...data,templates:[],templateError:'Close and reopen to retry.'}));
+ await loadComposerDetails(item);expect(cachedComposerDetails(item)).toBeUndefined();
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({...data,templates:[{id:'normal',channel:'sms',title:'Checking in',body:'Hi',subject:''}]}));
+ expect((await loadComposerDetails(item)).templates?.[0].id).toBe('normal');expect(fetch).toHaveBeenCalledTimes(2);
+});

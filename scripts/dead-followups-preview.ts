@@ -28,12 +28,17 @@ createServer(async(req,res)=>{
    const jobs=model.queue().items.map(x=>x.job);const id=input.variables?._id;
    return json(res,{data:{me:{_id:'preview',firstname:'Preview',lastname:'Staff',role:'ADMIN'},job:jobs.find(j=>j._id===id)||jobs[0],jobs:{results:jobs,total:jobs.length},users:{results:[],total:0},listEmailLogs:{results:[],total:0}}});
   }
-  if(path==='/api/contact-templates'&&method==='GET')return json(res,{templates:[]});
-  if(path==='/api/dead-followups'&&method==='GET')return json(res,model.queue());
-  if(path==='/api/dead-followups/templates'){
+  if(path==='/api/contact-templates'){
    if(method==='GET')return json(res,model.templateRead());
-   if(method==='PATCH'){const result=model.templateWrite(await body(req));persist();return json(res,result);}
+   if(method==='POST'){const result=model.templateCreate(await body(req));persist();return json(res,result,201);}
   }
+  const templateMatch=path.match(/^\/api\/contact-templates\/([a-f\d-]{36})$/);
+  if(templateMatch){
+   if(method==='PATCH'){const result=model.templateWrite(templateMatch[1],await body(req));persist();return json(res,result);}
+   if(method==='DELETE'){const result=model.templateDelete(templateMatch[1]);persist();return json(res,result);}
+  }
+  if(path==='/api/dead-followups'&&method==='GET')return json(res,model.queue());
+  if(path==='/api/dead-followups/templates')return json(res,{error:'Use Settings → Templates.'},410);
   const match=path.match(/^\/api\/jobs\/([a-f\d]{24})\/dead-followup(\/send)?$/);
   if(match){
    const [,id,send]=match;
@@ -42,7 +47,7 @@ createServer(async(req,res)=>{
   }
   // No business APIs or mutations ever go to the Next server, even unrecognised ones.
   if(path.startsWith('/api/')||!['GET','HEAD'].includes(method))return json(res,{error:'This action is unavailable in the local sample preview.'},403);
-  const allowedPage=path==='/jobs'||path==='/jobs/follow-ups'||path==='/jobs/follow-ups/templates'||path==='/jobs/settings'||path==='/jobs/settings/templates/follow-ups'||/^\/jobs\/settings\/templates\/quote-followup-(sms|email)-[12]$/.test(path)||/^\/jobs\/[a-f\d]{24}(?:\/follow-up-history)?$/.test(path);
+  const allowedPage=path==='/jobs'||path==='/jobs/follow-ups'||path==='/jobs/follow-ups/templates'||path==='/jobs/settings'||path==='/jobs/settings/templates/follow-ups'||/^\/jobs\/settings\/templates\/(?:[a-f\d-]{36}|new|quote-followup-(?:sms|email)-[12])$/.test(path)||/^\/jobs\/[a-f\d]{24}(?:\/follow-up-history)?$/.test(path);
   const allowedAsset=path.startsWith('/_next/static/')||['/favicon.ico','/manifest.json','/manifest.webmanifest'].includes(path)||/^\/(?:icons|images)\/[a-zA-Z0-9_./-]+$/.test(path);
   const unsupportedEncoding=(allowedAsset?path.replace(/%5B|%5D/gi,''):path).includes('%');
   if(unsupportedEncoding||(!allowedPage&&!allowedAsset))return json(res,{error:'This local preview covers the follow-up workflow only.'},404);

@@ -1,7 +1,7 @@
-import type {OfferTemplate} from './templates';
+import type {ContactTemplate} from '../contact-template-fields';
 import type {QueueItem} from './types';
 type Sender={id:string;label:string;senderValue?:string};
-export type ComposerDetails={templates?:OfferTemplate[];enabled:boolean;attempts:{status:string;approach:number}[];contact:{name?:string;email?:string;phoneMobile?:string;phoneSecondary?:string};sms:{senders:Sender[]};email:{senders:Sender[]}};
+export type ComposerDetails={templates?:ContactTemplate[];templateFields?:Record<string,string>;templateError?:string;enabled:boolean;attempts:{status:string;approach:number}[];contact:{name?:string;email?:string;phoneMobile?:string;phoneSecondary?:string};sms:{senders:Sender[]};email:{senders:Sender[]}};
 let session='';
 const cache=new Map<string,{expires:number;data?:ComposerDetails;promise:Promise<ComposerDetails>}>();
 function key(item:QueueItem){const token=localStorage.getItem('token')||'';if(token!==session){cache.clear();session=token;}return `${item.job._id}:${item.job.updatedAt}:${item.controls?.revision}`;}
@@ -16,6 +16,7 @@ export function loadComposerDetails(item:QueueItem):Promise<ComposerDetails>{
   const data=await response.json() as ComposerDetails;
   if(!data.sms||!data.email||!Array.isArray(data.attempts))throw Error('Sending details could not be verified.');
   if(localStorage.getItem('token')!==token)throw Error('Your session changed. Reopen the quote.');
+  if(data.templateError){if(cache.get(id)===entry)cache.delete(id);return data;}
   entry.data=data;entry.expires=Date.now()+300000;return data;
  }).catch(error=>{if(cache.get(id)===entry)cache.delete(id);throw error;});
  if(cache.size>=20)cache.delete(cache.keys().next().value!);cache.set(id,entry);return entry.promise;
