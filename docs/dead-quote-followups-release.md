@@ -7,7 +7,7 @@ The local implementation is on **codex/dead-quote-followups**. It has not been d
 - Dead quotes only: leads, accepted/progressed and archived jobs cannot receive a new follow-up through this workflow. Conflicting statuses require review.
 - Fixed quote-date cutoff of 1 January 2026. First approach after two NZ calendar months from a recorded UI entry or agreed historical assumption; second at least four months after first confirmed-send observation; two successful approaches maximum.
 - NZD dollar discount drafts, previous-offer history, explicit date/history review, shared snooze/exclude/restore and personal session Skip/Undo.
-- Shared first/second SMS/email templates with admin editing, preview, required discount merge, revision checks and immutable audit.
+- Ordinary SMS/email templates with common editing, deletion and merge fields. Follow-ups can select any template or start blank; discount fields are optional. Legacy saved defaults import once without overwriting or resurrecting ordinary entries.
 - Manual, individually confirmed SMS/email sending using the staff member's connected account. Saved original content, recipient, discount and actor; durable reservation prevents two staff dispatching the same approach.
 - Confirmed-send job note with the exact discount. Retry job note only never dispatches another message. Recovery is accessible from a job's Notes section after it leaves Dead.
 - Positive sent-evidence verification by the original sender or an administrator for unresolved attempts. Immutable staff provenance, no resend and no unsupported “not sent” override.
@@ -39,7 +39,7 @@ Use an isolated test database only. Database tests require DEAD_FOLLOWUPS_TEST_D
 2. Keep DEAD_QUOTE_DATE_CAPTURE_ENABLED, DEAD_QUOTE_FOLLOWUPS_ENABLED and DEAD_QUOTE_FOLLOWUP_SEND_ENABLED off during setup.
 3. Confirm the existing CRM SMS/email message schemas and connected-sender setup are present. Apply npm run dead-followups:migrate. It is repeatable and creates only the follow-up overlay schema/configuration.
 4. Run npm run dead-followups:readiness. A passing result verifies storage structure, not GraphQL or actual delivery.
-5. Deploy the reviewed release when separately authorised. Enable DEAD_QUOTE_DATE_CAPTURE_ENABLED first to begin UI-only recording without sending. Verify a successful entry, repeated save, exit/re-entry and interrupted-save recovery. Enable preparation only when ready; verify a controlled Dead quote and a lead exclusion, role-based template editing, staff access, discount persistence and audit visibility.
+5. Deploy the reviewed release when separately authorised. Enable DEAD_QUOTE_DATE_CAPTURE_ENABLED first to begin UI-only recording without sending. Verify a successful entry, repeated save, exit/re-entry and interrupted-save recovery. Enable preparation only when ready; verify a controlled Dead quote and a lead exclusion, ordinary template editing and deletion, staff access, discount persistence and audit visibility.
 6. Obtain explicit authorisation for a controlled send to a test recipient. Enable sending, verify one SMS and one email, exact amounts in history/notes, recovery of a note-only failure, and the second-approach waiting period. Do not use real customers as test data.
 7. Staff review existing history before using the queue. Missing structured history never means no prior offers. No bulk historical backfill or automatic messages occur.
 
@@ -49,7 +49,7 @@ Capture is also enabled whenever preparation is enabled, preventing follow-ups f
 
 - Set DEAD_QUOTE_FOLLOWUP_SEND_ENABLED=false to block new follow-up sends. Existing status checks, staff-verification evidence and note-only recovery remain available.
 - Leave DEAD_QUOTE_DATE_CAPTURE_ENABLED=true to continue collecting UI dates while follow-ups are off; switch it off as well to stop capture. Interrupted-date checks remain available.
-- Set DEAD_QUOTE_FOLLOWUPS_ENABLED=false to also stop preparation/template edits. It also prevents new sends even if the sending flag remains on.
+- Set DEAD_QUOTE_FOLLOWUPS_ENABLED=false to also stop follow-up preparation. It also prevents new sends even if the sending flag remains on.
 - Do not delete attempts or history to reset a stuck send. Do not drop the new tables as a routine rollback: retaining reservations and evidence is essential to avoid duplicates.
 - A confirmed provider failure permits a new explicit attempt after refresh. An unconfirmed outcome does not.
 - If note appending is a concern during acceptance, stop new sends and investigate the note mutation contract before broader use.
@@ -93,7 +93,7 @@ Skip opens a duration/date modal and persists the existing shared snooze control
 
 Send Offer opens an amount/channel/template/account/message form. A confirmation modal shows the exact recipient, discount and message and asks staff to confirm prior-history accuracy. Only explicit confirmation saves the discount and history review with current revisions, then submits the individually claimed send. Successful sends return to the queue. Conflicts/uncertain outcomes lock the form and direct staff to history; they never silently retry. Existing server eligibility, concurrency and idempotency checks remain authoritative. Note recovery remains available in history.
 
-Follow-up defaults live at Settings → Templates → Dead quote follow-up templates (`/jobs/settings/templates/follow-ups`). The former URL redirects there. The interactive localhost preview supports the same flow using sample data and simulated sends only.
+Follow-up templates are ordinary entries under Settings → Templates → SMS or Email. Staff select any template for the channel when composing a follow-up, or start with a blank message. The first library read imports the former four defaults once, preserving saved wording and converting double-brace fields to the normal single-brace fields. Imported templates have normal editing/deletion permissions; deleting them never reseeds them. The migration marker and inserted rows commit atomically. The old audited records remain intact, while the old template API rejects writes with 410 and the old page URLs redirect to the SMS template list. Discounts and the {discount} field are optional; a no-discount send is recorded without claiming a discount was offered. The interactive localhost preview supports the same flow using sample data and simulated sends only.
 
 Validation: the full test suite passed; the final follow-up suite has 198 passing tests, including local PostgreSQL integration cases. Production build/TypeScript, targeted lint and independent code review passed. Updated browser checks cover the new actions and confirmation flow, Settings templates, access-disabled views and date/send recovery at 390px and 1280px. The sample-server tests verify no external requests. No deployment or production writes.
 

@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAppDialog } from "@/components/AppDialog";
+import { applyTemplateFields, buildContactTemplateFields, CONTACT_TEMPLATE_FIELDS } from "@/lib/contact-template-fields";
+import { clearComposerDetails } from "@/lib/dead-followups/composer-client";
 
 type TemplateChannel = "sms" | "email" | "calendar";
 
@@ -27,31 +29,14 @@ type TemplateForm = {
 };
 
 const CHANNELS: TemplateChannel[] = ["sms", "email", "calendar"];
-const FIELD_OPTIONS = ["customer name", "first name", "salesperson", "salesperson first name", "address", "quote booking date", "install date", "install time", "job number", "phone", "email"];
-const PREVIEW_FIELDS: Record<string, string> = {
-  customername: "Jane Smith",
-  name: "Jane Smith",
-  firstname: "Jane",
-  salesperson: "Reddyn Wallace",
-  salespersonname: "Reddyn Wallace",
-  salesrep: "Reddyn Wallace",
-  salesrepname: "Reddyn Wallace",
-  salesconsultant: "Reddyn Wallace",
-  salesconsultantname: "Reddyn Wallace",
-  salespersonfirstname: "Reddyn",
-  salespersonfirst: "Reddyn",
-  salesrepfirstname: "Reddyn",
-  salesrepfirst: "Reddyn",
-  salesconsultantfirstname: "Reddyn",
-  salesconsultantfirst: "Reddyn",
-  address: "34 Rua Street",
-  quotebookingdate: "Tue, 26 May 2026, 10:00 AM",
-  installdate: "Tue, 26 May 2026",
-  installtime: "8:00 AM",
-  jobnumber: "1234",
-  phone: "021 123 4567",
-  email: "jane@example.com",
-};
+const FIELD_OPTIONS = CONTACT_TEMPLATE_FIELDS;
+const PREVIEW_FIELDS = buildContactTemplateFields({
+  jobNumber: 1234,
+  quote: { quoteNumber: "Q1234" },
+  lead: { quoteBookingDate: "2026-05-25T22:00:00Z" },
+  installation: { installDate: "2026-05-25T20:00:00Z" },
+  client: { contactDetails: { name: "Jane Smith", streetAddress: "34 Rua Street", phoneMobile: "021 123 4567", email: "jane@example.com" } },
+}, "Reddyn Wallace", 50000);
 
 function getToken() {
   if (typeof window === "undefined") return "";
@@ -75,12 +60,6 @@ function emptyForm(channel: TemplateChannel): TemplateForm {
   };
 }
 
-function applyTemplateFields(template: string, fields: Record<string, string>) {
-  return template.replace(/\{([^}]+)\}/g, (_match, key) => {
-    const normalized = String(key).toLowerCase().replace(/[^a-z0-9]/g, "");
-    return fields[normalized] ?? `{${key}}`;
-  });
-}
 
 function validChannel(value?: string): TemplateChannel {
   return value === "email" || value === "calendar" ? value : "sms";
@@ -93,6 +72,7 @@ export default function TemplateEditor({ templateId, initialChannel = "sms" }: {
   const isEditing = Boolean(templateId);
   const [form, setForm] = useState<TemplateForm>(() => emptyForm(validChannel(initialChannel)));
   const [loading, setLoading] = useState(Boolean(templateId));
+  const [locked, setLocked] = useState(Boolean(templateId));
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -108,8 +88,10 @@ export default function TemplateEditor({ templateId, initialChannel = "sms" }: {
     }
 
     setLoading(true);
+    setLocked(true);
     try {
       const res = await fetch("/api/contact-templates", {
+        cache: "no-store",
         headers: { "x-access-token": token },
       });
       const json = await res.json();
@@ -124,6 +106,7 @@ export default function TemplateEditor({ templateId, initialChannel = "sms" }: {
         body: template.body,
         sortOrder: String(template.sortOrder || 0),
       });
+      setLocked(false);
     } catch (err) {
       setToast({ type: "error", text: err instanceof Error ? err.message : "Failed to load template" });
     } finally {
@@ -136,7 +119,7 @@ export default function TemplateEditor({ templateId, initialChannel = "sms" }: {
   }, [loadTemplate]);
 
   useEffect(() => {
-    if (!toast) return;
+    if (!toast || toast.type === "error") return;
     const timer = setTimeout(() => setToast(null), 4500);
     return () => clearTimeout(timer);
   }, [toast]);
@@ -164,6 +147,7 @@ export default function TemplateEditor({ templateId, initialChannel = "sms" }: {
   }
 
   async function saveTemplate() {
+    if (locked || saving) return;
     const token = getToken();
     if (!token) {
       router.replace("/login");
@@ -193,6 +177,7 @@ export default function TemplateEditor({ templateId, initialChannel = "sms" }: {
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Could not save template");
       const saved = json.template as ContactTemplate;
+      clearComposerDetails();
       router.push(`/jobs/settings?channel=${saved.channel}`);
     } catch (err) {
       setToast({ type: "error", text: err instanceof Error ? err.message : "Could not save template" });
@@ -225,6 +210,7 @@ export default function TemplateEditor({ templateId, initialChannel = "sms" }: {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Could not delete template");
+      clearComposerDetails();
       router.push(`/jobs/settings?channel=${form.channel}`);
     } catch (err) {
       setToast({ type: "error", text: err instanceof Error ? err.message : "Could not delete template" });
@@ -238,7 +224,7 @@ export default function TemplateEditor({ templateId, initialChannel = "sms" }: {
       {dialog}
       {toast && (
         <div className="fixed z-[70] left-1/2 -translate-x-1/2 bottom-4 md:left-auto md:translate-x-0 md:right-4 md:bottom-5 w-[92vw] md:w-auto md:max-w-md">
-          <div className={`rounded-xl shadow-lg border px-4 py-3 text-sm ${toast.type === "success" ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-amber-50 border-amber-200 text-amber-800"}`}>
+          <div role={toast.type === "error" ? "alert" : "status"} className={`rounded-xl shadow-lg border px-4 py-3 text-sm ${toast.type === "success" ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-amber-50 border-amber-200 text-amber-800"}`}>
             <div className="flex items-start justify-between gap-3">
               <span>{toast.text}</span>
               <button type="button" onClick={() => setToast(null)} className="text-xs opacity-70 hover:opacity-100">x</button>
@@ -268,6 +254,7 @@ export default function TemplateEditor({ templateId, initialChannel = "sms" }: {
           )}
         </div>
 
+        {locked && !loading && <button type="button" onClick={() => void loadTemplate()} className="mb-4 rounded-lg border px-4 py-2">Reload template</button>}
         {loading ? (
           <section className="rounded-lg border border-gray-200 bg-white p-8 text-center text-sm text-gray-500">Loading template...</section>
         ) : (
@@ -291,8 +278,9 @@ export default function TemplateEditor({ templateId, initialChannel = "sms" }: {
                     </div>
                   </div>
                   <div>
-                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Order</label>
+                    <label htmlFor="template-sortOrder" className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Order</label>
                     <input
+                      id="template-sortOrder"
                       value={form.sortOrder}
                       onChange={(event) => updateForm({ sortOrder: event.target.value })}
                       inputMode="numeric"
@@ -303,8 +291,9 @@ export default function TemplateEditor({ templateId, initialChannel = "sms" }: {
 
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
-                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Template Name</label>
+                    <label htmlFor="template-title" className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Template Name</label>
                     <input
+                      id="template-title"
                       value={form.title}
                       onChange={(event) => updateForm({ title: event.target.value })}
                       className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
@@ -312,8 +301,9 @@ export default function TemplateEditor({ templateId, initialChannel = "sms" }: {
                     />
                   </div>
                   <div>
-                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Description</label>
+                    <label htmlFor="template-description" className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Description</label>
                     <input
+                      id="template-description"
                       value={form.description}
                       onChange={(event) => updateForm({ description: event.target.value })}
                       className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
@@ -324,8 +314,9 @@ export default function TemplateEditor({ templateId, initialChannel = "sms" }: {
 
                 {(form.channel === "email" || form.channel === "calendar") && (
                   <div>
-                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{form.channel === "calendar" ? "Event Title" : "Subject"}</label>
+                    <label htmlFor="template-subject" className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{form.channel === "calendar" ? "Event Title" : "Subject"}</label>
                     <input
+                      id="template-subject"
                       value={form.subject}
                       onChange={(event) => updateForm({ subject: event.target.value })}
                       className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
@@ -336,10 +327,11 @@ export default function TemplateEditor({ templateId, initialChannel = "sms" }: {
 
                 <div>
                   <div className="mb-1 flex items-center justify-between gap-3">
-                    <label className="block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Message</label>
+                    <label htmlFor="template-body" className="block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Message</label>
                     <span className="text-[11px] text-gray-400">{form.body.length} chars</span>
                   </div>
                   <textarea
+                    id="template-body"
                     ref={bodyRef}
                     value={form.body}
                     onChange={(event) => updateForm({ body: event.target.value })}
@@ -388,7 +380,7 @@ export default function TemplateEditor({ templateId, initialChannel = "sms" }: {
                 <button
                   type="button"
                   onClick={saveTemplate}
-                  disabled={saving || !form.title.trim() || !form.body.trim()}
+                  disabled={locked || loading || saving || !form.title.trim() || !form.body.trim()}
                   className="flex-1 rounded-lg bg-[#e85d04] py-3 font-semibold text-white disabled:opacity-50"
                 >
                   {saving ? "Saving..." : isEditing ? "Save Changes" : "Create Template"}

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { migrateFollowupTemplates } from "@/lib/contact-template-migration";
 import { requireInsulhubAuth } from "@/lib/insulhub-auth";
 import { ensureOverlaySchema, overlaySql } from "@/lib/overlay-db";
 
@@ -192,6 +193,7 @@ export async function GET(request: NextRequest) {
     await ensureOverlaySchema();
     await seedDefaultTemplatesIfEmpty();
     await seedCalendarTemplatesIfMissing();
+    await migrateFollowupTemplates();
 
     const { searchParams } = new URL(request.url);
     const channel = searchParams.get("channel");

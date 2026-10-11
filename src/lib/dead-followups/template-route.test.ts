@@ -1,15 +1,12 @@
-import {beforeEach,afterEach,it,expect,vi} from 'vitest';
-import {NextRequest} from 'next/server';
-vi.mock('@/lib/job-sms-access',()=>({jobSmsIdentity:vi.fn()}));
-vi.mock('./template-repository',()=>({templateRepository:vi.fn()}));
-import {jobSmsIdentity} from '@/lib/job-sms-access';
-import {templateRepository} from './template-repository';
+import {afterEach,expect,it,vi} from 'vitest';
+import {NextRequest,NextResponse} from 'next/server';
+vi.mock('@/lib/insulhub-auth',()=>({requireInsulhubAuth:vi.fn(async()=>null)}));
+import {requireInsulhubAuth} from '@/lib/insulhub-auth';
 import {GET,PATCH} from '@/app/api/dead-followups/templates/route';
-import {defaultTemplates} from './templates';
-const repo={read:vi.fn(),save:vi.fn(),events:vi.fn()};
-beforeEach(()=>{vi.stubEnv('DEAD_QUOTE_FOLLOWUPS_ENABLED','true');vi.mocked(jobSmsIdentity).mockResolvedValue({me:{_id:'staff',firstname:'Real',lastname:'Staff',role:'USER'}});vi.mocked(templateRepository).mockReturnValue(repo as never);repo.read.mockResolvedValue({revision:0,templates:defaultTemplates()});repo.events.mockResolvedValue([]);repo.save.mockResolvedValue({revision:1});});
-afterEach(()=>{vi.resetAllMocks();vi.unstubAllEnvs();});
-const request=()=>new NextRequest('http://localhost/api/dead-followups/templates',{method:'PATCH',body:JSON.stringify({revision:0,templates:defaultTemplates(),actorId:'forged'})});
-it('staff may read templates but only verified admins change shared defaults',async()=>{expect((await GET(new NextRequest('http://localhost'))).status).toBe(200);expect((await PATCH(request())).status).toBe(403);expect(repo.save).not.toHaveBeenCalled();});
-it('records the verified admin identity and preserves revision',async()=>{vi.mocked(jobSmsIdentity).mockResolvedValue({me:{_id:'admin',firstname:'Real',lastname:'Admin',role:'ADMIN'}});expect((await PATCH(request())).status).toBe(200);expect(repo.save).toHaveBeenCalledWith(0,defaultTemplates(),{id:'admin',name:'Real Admin'});});
-it('feature switch stops template mutations',async()=>{vi.stubEnv('DEAD_QUOTE_FOLLOWUPS_ENABLED','false');vi.mocked(jobSmsIdentity).mockResolvedValue({me:{_id:'admin',firstname:'Real',lastname:'Admin',role:'ADMIN'}});expect((await PATCH(request())).status).toBe(503);expect(repo.save).not.toHaveBeenCalled();});
+afterEach(()=>vi.clearAllMocks());
+it('sends old clients to the ordinary template library instead of accepting writes to the retired store',async()=>{
+ for(const handler of [GET,PATCH]){const response=await handler(new NextRequest('http://localhost/api/dead-followups/templates'));expect(response.status).toBe(410);expect((await response.json()).error).toContain('Settings');}
+});
+it('still requires authentication for the retired endpoint',async()=>{
+ vi.mocked(requireInsulhubAuth).mockResolvedValueOnce(NextResponse.json({error:'Sign in'},{status:401}));expect((await PATCH(new NextRequest('http://localhost'))).status).toBe(401);
+});

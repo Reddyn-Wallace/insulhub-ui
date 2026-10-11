@@ -26,7 +26,10 @@ it('keeps earlier audit snapshots unchanged after a simulated send',()=>{
  demo.send(item.job._id,{action:'send',requestId:'dddddddd-dddd-4ddd-dddd-dddddddddddd',revision:updated.record.revision,jobVersion:item.job.updatedAt,channel:'sms',senderId:sender,destination:item.job.client!.contactDetails!.phoneMobile,body:'Sample $600.00 discount.',subject:''});
  expect(demo.history(item.job._id).events[0].state.offers).toHaveLength(0);
 });
-it('returns dated template audit records',()=>{
- const demo=new FollowupPreview(undefined,()=>now);const result=demo.templateWrite({revision:0,templates:demo.templateRead().record.templates});
- expect(result.events[0]).toMatchObject({createdAt:now});
+it('shares editable ordinary templates with the composer and preserves deletions across reload',()=>{
+ const demo=new FollowupPreview(undefined,()=>now);const id=demo.templateRead().templates[0].id;
+ demo.templateWrite(id,{body:'Hi {first name}, just checking in',title:'My follow-up'});
+ expect(demo.sender(demo.queue().items[0].job._id).templates[0].body).toBe('Hi {first name}, just checking in');
+ demo.templateDelete(id);const loaded=new FollowupPreview(JSON.parse(JSON.stringify(demo.state)),()=>now);
+ expect(loaded.templateRead().templates.some(t=>t.id===id)).toBe(false);
 });

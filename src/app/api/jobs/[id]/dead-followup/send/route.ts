@@ -5,8 +5,8 @@ import {ControlError} from '@/lib/dead-followups/controls';
 import {sendsRepository} from '@/lib/dead-followups/send-repository';
 import {dispatchAttempt,reconcileAttempt,appendOfferNote} from '@/lib/dead-followups/send-service';
 import {uuid,type SendAttempt} from '@/lib/dead-followups/sending';
-import {templateRepository} from '@/lib/dead-followups/template-repository';
-import {defaultTemplates} from '@/lib/dead-followups/templates';
+import {GET as contactTemplatesGet} from '@/app/api/contact-templates/route';
+import {buildContactTemplateFields} from '@/lib/contact-template-fields';
 import {quoteInCohort} from '@/lib/dead-followups/dates';
 import {classifyQuote} from '@/lib/dead-followups/rules';
 import {POST as smsPost,GET as smsGet} from '@/app/api/jobs/[id]/sms/route';
@@ -31,8 +31,9 @@ export async function GET(request:NextRequest,context:Context){
   const denied=await requireInsulhubAuth(request);if(denied)return denied;
   const {id}=await context.params;const {job,actor}=await readControlJob(tokenFromRequest(request),id);
   const repo=sendsRepository();if(!repo)throw new ControlError('Sending storage needs setup.',503);
-  const [attempts,sms,email,templates]=await Promise.all([repo.list(id),smsGet(request,context),emailGet(request,context),templateRepository()?.read()]);
-  return NextResponse.json({templates:templates?.templates||defaultTemplates(),templateRevision:templates?.revision||0,attempts:attempts.map(a=>({...a,canVerify:(a.actorId===actor.id||actor.role==='ADMIN')&&['sending','accepted','unknown'].includes(a.status)&&Date.now()-Date.parse(a.createdAt)>=60000})),enabled:enabled(),contact:job.client?.contactDetails||{},sms:sms.ok?await sms.json():{senders:[]},email:email.ok?await email.json():{senders:[]}},{headers});
+  const [attempts,sms,email,templates]=await Promise.all([repo.list(id),smsGet(request,context),emailGet(request,context),contactTemplatesGet(request)]);
+  const templateList=templates.ok?await templates.json():null;
+  return NextResponse.json({templates:templateList?.templates||[],templateFields:buildContactTemplateFields(job,actor.name),templateError:templates.ok?'':'Templates could not be loaded. Close and reopen to retry.',attempts:attempts.map(a=>({...a,canVerify:(a.actorId===actor.id||actor.role==='ADMIN')&&['sending','accepted','unknown'].includes(a.status)&&Date.now()-Date.parse(a.createdAt)>=60000})),enabled:enabled(),contact:job.client?.contactDetails||{},sms:sms.ok?await sms.json():{senders:[]},email:email.ok?await email.json():{senders:[]}},{headers});
  }catch(e){return failure(e);}
 }
 export async function POST(request:NextRequest,context:Context){

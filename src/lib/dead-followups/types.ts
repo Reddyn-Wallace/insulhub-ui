@@ -2,10 +2,11 @@ import type {DeadEntry} from './dates';
 export type DeadQuote = {
   deadEntry?: DeadEntry | null; deadDateUncertain?: boolean;
   _id: string; updatedAt?: string; jobNumber?: number; stage: string; notes?: string | null; archivedAt?: string | null;
-  lead?: { leadStatus?: string | null; callbackDate?: string | null } | null;
+  lead?: { leadStatus?: string | null; callbackDate?: string | null; quoteBookingDate?: string | null; allocatedTo?: {firstname?: string | null; lastname?: string | null} | null } | null;
+  installation?: {installDate?: string | null} | null;
   quote?: { extras?: {name?:string|null;price?:number|null}[] | null; status?: string | null; date?: string | null; c_total?: number | null; quoteNumber?: number | string | null; quoteNote?: string | null;
     wall?: { SQM?: number | null } | null; ceiling?: { SQM?: number | null } | null } | null;
-  client?: { contactDetails?: { name?: string | null; email?: string | null; phoneMobile?: string | null; phoneSecondary?: string | null; streetAddress?: string | null; suburb?: string | null; city?: string | null } | null } | null;
+  client?: { contactDetails?: { name?: string | null; email?: string | null; phoneMobile?: string | null; phoneSecondary?: string | null; streetAddress?: string | null; suburb?: string | null; city?: string | null; postCode?: string | null } | null } | null;
 };
 export type EntryEvidence = { at: string; provenance: 'canonical' | 'note' | 'staff' | 'assumed' | 'ui'; reviewed?: boolean };
 export type Approach = { number: 1 | 2; status: 'draft' | 'pending' | 'unknown' | 'failed' | 'sent'; sentAt?: string; discountCents?: number };

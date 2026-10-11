@@ -33,7 +33,7 @@ export function applyControl(current: ControlState, input: unknown, job: DeadQuo
   switch(value.action){
     case 'discount': {
       const amount=parseDiscount(value.amount);
-      if(job.quote?.c_total==null || amount>Math.round(job.quote.c_total*100))throw new ControlError('The discount must not exceed the current quote total.');
+      if(amount>0&&(job.quote?.c_total==null || amount>Math.round(job.quote.c_total*100)))throw new ControlError('The discount must not exceed the current quote total.');
       next.draftDiscountCents=amount;break;
     }
     case 'snooze': next.snoozedUntil=date(value.date,now,true);break;

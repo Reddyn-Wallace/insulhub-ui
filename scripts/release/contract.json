@@ -4,6 +4,7 @@
     "/jobs/page", "/jobs/[id]/page", "/jobs/calendar/page",
     "/jobs/follow-ups/page", "/jobs/[id]/follow-up-history/page",
     "/jobs/settings/templates/follow-ups/page",
+    "/jobs/settings/page", "/jobs/settings/templates/[id]/page", "/jobs/settings/templates/new/page",
     "/api/dead-followups/route", "/api/dead-followups/templates/route",
     "/api/jobs/[id]/dead-followup/route", "/api/jobs/[id]/dead-followup/send/route",
     "/api/jobs/mutate/route", "/api/jobs/[id]/dead-date/check/route",
@@ -15,6 +16,10 @@
     "/partner/jobs/[jobId]/page", "/api/site-plan-drawings/route"
   ],
   "tests": [
+    "src/lib/dead-followups/template-ui.test.tsx",
+    "src/lib/dead-followups/contact-template-migration.test.ts",
+    "src/lib/dead-followups/contact-template-routes.test.ts",
+    "src/lib/dead-followups/contact-template-fields.test.ts",
     "src/lib/dead-followups/ui.test.tsx", "src/lib/dead-followups/send-route.test.ts",
     "src/lib/dead-followups/integration.test.ts", "src/lib/dead-followups/composer-ui.test.tsx",
     "src/lib/campaign-resume-route.test.ts", "src/lib/campaign-audience-ui.test.tsx",

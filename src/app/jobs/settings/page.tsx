@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAppDialog } from "@/components/AppDialog";
 import PartnerSettings from "@/components/PartnerSettings";
+import { clearComposerDetails } from "@/lib/dead-followups/composer-client";
 
 type ContactTemplate = {
   id: string;
@@ -167,6 +168,7 @@ export default function SettingsPage() {
     setLoading(true);
     try {
       const res = await fetch("/api/contact-templates", {
+        cache: "no-store",
         headers: { "x-access-token": token },
       });
       const json = await res.json();
@@ -349,6 +351,7 @@ export default function SettingsPage() {
       if (!res.ok) throw new Error(json?.error || "Failed to delete template");
       setToast({ type: "success", text: "Template deleted." });
       setTemplates((current) => current.filter((item) => item.id !== template.id));
+      clearComposerDetails();
     } catch (err) {
       setToast({ type: "error", text: err instanceof Error ? err.message : "Failed to delete template" });
     } finally {
@@ -563,7 +566,6 @@ export default function SettingsPage() {
             </div>
 
             <div className="p-3">
-              <Link href="/jobs/settings/templates/follow-ups" className="mb-4 block rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm font-semibold text-[#1a3a4a]">Dead quote follow-up templates <span className="mt-1 block font-normal text-slate-500">First and second offers by SMS and email →</span></Link>
               {loading ? (
                 <div className="py-8 text-center text-sm text-gray-500">Loading templates...</div>
               ) : visibleTemplates.length ? (
