@@ -1,0 +1,27 @@
+{
+  "routes": [
+    "/api/release/route",
+    "/jobs/page", "/jobs/[id]/page", "/jobs/calendar/page",
+    "/jobs/follow-ups/page", "/jobs/[id]/follow-up-history/page",
+    "/jobs/settings/templates/follow-ups/page",
+    "/api/dead-followups/route", "/api/dead-followups/templates/route",
+    "/api/jobs/[id]/dead-followup/route", "/api/jobs/[id]/dead-followup/send/route",
+    "/api/jobs/mutate/route", "/api/jobs/[id]/dead-date/check/route",
+    "/jobs/campaigns/page", "/jobs/campaigns/[id]/page",
+    "/api/campaigns/[id]/route", "/api/campaigns/exclusions/route",
+    "/api/jobs/[id]/sms/route", "/api/jobs/[id]/email/route",
+    "/api/jobs/[id]/campaign-communications/route",
+    "/jobs/finance/page", "/api/finance/dashboard/route",
+    "/partner/jobs/[jobId]/page", "/api/site-plan-drawings/route"
+  ],
+  "tests": [
+    "src/lib/dead-followups/ui.test.tsx", "src/lib/dead-followups/send-route.test.ts",
+    "src/lib/dead-followups/integration.test.ts", "src/lib/dead-followups/composer-ui.test.tsx",
+    "src/lib/campaign-resume-route.test.ts", "src/lib/campaign-audience-ui.test.tsx",
+    "src/lib/campaign-sms-queue-postgres.test.ts", "src/lib/job-completion-ui.test.tsx",
+    "src/lib/graphql.test.ts", "src/lib/finance/dashboard-ui.test.tsx",
+    "scripts/dead-followups-browser-smoke.cjs", "scripts/dead-followups-interactive-browser.cjs",
+    "scripts/dead-followup-finish-browser-smoke.cjs", "scripts/dead-followup-dates-browser-smoke.cjs",
+    "scripts/job-communications-browser-smoke.cjs"
+  ]
+}
