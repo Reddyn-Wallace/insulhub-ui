@@ -38,6 +38,7 @@ function loadCommunicationDeliveryModule(fetchProxy) {
     require,
     console,
     Buffer,
+    AbortSignal,
     Date,
     Error,
     JSON,

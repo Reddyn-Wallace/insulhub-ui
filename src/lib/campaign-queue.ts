@@ -1,3 +1,5 @@
+import { processCampaignSms } from "@/lib/campaign-sms-queue";
+import { CAMPAIGN_HALTED_REASON, CAMPAIGN_CONNECTION_HALTED_REASON } from "@/lib/campaign-resume";
 import {
   communicationSendWindowError,
   loadCommunicationSettings,
@@ -117,7 +119,10 @@ async function finalizeCampaignIfDone(id: string) {
       COUNT(*) FILTER (WHERE selected = true AND status = 'pending')::int AS pending_count,
       COUNT(*) FILTER (WHERE selected = true AND status = 'sent')::int AS sent_count,
       COUNT(*) FILTER (WHERE selected = true AND status = 'failed')::int AS failed_count,
-      COUNT(*) FILTER (WHERE selected = true AND status = 'skipped')::int AS skipped_count
+      COUNT(*) FILTER (WHERE selected = true AND status = 'skipped')::int AS skipped_count,
+      COUNT(*) FILTER (WHERE selected = true AND status = 'skipped'
+        AND sent_at IS NULL AND COALESCE(provider_message_id, '') = ''
+        AND failure_reason IN (${CAMPAIGN_HALTED_REASON}, ${CAMPAIGN_CONNECTION_HALTED_REASON}))::int AS halted_count
     FROM campaign_recipients
     WHERE campaign_id = ${id}
   `;
@@ -136,23 +141,28 @@ async function finalizeCampaignIfDone(id: string) {
     return { campaign: rows[0], pendingCount, sentCount, failedCount, skippedCount };
   }
 
-  const finalStatus = sentCount > 0 || skippedCount > 0 ? "sent" : "failed";
+  const hasHaltedRecipients = Number(countRows[0]?.halted_count || 0) > 0;
+  const finalStatus = hasHaltedRecipients ? "halted" : sentCount > 0 || skippedCount > 0 ? "sent" : "failed";
   const rows = await overlaySql`
     UPDATE campaigns
-    SET status = ${finalStatus}, sent_at = COALESCE(sent_at, now()), updated_at = now()
+    SET status = ${finalStatus},
+        sent_at = CASE WHEN ${hasHaltedRecipients} THEN NULL ELSE COALESCE(sent_at, now()) END, updated_at = now()
     WHERE id = ${id} AND status IN ('pending', 'sending')
     RETURNING *
   `;
   return { campaign: rows[0], pendingCount, sentCount, failedCount, skippedCount };
 }
 
-export async function processCampaignQueue(id: string, actorUserId?: string) {
+export async function processCampaignQueue(id: string, actorUserId?: string): Promise<{
+  campaign: Record<string, unknown>; processResult: string; processedCount: number; done: boolean;
+  counts?: { pending: number; sent: number; failed: number; skipped: number };
+}> {
   await ensureOverlaySchema();
   const campaign = await loadQueuedCampaign(id);
   if (!campaign) throw new Error("Campaign not found");
 
   const status = stringValue(campaign.status);
-  if (status === "halted" || status === "sent" || status === "failed") {
+  if ((status === "halted" && campaign.channel !== "sms") || status === "sent" || status === "failed") {
     return {
       campaign,
       processResult: "No queued delivery remains.",
@@ -160,7 +170,7 @@ export async function processCampaignQueue(id: string, actorUserId?: string) {
       done: true,
     };
   }
-  if (status !== "pending" && status !== "sending") {
+  if (status !== "pending" && status !== "sending" && status !== "halted") {
     throw new Error("Campaign is not queued for delivery");
   }
 
@@ -172,11 +182,18 @@ export async function processCampaignQueue(id: string, actorUserId?: string) {
       || sender.channel !== campaign.channel || (sender.provider !== "stub" && sender.connection_status !== "connected")) {
     const reason = "Sending connection is unavailable or its owner has not authorised this campaign. Create a new campaign using your own connected account.";
     await overlaySql`UPDATE campaigns SET status='halted', updated_at=now() WHERE id=${id} AND status IN ('pending','sending')`;
-    await overlaySql`UPDATE campaign_recipients SET status='skipped', failure_reason=${reason}, updated_at=now() WHERE campaign_id=${id} AND status='pending'`;
+    await overlaySql`UPDATE campaign_recipients SET status='skipped', failure_reason=${reason}, updated_at=now() WHERE campaign_id=${id} AND status='pending' AND COALESCE(provider_message_id, '') = ''`;
     return { campaign: { ...campaign, status: "halted" }, processResult: reason, processedCount: 0, done: true };
   }
 
   const settings = await loadCommunicationSettings();
+  if (sender.provider === "smsgate") {
+    const result = await processCampaignSms({ campaignId: id, halted: status === "halted", settings, sender });
+    const finalized = await finalizeCampaignIfDone(id);
+    return { ...result, campaign: finalized.campaign || campaign, done: finalized.pendingCount === 0,
+      counts: { pending: finalized.pendingCount, sent: finalized.sentCount, failed: finalized.failedCount, skipped: finalized.skippedCount } };
+  }
+
   if (sender.provider !== "stub") {
     const windowError = communicationSendWindowError(settings);
     if (windowError) {
@@ -243,7 +260,6 @@ export async function processCampaignQueue(id: string, actorUserId?: string) {
       channel: stringValue(campaign.channel) === "sms" ? "sms" : "email",
       provider: sender.provider,
       strictGmailConnection: sender.provider === "gmail",
-          strictSmsgateConnection: sender.provider === "smsgate",
       from: stringValue(sender.sender_value),
       fromName: stringValue(sender.label),
       to: stringValue(row.destination),
@@ -307,7 +323,7 @@ export async function loadDueCampaignIds(limit = 10) {
     SELECT DISTINCT c.id
     FROM campaigns c
     JOIN campaign_recipients cr ON cr.campaign_id = c.id
-    WHERE c.status IN ('pending', 'sending')
+    WHERE (c.status IN ('pending', 'sending') OR (c.status = 'halted' AND c.channel = 'sms' AND COALESCE(cr.provider_message_id, '') <> ''))
       AND cr.selected = true
       AND cr.status = 'pending'
       AND COALESCE(cr.scheduled_at, now()) <= now()
@@ -325,7 +341,7 @@ export async function loadCampaignQueueState() {
       MIN(COALESCE(cr.scheduled_at, now())) AS next_run_at
     FROM campaigns c
     JOIN campaign_recipients cr ON cr.campaign_id = c.id
-    WHERE c.status IN ('pending', 'sending')
+    WHERE (c.status IN ('pending', 'sending') OR (c.status = 'halted' AND c.channel = 'sms' AND COALESCE(cr.provider_message_id, '') <> ''))
       AND cr.selected = true
       AND cr.status = 'pending'
   `;

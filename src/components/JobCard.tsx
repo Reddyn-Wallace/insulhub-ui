@@ -173,6 +173,7 @@ export default function JobCard({ job }: { job: Job }) {
         ? "Submitted"
         : "Not started";
   const finalInvoiceStatus = job.finalInvoice?._id ? "Sent" : "Not sent";
+  const completionPaperworkStatus = job.certificateSentAt ? "Sent" : "Not sent";
 
   const workflowTone = {
     eba: job.ebaForm?.clientApproved
@@ -185,11 +186,14 @@ export default function JobCard({ job }: { job: Job }) {
     council: job.certificateSentAt
       ? "bg-emerald-100 text-emerald-700"
       : job.council?.files_CouncilApprovalLetters?.length
-        ? "bg-blue-100 text-blue-700"
+        ? "bg-emerald-100 text-emerald-700"
         : job.council?.files_Other?.length
           ? "bg-amber-100 text-amber-700"
           : "bg-slate-100 text-slate-600",
     invoice: job.finalInvoice?._id
+      ? "bg-emerald-100 text-emerald-700"
+      : "bg-slate-100 text-slate-600",
+    completionPaperwork: job.certificateSentAt
       ? "bg-emerald-100 text-emerald-700"
       : "bg-slate-100 text-slate-600",
   };
@@ -256,6 +260,10 @@ export default function JobCard({ job }: { job: Job }) {
             <div className="flex items-center gap-2">
               <span className="font-medium text-gray-500">Final invoice</span>
               <span className={`font-semibold px-2 py-0.5 rounded-full ${workflowTone.invoice}`}>{finalInvoiceStatus}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-gray-500">Completion paperwork</span>
+              <span className={`font-semibold px-2 py-0.5 rounded-full ${workflowTone.completionPaperwork}`}>{completionPaperworkStatus}</span>
             </div>
           </div>
         )}

@@ -9,6 +9,7 @@ type Campaign = {
   name: string;
   channel: "email" | "sms";
   recipientCount: number;
+  status: string;
 };
 
 type SavedRecipient = {
@@ -21,6 +22,8 @@ type SavedRecipient = {
   salespersonName: string;
   jobStage: string;
   quoteDate?: string | null;
+  status?: string;
+  failureReason?: string;
 };
 
 function getToken() {
@@ -99,6 +102,8 @@ export default function CampaignAudiencePage() {
     loadAudience();
   }, [loadAudience]);
 
+  const readOnly = campaign?.status !== "draft";
+
   const duplicateKeys = useMemo(() => (
     duplicateDestinationKeys(recipients, campaign?.channel)
   ), [campaign?.channel, recipients]);
@@ -157,7 +162,7 @@ export default function CampaignAudiencePage() {
   }
 
   async function removeRecipient(recipient: SavedRecipient) {
-    if (!campaign) return;
+    if (!campaign || readOnly) return;
     const token = getToken();
     if (!token) {
       router.replace("/login");
@@ -184,7 +189,7 @@ export default function CampaignAudiencePage() {
   }
 
   async function removeSelectedRecipients() {
-    if (!campaign || selectedRecipientIds.size === 0) return;
+    if (!campaign || readOnly || selectedRecipientIds.size === 0) return;
     const token = getToken();
     if (!token) {
       router.replace("/login");
@@ -220,14 +225,14 @@ export default function CampaignAudiencePage() {
     <main className="min-h-screen bg-gray-50" style={{ paddingTop: "var(--nav-height, 80px)" }}>
       <div className="mx-auto max-w-6xl px-4 py-5">
         <div className="mb-5">
-          <Link href={`/jobs/campaigns/${campaignId}/audience-builder`} className="text-sm font-semibold text-[#c2410c]">
-            Back to Audience Builder
+          <Link href={readOnly ? `/jobs/campaigns/${campaignId}` : `/jobs/campaigns/${campaignId}/audience-builder`} className="text-sm font-semibold text-[#c2410c]">
+            {readOnly ? "Back to Campaign" : "Back to Audience Builder"}
           </Link>
           <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">{campaign?.name || "Campaign audience"}</h1>
               <p className="mt-1 text-sm text-gray-600">
-                Review and manually remove saved {campaign?.channel === "sms" ? "SMS" : "email"} recipients.
+                {readOnly ? "View and search the saved audience. This campaign’s audience is read only." : `Review and manually remove saved ${campaign?.channel === "sms" ? "SMS" : "email"} recipients.`}
               </p>
             </div>
             <span className="rounded-lg bg-orange-50 px-3 py-2 text-sm font-semibold text-[#c2410c]">
@@ -242,7 +247,7 @@ export default function CampaignAudiencePage() {
           </div>
         )}
 
-        {duplicateRecipientCount > 0 && (
+        {!readOnly && duplicateRecipientCount > 0 && (
           <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
             <div className="font-semibold">Duplicates must be resolved before this campaign can continue.</div>
             <div className="mt-1">
@@ -273,7 +278,7 @@ export default function CampaignAudiencePage() {
               />
             </div>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 bg-gray-50 px-4 py-3">
+          {!readOnly && <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 bg-gray-50 px-4 py-3">
             <div className="text-sm text-gray-600">
               {filteredRecipients.length} visible · {selectedRecipientIds.size} selected
             </div>
@@ -295,7 +300,7 @@ export default function CampaignAudiencePage() {
                 {bulkRemoving ? "Removing..." : `Remove Selected${selectedRecipientIds.size ? ` (${selectedRecipientIds.size})` : ""}`}
               </button>
             </div>
-          </div>
+          </div>}
 
           {loading ? (
             <div className="py-10 text-center text-sm text-gray-500">Loading audience...</div>
@@ -304,21 +309,22 @@ export default function CampaignAudiencePage() {
               {filteredRecipients.map((recipient) => (
                 <div
                   key={recipient.id}
-                  className={`grid gap-3 px-4 py-4 sm:grid-cols-[auto_1fr_auto] sm:items-center ${
+                  className={`grid gap-3 px-4 py-4 ${readOnly ? "sm:grid-cols-[1fr_auto]" : "sm:grid-cols-[auto_1fr_auto]"} sm:items-center ${
                     campaign && duplicateKeys.has(normalizeDestination(recipient.destination, campaign.channel))
                       ? "bg-rose-50"
                       : ""
                   }`}
                 >
-                  <input
+                  {!readOnly && <input
                     type="checkbox"
                     checked={selectedRecipientIds.has(recipient.id)}
                     onChange={() => toggleRecipient(recipient.id)}
                     className="mt-1 h-5 w-5 rounded border-gray-300 text-[#e85d04] sm:mt-0"
-                  />
+                  />}
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-semibold text-gray-900">{recipient.contactName || "Unknown customer"}</span>
+                      {readOnly && <span className="rounded-md bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-700">{recipient.status}</span>}
                       <span className="rounded-md bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-700">Job #{recipient.jobNumber}</span>
                       <span className="rounded-md bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">{recipient.jobStage}</span>
                       {campaign && duplicateKeys.has(normalizeDestination(recipient.destination, campaign.channel)) && (
@@ -333,14 +339,14 @@ export default function CampaignAudiencePage() {
                       <div>{recipient.salespersonName || "Unallocated"}</div>
                       <div>Quote: {formatDate(recipient.quoteDate)}</div>
                     </div>
-                    <button
+                    {!readOnly && <button
                       type="button"
                       onClick={() => removeRecipient(recipient)}
                       disabled={removingId === recipient.id}
                       className="rounded-lg bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {removingId === recipient.id ? "Removing..." : "Remove"}
-                    </button>
+                    </button>}
                   </div>
                 </div>
               ))}
@@ -349,7 +355,7 @@ export default function CampaignAudiencePage() {
             <div className="p-5 text-center">
               <div className="text-sm font-semibold text-gray-900">No recipients found</div>
               <p className="mx-auto mt-1 max-w-md text-sm text-gray-600">
-                Add recipients from the campaign builder, or clear the search field.
+                {readOnly ? "Clear the search or duplicate filter to see more recipients." : "Add recipients from the campaign builder, or clear the search field."}
               </p>
             </div>
           )}

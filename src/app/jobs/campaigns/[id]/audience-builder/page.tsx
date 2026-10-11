@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { buildCampaignExclusionIndex, isExcludedFromCampaign, type CampaignExclusionRecipient } from "@/lib/campaign-exclusions";
 import { gql } from "@/lib/graphql";
 import { JOBS_QUERY, USERS_QUERY } from "@/lib/queries";
 import { LEAD_SOURCE_OPTIONS, normalizeLeadSourceValue } from "@/lib/lead-sources";
@@ -189,6 +190,14 @@ export default function CampaignDetailPage() {
   const params = useParams<{ id: string }>();
   const campaignId = params.id;
 
+  const [campaignSearch, setCampaignSearch] = useState("");
+  const [exclusionCampaigns, setExclusionCampaigns] = useState<(Campaign & { sentCount: number; archivedAt?: string })[]>([]);
+  const [excludedCampaignIds, setExcludedCampaignIds] = useState<string[]>([]);
+  const [exclusionRecipients, setExclusionRecipients] = useState<CampaignExclusionRecipient[]>([]);
+  const [loadedExclusionKey, setLoadedExclusionKey] = useState("");
+  const [exclusionError, setExclusionError] = useState("");
+  const [exclusionOptionsError, setExclusionOptionsError] = useState("");
+  const [exclusionReload, setExclusionReload] = useState(0);
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [savedRecipients, setSavedRecipients] = useState<SavedRecipient[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -268,6 +277,53 @@ export default function CampaignDetailPage() {
     loadJobs();
   }, [loadCampaign, loadJobs]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    const token = getToken();
+    if (!token) return;
+    fetch("/api/campaigns?includeArchived=true", { headers: { "x-access-token": token }, signal: controller.signal })
+      .then(async res => {
+        const json = await res.json();
+        if (!res.ok) throw new Error(json?.error || "Failed to load campaigns for exclusions");
+        if (!controller.signal.aborted) {
+          setExclusionCampaigns((json.campaigns || []).filter((row: Campaign & { sentCount: number }) => row.id !== campaignId && row.sentCount > 0));
+          setExclusionOptionsError("");
+        }
+      }).catch(err => { if (!controller.signal.aborted) setExclusionOptionsError(err.message); });
+    return () => controller.abort();
+  }, [campaignId, exclusionReload]);
+
+  const exclusionKey = excludedCampaignIds.join(",");
+  const exclusionsReady = !exclusionKey || (loadedExclusionKey === exclusionKey && !exclusionError);
+  useEffect(() => {
+    if (!exclusionKey) return;
+    const controller = new AbortController();
+    const query = new URLSearchParams();
+    exclusionKey.split(",").forEach(id => query.append("campaignId", id));
+    fetch(`/api/campaigns/exclusions?${query}`, {
+      headers: { "x-access-token": getToken() }, signal: controller.signal,
+    }).then(async res => {
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "Failed to load excluded recipients");
+      if (!controller.signal.aborted) {
+        setExclusionRecipients(json.recipients || []);
+        setLoadedExclusionKey(exclusionKey);
+        setExclusionError("");
+      }
+    }).catch(err => { if (!controller.signal.aborted) setExclusionError(err.message); });
+    return () => controller.abort();
+  }, [exclusionKey, exclusionReload]);
+  const exclusionIndex = useMemo(() => buildCampaignExclusionIndex(exclusionKey ? exclusionRecipients : []), [exclusionKey, exclusionRecipients]);
+
+  function changeExclusion(id: string, checked: boolean) {
+    setExcludedCampaignIds(current => checked ? [...current, id] : current.filter(value => value !== id));
+    setLoadedExclusionKey("");
+    setExclusionError("");
+    setAppliedJobs([]);
+    setSelectedJobIds(new Set());
+    setHasApplied(false);
+  }
+
   const salespersonOptions = useMemo(() => {
     const jobUserIds = new Set(jobs.map((job) => job.lead?.allocatedTo?._id).filter(Boolean));
     const options = users
@@ -277,7 +333,7 @@ export default function CampaignDetailPage() {
     return options;
   }, [jobs, users]);
 
-  const filteredJobs = useMemo(() => (
+  const includedJobs = useMemo(() => (
     jobs.filter((job) => {
       if (statusFilter !== "ALL" && job.stage !== statusFilter) return false;
       if (statusFilter === "LEAD" && subStatusFilter !== "ALL" && leadAudienceStatus(job) !== subStatusFilter) return false;
@@ -293,6 +349,11 @@ export default function CampaignDetailPage() {
       return true;
     })
   ), [jobs, leadSourceFilter, quoteFrom, quoteTo, salespersonFilter, statusFilter, subStatusFilter]);
+
+  const filteredJobs = useMemo(() => (
+    !campaign || !exclusionsReady ? [] : includedJobs.filter(job => !isExcludedFromCampaign(exclusionIndex, job._id, destinationFor(job, campaign.channel), campaign.channel))
+  ), [campaign, exclusionsReady, includedJobs, exclusionIndex]);
+  const excludedJobCount = exclusionsReady ? includedJobs.length - filteredJobs.length : 0;
 
   const savedJobIds = useMemo(() => (
     new Set(savedRecipients.map((recipient) => recipient.jobId))
@@ -318,12 +379,8 @@ export default function CampaignDetailPage() {
     validAppliedJobs.filter((job) => selectedJobIds.has(job._id))
   ), [selectedJobIds, validAppliedJobs]);
 
-  const selectedNewJobs = useMemo(() => (
-    selectedJobs.filter((job) => !savedJobIds.has(job._id))
-  ), [savedJobIds, selectedJobs]);
-
   function applyFilters() {
-    if (!campaign) return;
+    if (!campaign || !exclusionsReady || campaign.status !== "draft") return;
     const nextJobs = [...filteredJobs].sort((a, b) => {
       const aName = a.client?.contactDetails?.name || "";
       const bName = b.client?.contactDetails?.name || "";
@@ -349,7 +406,7 @@ export default function CampaignDetailPage() {
   }
 
   async function addSelectedToAudience() {
-    if (!campaign) return;
+    if (!campaign || !exclusionsReady || campaign.status !== "draft") return;
     const token = getToken();
     if (!token) {
       router.replace("/login");
@@ -367,6 +424,7 @@ export default function CampaignDetailPage() {
         },
         body: JSON.stringify({
           mode: "add",
+          excludedCampaignIds,
           recipients: selectedJobs.map((job) => toRecipientInput(job, campaign.channel)),
         }),
       });
@@ -374,7 +432,8 @@ export default function CampaignDetailPage() {
       if (!res.ok) throw new Error(json?.error || "Failed to save audience");
       setCampaign(json.campaign);
       setSavedRecipients(json.recipients || []);
-      setMessage({ type: "success", text: `${selectedNewJobs.length} new recipient${selectedNewJobs.length === 1 ? "" : "s"} added to the audience.` });
+      const added = (json.recipients || []).filter((row: SavedRecipient) => !savedJobIds.has(row.jobId)).length;
+      setMessage({ type: "success", text: `${added} new recipient${added === 1 ? "" : "s"} added to the audience.${json.excludedCount ? ` ${json.excludedCount} excluded because they were sent a selected campaign.` : ""}` });
     } catch (err) {
       setMessage({ type: "error", text: err instanceof Error ? err.message : "Failed to save audience" });
     } finally {
@@ -401,6 +460,16 @@ export default function CampaignDetailPage() {
         </div>
       </main>
     );
+  }
+
+  if (campaign.status !== "draft") {
+    return <main className="min-h-screen bg-gray-50" style={{ paddingTop: "var(--nav-height, 80px)" }}>
+      <div className="mx-auto max-w-3xl space-y-4 px-4 py-5">
+        <h1 className="text-2xl font-bold text-gray-900">{campaign.name}</h1>
+        <p>This campaign’s audience is read only because delivery has already been attempted.</p>
+        <Link href={`/jobs/campaigns/${campaign.id}/audience`} className="inline-block rounded-lg bg-[#1a3a4a] px-4 py-2 text-white">View Audience</Link>
+      </div>
+    </main>;
   }
 
   return (
@@ -533,14 +602,62 @@ export default function CampaignDetailPage() {
               />
             </label>
           </div>
+          <div className="mx-4 mb-4 border-t border-gray-100 pt-4">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-800">Exclude previous recipients</h3>
+                <p className="mt-1 text-xs text-gray-500">Leave out people already sent a selected campaign.</p>
+              </div>
+              {excludedCampaignIds.length > 0 && <button type="button" className="shrink-0 text-xs font-semibold text-gray-600 underline" onClick={() => {
+                setExcludedCampaignIds([]); setAppliedJobs([]); setSelectedJobIds(new Set()); setHasApplied(false);
+              }}>Clear exclusions</button>}
+            </div>
+            <details className="group max-w-2xl rounded-lg border border-gray-300 bg-white">
+              <summary className="cursor-pointer px-3 py-2.5 text-sm font-medium text-gray-800">
+                {excludedCampaignIds.length ? `${excludedCampaignIds.length} campaign${excludedCampaignIds.length === 1 ? "" : "s"} selected` : "Choose campaigns to exclude"}
+              </summary>
+              <div className="border-t border-gray-200 p-2">
+                <input type="search" aria-label="Search campaigns to exclude" placeholder="Search campaigns…"
+                  value={campaignSearch} onChange={event => setCampaignSearch(event.target.value)}
+                  className="mb-2 w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-900" />
+                <div className="max-h-60 overflow-y-auto">
+                  {exclusionCampaigns.filter(row => row.name.toLowerCase().includes(campaignSearch.trim().toLowerCase())).map(row => (
+                    <label key={row.id} className={`flex min-w-0 cursor-pointer items-center gap-3 rounded-md px-2 py-2.5 hover:bg-gray-50 ${excludedCampaignIds.includes(row.id) ? "bg-orange-50" : ""}`}>
+                      <input type="checkbox" aria-label={row.name} className="h-4 w-4 shrink-0 accent-[#e85d04]"
+                        checked={excludedCampaignIds.includes(row.id)} onChange={event => changeExclusion(row.id, event.target.checked)} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-gray-900" title={row.name}>{row.name}</span>
+                        <span className="mt-0.5 block text-xs text-gray-500">{row.channel === "sms" ? "SMS" : "Email"} · {row.sentCount} sent{row.archivedAt ? " · Archived" : ""}</span>
+                      </span>
+                    </label>
+                  ))}
+                  {!exclusionCampaigns.some(row => row.name.toLowerCase().includes(campaignSearch.trim().toLowerCase())) && <p className="px-2 py-3 text-sm text-gray-500">{campaignSearch ? "No matching campaigns." : "No campaigns with sent recipients available."}</p>}
+                </div>
+              </div>
+            </details>
+            {excludedCampaignIds.length > 0 && <div className="mt-2 flex flex-wrap gap-2">
+              {exclusionCampaigns.filter(row => excludedCampaignIds.includes(row.id)).map(row => (
+                <span key={row.id} className="inline-flex max-w-full items-center gap-2 rounded-md bg-orange-50 px-2.5 py-1.5 text-xs text-orange-900 ring-1 ring-orange-100">
+                  <span className="max-w-64 truncate" title={row.name}>{row.name}</span>
+                  <button type="button" aria-label={`Remove exclusion: ${row.name}`} onClick={() => changeExclusion(row.id, false)} className="shrink-0 px-1 text-base leading-none">×</button>
+                </span>
+              ))}
+            </div>}
+            {(exclusionOptionsError || exclusionError) && <p className="mt-2 text-sm text-rose-700" role="alert">{exclusionOptionsError || exclusionError} <button type="button" className="font-semibold underline" onClick={() => setExclusionReload(value => value + 1)}>Retry loading exclusions</button></p>}
+            {exclusionKey && !exclusionsReady && !exclusionError && <p className="mt-2 text-xs text-gray-500">Loading excluded recipients…</p>}
+            <details className="mt-3 text-xs text-gray-500">
+              <summary className="w-fit cursor-pointer">How exclusions work</summary>
+              <p className="mt-2 max-w-2xl leading-relaxed">Matches the same job or contact details. Failed and skipped recipients stay eligible. SMS “sent” means accepted by SMSGate, not confirmed delivery. Exclusions apply to people added now; existing saved recipients are unchanged.</p>
+            </details>
+          </div>
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-4 py-3">
             <div className="text-xs text-gray-500">
-              {jobsLoading ? "Loading jobs..." : `${filteredJobs.length} jobs match the current filters.`}
+              {jobsLoading ? "Loading jobs..." : `${filteredJobs.length} jobs match the current filters.${excludedJobCount ? ` ${excludedJobCount} excluded by prior campaigns.` : ""}`}
             </div>
             <button
               type="button"
               onClick={applyFilters}
-              disabled={jobsLoading}
+              disabled={jobsLoading || !exclusionsReady}
               className="rounded-lg bg-[#e85d04] px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300"
             >
               Apply Filters
@@ -592,7 +709,7 @@ export default function CampaignDetailPage() {
               <button
                 type="button"
                 onClick={addSelectedToAudience}
-                disabled={saving || selectedJobs.length === 0}
+                disabled={saving || !exclusionsReady || selectedJobs.length === 0}
                 className="rounded-lg bg-[#1a3a4a] px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300"
               >
                 {saving ? "Adding..." : "Add Selected to Audience"}

@@ -78,7 +78,7 @@ export default function NewCampaignPage() {
           </Link>
           <h1 className="mt-2 text-2xl font-bold text-gray-900">New Campaign</h1>
           <p className="mt-1 text-sm text-gray-600">
-            Create a draft first. Audience, sender, message, preview, and send steps will be added in later chunks.
+            Name your campaign and choose a channel, then build the audience and message.
           </p>
         </div>
 
@@ -95,8 +95,9 @@ export default function NewCampaignPage() {
             )}
 
             <label className="block">
-              <span className="text-sm font-semibold text-gray-800">Campaign name</span>
+              <span className="text-sm font-semibold text-gray-800">Campaign name (required)</span>
               <input
+                required
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 placeholder="Winter quote follow-up"

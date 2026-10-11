@@ -23,6 +23,7 @@ export const GMAIL_OAUTH_SCOPE = `${GMAIL_SEND_SCOPE} ${GMAIL_SETTINGS_SCOPE}`;
 export type DeliveryMessage = {
   signal?: AbortSignal;
   messageId?: string;
+  smsValidUntil?: string;
   // Account emails must use the selected connection and prove its authorised From address.
   strictGmailConnection?: boolean;
   strictSmsgateConnection?: boolean;
@@ -45,6 +46,8 @@ export type DeliveryResult = {
   providerMessageId?: string;
   providerThreadId?: string;
   uncertain?: boolean;
+  retryable?: boolean;
+  smsState?: "accepted" | "sent" | "delivered" | "failed" | "unknown";
   failureCode?: "gmail_connection";
   failureReason?: string;
   accessToken?: string;
@@ -684,12 +687,16 @@ async function sendSmsgate(input: DeliveryMessage): Promise<DeliveryResult> {
     phoneNumbers: [normalizeSmsPhoneNumber(input.to)],
     textMessage: { text: input.body },
     withDeliveryReport: true,
+    ...(input.messageId ? { id: input.messageId } : {}),
+    ...(input.smsValidUntil ? { validUntil: input.smsValidUntil } : { ttl: 3600 }),
   };
   if (deviceId) requestBody.deviceId = deviceId;
   if (simNumber) requestBody.simNumber = Number(simNumber);
 
   let response = await fetch(`${baseUrl}/messages`, {
     method: "POST",
+    signal: input.signal || AbortSignal.timeout(15000),
+    redirect: "error",
     headers: {
       ...smsgateAuthHeaders(input.providerConfig, input.strictSmsgateConnection),
       "content-type": "application/json",
@@ -711,10 +718,20 @@ async function sendSmsgate(input: DeliveryMessage): Promise<DeliveryResult> {
     body = await parseResponseBody(response);
   }
   if (!response.ok) {
-    return { ok: false, failureReason: responseErrorMessage(body, response.statusText) };
+    const failureReason = typeof body.message === "string" ? body.message : responseErrorMessage(body, response.statusText);
+    const retryable = response.status === 429 || (response.status === 503 &&
+      (body.error === "QueueLimitExceeded" || /queue limits? exceeded/i.test(failureReason)));
+    return { ok: false, failureReason, retryable,
+      uncertain: !retryable && (response.status >= 500 || [408, 409].includes(response.status)) };
   }
 
-  return { ok: true, providerMessageId: typeof body.id === "string" ? body.id : undefined };
+  const providerMessageId = typeof body.id === "string" ? body.id : undefined;
+  if (input.messageId && providerMessageId !== input.messageId) {
+    return { ok: false, uncertain: true, failureReason: "SMS message reference could not be verified. Check status before resending." };
+  }
+  const smsState = ({ Pending: "accepted", Processed: "accepted", Sent: "sent", Delivered: "delivered", Failed: "failed", Cancelled: "failed" } as Record<string, NonNullable<DeliveryResult["smsState"]>>)[String(body.state)] || "unknown";
+  return { ok: true, providerMessageId, smsState,
+    failureReason: smsState === "failed" ? (typeof body.reason === "string" ? body.reason : responseErrorMessage(body, "SMSGate reported a failure.")) : undefined };
 }
 
 async function testSmsgateConnection(input: ConnectionTestInput): Promise<DeliveryResult> {
@@ -746,10 +763,10 @@ export async function deliverCommunication(input: DeliveryMessage): Promise<Deli
   try {
     if (input.provider === "stub") return { ok: true, providerMessageId: `stub-${Date.now()}` };
     if (input.provider === "gmail") return sendGmail(input);
-    if (input.provider === "smsgate") return sendSmsgate(input);
+    if (input.provider === "smsgate") return await sendSmsgate(input);
     return { ok: false, failureReason: `Unsupported provider: ${input.provider}` };
   } catch (error) {
-    return { ok: false, failureReason: friendlyNetworkError(error, "Delivery failed") };
+    return { ok: false, uncertain: input.provider === "smsgate", failureReason: friendlyNetworkError(error, "Delivery failed") };
   }
 }
 

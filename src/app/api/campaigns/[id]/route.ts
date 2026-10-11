@@ -1,3 +1,5 @@
+import { buildCampaignExclusionIndex, isExcludedFromCampaign, validExcludedCampaignIds } from "@/lib/campaign-exclusions";
+import { loadCampaignExclusions, UnknownExclusionCampaignError } from "@/lib/campaign-exclusion-data";
 import { NextRequest, NextResponse } from "next/server";
 import { jobSmsIdentity } from "@/lib/job-sms-access";
 import { requireInsulhubAuth } from "@/lib/insulhub-auth";
@@ -10,6 +12,7 @@ import {
   loadQueuedRecipients,
   processCampaignQueue,
 } from "@/lib/campaign-queue";
+import { canResumeCampaignRecipient, canRetryCampaignRecipient, CAMPAIGN_HALTED_REASON, CAMPAIGN_CONNECTION_HALTED_REASON } from "@/lib/campaign-resume";
 import { activateCampaignScheduler } from "@/lib/campaign-scheduler";
 import { deliverCommunication } from "@/lib/communication-delivery";
 import { firstNameForMerge, formatNameForMerge } from "@/lib/communication-merge-fields";
@@ -27,6 +30,8 @@ type RecipientInput = {
 };
 
 type AudienceInput = {
+  name?: string;
+  excludedCampaignIds?: string[];
   recipients?: RecipientInput[];
   mode?: "replace" | "add";
   senderId?: string | null;
@@ -40,6 +45,9 @@ type AudienceInput = {
   sendCampaign?: boolean;
   sendStub?: boolean;
   haltCampaign?: boolean;
+  resumeCampaign?: boolean;
+  retryFailed?: boolean;
+  recipientIds?: string[];
   archiveCampaign?: boolean;
   unarchiveCampaign?: boolean;
 };
@@ -246,6 +254,14 @@ export async function PATCH(
     if (!campaign) return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
 
     const input = (await request.json()) as AudienceInput;
+    if (input.name !== undefined) {
+      const name = stringValue(input.name).trim();
+      if (!name) return NextResponse.json({ error: "Campaign name is required" }, { status: 400 });
+      const rows = await overlaySql`
+        UPDATE campaigns SET name = ${name}, updated_at = now() WHERE id = ${id} RETURNING *
+      `;
+      return NextResponse.json({ campaign: toCampaign(rows[0]) });
+    }
     if (input.archiveCampaign || input.unarchiveCampaign) {
       const status = stringValue(campaign.status);
       if (input.archiveCampaign && status === "draft") {
@@ -271,6 +287,90 @@ export async function PATCH(
       });
     }
 
+    if (input.resumeCampaign || input.retryFailed) {
+      const retrying = input.retryFailed === true;
+      if (retrying && (input.resumeCampaign || !["pending", "sending", "sent", "failed", "halted"].includes(stringValue(campaign.status)))) {
+        return NextResponse.json({ error: "Only attempted campaigns can have failed deliveries retried" }, { status: 400 });
+      }
+      if (!retrying && campaign.status !== "halted") {
+        return NextResponse.json({ error: "Only halted campaigns can be resumed" }, { status: 400 });
+      }
+      const sender = await loadSender(stringValue(campaign.sender_id), me._id) as SenderRow | null;
+      if (!sender) {
+        return NextResponse.json({ error: "Only the owner of the campaign's active sending connection can resume or retry it" }, { status: 403 });
+      }
+      if (sender.channel !== campaign.channel || (sender.provider !== "stub" && sender.connection_status !== "connected")) {
+        return NextResponse.json({ error: "Reconnect the campaign's sending connection before resuming or retrying" }, { status: 400 });
+      }
+      const recipients = await loadQueuedRecipients(id);
+      if (retrying && input.recipientIds !== undefined && (!Array.isArray(input.recipientIds)
+        || !input.recipientIds.length || input.recipientIds.some(id => typeof id !== "string" || !id))) {
+        return NextResponse.json({ error: "Select at least one failed recipient to retry" }, { status: 400 });
+      }
+      const requestedIds = retrying && input.recipientIds ? new Set(input.recipientIds) : null;
+      const eligible = retrying ? canRetryCampaignRecipient : canResumeCampaignRecipient;
+      const resumable = recipients.filter(row => (!requestedIds || requestedIds.has(stringValue(row.id))) && row.selected === true && eligible({
+        status: stringValue(row.status),
+        failureReason: stringValue(row.failure_reason),
+        sentAt: row.sent_at,
+        providerMessageId: stringValue(row.provider_message_id),
+      }));
+      if (requestedIds && resumable.length !== requestedIds.size) {
+        return NextResponse.json({ error: "Some selected recipients are no longer eligible failed deliveries. Refresh and try again." }, { status: 400 });
+      }
+      if (!resumable.length) {
+        return NextResponse.json({ error: retrying ? "No failed recipients are eligible for retry" : "No recipients remain to resume" }, { status: 400 });
+      }
+      const settings = await loadCommunicationSettings();
+      const now = new Date();
+      const latestPendingAt = retrying ? Math.max(0, ...recipients
+        .filter(row => row.selected === true && row.status === "pending")
+        .map(row => row.scheduled_at instanceof Date ? row.scheduled_at.getTime() : row.scheduled_at ? new Date(String(row.scheduled_at)).getTime() || 0 : 0)) : 0;
+      const scheduleStart = new Date(Math.max(now.getTime(), latestPendingAt));
+      const schedules = resumable.map((row, index) => ({
+        id: stringValue(row.id),
+        scheduled_at: campaignRecipientScheduleAt(settings, sender.channel, index + (latestPendingAt > 0 ? 1 : 0), scheduleStart).toISOString(),
+      }));
+      // One atomic transition prevents concurrent resume requests from resetting delivery.
+      // Preserve original rendered messages and every delivery record already completed.
+      const campaignRows = await overlaySql`
+        WITH incoming AS (
+          SELECT * FROM jsonb_to_recordset(${JSON.stringify(schedules)}::jsonb)
+          AS x(id uuid, scheduled_at timestamptz)
+        ), resumed AS (
+          UPDATE campaigns
+          SET status = ${campaign.status === 'sending' ? 'sending' : 'pending'}, send_authorized_user_id = ${me._id},
+              sent_at = NULL, updated_at = now()
+          WHERE id = ${id} AND status = ${stringValue(campaign.status)}
+          RETURNING *
+        ), requeued AS (
+          UPDATE campaign_recipients cr
+          SET status = 'pending', failure_reason = '',
+              scheduled_at = incoming.scheduled_at, updated_at = now()
+          FROM incoming, resumed
+          WHERE cr.campaign_id = resumed.id AND cr.id = incoming.id
+            AND cr.selected = true AND cr.status = ${retrying ? 'failed' : 'skipped'}
+            AND cr.sent_at IS NULL AND COALESCE(cr.provider_message_id, '') = ''
+            AND (${retrying}::boolean OR cr.failure_reason IN (${CAMPAIGN_HALTED_REASON}, ${CAMPAIGN_CONNECTION_HALTED_REASON}))
+          RETURNING cr.id
+        )
+        SELECT resumed.*, (SELECT COUNT(*)::int FROM requeued) AS requeued_count FROM resumed
+      `;
+      if (!campaignRows.length || campaignRows[0].requeued_count === 0) {
+        return NextResponse.json({ error: "Campaign status changed. Refresh before trying again." }, { status: 409 });
+      }
+      const updatedRecipients = await loadQueuedRecipients(id);
+      const queue = await loadCampaignQueueState();
+      const scheduler = await activateCampaignScheduler(queue.nextRunAt);
+      return NextResponse.json({
+        campaign: toCampaign(campaignRows[0]),
+        recipients: updatedRecipients.map(toRecipient),
+        sendResult: `${retrying ? "Retry queued." : "Campaign resumed."} ${numberValue(campaignRows[0].requeued_count)} recipient${numberValue(campaignRows[0].requeued_count) === 1 ? "" : "s"} queued for delivery.`
+          + (scheduler.activated ? "" : " Automatic delivery could not be scheduled; use Process Due until the scheduler is configured."),
+        scheduler,
+      });
+    }
+
     if (input.haltCampaign) {
       const status = stringValue(campaign.status);
       if (status !== "pending" && status !== "sending") {
@@ -286,6 +386,7 @@ export async function PATCH(
         WHERE campaign_id = ${id}
           AND selected = true
           AND status = 'pending'
+          AND COALESCE(provider_message_id, '') = ''
       `;
 
       const campaignRows = await overlaySql`
@@ -305,7 +406,7 @@ export async function PATCH(
       return NextResponse.json({
         campaign: toCampaign(campaignRows[0]),
         recipients: recipientRows.map(toRecipient),
-        sendResult: "Campaign halted. Pending recipients were skipped.",
+        sendResult: "Campaign halted. Unsubmitted recipients were skipped. Messages already queued with SMSGate may still send; their status will continue to be checked.",
       });
     }
 
@@ -515,7 +616,9 @@ export async function PATCH(
           `;
         }
         if (!result.ok) return NextResponse.json({ error: result.failureReason || "Test send failed" }, { status: 400 });
-        testResultMessage = `Test sent to ${testDestination}.`;
+        testResultMessage = sender.provider === "smsgate"
+          ? `Test submitted to SMSGate for ${testDestination}. Check the receiving phone to confirm it arrived.`
+          : `Test sent to ${testDestination}.`;
       }
 
       const campaignRows = await overlaySql`
@@ -546,6 +649,11 @@ export async function PATCH(
 
     const mode = input.mode || "replace";
 
+    if (input.excludedCampaignIds !== undefined && (!validExcludedCampaignIds(input.excludedCampaignIds)
+      || input.excludedCampaignIds.some(campaignId => campaignId.toLowerCase() === id.toLowerCase()))) {
+      return NextResponse.json({ error: "Choose valid other campaigns to exclude" }, { status: 400 });
+    }
+    const exclusionIndex = buildCampaignExclusionIndex(await loadCampaignExclusions(input.excludedCampaignIds || []));
     if (mode === "replace") {
       await overlaySql`
         DELETE FROM campaign_recipients
@@ -553,11 +661,16 @@ export async function PATCH(
       `;
     }
 
+    let excludedCount = 0;
     const rows = [];
     for (const recipient of recipients) {
       const jobId = recipient.jobId?.trim();
       const destination = recipient.destination?.trim();
       if (!jobId || !destination) continue;
+      if (isExcludedFromCampaign(exclusionIndex, jobId, destination, campaign.channel === "sms" ? "sms" : "email")) {
+        excludedCount += 1;
+        continue;
+      }
 
       rows.push({
         job_id: jobId,
@@ -648,11 +761,12 @@ export async function PATCH(
     return NextResponse.json({
       campaign: toCampaign(campaignRows[0]),
       recipients: recipientRows.map(toRecipient),
+      excludedCount,
     });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to save campaign audience" },
-      { status: 500 }
+      { status: error instanceof UnknownExclusionCampaignError ? 400 : 500 }
     );
   }
 }

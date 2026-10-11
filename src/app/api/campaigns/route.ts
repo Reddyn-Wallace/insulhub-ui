@@ -48,6 +48,7 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const archived = searchParams.get("archived") === "true";
+    const includeArchived = searchParams.get("includeArchived") === "true";
 
     const rows = await overlaySql`
       SELECT
@@ -58,9 +59,9 @@ export async function GET(request: NextRequest) {
         COUNT(cr.id) FILTER (WHERE cr.selected = true AND cr.status = 'skipped')::int AS skipped_count
       FROM campaigns c
       LEFT JOIN campaign_recipients cr ON cr.campaign_id = c.id
-      WHERE ${archived ? overlaySql`c.archived_at IS NOT NULL` : overlaySql`c.archived_at IS NULL`}
+      WHERE (${includeArchived}::boolean OR (c.archived_at IS NOT NULL) = ${archived}::boolean)
       GROUP BY c.id
-      ORDER BY ${archived ? overlaySql`c.archived_at DESC NULLS LAST` : overlaySql`c.created_at DESC`}
+      ORDER BY CASE WHEN ${archived}::boolean THEN c.archived_at ELSE c.created_at END DESC NULLS LAST
     `;
 
     return NextResponse.json({ campaigns: rows.map(toCampaign) });
@@ -80,7 +81,7 @@ export async function POST(request: NextRequest) {
     await ensureOverlaySchema();
 
     const input = (await request.json()) as CampaignInput;
-    const name = input.name?.trim();
+    const name = stringValue(input.name).trim();
     const channel = input.channel;
 
     if (!name) return NextResponse.json({ error: "Campaign name is required" }, { status: 400 });

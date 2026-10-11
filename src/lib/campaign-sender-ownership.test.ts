@@ -15,6 +15,9 @@ beforeEach(()=>{
  sender={id:'sender',owner_user_id:'andrew',channel:'sms',provider:'smsgate',connection_status:'connected',is_active:true};
  mocks.sql.mockImplementation(async (parts:TemplateStringsArray,...values:unknown[])=>{
   const sql=parts.join('?');
+  if(sql.includes('RETURNING cr.id')) return [{id:'recipient'}];
+  if(sql.includes('COALESCE(provider_message_id') && sql.includes("<> ''")) return [];
+  if(sql.includes('SELECT cr.id FROM campaign_recipients')) return [];
   if(sql.includes('FROM communication_senders')) return sql.includes('owner_user_id') && !values.includes(sender.owner_user_id) ? [] : [sender];
   if(sql.includes('FROM campaigns')) return [campaign];
   if(sql.includes('FROM campaign_recipients'))return [{id:'recipient',destination:'+64211234567',rendered_body:'Hi'}];
