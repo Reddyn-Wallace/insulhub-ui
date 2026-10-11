@@ -40,3 +40,9 @@ test('platform-normalised Vercel config retains the guarded build command',async
   writeFileSync(join(dir,'vercel.json'),JSON.stringify({buildCommand:'npm run build'}));assert.throws(()=>checkVercelConfig(dir),/guarded build/);
  }finally{rmSync(dir,{recursive:true,force:true});}
 });
+
+test('a missing live provenance endpoint blocks release instead of falling back',async t=>{
+ const {readJson,LIVE_RELEASE_URL}=await import('./guard.mjs');
+ t.mock.method(globalThis,'fetch',async()=>({status:404,ok:false}));
+ await assert.rejects(readJson(LIVE_RELEASE_URL),/HTTP 404/);
+});
