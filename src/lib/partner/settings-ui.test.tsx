@@ -49,7 +49,7 @@ describe("Partners within normal InsulHub Settings",()=>{
   it("recovers from an unavailable settings response",async()=>{
     let companyAttempts=0;const fetcher=vi.fn(async(url:string)=>url.endsWith("/notifications")?Response.json({settings:{recipientEmail:null,revision:0,updatedAt:"2026-09-02T00:00:00.000Z"}}):++companyAttempts===1?Response.json({error:"Unavailable"},{status:503}):Response.json({companies:[company]}));vi.stubGlobal("fetch",fetcher);
     render(<SettingsPage/>);fireEvent.click(await screen.findByRole("button",{name:"Try again"}));
-    await screen.findByText("Test Partner");expect(fetcher).toHaveBeenCalledTimes(3);
+    await screen.findByText("Test Partner");await waitFor(()=>expect(fetcher).toHaveBeenCalledTimes(3));
   });
   it("retains the existing Settings sections and loads their data only when selected",async()=>{
     const fetcher=vi.fn(async(url:string)=>Response.json(url==="/api/settings/partners"?{companies:[company]}:url==="/api/settings/partners/notifications"?{settings:{recipientEmail:null,revision:0,updatedAt:"2026-09-02T00:00:00.000Z"}}:{templates:[],senders:[],settings:{},gmail:{configured:false}}));vi.stubGlobal("fetch",fetcher);
