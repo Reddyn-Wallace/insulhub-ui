@@ -31,3 +31,12 @@ test('uploaded source must match the committed tree, including deleted and extra
   assert.throws(()=>checkSourceTree(dir,{...tree,truncated:true}),/incomplete/i);
  }finally{rmSync(dir,{recursive:true,force:true});}
 });
+
+test('platform-normalised Vercel config retains the guarded build command',async()=>{
+ const {checkVercelConfig}=await import('./guard.mjs');
+ const dir=mkdtempSync(join(tmpdir(),'crm-vercel-config-'));
+ try{
+  writeFileSync(join(dir,'vercel.json'),JSON.stringify({buildCommand:'node scripts/vercel-build.mjs'}));checkVercelConfig(dir);
+  writeFileSync(join(dir,'vercel.json'),JSON.stringify({buildCommand:'npm run build'}));assert.throws(()=>checkVercelConfig(dir),/guarded build/);
+ }finally{rmSync(dir,{recursive:true,force:true});}
+});

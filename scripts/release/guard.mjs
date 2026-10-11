@@ -40,7 +40,7 @@ export function checkBuiltRoutes(root,routes){
 }
 
 const sourceDirectories=['src','scripts','migrations','public','app','pages'];
-const sourceFiles=['package.json','package-lock.json','next.config.ts','next.config.js','next.config.mjs','tsconfig.json','postcss.config.mjs','vercel.json','.vercelignore','middleware.ts','middleware.js','proxy.ts','instrumentation.ts'];
+const sourceFiles=['package.json','package-lock.json','next.config.ts','next.config.js','next.config.mjs','tsconfig.json','postcss.config.mjs','.vercelignore','middleware.ts','middleware.js','proxy.ts','instrumentation.ts'];
 const generated=path=>path==='public/sw.js'||/^public\/workbox-[^/]+\.js$/.test(path);
 const inScope=path=>!generated(path)&&(sourceFiles.includes(path)||sourceDirectories.some(dir=>path.startsWith(`${dir}/`)));
 export function checkSourceTree(root,remote){
@@ -67,4 +67,12 @@ export async function checkProductionFiles(root=process.cwd(),env=process.env,ge
  if(env.VERCEL_ENV!=='production')return;
  const tree=await get(`https://api.github.com/repos/${REPOSITORY}/git/trees/${env.VERCEL_GIT_COMMIT_SHA}?recursive=1`);
  checkSourceTree(root,tree);
+ checkVercelConfig(root);
+}
+
+// Vercel normalises this file before invoking the build. Validate the effective
+// command separately; application and build-script bytes still must match Git.
+export function checkVercelConfig(root){
+ const config=JSON.parse(readFileSync(resolve(root,'vercel.json'),'utf8'));
+ if(config.buildCommand!=='node scripts/vercel-build.mjs')throw Error('Vercel configuration must retain the guarded build command.');
 }
