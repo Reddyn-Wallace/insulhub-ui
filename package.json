@@ -19,7 +19,7 @@
     "partner:live-test-once": "node --conditions=react-server --import tsx scripts/partner-live-test-once.ts",
     "partner:notification-test-once": "node --conditions=react-server --import tsx scripts/partner-notification-test-once.ts",
     "partner:provision": "node scripts/partner-provision.mjs",
-    "test": "npm run test:site-plan-drawings && npm run test:sms-replies && npm run test:partner && npm run test:job-sms && npm run test:communications && npm run test:cloudflare && npm run test:job-email && npm run test:sender-ownership && npm run test:job-completion && npm run test:campaigns",
+    "test": "npm run test:site-plan-drawings && npm run test:sms-replies && npm run test:partner && npm run test:job-sms && npm run test:communications && npm run test:cloudflare && npm run test:job-email && npm run test:sender-ownership && npm run test:job-completion && npm run test:campaigns && npm run test:dead-followups",
     "test:job-sms": "vitest run src/lib/job-sms*.test.*",
     "test:job-sms-browser": "node scripts/job-sms-browser-smoke.cjs",
     "job-sms:migrate": "node scripts/job-sms-migrate.mjs",
@@ -31,7 +31,12 @@
     "test:job-communications-browser": "node scripts/job-communications-browser-smoke.cjs",
     "test:finance": "vitest run src/lib/finance",
     "test:job-completion": "vitest run src/lib/job-completion*.test.* src/lib/awaiting-completion*.test.*",
-    "test:site-plan-notes-browser": "node scripts/site-plan-notes-browser-smoke.cjs"
+    "test:site-plan-notes-browser": "node scripts/site-plan-notes-browser-smoke.cjs",
+    "preview:dead-followups": "tsx scripts/dead-followups-preview.ts",
+    "test:dead-followups": "vitest run src/lib/dead-followups",
+    "dead-followups:migrate": "node scripts/dead-followups-migrate.mjs",
+    "dead-followups:readiness": "node scripts/dead-followups-readiness.mjs",
+    "test:dead-followups:browser": "node scripts/dead-followups-browser-smoke.cjs && node scripts/dead-followups-interactive-browser.cjs && node scripts/dead-followup-finish-browser-smoke.cjs && node scripts/dead-followup-dates-browser-smoke.cjs"
   },
   "dependencies": {
     "@ducanh2912/next-pwa": "^10.2.9",

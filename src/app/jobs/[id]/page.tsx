@@ -1,4 +1,5 @@
 "use client";
+import {displayFollowupNotes} from '@/lib/dead-followups/note-display';
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
@@ -2880,7 +2881,7 @@ export default function JobDetailPage() {
                 </div>
               )}
               {visibleJobNotes ? (
-                <p className="text-sm text-gray-700 whitespace-pre-wrap">{visibleJobNotes}</p>
+                <p className="text-sm text-gray-700 whitespace-pre-wrap">{displayFollowupNotes(visibleJobNotes)}</p>
               ) : installPlanningSummaryLines.length > 0 ? null : (
                 <p className="text-sm text-gray-400">No notes yet</p>
               )}
@@ -3193,7 +3194,7 @@ export default function JobDetailPage() {
             </div>
           )}
           {visibleJobNotes ? (
-            <p className="text-sm text-gray-700 whitespace-pre-wrap">{visibleJobNotes}</p>
+            <p className="text-sm text-gray-700 whitespace-pre-wrap">{displayFollowupNotes(visibleJobNotes)}</p>
           ) : installPlanningSummaryLines.length > 0 ? null : (
             <p className="text-sm text-gray-400">No notes yet</p>
           )}

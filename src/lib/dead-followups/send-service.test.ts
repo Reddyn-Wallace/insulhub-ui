@@ -1,0 +1,10 @@
+import {expect,it,vi} from 'vitest';
+import {appendOfferNote,reconcileAttempt,dispatchAttempt} from './send-service';
+import type {SendAttempt} from './sending';
+const a={id:'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa',jobId:'bbbbbbbbbbbbbbbbbbbbbbbb',status:'sent',sentAt:'2026-09-30T00:00:00Z',discountCents:50000,approach:1,channel:'sms',actorName:'Staff',noteStatus:'pending'} as SendAttempt;
+it('appends once using current notes and confirms it exists',async()=>{let notes='Existing note';let writes=0;const deps={read:async()=>notes,write:async(v:string)=>{writes++;notes=v;}};await appendOfferNote(a,deps);await appendOfferNote(a,deps);expect(writes).toBe(1);expect(notes).toContain('Existing note');expect(notes).toContain('NZD $500.00');});
+it('rejects unconfirmed sends without touching notes',async()=>{const read=vi.fn();await expect(appendOfferNote({...a,status:'unknown'},{read,write:vi.fn()})).rejects.toThrow();expect(read).not.toHaveBeenCalled();});
+it('uncertain note write can be retried without duplication',async()=>{let notes='Old';let count=0;const deps={read:async()=>notes,write:async(v:string)=>{notes=v;count++;throw Error('lost reply');}};await expect(appendOfferNote(a,deps)).rejects.toThrow();await appendOfferNote(a,deps);expect(count).toBe(1);});
+it('refuses to replace notes when they change between reads',async()=>{const write=vi.fn();const read=vi.fn().mockResolvedValueOnce('A').mockResolvedValueOnce('B');await expect(appendOfferNote(a,{read,write})).rejects.toThrow(/changed/);expect(write).not.toHaveBeenCalled();});
+it('reconciliation does not count service acceptance and never delivers',async()=>{expect(await reconcileAttempt({...a,status:'sending'},async()=>({status:'accepted',failure_reason:''}))).toEqual({status:'accepted',failureReason:''});expect((await reconcileAttempt(a,async()=>undefined)).status).toBe('sent');});
+it('duplicate claim never dispatches; uncertain response never automatically retries',async()=>{let calls=0;await dispatchAttempt(false,async()=>{calls++;});await dispatchAttempt(true,async()=>{calls++;throw Error('lost');});expect(calls).toBe(1);});

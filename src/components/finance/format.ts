@@ -10,9 +10,21 @@ export const when = (s: string | null) =>
         timeStyle: "short",
       })
     : "Unavailable";
+export class FinanceRequestError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message);
+  }
+}
 export async function financeApi(path: string, body?: unknown) {
   const token = localStorage.getItem("token");
-  if (!token) throw Error("Sign in to Insulhub to view your cash dashboard.");
+  if (!token)
+    throw new FinanceRequestError(
+      "Sign in to Insulhub to view your cash dashboard.",
+      401,
+    );
   const r = await fetch("/api/finance/" + path, {
     method: body ? "POST" : "GET",
     cache: "no-store",
@@ -26,9 +38,18 @@ export async function financeApi(path: string, body?: unknown) {
   try {
     d = await r.json();
   } catch {
+    if (r.status === 401 || r.status === 403)
+      throw new FinanceRequestError(
+        "Sign in to Insulhub to view your cash dashboard.",
+        r.status,
+      );
     throw Error("The source check did not finish. Please try again.");
   }
-  if (!r.ok) throw Error(d.error || "Finance request failed.");
+  if (!r.ok)
+    throw new FinanceRequestError(
+      d.error || "Finance request failed.",
+      r.status,
+    );
   return d;
 }
 export const inputClass =
