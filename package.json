@@ -36,7 +36,10 @@
     "test:dead-followups": "vitest run src/lib/dead-followups",
     "dead-followups:migrate": "node scripts/dead-followups-migrate.mjs",
     "dead-followups:readiness": "node scripts/dead-followups-readiness.mjs",
-    "test:dead-followups:browser": "node scripts/dead-followups-browser-smoke.cjs && node scripts/dead-followups-interactive-browser.cjs && node scripts/dead-followup-finish-browser-smoke.cjs && node scripts/dead-followup-dates-browser-smoke.cjs"
+    "test:dead-followups:browser": "node scripts/dead-followups-browser-smoke.cjs && node scripts/dead-followups-interactive-browser.cjs && node scripts/dead-followup-finish-browser-smoke.cjs && node scripts/dead-followup-dates-browser-smoke.cjs",
+    "test:release": "node --test scripts/release/guard.test.mjs",
+    "release:check": "node scripts/release/ci.mjs",
+    "release:check-build": "node scripts/release/check-build.mjs"
   },
   "dependencies": {
     "@ducanh2912/next-pwa": "^10.2.9",

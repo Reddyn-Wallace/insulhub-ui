@@ -1,0 +1,19 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtempSync, mkdirSync, writeFileSync, rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {checkProductionSource, checkBuiltRoutes, checkRequiredFiles} from './guard.mjs';
+const candidate='b'.repeat(40), live='a'.repeat(40);
+const env={VERCEL_ENV:'production',VERCEL_GIT_COMMIT_REF:'master',VERCEL_GIT_COMMIT_SHA:candidate,VERCEL_GIT_REPO_OWNER:'Reddyn-Wallace',VERCEL_GIT_REPO_SLUG:'insulhub-ui'};
+function reader({head=candidate,release={commit:live},comparison='ahead',offline=false}={}){return async url=>{if(offline)throw Error('Offline');if(url.endsWith('/api/release'))return release;if(url.includes('/compare/'))return {status:comparison};return {sha:head};};}
+test('accepts a committed mainline release containing live production',async()=>{await checkProductionSource(env,reader());});
+test('rejects old feature branches even if they build successfully',async()=>{await assert.rejects(checkProductionSource({...env,VERCEL_GIT_COMMIT_REF:'codex/old'},reader()),/master/);});
+test('rejects unidentified or wrong repository source',async()=>{for(const patch of [{VERCEL_GIT_COMMIT_SHA:''},{VERCEL_GIT_REPO_SLUG:'other'}])await assert.rejects(checkProductionSource({...env,...patch},reader()),/source|commit/i);});
+test('rejects a superseded master commit',async()=>{await assert.rejects(checkProductionSource(env,reader({head:'c'.repeat(40)})),/latest/);});
+test('rejects a release missing commits already live',async()=>{for(const comparison of ['behind','diverged','unknown'])await assert.rejects(checkProductionSource(env,reader({comparison})),/live release/);});
+test('fails closed when source or live release cannot be verified',async()=>{await assert.rejects(checkProductionSource(env,reader({offline:true})),/Offline/);await assert.rejects(checkProductionSource(env,reader({release:{commit:null}})),/live release/);});
+test('allows rebuilding the exact live commit',async()=>{await checkProductionSource(env,reader({release:{commit:candidate}}));});
+test('preview builds do not require production source access',async()=>{await checkProductionSource({VERCEL_ENV:'preview'},()=>{throw Error('Must not query');});});
+test('blocks a build where a shipped page or API route disappeared',()=>{const dir=mkdtempSync(join(tmpdir(),'crm-route-gate-'));try{mkdirSync(join(dir,'.next/server'),{recursive:true});writeFileSync(join(dir,'.next/server/app-paths-manifest.json'),JSON.stringify({'/jobs/follow-ups/page':'present'}));assert.throws(()=>checkBuiltRoutes(dir,['/jobs/follow-ups/page','/api/dead-followups/route']),/api\/dead-followups/);checkBuiltRoutes(dir,['/jobs/follow-ups/page']);}finally{rmSync(dir,{recursive:true,force:true});}});
+test('blocks deleting a required regression suite instead of running it',()=>{const dir=mkdtempSync(join(tmpdir(),'crm-files-gate-'));try{assert.throws(()=>checkRequiredFiles(dir,['followup.test.ts']),/followup.test.ts/);writeFileSync(join(dir,'followup.test.ts'),'test');checkRequiredFiles(dir,['followup.test.ts']);}finally{rmSync(dir,{recursive:true,force:true});}});
