@@ -236,7 +236,7 @@ function normalizeEmailHtml(input: string) {
   return html || `<p>${fallback}</p>`;
 }
 
-const NEW_QUOTE_DEFAULT_EXTRAS = [{ name: "Council Fee", price: "330" }];
+const NEW_QUOTE_DEFAULT_EXTRAS = [{ name: "Council Fee", price: "350" }];
 
 function quoteHasEnteredDetails(quote?: Job["quote"] | null) {
   if (!quote) return false;
