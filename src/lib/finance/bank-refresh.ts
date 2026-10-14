@@ -2,8 +2,10 @@ import "server-only";
 import { required, safeFetch } from "./errors";
 export type BankRefreshResult = {
   account: string;
-  status: "updated" | "unchanged" | "unavailable";
+  status: "updated" | "partial" | "unchanged" | "unavailable";
   message: string;
+  balanceUpdated?: boolean;
+  transactionsUpdated?: boolean;
 };
 let running: Promise<BankRefreshResult[]> | undefined;
 async function refreshAccount(
@@ -15,7 +17,7 @@ async function refreshAccount(
     "X-Akahu-Id": required("AKAHU_APP_TOKEN"),
   };
   const path = "https://api.akahu.io/v1/";
-  const readTime = async () => {
+  const readTimes = async () => {
     const r = await safeFetch(path + "accounts/" + encodeURIComponent(id), {
       headers,
     });
@@ -29,10 +31,29 @@ async function refreshAccount(
       !Number.isFinite(Date.parse(value))
     )
       throw Error("time");
-    return Date.parse(value);
+    const transactions = d.item?.refreshed?.transactions;
+    return {
+      balance: Date.parse(value),
+      transactions:
+        typeof transactions === "string" &&
+        Number.isFinite(Date.parse(transactions))
+          ? Date.parse(transactions)
+          : null,
+    };
   };
   try {
-    const before = await readTime();
+    const before = await readTimes();
+    if (
+      Date.now() - Math.max(before.balance, before.transactions || 0) <
+      3600000
+    ) {
+      return {
+        account,
+        status: "unchanged",
+        message:
+          "Akahu refreshed this account within the last hour. Its one-hour rest period may delay another update; balance and transaction timestamps below show the data available.",
+      };
+    }
     const response = await safeFetch(
       path + "refresh/" + encodeURIComponent(id),
       { method: "POST", headers },
@@ -47,21 +68,34 @@ async function refreshAccount(
     if (!response.ok || (await response.json()).success !== true)
       throw Error("refresh");
     const deadline = Date.now() + 45000;
+    let balanceUpdated = false,
+      transactionsUpdated = false;
     do {
       await new Promise((resolve) => setTimeout(resolve, 3000));
-      if ((await readTime()) > before)
+      const after = await readTimes();
+      balanceUpdated = after.balance > before.balance;
+      transactionsUpdated =
+        after.transactions !== null &&
+        after.transactions > (before.transactions ?? 0);
+      if (balanceUpdated && transactionsUpdated)
         return {
           account,
           status: "updated",
-          message: "Akahu supplied a newer bank balance update.",
+          balanceUpdated,
+          transactionsUpdated,
+          message: "Akahu supplied newer balance and transaction updates.",
         };
-      if (Date.now() - before < 3600000) break;
     } while (Date.now() < deadline);
     return {
       account,
-      status: "unchanged",
-      message:
-        "Refresh requested, but Akahu has not supplied a newer balance yet. Personal apps have a one-hour rest period. The timestamp below shows the data actually available.",
+      status: balanceUpdated || transactionsUpdated ? "partial" : "unchanged",
+      balanceUpdated,
+      transactionsUpdated,
+      message: balanceUpdated
+        ? "Balance updated, but transactions have not updated yet. Showing the latest available transactions with their actual timestamp."
+        : transactionsUpdated
+          ? "Transactions updated, but the balance has not updated yet. Showing the latest available balance with its actual timestamp."
+          : "Refresh requested, but Akahu has not supplied newer balances or transactions yet. Personal apps have a one-hour rest period. The timestamps below show the data actually available.",
     };
   } catch {
     return {

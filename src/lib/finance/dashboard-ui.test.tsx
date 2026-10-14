@@ -8,6 +8,7 @@ import {
   fireEvent,
   waitFor,
 } from "@testing-library/react";
+import { clearFinanceOverview } from "./overview-client";
 import Page from "../../app/jobs/finance/page";
 import { calculateFinance } from "./calculate";
 vi.mock("next/link", () => ({
@@ -20,6 +21,7 @@ vi.mock("next/link", () => ({
   }) => <a href={href}>{children}</a>,
 }));
 beforeEach(() => {
+  clearFinanceOverview();
   const values = new Map<string, string>();
   vi.stubGlobal("localStorage", {
     getItem: (k: string) => values.get(k) || null,
@@ -29,6 +31,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  clearFinanceOverview();
   localStorage.clear();
   vi.unstubAllGlobals();
 });
@@ -389,6 +392,7 @@ it("adds uninvoiced completed work to net and opens a searchable job breakdown",
   expect(screen.queryByRole("link", { name: "Alan Mirza" })).toBeNull();
   expect(screen.getByText("$3,225.25")).toBeTruthy();
   expect(vi.mocked(fetch).mock.calls[0][1]?.method).toBe("GET");
+  await screen.findByRole("button", { name: "Refresh figures" });
   fireEvent.click(screen.getByRole("button", { name: "Refresh figures" }));
   await waitFor(() =>
     expect(vi.mocked(fetch).mock.lastCall?.[1]?.method).toBe("POST"),
@@ -444,12 +448,13 @@ it("shows an expired snapshot while updating and keeps it if the update fails", 
   await screen.findByText(/Showing saved figures checked/);
   expect(screen.getAllByText("$12,345.00").length).toBeGreaterThan(0);
   await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+  expect(vi.mocked(fetch).mock.calls[1][1]?.method).toBe("POST");
   fail(Error("Source offline"));
   await screen.findByText("Could not update figures");
   expect(screen.getAllByText("$12,345.00").length).toBeGreaterThan(0);
   expect(screen.getByText(/These have not been refreshed/)).toBeTruthy();
   localStorage.clear();
-  fireEvent.click(screen.getByRole("button", {name:"Refresh figures"}));
+  fireEvent.click(screen.getByRole("button", { name: "Refresh figures" }));
   await screen.findByText("Figures unavailable");
   expect(screen.queryByText("$12,345.00")).toBeNull();
 });

@@ -1,6 +1,6 @@
 "use client";
 import {
-  loadFinanceOverview,
+  refreshFinanceOverview,
   clearFinanceOverview,
 } from "@/lib/finance/overview-client";
 import Link from "next/link";
@@ -146,11 +146,14 @@ export default function FinancePage() {
     setBusy(true);
     setError("");
     setBankRefresh([]);
-    setRefreshingBank(requestBank);
+    setRefreshingBank(requestBank || !refresh);
     try {
       if (!refresh) {
-        await loadFinanceOverview((result) => {
-          if (sequence === loadSequence.current) setData(result);
+        await refreshFinanceOverview((result) => {
+          if (sequence === loadSequence.current) {
+            setData(result);
+            setBankRefresh(result.bankRefresh || []);
+          }
         });
         return;
       }
@@ -398,7 +401,7 @@ export default function FinancePage() {
             </button>
           </div>
         </header>
-        {busy && data && !refreshingBank && (
+        {busy && data && (
           <p role="status" className="mb-5 text-sm text-teal-800">
             Showing saved figures checked {when(data.checkedAt)}. Updating in
             the background…
@@ -406,8 +409,9 @@ export default function FinancePage() {
         )}
         {refreshingBank && (
           <p role="status" className="mb-5 text-sm text-teal-800">
-            Requesting new bank data from Akahu, then updating invoices and
-            jobs. This can take a minute.
+            Refreshing bank balances and transactions automatically, then
+            updating invoices and jobs. Saved figures stay visible while this
+            runs.
           </p>
         )}
         {bankRefresh.length > 0 && (
@@ -644,9 +648,10 @@ export default function FinancePage() {
                   overlap recent bank receipts, even if their dates differ.
                   Where an old deposit prevents a confident adjustment, the
                   uncertain amount stays owed until Xero is reconciled. Figures
-                  include GST. Refresh figures requests new bank data from Akahu
-                  and checks for a newer balance timestamp. Personal apps have a
-                  one-hour refresh rest period.
+                  include GST. Opening this dashboard or selecting Refresh
+                  figures requests new balances and transactions from Akahu and
+                  checks both timestamps. Personal apps have a one-hour refresh
+                  rest period.
                 </p>
                 <button
                   className={buttonClass + " mt-4"}

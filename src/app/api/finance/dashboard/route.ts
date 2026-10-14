@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Only an explicit owner action requests upstream refresh; normal GET remains read-only.
+// Dashboard entry and manual refresh use authenticated POST; prefetch GET remains read-only.
 export async function POST(request: NextRequest) {
   try {
     const owner = await requireFinanceOwner(request);

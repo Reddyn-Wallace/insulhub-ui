@@ -25,6 +25,8 @@
     "src/lib/campaign-resume-route.test.ts", "src/lib/campaign-audience-ui.test.tsx",
     "src/lib/campaign-sms-queue-postgres.test.ts", "src/lib/job-completion-ui.test.tsx",
     "src/lib/graphql.test.ts", "src/lib/finance/dashboard-ui.test.tsx",
+    "src/lib/finance/bank-refresh.test.ts", "src/lib/finance/overview-client.test.ts",
+    "src/lib/finance/dashboard-routes.test.ts",
     "scripts/dead-followups-browser-smoke.cjs", "scripts/dead-followups-interactive-browser.cjs",
     "scripts/dead-followup-finish-browser-smoke.cjs", "scripts/dead-followup-dates-browser-smoke.cjs",
     "scripts/job-communications-browser-smoke.cjs"
