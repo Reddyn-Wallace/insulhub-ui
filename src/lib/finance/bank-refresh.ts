@@ -4,6 +4,7 @@ export type BankRefreshResult = {
   account: string;
   status: "updated" | "partial" | "unchanged" | "unavailable";
   message: string;
+  reason?: "rest-period";
   balanceUpdated?: boolean;
   transactionsUpdated?: boolean;
 };
@@ -50,6 +51,7 @@ async function refreshAccount(
       return {
         account,
         status: "unchanged",
+        reason: "rest-period",
         message:
           "Akahu refreshed this account within the last hour. Its one-hour rest period may delay another update; balance and transaction timestamps below show the data available.",
       };

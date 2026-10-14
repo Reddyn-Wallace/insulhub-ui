@@ -458,3 +458,24 @@ it("shows an expired snapshot while updating and keeps it if the update fails", 
   await screen.findByText("Figures unavailable");
   expect(screen.queryByText("$12,345.00")).toBeNull();
 });
+
+it('hides routine refresh rest-period notices while retaining incomplete-update warnings', async () => {
+  localStorage.setItem('token', 'notice-owner');
+  const data = {
+    ...calculateFinance({
+      checkedAt:'2026-10-14T00:00:00Z', historyStart:'2026-10-07', historyEnd:'2026-10-14',
+      bank:{accountName:'Trading',currentCents:10000,balanceUpdatedAt:'2026-10-14T00:00:00Z',transactionsUpdatedAt:'2026-10-13T00:00:00Z',stale:false},
+      jobs:[], invoices:[], payments:[], receipts:[], warnings:[],
+    }, []),
+    jobs:[], decisions:[], staleDecisions:[], history:[], payments:[], fingerprints:{},
+    bankRefresh:[
+      {account:'Operating account',status:'unchanged',reason:'rest-period',message:'Routine rest period notice'},
+      {account:'Visa Business',status:'partial',message:'Transactions have not updated yet.'},
+    ],
+  };
+  vi.stubGlobal('fetch', vi.fn(async()=>Response.json(data)));
+  render(<Page/>);
+  await screen.findByRole('button', {name:'Refresh figures'});
+  expect(screen.queryByText('Routine rest period notice')).toBeNull();
+  expect(screen.getByText(/Transactions have not updated yet/)).toBeTruthy();
+});

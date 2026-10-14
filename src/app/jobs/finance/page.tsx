@@ -122,6 +122,7 @@ export default function FinancePage() {
     [target, setTarget] = useState<ReviewTarget | null>(null),
     [expanded, setExpanded] = useState<string | null>(null);
   const [bankRefresh, setBankRefresh] = useState<BankRefreshResult[]>([]);
+  const visibleBankRefresh = bankRefresh.filter((result) => result.reason !== "rest-period");
   const [refreshingBank, setRefreshingBank] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const detailSection = useRef<HTMLElement>(null);
@@ -414,12 +415,12 @@ export default function FinancePage() {
             runs.
           </p>
         )}
-        {bankRefresh.length > 0 && (
+        {visibleBankRefresh.length > 0 && (
           <div
             role="status"
             className="mb-5 rounded-xl border border-slate-200 bg-white p-4 text-sm"
           >
-            {bankRefresh.map((r) => (
+            {visibleBankRefresh.map((r) => (
               <p
                 key={r.account}
                 className={
