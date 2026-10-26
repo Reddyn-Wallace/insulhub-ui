@@ -10,10 +10,12 @@ import {displayFollowupNotes} from '@/lib/dead-followups/note-display';
 import FollowupActions from '@/components/FollowupActions';
 import type { QueueItem, QueueResponse } from '@/lib/dead-followups/types';
 
-const money = (value?: number | null) => value == null ? 'Amount not recorded' : new Intl.NumberFormat('en-NZ',{style:'currency',currency:'NZD',minimumFractionDigits:0,maximumFractionDigits:2}).format(value);
+const currencyFormat = new Intl.NumberFormat('en-NZ',{style:'currency',currency:'NZD',minimumFractionDigits:0,maximumFractionDigits:2});
+const dateFormat = new Intl.DateTimeFormat('en-NZ',{timeZone:'Pacific/Auckland',day:'numeric',month:'short',year:'numeric'});
+const money = (value?: number | null) => value == null ? 'Amount not recorded' : currencyFormat.format(value);
 function date(value?: string | null) {
   if (!value || !Number.isFinite(Date.parse(value))) return 'Not recorded';
-  return new Date(value).toLocaleDateString('en-NZ',{timeZone:'Pacific/Auckland',day:'numeric',month:'short',year:'numeric'});
+  return dateFormat.format(new Date(value));
 }
 function age(value: string | null | undefined, now: string) {
   if (!value || !Number.isFinite(Date.parse(value))) return 'Age unknown';
@@ -61,7 +63,7 @@ export default function DeadFollowupsPage() {
     setLoading(true);setError('');
     const token=localStorage.getItem('token')||'';
     if(force)invalidateQueue(token);
-    const cached=cachedQueue(token);if(cached)setData(cached);
+    const cached=cachedQueue(token,true);if(cached)setData(cached);
     try {
       const payload=await fetchQueue(token);
       if(!request.signal.aborted){setData(payload);setGeneration(value=>value+1);setSelected(current=>payload.items.some((item:QueueItem)=>item.job._id===current&&needsFollowup(item,payload.checkedAt))?current:null);}
@@ -71,7 +73,8 @@ export default function DeadFollowupsPage() {
   useEffect(()=>{void load();return()=>controller.current?.abort();},[load]);
   const available=useMemo(()=>(data?.items||[]).filter(row=>needsFollowup(row,data!.checkedAt)),[data]);
   const sorted=useMemo(()=>sortQueueItems(available),[available]);
-  const items=sorted.filter(item=>[item.job.client?.contactDetails?.name,item.job.client?.contactDetails?.streetAddress,item.job.jobNumber].join(' ').toLowerCase().includes(search.trim().toLowerCase()));
+  const rows=useMemo(()=>sorted.map(row=>({row,waiting:waitingLabel(row,data!.checkedAt),discounted:quoteDiscounts(row.job.quote).items.length>0,salesperson:[row.job.lead?.allocatedTo?.firstname,row.job.lead?.allocatedTo?.lastname].filter(Boolean).join(' ')||'Unassigned'})),[sorted,data]);
+  const items=rows.filter(({row})=>[row.job.client?.contactDetails?.name,row.job.client?.contactDetails?.streetAddress,row.job.jobNumber].join(' ').toLowerCase().includes(search.trim().toLowerCase()));
   const item=data?.items.find(item=>item.job._id===selected);
   return <><StageTabs activeStage="QUOTE" subTab="FOLLOW_UPS" counts={data?.quoteCounts} followupCount={data?available.length:null} onSubTabChange={tab=>router.push(`/jobs?stage=QUOTE&subTab=${tab}`)}/><main className="min-h-screen bg-[#f5f7f8] px-4 py-6 sm:px-6 lg:px-8">
     <div className="mx-auto max-w-7xl">
@@ -80,12 +83,13 @@ export default function DeadFollowupsPage() {
       {data?.readOnly && <p className="my-5 text-sm text-slate-500">Changes are disabled in this view.</p>}
       {notice && <p role="status" className="my-4 rounded-xl bg-teal-50 p-4 text-sm text-teal-900">{notice}</p>}
       {error && <div role="alert" className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{error} {data && 'Showing the last loaded quotes; they may be out of date.'} <button onClick={()=>void load(true)} className="min-h-11 px-2 font-semibold underline">Retry</button></div>}
+      {loading && data && <p role="status" className="mb-3 text-xs text-slate-500">Updating quotes…</p>}
       {loading && !data && <p role="status" className="py-12 text-center text-slate-500">Loading Dead quotes…</p>}
       {data && <>
         <div className="grid items-start gap-6 md:grid-cols-[minmax(260px,0.85fr)_minmax(0,1.65fr)]">
           <section aria-label="Dead quote queue" className={`${item?'hidden md:block':''} overflow-hidden rounded-2xl border border-slate-200 bg-white`}>
             <div className="border-b border-slate-100 p-3"><label htmlFor="followup-search" className="sr-only">Search Dead quotes</label><input id="followup-search" type="search" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Search customer, address or quote…" className="min-h-11 w-full rounded-xl bg-slate-50 px-3 text-sm outline-none focus:ring-2 focus:ring-orange-400"/></div>
-            {!items.length?<p className="p-8 text-center text-sm text-slate-500">{search?'No quotes match your search.':'No quotes need following up right now.'}</p>:<ul className="divide-y divide-slate-100">{items.map(row=><li key={row.job._id}><button type="button" aria-pressed={selected===row.job._id} onClick={()=>setSelected(row.job._id)} className={`w-full border-l-[3px] p-4 text-left transition-colors focus-visible:outline-2 focus-visible:outline-orange-400 ${selected===row.job._id?'border-[#e85d04] bg-orange-50/50':'border-transparent hover:bg-slate-50'}`}><div className="flex items-start justify-between gap-3"><span className="font-semibold text-[#1a3a4a]">{row.job.client?.contactDetails?.name || 'Unnamed customer'}</span><span className="shrink-0 text-xs text-slate-400">#{row.job.jobNumber}</span></div>{quoteDiscounts(row.job.quote).items.length>0&&<span className="mt-2 inline-block rounded-md bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-900">Already discounted</span>}<p className="mt-1 truncate text-xs text-slate-500">{row.job.client?.contactDetails?.streetAddress || 'Address not recorded'}</p><div className="mt-3 flex flex-wrap justify-between gap-2 text-xs"><span className="font-semibold text-slate-700">{money(row.job.quote?.c_total)}</span></div><p className="mt-2 text-xs text-slate-500">{(row.controls?.state.offers.length||0)===0?'First follow-up':'Second follow-up'}</p>{waitingLabel(row,data.checkedAt)&&<p className="mt-1 text-xs font-semibold text-slate-600">{waitingLabel(row,data.checkedAt)}</p>}{row.notePending&&<p className="mt-1 text-xs font-medium text-amber-800">Job note pending</p>}</button></li>)}</ul>}
+            {!items.length?<p className="p-8 text-center text-sm text-slate-500">{search?'No quotes match your search.':'No quotes need following up right now.'}</p>:<ul className="divide-y divide-slate-100">{items.map(({row,waiting,discounted,salesperson})=><li key={row.job._id}><button type="button" aria-pressed={selected===row.job._id} onClick={()=>setSelected(row.job._id)} className={`w-full border-l-[3px] p-4 text-left transition-colors focus-visible:outline-2 focus-visible:outline-orange-400 ${selected===row.job._id?'border-[#e85d04] bg-orange-50/50':'border-transparent hover:bg-slate-50'}`}><div className="flex items-start justify-between gap-3"><span className="font-semibold text-[#1a3a4a]">{row.job.client?.contactDetails?.name || 'Unnamed customer'}</span><span className="shrink-0 text-xs text-slate-400">#{row.job.jobNumber}</span></div>{discounted&&<span className="mt-2 inline-block rounded-md bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-900">Already discounted</span>}<p className="mt-1 truncate text-xs text-slate-500">{row.job.client?.contactDetails?.streetAddress || 'Address not recorded'}</p><div className="mt-2 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 text-xs"><span className="font-semibold text-slate-700">{money(row.job.quote?.c_total)}</span><span className="text-right text-slate-500"><span className="sr-only">Quote date: </span>{date(row.job.quote?.date)}</span><span title={salesperson} className="truncate text-slate-500"><span className="sr-only">Assigned salesperson: </span>{salesperson}</span><span className="text-right text-slate-500">{(row.controls?.state.offers.length||0)===0?'First follow-up':'Second follow-up'}</span></div>{waiting&&<p className="mt-1 text-xs font-semibold text-slate-600">{waiting}</p>}{row.notePending&&<p className="mt-1 text-xs font-medium text-amber-800">Job note pending</p>}</button></li>)}</ul>}
           </section>
           {item?<Detail key={`${item.job._id}:${generation}`} item={item} checkedAt={data.checkedAt} onBack={()=>setSelected(null)} onDone={message=>{setNotice(message);setSelected(null);invalidateQueue(localStorage.getItem('token')||'');window.scrollTo(0,0);void load();}} onAccessLost={()=>{invalidateQueue(localStorage.getItem('token')||'');setData(null);setSelected(null);setError('Sign in again to view quotes.');}} readOnly={data.readOnly || loading || Boolean(error)}/>:<div className="hidden rounded-2xl border border-dashed border-slate-300 p-12 text-center md:block"><h2 className="font-semibold text-[#1a3a4a]">Select a quote to review</h2><p className="mt-2 text-sm leading-relaxed text-slate-500">View its scope, price, notes and possible Dead date here.</p></div>}
         </div></>}

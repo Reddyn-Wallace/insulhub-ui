@@ -14,9 +14,10 @@ export function waitingSince(row:QueueItem):string|null {
  const at=first?.sentAt||controlHistory(row.controls?.state||emptyControls(),row.job).entry?.at;
  return at&&Number.isFinite(Date.parse(at))?at:null;
 }
+const nzDayFormat=new Intl.DateTimeFormat('en-CA',{timeZone:'Pacific/Auckland',year:'numeric',month:'2-digit',day:'2-digit'});
 export function waitingLabel(row:QueueItem,now:string):string|null {
  const at=waitingSince(row);if(!at||!Number.isFinite(Date.parse(now)))return null;
- const nzDay=(value:string)=>new Intl.DateTimeFormat('en-CA',{timeZone:'Pacific/Auckland',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(value));
+ const nzDay=(value:string)=>nzDayFormat.format(new Date(value));
  const days=Math.max(0,Math.round((Date.parse(nzDay(now))-Date.parse(nzDay(at)))/86400000));
  const duration=`${days} ${days===1?'day':'days'}`;
  return row.controls?.state.offers.some(offer=>offer.number===1)?`${duration} since first follow-up`:`In Dead for ${duration}`;

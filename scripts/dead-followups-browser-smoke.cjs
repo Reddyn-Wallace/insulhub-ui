@@ -10,7 +10,7 @@ if(!/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(base))throw Error('Local prev
       const page=await context.newPage();const errors=[];
       page.on('pageerror',e=>errors.push(e.message));
       await context.addInitScript(()=>{delete Navigator.prototype.serviceWorker;localStorage.setItem('token','simulation-only');localStorage.setItem('me',JSON.stringify({_id:'tester',firstname:'Test',lastname:'Staff',role:'ADMIN'}));});
-      const quote={_id:'111111111111111111111111',jobNumber:123,stage:'QUOTE',notes:'29/01/26 - Marked as Dead: timing did not suit - Staff',quote:{status:'DECLINED',date:'2026-01-01T00:00:00Z',c_total:12500,wall:{SQM:90},ceiling:{SQM:50}},client:{contactDetails:{name:'Alex Example',streetAddress:'12 Test Street',city:'Wellington'}}};
+      const quote={_id:'111111111111111111111111',jobNumber:123,stage:'QUOTE',lead:{allocatedTo:{firstname:'Sam',lastname:'Taylor'}},notes:'29/01/26 - Marked as Dead: timing did not suit - Staff',quote:{status:'DECLINED',date:'2026-01-01T00:00:00Z',c_total:12500,wall:{SQM:90},ceiling:{SQM:50}},client:{contactDetails:{name:'Alex Example',streetAddress:'12 Test Street',city:'Wellington'}}};
       const items=[{job:quote,eligibility:{state:'review',reason:'Review previous offers before deciding the next approach.'},suggestion:{date:'2026-01-29',provenance:'note',evidence:quote.notes,at:'2026-01-29T10:59:59.999Z'},earliestFirstApproach:'2026-03-29T10:59:59.999Z'},{job:{...quote,_id:'222222222222222222222222',jobNumber:124,notes:'Customer not ready',client:{contactDetails:{name:'Taylor Example',streetAddress:'8 Sample Road'}}},eligibility:{state:'review',reason:'Review previous offers before deciding the next approach.'},suggestion:null,earliestFirstApproach:null}];
       await context.route('**/*',async route=>{
         const url=new URL(route.request().url());
@@ -22,7 +22,14 @@ if(!/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(base))throw Error('Local prev
       });
       await page.goto(`${base}/jobs/follow-ups?stage=QUOTE`);
       await expect(page.getByRole('heading',{name:'Follow-ups',exact:true})).toBeVisible();
-      await page.getByRole('button',{name:/Alex Example/}).click();
+      const row=page.getByRole('button',{name:/Alex Example/});
+      await expect(row.getByText('1 Jan 2026')).toBeVisible();
+      await expect(row.getByText('Sam Taylor')).toBeVisible();
+      const card=await row.boundingBox();
+      if(!card||card.height>155)throw Error(`Queue row too tall: ${card?.height}`);
+      if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Queue horizontal overflow');
+      await page.screenshot({path:`/tmp/dead-followups-queue-${width}.png`,fullPage:true});
+      await row.click();
       await expect(page.getByText('Previous offers not yet reviewed')).toHaveCount(0);
       await expect(page.getByText('Estimated from a note — not confirmed')).toHaveCount(0);
       await expect(page.getByRole('button',{name:'Send Offer',exact:true})).toBeDisabled();
