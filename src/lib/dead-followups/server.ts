@@ -7,7 +7,7 @@ const QUERY = `query DeadQuoteReview($skip: Int, $limit: Int) {
   jobs(stages: [QUOTE], skip: $skip, limit: $limit) {
     total results {
       _id jobNumber stage notes archivedAt updatedAt
-      lead { leadStatus callbackDate }
+      lead { leadStatus callbackDate allocatedTo { firstname lastname } }
       quote { extras { name price } status date quoteNumber c_total quoteNote wall { SQM } ceiling { SQM } }
       client { contactDetails { name streetAddress suburb city } }
     }
@@ -77,11 +77,14 @@ export async function loadDeadQuoteQueue(token: string, checkedAt = new Date().t
     }
     consume(first,0);
     // The first actual page size honours backend caps. Never assume requested limit was returned.
-    for(let offset=size;offset<total;offset+=size*4){
-      const offsets=Array.from({length:4},(_,i)=>offset+i*size).filter(skip=>skip<total);
-      const results=await Promise.all(offsets.map(skip=>page(skip)));
-      results.forEach((result,i)=>consume(result,offsets[i]));
-    }
+    // Keep four workers busy: a slow page must not hold up the next batch.
+    let nextOffset=size;
+    await Promise.all(Array.from({length:Math.min(4,size?Math.ceil((total-size)/size):0)},async()=>{
+      while(nextOffset<total){
+        const offset=nextOffset;nextOffset+=size;
+        consume(await page(offset),offset);
+      }
+    }));
     if(seen.size!==total)throw Error(SCAN_ERROR);
   } catch { throw Error(SCAN_ERROR); }
   items.sort((a,b) => (a.suggestion?.at || '9999').localeCompare(b.suggestion?.at || '9999') || a.job._id.localeCompare(b.job._id));

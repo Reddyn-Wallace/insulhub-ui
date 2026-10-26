@@ -16,6 +16,9 @@
     "/partner/jobs/[jobId]/page", "/api/site-plan-drawings/route"
   ],
   "tests": [
+    "src/lib/dead-followups/queue-cache.test.ts",
+    "src/lib/dead-followups/server.test.ts",
+    "src/lib/dead-followups/queue-view.test.ts",
     "src/lib/dead-followups/template-ui.test.tsx",
     "src/lib/dead-followups/contact-template-migration.test.ts",
     "src/lib/dead-followups/contact-template-routes.test.ts",

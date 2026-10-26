@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import DeadFollowupsPage from '@/app/jobs/follow-ups/page';
 import StageTabs from '@/components/StageTabs';
 vi.mock('next/navigation',()=>({useRouter:()=>({push:vi.fn()})}));
@@ -72,3 +72,32 @@ it('does not restart the count request when switching quote state tabs',async()=
 it('reuses the queue prefetched by the quote navigation',async()=>{const nav=render(<StageTabs activeStage="QUOTE" subTab="OPEN" onSubTabChange={()=>{}}/>);await screen.findByRole('link',{name:/Follow-ups\s*\(1\)/});nav.unmount();render(<DeadFollowupsPage/>);await screen.findByRole('button',{name:/Alex Example/});expect(fetch).toHaveBeenCalledTimes(1);});
 
 it('preserves all quote tab counts when entering Follow-ups',()=>{const nav=render(<StageTabs activeStage="QUOTE" subTab="OPEN" counts={{OPEN:43,CALLBACK:33,DEAD:1057,ALL:1133}} onSubTabChange={()=>{}}/>);nav.unmount();render(<StageTabs activeStage="QUOTE" subTab="FOLLOW_UPS" followupCount={94} onSubTabChange={()=>{}}/>);expect(screen.getByRole('button',{name:/Open\s*\(43\)/})).toBeTruthy();expect(screen.getByRole('button',{name:/Dead\s*\(1057\)/})).toBeTruthy();});
+
+it('shows quote date and assigned salesperson in the queue, with an unassigned fallback',async()=>{
+ const row=payload.items[0];
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({...payload,items:[{...row,job:{...row.job,lead:{allocatedTo:{firstname:'Sam',lastname:'Taylor'}}}},{...row,job:{...row.job,_id:'unassigned',client:{contactDetails:{name:'Unassigned Example'}}}}]}));
+ render(<DeadFollowupsPage/>);
+ const assigned=await screen.findByRole('button',{name:/Alex Example/});
+ expect(within(assigned).getByText('1 Jan 2026')).toBeTruthy();
+ expect(within(assigned).getByText('Sam Taylor')).toBeTruthy();
+ expect(within(screen.getByRole('button',{name:/Unassigned Example/})).getByText('Unassigned')).toBeTruthy();
+});
+it('displays a stale queue on return but keeps actions disabled until refreshing succeeds',async()=>{
+ const originalNow=Date.now();const now=vi.spyOn(Date,'now');now.mockReturnValue(originalNow);
+ try {
+ const editable={...payload,readOnly:false,items:[{...payload.items[0],controls:{revision:1,state:{draftDiscountCents:null,snoozedUntil:null,exclusionReason:null,deadDate:null,dateEvidence:'',reviewedVersion:null,offers:[]},actorName:'Staff',updatedAt:null}}]};
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json(editable));
+ const view=render(<DeadFollowupsPage/>);fireEvent.click(await screen.findByRole('button',{name:/Alex Example/}));
+ expect(screen.getByRole('button',{name:'Skip for now'}).matches(':disabled')).toBe(false);view.unmount();
+ now.mockReturnValue(originalNow+60_000);
+ let finish!:(response:Response)=>void;
+ vi.mocked(fetch).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+ render(<DeadFollowupsPage/>);
+ const row=screen.getByRole('button',{name:/Alex Example/});fireEvent.click(row);
+ expect(screen.getByRole('button',{name:'Skip for now'}).matches(':disabled')).toBe(true);
+ expect(screen.getByRole('status').textContent).toContain('Updating quotes');
+ finish(Response.json(editable));
+ await waitFor(()=>expect(screen.queryByText('Updating quotes…')).toBeNull());
+ expect(screen.getByRole('button',{name:'Skip for now'}).matches(':disabled')).toBe(false);
+ }finally{now.mockRestore();}
+});

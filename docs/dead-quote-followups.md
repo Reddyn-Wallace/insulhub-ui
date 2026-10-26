@@ -97,3 +97,11 @@ The Quotes navigation now prefetches the full follow-up queue into a shared, tok
 Rows show NZ calendar days in Dead before the first offer, or days since the first sent follow-up afterwards. The queue sorts by that waiting period, longest first, irrespective of review status. The canonical quote scan also returns Open/Callback/Dead/All counts before follow-up cohort filtering, so those badges remain available when Follow-ups is opened directly. Existing navigation counts carry across during loading.
 
 Validated with 45 focused tests covering shared requests, token isolation, expiry, invalidation, stale responses, waiting order, NZ daylight saving and preserved tab counts. Production build/TypeScript and targeted lint passed. No deployment or production writes.
+
+## Compact queue and loading — 26 October 2026
+
+Queue cards include the quote date and assigned salesperson alongside the amount, follow-up stage and waiting period. Unassigned quotes say Unassigned. The two-column metadata layout reduces vertical spacing; mobile/desktop smoke checks enforce a compact normal card and no horizontal overflow.
+
+A token-scoped in-memory snapshot can now be displayed for up to ten minutes while the normal 30-second freshness check triggers an update. The stale snapshot is display-only: all follow-up actions stay disabled until the update succeeds, and remain disabled on refresh failure. Access refusal clears the snapshot and displayed customer data. Existing invalidation after completed actions is preserved. A full browser reload or a visit after ten minutes still requires a full load.
+
+Canonical quote pagination uses four continuously running workers instead of batches of four, so a slow page no longer holds up the next batch. Complete-scan validation and backend page-size caps remain enforced. Waiting labels and discount metadata are calculated once per queue snapshot, with shared date/currency formatters. A local 2,000-label benchmark fell from approximately 201 ms to 7 ms; this is a rendering benchmark, not a live API latency measurement. First-load latency still depends on the upstream full quote scan.

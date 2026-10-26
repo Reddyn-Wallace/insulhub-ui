@@ -56,3 +56,22 @@ it('loads remaining pages concurrently with a limit of four requests',async()=>{
  }));
  const result=await loadDeadQuoteQueue('token');expect(result.items).toHaveLength(12);expect(peak).toBe(4);
 });
+
+it('requests the assigned salesperson along with each quote',async()=>{
+ vi.stubGlobal('fetch',vi.fn(async(_url,init)=>{
+ const {query}=JSON.parse(init.body);expect(query).toMatch(/allocatedTo\s*\{\s*firstname\s+lastname\s*\}/);
+ return Response.json({data:{jobs:{total:1,results:[{...quote,lead:{leadStatus:'DEAD',allocatedTo:{firstname:'Sam',lastname:'Taylor'}}}]}}});
+ }));
+ expect((await loadDeadQuoteQueue('token')).items[0].job.lead?.allocatedTo?.firstname).toBe('Sam');
+});
+it('starts the next page when a worker finishes without waiting for the slowest page in a batch',async()=>{
+ let release!:()=>void;const slow=new Promise<void>(resolve=>{release=resolve;});const requested:number[]=[];
+ vi.stubGlobal('fetch',vi.fn(async(_url,init)=>{
+ const {variables}=JSON.parse(init.body);requested.push(variables.skip);
+ if(variables.skip===1)await slow;
+ return Response.json({data:{jobs:{total:8,results:[{...quote,_id:String(variables.skip)}]}}});
+ }));
+ const pending=loadDeadQuoteQueue('token');
+ try{await vi.waitFor(()=>expect(requested).toContain(5),{timeout:200,interval:5});}
+ finally{release();await pending;}
+});

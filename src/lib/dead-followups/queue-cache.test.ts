@@ -8,3 +8,21 @@ it('shares an in-flight request between the badge and queue',async()=>{let finis
 it('expires after 30 seconds and isolates sign-ins',async()=>{vi.useFakeTimers();await fetchQueue('test');vi.advanceTimersByTime(30001);expect(cachedQueue('test')).toBeNull();await fetchQueue('test');expect(cachedQueue('other')).toBeNull();await fetchQueue('other');expect(fetch).toHaveBeenCalledTimes(3);});
 it('invalidation prevents an old pending request repopulating the cache',async()=>{let finish!:(r:Response)=>void;vi.mocked(fetch).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));const pending=fetchQueue('test');invalidateQueue('test');const updated={...data,checkedAt:'2026-10-09T00:00:00Z'};vi.mocked(fetch).mockResolvedValueOnce(Response.json(updated));await fetchQueue('test');finish(Response.json(data));await pending;expect(cachedQueue('test')).toEqual(updated);});
 it('does not cache failed requests and retries them',async()=>{vi.mocked(fetch).mockResolvedValueOnce(new Response('',{status:401}));await expect(fetchQueue('test')).rejects.toMatchObject({status:401});expect(cachedQueue('test')).toBeNull();await fetchQueue('test');expect(fetch).toHaveBeenCalledTimes(2);});
+
+it('shows a recent stale snapshot while fetching an update, and clears it on access loss',async()=>{
+ vi.useFakeTimers();await fetchQueue('test');vi.advanceTimersByTime(60_000);
+ expect(cachedQueue('test')).toBeNull();
+ expect(cachedQueue('test',true)).toEqual(data);
+ const updated={...data,checkedAt:'2026-10-26T00:00:00Z'};
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json(updated));
+ expect(await fetchQueue('test')).toEqual(updated);
+ vi.advanceTimersByTime(60_000);
+ vi.mocked(fetch).mockResolvedValueOnce(new Response('',{status:403}));
+ await expect(fetchQueue('test')).rejects.toMatchObject({status:403});
+ expect(cachedQueue('test',true)).toBeNull();
+});
+it('never displays a snapshot from another sign-in, after invalidation, or after the stale limit',async()=>{
+ vi.useFakeTimers();await fetchQueue('test');vi.advanceTimersByTime(60_000);
+ expect(cachedQueue('other',true)).toBeNull();invalidateQueue('test');expect(cachedQueue('test',true)).toBeNull();
+ await fetchQueue('test');vi.advanceTimersByTime(15*60_000);expect(cachedQueue('test',true)).toBeNull();
+});

@@ -1,9 +1,11 @@
 import type {QueueResponse} from './types';
 const TTL=30_000;
+// Display-only fallback while a fresh request runs. Never used by fetchQueue.
+const STALE_TTL=10*60_000;
 type Entry={token:string;data:QueueResponse|null;at:number;pending:Promise<QueueResponse>|null};
 let entry:Entry|null=null;
-export function cachedQueue(token:string):QueueResponse|null {
- return entry?.token===token&&Date.now()-entry.at<TTL?entry.data:null;
+export function cachedQueue(token:string,allowStale=false):QueueResponse|null {
+ return entry?.token===token&&Date.now()-entry.at<(allowStale?STALE_TTL:TTL)?entry.data:null;
 }
 export function invalidateQueue(token:string){if(entry?.token===token)entry=null;}
 export async function fetchQueue(token:string):Promise<QueueResponse>{
