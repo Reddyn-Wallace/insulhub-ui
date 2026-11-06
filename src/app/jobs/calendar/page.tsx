@@ -1090,6 +1090,7 @@ export default function JobsCalendarPage() {
         <div className="flex items-center justify-between gap-3 mb-3">
           <div>
             <h1 className="text-lg font-bold text-gray-900">Installation Calendar</h1>
+              <a href="/jobs/installation-splits-preview" className="mt-2 inline-block text-xs font-semibold text-[#e85d04] underline">Try percentage splits · fictional data</a>
             <p className="text-sm text-gray-500">Accepted, in-progress, invoice, and completed jobs with install dates.</p>
           </div>
           <button

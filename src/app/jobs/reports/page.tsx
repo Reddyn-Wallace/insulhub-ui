@@ -567,6 +567,7 @@ export default function ReportsPage() {
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-widest text-[#e85d04]">Reports</div>
               <h1 className="mt-1 text-2xl font-bold tracking-tight text-gray-950">Usage Dashboard</h1>
+              <a href="/jobs/installation-splits-preview" className="mt-2 inline-block text-xs font-semibold text-[#e85d04] underline">Try percentage splits · fictional data</a>
               <p className="mt-1 max-w-2xl text-sm text-gray-500">
                 Installed jobs by NZ install date, comparing budgeted bags with actual usage and the notes behind any movement.
               </p>
