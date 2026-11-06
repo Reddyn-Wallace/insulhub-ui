@@ -1,7 +1,7 @@
 import "server-only";
 import { toNzDateKey } from "@/lib/reports/sales-installs-types";
 import { completeVisit, rescheduleVisit, undoLastProgress } from "./model";
-import { initialSplit, type SourceJob, type SavedSplit } from "./projection";
+import { initialSplit, needsHistoricalSplitReason, type SourceJob, type SavedSplit } from "./projection";
 import { readSplits, saveSplit, SplitError } from "./store";
 export const SPLIT_JOB_FIELDS = `_id jobNumber stage archivedAt client{contactDetails{name}} quote{c_total wall{SQM c_bagCount} ceiling{SQM}} installation{installDate installStatus checkSheetSignedAsComplete} installerChecksheet{complete actualBags}`;
 export async function loadSplitSource(token: string, id: string) {
@@ -48,17 +48,15 @@ export async function changeSplit(
       "This job changed. Reload the visits before trying again.",
       409,
     );
+  const historical = !existing && needsHistoricalSplitReason(job);
   if (
-    !existing &&
-    (job.stage === "COMPLETED" ||
-      ["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"].includes(
-        job.installation?.installStatus || "",
-      ) ||
-      job.installerChecksheet?.complete ||
-      job.installation?.checkSheetSignedAsComplete)
+    historical &&
+    (typeof input.reason !== "string" ||
+      !input.reason.trim() ||
+      input.reason.trim().length > 500)
   )
     throw new SplitError(
-      "This job already has a completed checksheet. Historical splitting requires reviewed backfill.",
+      "Enter a reason for splitting this completed job (up to 500 characters).",
     );
   if (!existing && !toNzDateKey(job.installation?.installDate))
     throw new SplitError(
@@ -115,6 +113,9 @@ export async function changeSplit(
       e instanceof Error ? e.message : "Invalid visit change.",
     );
   }
+  if (historical)
+    next.history[next.history.length - 1] +=
+      ` Historical split reason: ${(input.reason as string).trim()}`;
   next.history = next.history.map((h, i) =>
     i === next.history.length - 1
       ? `${new Date().toISOString()} · ${actor} · ${h}`

@@ -1,4 +1,5 @@
 "use client";
+import { needsHistoricalSplitReason } from "@/lib/installation-splits/projection";
 import { useCallback, useEffect, useState } from "react";
 import { toNzDateKey } from "@/lib/reports/sales-installs-types";
 import {
@@ -60,6 +61,7 @@ export default function InstallationVisits({
   useEffect(() => {
     void load();
   }, [load]);
+  const historical = !split && !!source && needsHistoricalSplitReason(source);
   const pending = split?.visits.find((v) => v.state === "planned");
   const remaining = pending?.percent ?? (split ? 0 : 100);
   const done =
@@ -197,78 +199,92 @@ export default function InstallationVisits({
                   requires that date.
                 </p>
               )}
-              {remaining > 0 &&
-                (!source.installerChecksheet?.complete || split) && (
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      void save("complete");
-                    }}
-                    className="grid gap-3 sm:grid-cols-2"
-                  >
-                    {!split && (
-                      <label className="text-sm">
-                        Date work was completed
+              {remaining > 0 && (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void save("complete");
+                  }}
+                  className="grid gap-3 sm:grid-cols-2"
+                >
+                  {historical && (
+                    <div className="sm:col-span-2 space-y-2">
+                      <p className="text-sm text-gray-600">
+                        This job is already complete. Record the dates and
+                        percentages actually worked, then record the remaining
+                        visits. The final checksheet’s bag total will be
+                        allocated across them; the job and checksheet stay
+                        unchanged.
+                      </p>
+                      <label className="block text-sm">
+                        Reason for historical split
                         <input
-                          aria-label="Date work was completed"
                           className={field}
-                          type="date"
                           required
-                          value={completedDate}
-                          onChange={(e) => setCompletedDate(e.target.value)}
+                          maxLength={500}
+                          value={reason}
+                          onChange={(e) => setReason(e.target.value)}
                         />
                       </label>
-                    )}
+                    </div>
+                  )}
+                  {!split && (
                     <label className="text-sm">
-                      Completed this visit (% of whole job)
+                      Date work was completed
                       <input
-                        className={field}
-                        type="number"
-                        step="0.01"
-                        min="0.01"
-                        max={remaining}
-                        required
-                        value={percent}
-                        onChange={(e) => setPercent(e.target.value)}
-                      />
-                    </label>
-                    <label className="text-sm">
-                      Return date (optional)
-                      <input
+                        aria-label="Date work was completed"
                         className={field}
                         type="date"
-                        min={pending?.date || completedDate || undefined}
-                        disabled={Number(percent) >= remaining}
-                        value={returnDate}
-                        onChange={(e) => setReturnDate(e.target.value)}
+                        required
+                        value={completedDate}
+                        onChange={(e) => setCompletedDate(e.target.value)}
                       />
                     </label>
-                    <p className="text-xs text-gray-500 sm:col-span-2">
-                      {Math.max(
-                        0,
-                        Math.round((remaining - Number(percent || 0)) * 100) /
-                          100,
-                      )}
-                      % will remain. Leave the return date blank to put it in
-                      the unscheduled queue.
-                    </p>
-                    <button
-                      className={button}
-                      disabled={
-                        saving ||
-                        (!pending?.date && !!split) ||
-                        (!split && !source.installation?.installDate)
-                      }
-                    >
-                      {saving ? "Saving…" : "Record completed work"}
-                    </button>
-                  </form>
-                )}
-              {!split && source.installerChecksheet?.complete && (
-                <p className="text-sm text-gray-500">
-                  This job already has a final checksheet. Historical splitting
-                  requires reviewed backfill.
-                </p>
+                  )}
+                  <label className="text-sm">
+                    Completed this visit (% of whole job)
+                    <input
+                      className={field}
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      max={remaining}
+                      required
+                      value={percent}
+                      onChange={(e) => setPercent(e.target.value)}
+                    />
+                  </label>
+                  <label className="text-sm">
+                    Return date (optional)
+                    <input
+                      className={field}
+                      type="date"
+                      min={pending?.date || completedDate || undefined}
+                      disabled={Number(percent) >= remaining}
+                      value={returnDate}
+                      onChange={(e) => setReturnDate(e.target.value)}
+                    />
+                  </label>
+                  <p className="text-xs text-gray-500 sm:col-span-2">
+                    {Math.max(
+                      0,
+                      Math.round((remaining - Number(percent || 0)) * 100) /
+                        100,
+                    )}
+                    % will remain. Leave the return date blank to put it in the
+                    unscheduled queue.
+                  </p>
+                  <button
+                    className={button}
+                    disabled={
+                      saving ||
+                      (!pending?.date && !!split) ||
+                      (!split && !source.installation?.installDate)
+                    }
+                  >
+                    {saving ? "Saving…" : "Record completed work"}
+                  </button>
+                </form>
               )}
               {pending && (
                 <form

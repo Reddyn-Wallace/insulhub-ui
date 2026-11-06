@@ -168,3 +168,14 @@ export function projectUsageJobs<T extends SourceJob>(
       }) as T & { usageAllocation: UsageAllocation },
   );
 }
+
+export function needsHistoricalSplitReason(job: SourceJob): boolean {
+  return (
+    job.stage === "COMPLETED" ||
+    ["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"].includes(
+      job.installation?.installStatus || "",
+    ) ||
+    job.installerChecksheet?.complete === true ||
+    job.installation?.checkSheetSignedAsComplete === true
+  );
+}

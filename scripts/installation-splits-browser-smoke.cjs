@@ -15,6 +15,7 @@ const base =
   const browser = await chromium.launch({ headless: true, channel: "chrome" });
   try {
     for (const width of [1440, 390]) {
+      const historical = width === 390;
       const context = await browser.newContext({
         viewport: { width, height: 1000 },
       });
@@ -50,7 +51,7 @@ const base =
             streetAddress: "Test address",
           },
         },
-        installerChecksheet: { complete: false, actualBags: null },
+        installerChecksheet: { complete: historical, actualBags: historical ? 32 : null },
       };
       const errors = [];
       const page = await context.newPage();
@@ -126,6 +127,7 @@ const base =
         .click();
       await page.getByLabel("Completed this visit (% of whole job)").fill("60");
       await page.getByLabel("Return date (optional)").fill("2026-11-10");
+      if (historical) await page.getByLabel("Reason for historical split").fill("Correct weekly allocation after completion");
       await page
         .getByRole("button", { name: "Record completed work", exact: true })
         .click();
@@ -140,9 +142,9 @@ const base =
       await run.click();
       let row = page.locator("tbody tr").filter({ hasText: "#42" });
       await row
-        .getByText("Estimated · quoted budget", { exact: true })
+        .getByText(historical ? "Revised · allocated actual total" : "Estimated · quoted budget", { exact: false })
         .waitFor();
-      assert.match(await row.innerText(), /18/);
+      assert.match(await row.innerText(), historical ? /19\.2/ : /18/);
       assert.equal(
         await row.count(),
         1,

@@ -176,3 +176,52 @@ it("requires the legacy installation date before first split to retain completio
   expect((await response.json()).error).toContain("original installation date");
   expect(mocks.save).not.toHaveBeenCalled();
 });
+
+it.each([
+  { installerChecksheet: { complete: true, actualBags: 32 } },
+  {
+    installation: { ...source.installation, checkSheetSignedAsComplete: true },
+  },
+  {
+    installation: {
+      ...source.installation,
+      installStatus: "INSTALLED_AS_QUOTED",
+    },
+  },
+  { stage: "COMPLETED" },
+])(
+  "allows historical first splits with an audited reason: %j",
+  async (overrides) => {
+    const historical = { ...source, ...overrides };
+    mocks.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: { me: { _id: "actor" }, job: historical } }),
+    });
+    const input = {
+      version: 0,
+      action: "complete",
+      visitId: "initial",
+      percent: 60,
+      date: "2026-11-10",
+      completedDate: "2026-11-06",
+    };
+    expect((await POST(req(input), context)).status).toBe(400);
+    expect(mocks.save).not.toHaveBeenCalled();
+    const response = await POST(
+      req({ ...input, reason: "Work happened across two weeks" }),
+      context,
+    );
+    expect(response.status).toBe(200);
+    const split = (await response.json()).split;
+    expect(split.visits.map((v: { percent: number }) => v.percent)).toEqual([
+      60, 40,
+    ]);
+    expect(split.history.join(" ")).toContain("Work happened across two weeks");
+    expect(mocks.save.mock.calls[0][3].reason).toBe(
+      "Work happened across two weeks",
+    );
+    expect(JSON.parse(mocks.fetch.mock.calls.at(-1)[1].body).query).toMatch(
+      /^query /,
+    );
+  },
+);

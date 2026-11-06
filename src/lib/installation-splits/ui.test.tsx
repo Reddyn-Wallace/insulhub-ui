@@ -97,3 +97,17 @@ it("uses actual total allocations automatically when checksheet is completed", a
   );
   expect(screen.getByRole("alert").textContent).toContain("remaining");
 });
+
+it("offers a historical split for a completed checksheet and requires a correction reason", async () => {
+  mocks.request.mockResolvedValue({
+    job: { ...source, installerChecksheet: { complete: true, actualBags: 32 } },
+    split: null,
+  });
+  render(<InstallationVisits jobId={source._id} />);
+  await screen.findByLabelText("Completed this visit (% of whole job)");
+  expect(screen.getByLabelText("Reason for historical split")).toHaveProperty(
+    "required",
+    true,
+  );
+  expect(screen.queryByText(/requires reviewed backfill/)).toBeNull();
+});

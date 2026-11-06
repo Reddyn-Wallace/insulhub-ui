@@ -6,6 +6,8 @@ Implemented on `codex/installation-splits`. This is persistent CRM functionality
 
 Open an installation job's Job tab, or select its card in the calendar. Use **Installation visits & partial completion**. Set the original installation date through normal planning first; existing invoice/certificate prerequisites still depend on it.
 
+Jobs with a completed checksheet or installed/completed status can also be split retrospectively. A reason is required for the first historical split and is saved in the visit history and audit event. Enter each actual visit date and percentage, including the remaining visits; the original job status and checksheet are unchanged. A completed checksheet’s final actual bag total is used immediately for allocations.
+
 Record the percentage completed on that visit, as a share of the whole job. The remainder becomes a return visit, either dated or unscheduled. Further progress follows the same rule: 60%, then 25%, leaves 15%. Record all the remaining percentage to finish visit work. This does not mark the upstream job installed, complete the checksheet, or send messages.
 
 Only the remaining visit can be rescheduled. Undated remainders appear in the calendar's **Unscheduled return visits** section. The last progress entry can be reopened with a correction reason while the final checksheet remains incomplete. Earlier visits and the audit history are retained.
