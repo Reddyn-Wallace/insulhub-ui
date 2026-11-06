@@ -1,7 +1,8 @@
 {
   "routes": [
     "/api/release/route",
-    "/jobs/installation-splits-preview/page",
+    "/api/jobs/[id]/installation-splits/route", "/api/installation-splits/route",
+    "/jobs/reports/page", "/jobs/reports/sales-installs/page",
     "/jobs/page", "/jobs/[id]/page", "/jobs/calendar/page",
     "/jobs/follow-ups/page", "/jobs/[id]/follow-up-history/page",
     "/jobs/settings/templates/follow-ups/page",
@@ -18,6 +19,12 @@
   ],
   "tests": [
     "src/lib/installation-splits/model.test.ts",
+    "src/lib/installation-splits/projection.test.ts",
+    "src/lib/installation-splits/calendar.test.ts",
+    "src/lib/installation-splits/sales-report.test.ts",
+    "src/lib/installation-splits/store.integration.test.ts",
+    "src/lib/installation-splits/routes.test.ts",
+    "src/lib/installation-splits/ui.test.tsx",
     "scripts/installation-splits-browser-smoke.cjs",
     "src/lib/dead-followups/queue-cache.test.ts",
     "src/lib/dead-followups/server.test.ts",

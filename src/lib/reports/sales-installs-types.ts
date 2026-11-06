@@ -1,3 +1,4 @@
+import type { VisitLabel } from "@/lib/installation-splits/projection";
 export type Person = {
   _id?: string;
   firstname?: string | null;
@@ -13,6 +14,7 @@ export type ContactDetails = {
 };
 
 export type ReportJob = {
+  splitVisit?: VisitLabel;
   _id: string;
   jobNumber?: number | null;
   stage?: string | null;
