@@ -2,13 +2,12 @@ require("tsx/cjs");
 const { chromium } = require("@playwright/test");
 const assert = require("node:assert/strict");
 const {
-  completeVisit,
-  rescheduleVisit,
+  editVisits,
 } = require("../src/lib/installation-splits/model.ts");
 const {
   initialSplit,
-  projectVisits,
 } = require("../src/lib/installation-splits/projection.ts");
+const {calendarVisits} = require("../src/lib/installation-splits/views.ts");
 const base =
   process.env.INSTALLATION_SPLITS_SMOKE_BASE_URL || "http://127.0.0.1:3128";
 (async () => {
@@ -31,6 +30,8 @@ const base =
         );
       });
       let split = null;
+      let calendarRequests = 0;
+      let visitReads = 0;
       const job = {
         _id: "aaaaaaaaaaaaaaaaaaaaaaaa",
         jobNumber: 42,
@@ -71,7 +72,7 @@ const base =
             const body = request.postDataJSON();
             assert.match(
               body.query,
-              /^\s*query /,
+              /^\s*query\b/,
               "No real upstream mutations in browser verification",
             );
             return send({
@@ -79,33 +80,27 @@ const base =
                 jobs: { total: 1, results: [job] },
                 job,
                 users: { results: [] },
+                listEmailLogs: {total:0,results:[]},
               },
             });
           }
           return route.abort();
         }
         if (url.pathname === `/api/jobs/${job._id}/installation-splits`) {
-          if (request.method() === "GET") return send({ job, split });
+          if (request.method() === "GET") { visitReads++; return send({ job, split }); }
           const input = request.postDataJSON();
           if (input.version !== (split?.version || 0))
             return send({ error: "Reload visits." }, 409);
           const previous = split || initialSplit(job);
-          const changed =
-            input.action === "complete"
-              ? completeVisit(
-                  previous,
-                  input.visitId,
-                  input.percent,
-                  input.date,
-                )
-              : rescheduleVisit(previous, input.visitId, input.date);
+          const changed = editVisits(previous,input.visits);
           split = { ...previous, ...changed, version: previous.version + 1 };
           return send({ split });
         }
         if (url.pathname === "/api/installation-splits")
           return send({ splits: split ? { [job._id]: split } : {} });
         if (url.pathname === "/api/calendar/jobs") {
-          const projected = split ? projectVisits(job, split) : [job];
+          calendarRequests++;
+          const projected = calendarVisits(job,split);
           return send({
             jobs: projected.filter((j) => j.installation.installDate),
             unscheduled: projected.filter((j) => !j.installation.installDate),
@@ -125,12 +120,26 @@ const base =
         .filter({ hasText: "Browser regression job" })
         .first()
         .click();
-      await page.getByLabel("Completed this visit (% of whole job)").fill("60");
-      await page.getByLabel("Return date (optional)").fill("2026-11-10");
+      await page.getByRole("button",{name:"Split job",exact:true}).click();
+      const beforeSave = calendarRequests;
+      await page.getByLabel("Visit 1 percentage").fill("60");
+      await page.getByLabel("Visit 2 date").fill("2026-11-10");
       if (historical) await page.getByLabel("Reason for historical split").fill("Correct weekly allocation after completion");
       await page
-        .getByRole("button", { name: "Record completed work", exact: true })
+        .getByRole("button", { name: "Save visits", exact: true })
         .click();
+      await page.getByRole("button",{name:"Edit visits",exact:true}).waitFor();
+      assert.equal(calendarRequests,beforeSave,"Saving must not refetch the calendar");
+      assert.equal(visitReads,0,"Seeded popup must not refetch visit details");
+      await page.getByRole("button",{name:"Pencilled",exact:true}).waitFor();
+      await page.getByText("Planning notes",{exact:true}).waitFor();
+      assert.equal(await page.getByText("Usage reporting",{exact:true}).count(),0);
+      await page.getByRole("button",{name:"Pencilled",exact:true}).click();
+      await page.getByRole("button",{name:"Internal",exact:true}).click();
+      await page.locator("textarea").fill("Keep normal planning notes");
+      await page.getByRole("button",{name:"Save",exact:true}).click();
+      await page.getByRole("heading",{name:"Installation planning",exact:true}).waitFor({state:"detached"});
+      assert.equal(split.visits[1].date,"2026-11-10");
       await page.getByText("40% · Planned", { exact: true }).waitFor();
       const splitCard = page.locator('[data-split-visit="true"]').first();
       assert((await splitCard.getAttribute("class")).includes("bg-blue-50"));
@@ -182,13 +191,35 @@ const base =
         .getByRole("button")
         .filter({ hasText: "40% · Planned" })
         .click();
-      await page
-        .getByRole("button", { name: "Remove revisit date", exact: true })
-        .click();
-      await page
-        .getByRole("heading", { name: "Unscheduled return visits" })
-        .waitFor();
+      await page.getByRole("button",{name:"Edit visits",exact:true}).click();
+      await page.getByRole("button",{name:"Clear visit 2 date",exact:true}).click();
+      await page.getByRole("button",{name:"Add visit",exact:true}).click();
+      await page.getByLabel("Visit 3 date").fill("2026-11-20");
+      await page.getByRole("button",{name:"Save visits",exact:true}).click();
+      await page.getByRole("button",{name:"Edit visits",exact:true}).waitFor();
+      await page.getByRole("button",{name:"×",exact:true}).click();
+      assert.equal(await page.getByRole("heading",{name:"Unscheduled return visits"}).count(),0);
       assert.equal(split.visits[0].date, "2026-11-06");
+      assert.deepEqual(split.visits.map(v=>v.percent),[60,20,20]);
+      // A completed legacy parent must still expose remaining work in the normal queue.
+      job.stage="COMPLETED";
+      await page.goto(base+"/jobs?stage=JOBS");
+      await page.getByText("Revisit needs scheduling",{exact:true}).waitFor();
+      await page.goto(base+"/jobs?stage=JOBS&search=42");
+      await page.getByText("Revisit needs scheduling",{exact:true}).waitFor();
+      await page.getByRole("button",{name:"Schedule revisit",exact:true}).click();
+      await page.getByRole("button",{name:"Edit visits",exact:true}).click();
+      await page.getByLabel("Visit 2 date").fill("2026-11-12");
+      await page.getByRole("button",{name:"Save visits",exact:true}).click();
+      await page.getByRole("heading",{name:"Installation visits",exact:true}).waitFor({state:"detached"});
+      await page.getByRole("button",{name:"Manage visit",exact:true}).first().waitFor();
+      assert.equal(await page.getByRole("button",{name:"Schedule revisit",exact:true}).count(),0);
+      await page.goto(base+"/jobs/calendar");
+      await page.getByText("20% · Planned",{exact:true}).first().waitFor();
+      await page.getByRole("button").filter({hasText:"20% · Planned"}).first().click();
+      await page.getByRole("button",{name:"Edit visits",exact:true}).click();
+      await page.screenshot({path:`/tmp/compact-visit-editor-${width}.png`});
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth),false);
       assert.deepEqual(errors, []);
       console.log(
         `PASS ${width}px: real calendar editor, saved-visit API requests, partial usage without installed status, final checksheet recalculation, unscheduled queue`,

@@ -241,3 +241,38 @@ export function undoLastProgress(job: SplitJob, reason: string): SplitJob {
     ],
   };
 }
+
+// Only scheduling fields are editable here. Recorded quantities remain server-owned.
+export function editVisits(job: SplitJob, input: unknown): SplitJob {
+  if (!Array.isArray(input) || input.length < 1 || input.length > 100)
+    throw Error("Keep between 1 and 100 visits.");
+  const ids = new Set<string>();
+  const visits: Visit[] = input.map((row) => {
+    if (!row || typeof row !== "object" ||
+        typeof row.id !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(row.id) ||
+        ids.has(row.id)) throw Error("Each visit must have a unique ID.");
+    ids.add(row.id);
+    if (row.state !== "planned" && row.state !== "completed")
+      throw Error("Choose Planned or Done for each visit.");
+    if (typeof row.percent !== "number" || !Number.isFinite(row.percent) ||
+        row.percent <= 0 || row.percent > 100 || round(row.percent) !== row.percent)
+      throw Error("Each visit needs a percentage greater than 0, with up to two decimal places.");
+    if (row.date !== null && (typeof row.date !== "string" || !validDate(row.date)))
+      throw Error("Enter a valid visit date.");
+    if (row.state === "completed" && !row.date)
+      throw Error("Done visits need the date the work happened.");
+    const prior = job.visits.find(v => v.id === row.id);
+    if (prior?.actualBags !== undefined && row.state !== "completed")
+      throw Error("A visit with recorded usage must remain Done.");
+    return {
+      id: row.id, date: row.date, percent: row.percent, state: row.state,
+      ...(prior?.actualBags !== undefined ? {actualBags: prior.actualBags} : {}),
+    };
+  });
+  if (visits.reduce((sum,v) => sum + Math.round(v.percent * 100), 0) !== 10000)
+    throw Error("Visit percentages must total 100%.");
+  if (job.visits.some(v => v.actualBags !== undefined && !ids.has(v.id)))
+    throw Error("A visit with recorded usage cannot be removed.");
+  return {...job, visits, history: [...job.history, "Updated visits: " +
+    visits.map((v,i) => `Visit ${i+1} · ${v.date || "Unscheduled"} · ${v.percent}% · ${v.state}`).join("; ")]};
+}

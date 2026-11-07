@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { calendarVisits } from "@/lib/installation-splits/views";
 import { readSplits } from "@/lib/installation-splits/store";
 import { projectVisits } from "@/lib/installation-splits/projection";
 
@@ -78,7 +79,7 @@ const CALENDAR_JOBS_QUERY = `
         }
         quote {
           c_total
-          wall { SQM }
+          wall { SQM c_bagCount }
           ceiling { SQM }
         }
       }
@@ -168,9 +169,9 @@ export async function GET(request: NextRequest) {
     if (allJobs.length >= total) break;
     }
     if (total === null || allJobs.length !== total || new Set(allJobs.map(j=>j._id)).size !== total) throw new Error("Calendar results are incomplete. Refresh before scheduling.");
-    const active = allJobs;
+    const active = allJobs.filter(job=>!job.archivedAt);
     const splits = await readSplits(active.map(j=>j._id));
-    const projected = active.flatMap(job=>splits[job._id] ? projectVisits(job,splits[job._id]) : [job]);
+    const projected = active.flatMap(job=>calendarVisits(job,splits[job._id] || null));
     const startKey = dateKeyFromIsoNz(start.toISOString());
     const endKey = dateKeyFromIsoNz(end.toISOString());
     const jobs = projected.filter(job=>{

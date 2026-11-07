@@ -35,6 +35,8 @@ it("includes return visit in a new month even when legacy install date lies outs
   expect(body.jobs).toHaveLength(1);
   expect(body.jobs[0].quote.c_total).toBe(4000);
   expect(body.jobs[0].splitVisit.percent).toBe(40);
+  expect(body.jobs[0].splitSource.quote.c_total).toBe(10000);
+  expect(body.jobs[0].installationSplit.visits).toHaveLength(2);
   const query = JSON.parse(mocks.fetch.mock.calls[0][1].body);
   expect(query.variables.installStartDate).toBeUndefined();
   expect(query.variables.limit).toBe(250);

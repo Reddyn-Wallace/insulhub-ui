@@ -220,8 +220,24 @@ it.each([
     expect(mocks.save.mock.calls[0][3].reason).toBe(
       "Work happened across two weeks",
     );
-    expect(JSON.parse(mocks.fetch.mock.calls.at(-1)[1].body).query).toMatch(
+    expect(JSON.parse(mocks.fetch.mock.calls.at(-1)![1].body).query).toMatch(
       /^query /,
     );
   },
 );
+
+it("saves a complete visit list atomically with trusted snapshots and audit", async () => {
+ const visits = [
+  {id:"initial",date:"2026-11-05",percent:60,state:"completed"},
+  {id:"second",date:null,percent:25,state:"planned"},
+  {id:"third",date:"2026-11-20",percent:15,state:"planned"},
+ ];
+ const response=await POST(req({version:0,action:"edit",visits,value:1}),context);
+ expect(response.status).toBe(200);
+ const {split}=await response.json();
+ expect(split.visits).toEqual(visits);
+ expect(split.value).toBe(10000);
+ expect(mocks.save.mock.calls[0][3]?.visits).toEqual(visits);
+ expect(split.history[0]).toContain("actor");
+ expect((await POST(req({version:0,action:"edit",visits:visits.slice(0,2)}),context)).status).toBe(400);
+});

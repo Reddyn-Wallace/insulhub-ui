@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
 interface Job {
+  splitVisit?: {id:string;percent:number;state:"planned"|"completed";count?:number};
   _id: string;
   jobNumber: number;
   stage: string;
@@ -38,6 +39,8 @@ interface Job {
     status?: string;
     deferralDate?: string;
     c_total?: number;
+    wall?: {SQM?:number|null};
+    ceiling?: {SQM?:number|null};
   };
   quoteLastSentAt?: string;
   client?: {
@@ -156,8 +159,8 @@ export default function JobCard({ job }: { job: Job }) {
         : leadStatus;
 
   const cardStyle = STATUS_STYLE[cardState] || STATUS_STYLE.NEW;
-  const awaitingCompletion = isInstallWorkflowTab && isAwaitingCompletion(job);
-  const cardBorder = awaitingCompletion ? "border-l-amber-500" : missingInstallDate ? "border-l-red-500" : cardStyle.border;
+  const awaitingCompletion = !job.splitVisit && isInstallWorkflowTab && isAwaitingCompletion(job);
+  const cardBorder = job.splitVisit ? "border-l-blue-500" : awaitingCompletion ? "border-l-amber-500" : missingInstallDate ? "border-l-red-500" : cardStyle.border;
   const ebaStatus = job.ebaForm?.clientApproved
     ? "Signed"
     : job.ebaLastSentAt
@@ -216,11 +219,12 @@ export default function JobCard({ job }: { job: Job }) {
           </div>
           {missingInstallDate && (
             <span className="shrink-0 rounded-full border border-red-200 bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-700">
-              Install date missing
+              {job.splitVisit ? "Revisit needs scheduling" : "Install date missing"}
             </span>
           )}
         </div>
 
+        {job.splitVisit && <p className="mb-1 text-xs font-semibold text-blue-800">Revisit · {job.splitVisit.percent}% remaining · {((job.quote?.wall?.SQM || 0)+(job.quote?.ceiling?.SQM || 0)).toLocaleString("en-NZ",{maximumFractionDigits:1})} m² · {formatCurrency(job.quote?.c_total)}</p>}
         <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
           <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">Job #{job.jobNumber}</span>
           {job.quote?.quoteNumber && <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-medium">#{job.quote.quoteNumber} {job.quote.c_total ? formatCurrency(job.quote.c_total) : ""}</span>}

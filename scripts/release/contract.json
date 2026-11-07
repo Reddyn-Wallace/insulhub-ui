@@ -18,6 +18,8 @@
     "/partner/jobs/[jobId]/page", "/api/site-plan-drawings/route"
   ],
   "tests": [
+    "src/lib/installation-splits/edit.test.ts",
+    "src/lib/installation-splits/views.test.ts",
     "src/lib/installation-splits/model.test.ts",
     "src/lib/installation-splits/projection.test.ts",
     "src/lib/installation-splits/calendar.test.ts",

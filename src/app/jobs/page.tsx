@@ -8,6 +8,11 @@ import { JOBS_QUERY, USERS_QUERY } from "@/lib/queries";
 import { isActiveJob } from "@/lib/awaiting-completion";
 import StageTabs from "@/components/StageTabs";
 import JobCard from "@/components/JobCard";
+import BottomSheet from "@/components/BottomSheet";
+import InstallationVisits from "@/components/InstallationVisits";
+import { getSplitRevision, loadSplits } from "@/lib/installation-splits/client";
+import { queueVisits, searchVisits } from "@/lib/installation-splits/views";
+import type { SavedSplit, VisitLabel } from "@/lib/installation-splits/projection";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { LEAD_SOURCE_OPTIONS, canonicalLeadSourceLabel, normalizeLeadSourceValue } from "@/lib/lead-sources";
 
@@ -15,7 +20,7 @@ const PAGE_SIZE = 40;
 const UNASSIGNED_SALESPERSON = "UNASSIGNED";
 const STAGE_CACHE_TTL_MS = 30 * 60 * 1000;
 const SORT_PREFERENCE_KEY = "jobs-sort-order";
-const CACHE_KEY_VERSION = "v5";
+const CACHE_KEY_VERSION = "v6";
 const EMAIL_LOGS_QUERY = `
   query EmailLogs($skip: Int, $limit: Int) {
     listEmailLogs(skip: $skip, limit: $limit) {
@@ -37,6 +42,9 @@ interface User {
 }
 
 interface Job {
+  splitVisit?: VisitLabel;
+  splitSource?: Job;
+  installationSplit?: SavedSplit | null;
   _id: string;
   jobNumber: number;
   stage: string;
@@ -80,6 +88,19 @@ interface EmailLogData {
   };
 }
 
+async function prepareQueue(first: JobsData["jobs"]): Promise<Job[]> {
+  const all = [...first.results];
+  while (all.length < first.total) {
+    const next = await gql<JobsData>(JOBS_QUERY, {stages:["SCHEDULED","INSTALLATION","INVOICE","COMPLETED"],skip:all.length,limit:1000});
+    if (next.jobs.total !== first.total || !next.jobs.results.length)
+      throw Error("Jobs changed while loading. Please refresh the queue.");
+    all.push(...next.jobs.results);
+  }
+  if (new Set(all.map(j=>j._id)).size !== first.total)
+    throw Error("Job queue results are incomplete. Please refresh.");
+  return queueVisits(all,await loadSplits(all.map(j=>j._id)));
+}
+
 function JobsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -105,6 +126,7 @@ function JobsPageContent() {
   const [searchMode, setSearchMode] = useState(initSearch.trim().length > 0);
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("oldest");
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [selectedVisitJob,setSelectedVisitJob] = useState<Job | null>(null);
   const [total, setTotal] = useState(0);
   const [globalCounts, setGlobalCounts] = useState<Record<string, number> | null>(null);
   const [stageHydrated, setStageHydrated] = useState(false);
@@ -146,13 +168,14 @@ function JobsPageContent() {
   }, [cacheKey]);
 
   const isActiveForStage = useCallback((job: Job, stage: string) => {
-    if (stage === "JOBS") return isActiveJob(job);
+    if (stage === "JOBS") return !job.archivedAt && (isActiveJob(job) || job.splitVisit?.state === "planned");
     return !job.archivedAt;
   }, []);
 
   const prefetchJobsForStage = useCallback(async (stage: string) => {
+    const revision = getSplitRevision();
     try {
-      const stageFilter = stage === "JOBS" ? ["SCHEDULED", "INSTALLATION", "INVOICE"] : [stage];
+      const stageFilter = stage === "JOBS" ? ["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"] : [stage];
       const data = await gql<JobsData>(JOBS_QUERY, {
         stages: stageFilter,
         skip: 0,
@@ -161,7 +184,9 @@ function JobsPageContent() {
         cacheKey: `jobs:${stage}`,
         ttlMs: 2 * 60 * 1000,
       });
-      const activeJobs = data.jobs.results.filter((j) => isActiveForStage(j, stage));
+      const stageJobs = stage === "JOBS" ? await prepareQueue(data.jobs) : data.jobs.results;
+      if (revision !== getSplitRevision()) return;
+      const activeJobs = stageJobs.filter((j) => isActiveForStage(j, stage));
       const activeTotal = stage === "JOBS" || stage === "COMPLETED" ? activeJobs.length : data.jobs.total;
       cacheRef.current[stage] = { jobs: activeJobs, total: activeTotal };
 
@@ -323,6 +348,7 @@ function JobsPageContent() {
 
   const fetchJobs = useCallback(async () => {
     const currentFetchId = ++fetchIdRef.current;
+    const revision = getSplitRevision();
     setError("");
     setIsFetchingStage(true);
     if (!stageHydrated) setLoading(true);
@@ -332,7 +358,7 @@ function JobsPageContent() {
 
     try {
       const shouldFetchAllForStage = !isSearching && (activeStage === "LEAD" || activeStage === "QUOTE" || activeStage === "JOBS" || activeStage === "COMPLETED");
-      const stageFilter = activeStage === "JOBS" ? ["SCHEDULED", "INSTALLATION", "INVOICE"] : [activeStage];
+      const stageFilter = activeStage === "JOBS" ? ["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"] : [activeStage];
       const data = await gql<JobsData>(JOBS_QUERY, {
         ...(isSearching ? {} : { stages: stageFilter }),
         skip: shouldFetchAllForStage ? 0 : page * PAGE_SIZE,
@@ -340,10 +366,11 @@ function JobsPageContent() {
         ...(q ? { search: q } : {}),
       });
 
-      // Ignore stale responses
-      if (currentFetchId !== fetchIdRef.current) return;
-
-      const allFetched = data.jobs.results;
+      const allFetched = isSearching
+        ? searchVisits(data.jobs.results,await loadSplits(data.jobs.results.map(j=>j._id)))
+        : activeStage === "JOBS" ? await prepareQueue(data.jobs) : data.jobs.results;
+      // Ignore responses started before a local visit save.
+      if (currentFetchId !== fetchIdRef.current || revision !== getSplitRevision()) return;
       // Search is global across leads, quotes, and jobs; only archived records are hidden.
       const activeJobs = isSearching
         ? allFetched.filter((j) => !j.archivedAt)
@@ -384,7 +411,7 @@ function JobsPageContent() {
         }
       }
     } catch (err) {
-      if (currentFetchId !== fetchIdRef.current) return;
+      if (currentFetchId !== fetchIdRef.current || revision !== getSplitRevision()) return;
       const msg = err instanceof Error ? err.message : "Failed to load jobs";
       if (msg !== "Unauthorized") setError(msg);
     } finally {
@@ -987,12 +1014,31 @@ function JobsPageContent() {
         ) : (
           <div className="px-4 pt-1">
             {paginatedResults.map((job) => (
-              <JobCard key={job._id} job={job} />
+              <div key={`${job._id}:${job.splitVisit?.id || "job"}`}>
+                <JobCard job={job} />
+                {job.splitVisit && <button type="button" className="-mt-1 mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-800" onClick={()=>setSelectedVisitJob(job)}>
+                  {job.installation?.installDate ? "Manage visit" : "Schedule revisit"}
+                </button>}
+              </div>
             ))}
           </div>
         )}
       </div>
 
+      <BottomSheet open={!!selectedVisitJob} onClose={()=>setSelectedVisitJob(null)} title="Installation visits">
+        {selectedVisitJob && <InstallationVisits key={selectedVisitJob._id} jobId={selectedVisitJob._id}
+          initialData={{job:selectedVisitJob.splitSource || selectedVisitJob,split:selectedVisitJob.installationSplit || null}}
+          onSaved={split=>{
+            ++fetchIdRef.current;
+            const source=selectedVisitJob.splitSource || selectedVisitJob;
+            const replacement=(searchMode ? searchVisits : queueVisits)([source],{[source._id]:split});
+            const updated=[...jobs.filter(j=>j._id!==source._id),...replacement];
+            setJobs(updated); setTotal(prev=>prev-jobs.filter(j=>j._id===source._id).length+replacement.length); setLoading(false); setIsFetchingStage(false);
+            cacheRef.current={};
+            if (!searchMode) writeStageCache(activeStage,{jobs:updated,total:updated.length});
+            setSelectedVisitJob(null);
+          }}/>}
+      </BottomSheet>
     </div>
   );
 }

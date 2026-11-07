@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { getSplitRevision } from "@/lib/installation-splits/client";
 import InstallationVisits from "@/components/InstallationVisits";
-import type { VisitLabel } from "@/lib/installation-splits/projection";
+import { calendarSource, calendarVisits, replaceCalendarJob } from "@/lib/installation-splits/views";
+import type { SavedSplit, VisitLabel } from "@/lib/installation-splits/projection";
 import { useRouter } from "next/navigation";
 import { gql } from "@/lib/graphql";
 import { readBrowserCache, writeBrowserCache } from "@/lib/client-cache";
@@ -12,6 +14,8 @@ import InstallPlanningForm, { InstallPlanningActions } from "@/components/Instal
 import { useAppDialog } from "@/components/AppDialog";
 
 interface CalendarJob {
+  installationSplit?: SavedSplit | null;
+  splitSource?: CalendarJob;
   splitVisit?: VisitLabel;
   _id: string;
   jobNumber: number;
@@ -321,12 +325,13 @@ function mergeDateAndTime(date: Date, time: string) {
   return `${dateKeyLocal(date)}T${safeTime}`;
 }
 
-const CALENDAR_RAW_CACHE_PREFIX = "calendar:install-jobs-window:v2:";
-const CALENDAR_VIEW_CACHE_PREFIX = "calendar:view:v2:";
+const CALENDAR_RAW_CACHE_PREFIX = "calendar:install-jobs-window:v3:";
+const CALENDAR_VIEW_CACHE_PREFIX = "calendar:view:v3:";
 const OVERLAY_CACHE_TTL_MS = 60 * 1000;
 
 type CalendarCachePayload = { jobs: CalendarJob[]; ts: number };
 
+let calendarSplitRevision = 0;
 const calendarMemoryCache = new Map<string, CalendarCachePayload>();
 const rawJobsMemoryCache = new Map<string, CalendarCachePayload>();
 
@@ -408,7 +413,8 @@ export default function JobsCalendarPage() {
   const { confirm, dialog } = useAppDialog();
   const [monthCursor, setMonthCursor] = useState(() => startOfMonth(new Date()));
   const [jobs, setJobs] = useState<CalendarJob[]>([]);
-  const [unscheduledVisits, setUnscheduledVisits] = useState<CalendarJob[]>([]);
+  const loadSequence = useRef(0);
+  const [visitsEditing,setVisitsEditing] = useState(false);
   const [placeholders, setPlaceholders] = useState<CalendarPlaceholder[]>([]);
   const [installPlanningByJobId, setInstallPlanningByJobId] = useState<Record<string, InstallPlanningMeta>>({});
   const [loading, setLoading] = useState(true);
@@ -447,6 +453,12 @@ export default function JobsCalendarPage() {
 
   const load = useCallback(async (force = false) => {
     setError("");
+    const sequence = ++loadSequence.current;
+    const splitRevision = getSplitRevision();
+    if (calendarSplitRevision !== splitRevision) {
+      calendarCache.current.clear(); rawJobsCache.current.clear();
+      calendarSplitRevision = splitRevision;
+    }
     const { calendarStart, calendarEnd, cacheKey } = calendarRangeForMonth(monthCursor);
     const loadRange = calendarLoadRangeForMonth(monthCursor);
     const viewCacheKey = `${CALENDAR_VIEW_CACHE_PREFIX}${cacheKey}`;
@@ -526,7 +538,7 @@ export default function JobsCalendarPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Failed to load installation calendar");
 
-      setUnscheduledVisits(json.unscheduled || []);
+      if (sequence !== loadSequence.current || splitRevision !== getSplitRevision()) return;
       const rawPayload = { jobs: json.jobs || [], ts: Date.now() };
       rawJobsCache.current.set(loadRange.cacheKey, rawPayload);
       writeSessionPayload(rawCacheKey, rawPayload);
@@ -543,11 +555,11 @@ export default function JobsCalendarPage() {
         writeSessionPayload(`${CALENDAR_VIEW_CACHE_PREFIX}${adjacentRange.cacheKey}`, adjacentPayload);
       }
     } catch (err) {
+      if (sequence !== loadSequence.current || splitRevision !== getSplitRevision()) return;
       const msg = err instanceof Error ? err.message : "Failed to load installation calendar";
       if (msg !== "Unauthorized") setError(`${msg} — displayed cached totals may be out of date.`);
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (sequence === loadSequence.current) { setLoading(false); setRefreshing(false); }
     }
   }, [monthCursor]);
 
@@ -836,7 +848,7 @@ export default function JobsCalendarPage() {
         scope: installScope,
       };
       const originalPlanning = getInstallPlanning(selectedJob);
-      const installDateChanged = !sameInstallDate(selectedJob.installation?.installDate, nextInstallDate);
+      const installDateChanged = !selectedJob.installationSplit && !sameInstallDate(selectedJob.installation?.installDate, nextInstallDate);
       const planningChanged = !sameInstallPlanning(originalPlanning, nextPlanning);
       const requests: Promise<unknown>[] = [];
       const jobId = selectedJob._id;
@@ -908,7 +920,7 @@ export default function JobsCalendarPage() {
   };
 
   const clearInstallDate = async () => {
-    if (!selectedJob) return;
+    if (!selectedJob || selectedJob.installationSplit) return;
     setSaving(true);
     setError("");
     try {
@@ -1236,7 +1248,7 @@ export default function JobsCalendarPage() {
                             const csBadge = checksheetBadge(job);
                             const phone = customerPhone(job);
                             return (
-                              <div key={`${job._id}:${job.splitVisit?.id || "job"}`} data-split-visit={job.splitVisit ? "true" : undefined} className={`group w-full rounded-xl border p-2 shadow-sm transition-colors border-l-4 ${job.splitVisit ? "border-blue-200 bg-blue-50 hover:bg-blue-100/70" : isInstalled ? "border-emerald-200 bg-emerald-50/70 hover:bg-emerald-50" : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/70"} ${job.splitVisit ? "border-l-blue-500" : isPencilled ? "border-l-amber-500" : "border-l-emerald-500"}`}>
+                              <div key={`${job._id}:${job.splitVisit?.id || "job"}`} data-split-visit={job.splitVisit && job.splitVisit.count !== 1 ? "true" : undefined} className={`group w-full rounded-xl border p-2 shadow-sm transition-colors border-l-4 ${job.splitVisit && job.splitVisit.count !== 1 ? "border-blue-200 bg-blue-50 hover:bg-blue-100/70" : isInstalled ? "border-emerald-200 bg-emerald-50/70 hover:bg-emerald-50" : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/70"} ${job.splitVisit && job.splitVisit.count !== 1 ? "border-l-blue-500" : isPencilled ? "border-l-amber-500" : "border-l-emerald-500"}`}>
                                 <button onClick={() => openJobSheet(job)} className="w-full text-left">
                                   <div className="mb-1 flex items-start justify-between gap-2">
                                     <div className="min-w-0 text-[15px] leading-5 font-semibold text-gray-900 line-clamp-2">
@@ -1259,7 +1271,7 @@ export default function JobsCalendarPage() {
                                   )}
 
                                   <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-500">
-                                    {job.splitVisit && <span className="rounded-full border border-blue-200 bg-blue-100 px-1.5 py-0.5 font-black text-blue-800">Split job</span>}
+                                    {job.splitVisit && job.splitVisit.count !== 1 && <span className="rounded-full border border-blue-200 bg-blue-100 px-1.5 py-0.5 font-black text-blue-800">Split job</span>}
                                     {installTime && <span>{installTime}</span>}
                                     {installTime && <span className="text-gray-300">/</span>}
                                     <span className={isInstalled ? "font-black text-emerald-700" : ""}>{statusLabel}</span>
@@ -1319,7 +1331,7 @@ export default function JobsCalendarPage() {
         )}
       </div>
 
-      {unscheduledVisits.length > 0 && <section className="mx-4 my-4 rounded-xl border border-amber-200 bg-amber-50 p-4"><h2 className="font-bold text-amber-900">Unscheduled return visits</h2><div className="mt-2 space-y-2">{unscheduledVisits.map(job=><button key={`${job._id}:${job.splitVisit?.id}`} onClick={()=>openJobSheet(job)} className="block w-full rounded-lg border border-blue-200 border-l-4 border-l-blue-500 bg-blue-50 p-3 text-left text-sm"><span className="font-semibold text-blue-800">Split job · </span>#{job.jobNumber} · {job.client?.contactDetails?.name} · {job.splitVisit?.percent}% remaining · {formatSqm(combinedSqm(job))} · {formatCurrency(job.quote?.c_total || 0)}</button>)}</div></section>}
+
       <BottomSheet open={placeholderSheetOpen} onClose={closePlaceholderSheet} title={selectedPlaceholder ? "Edit placeholder" : "Add placeholder"}>
         {placeholderDate && (
           <div className="space-y-4">
@@ -1402,9 +1414,28 @@ export default function JobsCalendarPage() {
               </div>
             </div>
 
-            <InstallationVisits key={selectedJob._id} jobId={selectedJob._id} onSaved={() => { calendarCache.current.clear(); rawJobsCache.current.clear(); clearCalendarSessionCache(); setSheetOpen(false); void load(true); }} />
-            {!selectedJob.splitVisit && <>
+            <InstallationVisits key={selectedJob._id} jobId={selectedJob._id}
+              initialData={selectedJob.installationSplit !== undefined ? {job:calendarSource(selectedJob),split:selectedJob.installationSplit} : undefined}
+              onEditingChange={setVisitsEditing}
+              onSaved={(split) => {
+                calendarSplitRevision = getSplitRevision();
+                const source = calendarSource(selectedJob);
+                ++loadSequence.current;
+                const range = calendarRangeForMonth(monthCursor);
+                calendarCache.current.clear(); rawJobsCache.current.clear(); clearCalendarSessionCache();
+                setJobs(prev => {
+                  const updated = filterJobsForRange(replaceCalendarJob(prev,source,split),range.calendarStart,range.calendarEnd);
+                  const payload = {jobs:updated,ts:Date.now()};
+                  calendarCache.current.set(range.cacheKey,payload);
+                  writeSessionPayload(`${CALENDAR_VIEW_CACHE_PREFIX}${range.cacheKey}`,payload);
+                  return updated;
+                });
+                const cards = calendarVisits(source,split);
+                setSelectedJob(cards.find(v=>v.splitVisit?.id===selectedJob.splitVisit?.id) || cards[0]);
+                setLoading(false); setRefreshing(false);
+              }} />
             <InstallPlanningForm
+              hideDate={!!selectedJob.installationSplit}
               installDate={installDate}
               onInstallDateChange={setInstallDate}
               saving={saving}
@@ -1422,11 +1453,10 @@ export default function JobsCalendarPage() {
 
             <InstallPlanningActions
               saving={saving}
-              canSave={!!installDate && !!installScope}
+              canSave={!visitsEditing && (!!selectedJob.installationSplit || !!installDate) && !!installScope}
               onCancel={closeSheet}
               onSave={saveInstallMeta}
             />
-            </>}
           </div>
         )}
       </BottomSheet>

@@ -1,6 +1,6 @@
 import "server-only";
 import { toNzDateKey } from "@/lib/reports/sales-installs-types";
-import { completeVisit, rescheduleVisit, undoLastProgress } from "./model";
+import { completeVisit, rescheduleVisit, undoLastProgress, editVisits } from "./model";
 import { initialSplit, needsHistoricalSplitReason, type SourceJob, type SavedSplit } from "./projection";
 import { readSplits, saveSplit, SplitError } from "./store";
 export const SPLIT_JOB_FIELDS = `_id jobNumber stage archivedAt client{contactDetails{name}} quote{c_total wall{SQM c_bagCount} ceiling{SQM}} installation{installDate installStatus checkSheetSignedAsComplete} installerChecksheet{complete actualBags}`;
@@ -63,12 +63,12 @@ export async function changeSplit(
       "Set the original installation date in job planning before recording partial work. This is required by the existing completion process.",
     );
   let next: SavedSplit = existing || initialSplit(job);
-  if (next.visits.length >= 100)
+  if (input.action !== "edit" && next.visits.length >= 100)
     throw new SplitError("This job has reached the visit limit.");
-  if (typeof input.visitId !== "string")
+  if (input.action !== "edit" && typeof input.visitId !== "string")
     throw new SplitError("Select a visit.");
   const date =
-    input.date === null || input.date === ""
+    input.action === "edit" || input.date === null || input.date === ""
       ? null
       : typeof input.date === "string"
         ? input.date
@@ -76,7 +76,9 @@ export async function changeSplit(
   if (date === undefined)
     throw new SplitError("Provide a visit date or leave it unscheduled.");
   try {
-    if (input.action === "complete") {
+    if (input.action === "edit") {
+      next = { ...next, ...editVisits(next, input.visits) };
+    } else if (input.action === "complete") {
       if (typeof input.percent !== "number")
         throw Error("Enter the percentage completed.");
       // The initial scheduled date may be corrected before any progress is recorded.
@@ -87,7 +89,7 @@ export async function changeSplit(
         };
       next = {
         ...next,
-        ...completeVisit(next, input.visitId, input.percent, date),
+        ...completeVisit(next, input.visitId as string, input.percent, date),
       };
     } else if (input.action === "undo" && existing) {
       next = {
@@ -106,7 +108,7 @@ export async function changeSplit(
         ),
       };
     } else if (input.action === "reschedule" && existing)
-      next = { ...next, ...rescheduleVisit(next, input.visitId, date) };
+      next = { ...next, ...rescheduleVisit(next, input.visitId as string, date) };
     else throw Error("Choose record progress or reschedule remaining work.");
   } catch (e) {
     throw new SplitError(
@@ -123,6 +125,7 @@ export async function changeSplit(
   );
   return saveSplit(next, Number(input.version), actor, {
     action: input.action,
+    ...(input.action === "edit" ? { visits: next.visits } : {}),
     visitId: input.visitId,
     percent: input.percent,
     date,

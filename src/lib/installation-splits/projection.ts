@@ -27,6 +27,7 @@ export type SavedSplit = SplitJob & {
   version: number;
 };
 export type VisitLabel = {
+  count?: number;
   id: string;
   percent: number;
   state: "planned" | "completed";
@@ -77,7 +78,7 @@ export function projectVisits<T extends SourceJob>(
     (v, index) =>
       ({
         ...job,
-        splitVisit: { id: v.id, percent: v.percent, state: v.state },
+        splitVisit: { id: v.id, percent: v.percent, state: v.state, count: split.visits.length },
         quote: {
           ...job.quote,
           c_total: values[index].value,

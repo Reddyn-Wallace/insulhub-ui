@@ -26,7 +26,10 @@ export async function loadSplits(jobIds: string[]) {
   }
   return combined;
 }
+let splitRevision = 0;
+export function getSplitRevision() { return splitRevision; }
 export function invalidateSplitCaches() {
+  splitRevision++;
   clearBrowserCachePrefixes(
     [
       "calendar:",

@@ -4,13 +4,17 @@ Implemented on `codex/installation-splits`. This is persistent CRM functionality
 
 ## Staff workflow
 
-Open an installation job's Job tab, or select its card in the calendar. Use **Installation visits & partial completion**. Set the original installation date through normal planning first; existing invoice/certificate prerequisites still depend on it.
+Open an installation job's Job tab, or select its card in the calendar. Ordinary jobs show a **Split job** button. The calendar seeds the editor from its existing authorised response, without another per-job loading request. Set the original installation date through normal planning first; existing invoice/certificate prerequisites still depend on it.
 
-Jobs with a completed checksheet or installed/completed status can also be split retrospectively. A reason is required for the first historical split and is saved in the visit history and audit event. Enter each actual visit date and percentage, including the remaining visits; the original job status and checksheet are unchanged. A completed checksheet’s final actual bag total is used immediately for allocations.
+Click **Split job**, enter the first visit's completed share, and the initial return visit automatically receives the remainder. Set a return date or leave it blank. Split jobs show only a compact visit/date/share/status summary until **Edit visits** is selected.
 
-Record the percentage completed on that visit, as a share of the whole job. The remainder becomes a return visit, either dated or unscheduled. Further progress follows the same rule: 60%, then 25%, leaves 15%. Record all the remaining percentage to finish visit work. This does not mark the upstream job installed, complete the checksheet, or send messages.
+Edit any visit's date or percentage, add visits, remove visits, or use **Remove split — use one visit** and choose its date/status. Every share must be positive and the total must equal 100%. Done visits require an actual date; Planned visits can be undated. An existing visit with manually recorded usage cannot be removed or reopened through this editor. A single-visit reset retains the overlay/audit so the explicitly selected date remains authoritative.
 
-Only the remaining visit can be rescheduled. Undated remainders appear in the calendar's **Unscheduled return visits** section. The last progress entry can be reopened with a correction reason while the final checksheet remains incomplete. Earlier visits and the audit history are retained.
+Completed checksheets and completed parent jobs can be split retrospectively. The first historical split requires a reason. The source job status/checksheet remain unchanged. Subsequent visit edits are audited automatically; operational screens do not show usage calculations or audit history.
+
+Undated planned visits appear in the normal **Jobs** queue and search results, labelled **Revisit needs scheduling**, with only their allocated area/value. **Schedule revisit** opens the same editor. Completed parent jobs with remaining visits are included. The separate calendar unscheduled section has been removed.
+
+Calendar saves patch the affected job's cards directly from the confirmed response; no whole-calendar reload is needed. Calendar position is retained, other jobs are untouched, and stale in-flight responses are ignored. Normal pencilled/confirmed status, scope and planning notes remain available. For overlay-managed jobs, dates are edited only in the visit manager so planning saves cannot overwrite them.
 
 ## Reporting
 
@@ -27,7 +31,7 @@ Only the remaining visit can be rescheduled. Undated remainders appear in the ca
 
 Original backend remains authoritative for jobs, quote, parent installation status, checksheet, invoices and certificates. Visit records live in the overlay database, linked by original job ID. Snapshot values freeze when splitting begins; later quote edits do not silently rewrite prior allocations. Approved scope/value changes to an already-split job require a reviewed adjustment/backfill; this MVP has no quote-reallocation UI.
 
-The original installation date is preserved as a **legacy reference**, not synchronised to return visits. The split calendar and reporting use visit dates. Original-backend screens, job-list sorting, legacy templates and certificates still read the original date; staff must review those dates before sending documents or messages. This implementation does not send or modify any customer communications. This is an explicit compatibility limitation before production rollout.
+The original installation date is preserved as a **legacy reference**, not synchronised to return visits. The split calendar and reporting use visit dates. Original-backend screens, legacy templates and certificates still read the original date; staff must review those dates before sending documents or messages. This implementation does not send or modify any customer communications. This is an explicit compatibility limitation before production rollout.
 
 Authenticated per-job reads/writes verify source job access with the caller's CRM token. Writes accept validated actions, not client-supplied quote snapshots. Optimistic versions reject stale clients. A single PostgreSQL statement atomically saves the updated record and its audit event; competing writes cannot lose history or count progress twice. Staff report-list reads follow the same access convention as existing planning/report endpoints.
 
@@ -47,3 +51,8 @@ Normal rollout still requires a protected-master PR, passing CRM regression suit
 ### Verification result (6 November 2026)
 
 CRM `npm test` passed with installation/follow-up/campaign database tests enabled against the disposable local PostgreSQL database. All 160 finance tests passed. All 33 installation-split tests passed; desktop (1440px) and mobile (390px) browser checks passed. Production build, release ancestry/route checks and targeted ESLint passed. The standalone `tsc --noEmit` command still reports pre-existing errors in unchanged follow-up test files (`send-route.test.ts` and `template-ui.test.ts`); no new split-related type errors were reported. The Next production build's TypeScript check passes.
+
+
+### Compact manager verification (8 November 2026)
+
+64 targeted tests passed with the disposable PostgreSQL tests enabled. Desktop/mobile browser checks cover the compact editor, immediate calendar patches, normal planning controls, three visits, queue/search inclusion and scheduling an undated revisit. Production build, built-route contract and 13 release-guard tests passed. No business records were changed by these checks. This revision is committed locally, not deployed to production. Standalone TypeScript still reports pre-existing errors in unrelated follow-up tests; the production build passes.
