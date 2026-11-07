@@ -32,6 +32,7 @@ jobs:
       DEAD_FOLLOWUPS_TEST_DATABASE_URL: postgresql://postgres:local-test-only@127.0.0.1:55687/crm_tests
       CAMPAIGN_RESUME_TEST_DATABASE_URL: postgresql://postgres:local-test-only@127.0.0.1:55687/crm_tests
       CAMPAIGN_SMS_TEST_DATABASE_URL: postgresql://postgres:local-test-only@127.0.0.1:55687/crm_tests
+      INSTALLATION_SPLITS_TEST_DATABASE_URL: postgresql://postgres:local-test-only@127.0.0.1:55687/crm_tests
       FINANCE_TEST_DATABASE_URL: postgresql://postgres:local-test-only@127.0.0.1:55687/crm_tests
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -78,3 +79,4 @@ jobs:
           done
           npm run test:dead-followups:browser
           npm run test:job-communications-browser
+          INSTALLATION_SPLITS_SMOKE_BASE_URL=http://127.0.0.1:3116 npm run test:installation-splits:browser
