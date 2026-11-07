@@ -8,11 +8,11 @@ Open an installation job's Job tab, or select its card in the calendar. Ordinary
 
 Click **Split job**, enter the first visit's completed share, and the initial return visit automatically receives the remainder. Set a return date or leave it blank. Split jobs show only a compact visit/date/share/status summary until **Edit visits** is selected.
 
-Edit any visit's date or percentage, add visits, remove visits, or use **Remove split — use one visit** and choose its date/status. Every share must be positive and the total must equal 100%. Done visits require an actual date; Planned visits can be undated. An existing visit with manually recorded usage cannot be removed or reopened through this editor. A single-visit reset retains the overlay/audit so the explicitly selected date remains authoritative.
+Edit any visit's date or percentage, add visits, remove visits, or remove the other visits to leave a single 100% visit. Every share must be positive and the total must equal 100%. Done visits require an actual date; Planned visits can be undated. An existing visit with manually recorded usage cannot be removed or reopened through this editor. A single-visit reset retains the overlay/audit so the explicitly selected date remains authoritative.
 
 Completed checksheets and completed parent jobs can be split retrospectively. The first historical split requires a reason. The source job status/checksheet remain unchanged. Subsequent visit edits are audited automatically; operational screens do not show usage calculations or audit history.
 
-Undated planned visits appear in the normal **Jobs** queue and search results, labelled **Revisit needs scheduling**, with only their allocated area/value. **Schedule revisit** opens the same editor. Completed parent jobs with remaining visits are included. The separate calendar unscheduled section has been removed.
+Undated planned visits appear in the normal **Jobs** queue and search results, labelled **Revisit needs scheduling**, with only their allocated area/value. Open the normal job card to manage its visits. Completed parent jobs with remaining visits are included. The separate calendar unscheduled section has been removed.
 
 Calendar saves patch the affected job's cards directly from the confirmed response; no whole-calendar reload is needed. Calendar position is retained, other jobs are untouched, and stale in-flight responses are ignored. Normal pencilled/confirmed status, scope and planning notes remain available. For overlay-managed jobs, dates are edited only in the visit manager so planning saves cannot overwrite them.
 

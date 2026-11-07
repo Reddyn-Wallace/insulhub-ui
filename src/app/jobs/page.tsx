@@ -8,8 +8,6 @@ import { JOBS_QUERY, USERS_QUERY } from "@/lib/queries";
 import { isActiveJob } from "@/lib/awaiting-completion";
 import StageTabs from "@/components/StageTabs";
 import JobCard from "@/components/JobCard";
-import BottomSheet from "@/components/BottomSheet";
-import InstallationVisits from "@/components/InstallationVisits";
 import { getSplitRevision, loadSplits } from "@/lib/installation-splits/client";
 import { queueVisits, searchVisits } from "@/lib/installation-splits/views";
 import type { SavedSplit, VisitLabel } from "@/lib/installation-splits/projection";
@@ -126,7 +124,6 @@ function JobsPageContent() {
   const [searchMode, setSearchMode] = useState(initSearch.trim().length > 0);
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("oldest");
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [selectedVisitJob,setSelectedVisitJob] = useState<Job | null>(null);
   const [total, setTotal] = useState(0);
   const [globalCounts, setGlobalCounts] = useState<Record<string, number> | null>(null);
   const [stageHydrated, setStageHydrated] = useState(false);
@@ -1014,31 +1011,13 @@ function JobsPageContent() {
         ) : (
           <div className="px-4 pt-1">
             {paginatedResults.map((job) => (
-              <div key={`${job._id}:${job.splitVisit?.id || "job"}`}>
-                <JobCard job={job} />
-                {job.splitVisit && <button type="button" className="-mt-1 mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-800" onClick={()=>setSelectedVisitJob(job)}>
-                  {job.installation?.installDate ? "Manage visit" : "Schedule revisit"}
-                </button>}
-              </div>
+              <JobCard key={`${job._id}:${job.splitVisit?.id || "job"}`} job={job} />
             ))}
           </div>
         )}
       </div>
 
-      <BottomSheet open={!!selectedVisitJob} onClose={()=>setSelectedVisitJob(null)} title="Installation visits">
-        {selectedVisitJob && <InstallationVisits key={selectedVisitJob._id} jobId={selectedVisitJob._id}
-          initialData={{job:selectedVisitJob.splitSource || selectedVisitJob,split:selectedVisitJob.installationSplit || null}}
-          onSaved={split=>{
-            ++fetchIdRef.current;
-            const source=selectedVisitJob.splitSource || selectedVisitJob;
-            const replacement=(searchMode ? searchVisits : queueVisits)([source],{[source._id]:split});
-            const updated=[...jobs.filter(j=>j._id!==source._id),...replacement];
-            setJobs(updated); setTotal(prev=>prev-jobs.filter(j=>j._id===source._id).length+replacement.length); setLoading(false); setIsFetchingStage(false);
-            cacheRef.current={};
-            if (!searchMode) writeStageCache(activeStage,{jobs:updated,total:updated.length});
-            setSelectedVisitJob(null);
-          }}/>}
-      </BottomSheet>
+
     </div>
   );
 }

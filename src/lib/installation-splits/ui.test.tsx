@@ -69,12 +69,13 @@ it("requires historical correction reason only inside the editor",()=>{
 });
 
 
-it("removes a split only through an explicit editable 100 percent visit",async()=>{
+it("automatically uses 100 percent when removing the other visit",async()=>{
  const saved={...split,version:2,visits:[{...split.visits[0],percent:100,date:"2026-11-07"}]};
  mocks.request.mockResolvedValue({split:saved});
  render(<InstallationVisits jobId={source._id} initialData={{job:source,split}}/>);
  fireEvent.click(screen.getByRole("button",{name:"Edit visits"}));
- fireEvent.click(screen.getByRole("button",{name:"Remove split — use one visit"}));
+ expect(screen.queryByRole("button",{name:"Remove split — use one visit"})).toBeNull();
+ fireEvent.click(screen.getByRole("button",{name:"Remove visit 2"}));
  expect(screen.getByLabelText("Visit 1 percentage")).toHaveProperty("value","100");
  expect(screen.queryByLabelText("Visit 2 percentage")).toBeNull();
  fireEvent.change(screen.getByLabelText("Visit 1 date"),{target:{value:"2026-11-07"}});

@@ -207,13 +207,16 @@ const base =
       await page.getByText("Revisit needs scheduling",{exact:true}).waitFor();
       await page.goto(base+"/jobs?stage=JOBS&search=42");
       await page.getByText("Revisit needs scheduling",{exact:true}).waitFor();
-      await page.getByRole("button",{name:"Schedule revisit",exact:true}).click();
+      assert.equal(await page.getByRole("button",{name:/Schedule revisit|Manage visit/}).count(),0);
+      // The standard job card still links to the job. Manage visits from a calendar card here.
+      assert(await page.locator('a[href*="/jobs/'+job._id+'"]').count());
+      await page.goto(base+"/jobs/calendar");
+      await page.getByRole("button").filter({hasText:"20% · Planned"}).first().click();
       await page.getByRole("button",{name:"Edit visits",exact:true}).click();
       await page.getByLabel("Visit 2 date").fill("2026-11-12");
       await page.getByRole("button",{name:"Save visits",exact:true}).click();
-      await page.getByRole("heading",{name:"Installation visits",exact:true}).waitFor({state:"detached"});
-      await page.getByRole("button",{name:"Manage visit",exact:true}).first().waitFor();
-      assert.equal(await page.getByRole("button",{name:"Schedule revisit",exact:true}).count(),0);
+      await page.getByRole("button",{name:"Edit visits",exact:true}).waitFor();
+      await page.getByRole("button",{name:"×",exact:true}).click();
       await page.goto(base+"/jobs/calendar");
       await page.getByText("20% · Planned",{exact:true}).first().waitFor();
       await page.getByRole("button").filter({hasText:"20% · Planned"}).first().click();

@@ -117,7 +117,7 @@ export default function InstallationVisits({
         {rows.map((v,i)=><div key={v.id} className="space-y-2 rounded-lg border border-blue-100 bg-white p-2">
           <div className="flex justify-between text-xs font-semibold">
             <span>Visit {i+1}</span>
-            {rows.length>1 && <button type="button" aria-label={`Remove visit ${i+1}`} disabled={v.actualBags!==undefined} className="text-red-700 disabled:opacity-40" onClick={()=>setRows(prev=>prev.filter(r=>r.id!==v.id))}>Remove</button>}
+            {rows.length>1 && <button type="button" aria-label={`Remove visit ${i+1}`} disabled={v.actualBags!==undefined} className="text-red-700 disabled:opacity-40" onClick={()=>setRows(prev=>{ const remaining=prev.filter(r=>r.id!==v.id); return remaining.length===1 ? [{...remaining[0],percent:100}] : remaining; })}>Remove</button>}
           </div>
           <div className="grid grid-cols-[minmax(0,1fr)_80px_94px] gap-2">
             <label className="text-xs">Date<input aria-label={`Visit ${i+1} date`} className={field} type="date" required={v.state==="completed"} value={v.date||""} onChange={e=>update(i,{date:e.target.value||null})}/></label>
@@ -130,8 +130,6 @@ export default function InstallationVisits({
           <button type="button" className="font-semibold text-blue-800 underline" disabled={rows.length>=100} onClick={addVisit}>Add visit</button>
           <span className={total===100?"text-gray-600":"font-semibold text-red-700"}>Total: {total}%{total!==100?" — must equal 100%":""}</span>
         </div>
-        {isSplit && rows.length>1 && <button type="button" className="text-xs text-gray-600 underline" disabled={rows.slice(1).some(v=>v.actualBags!==undefined)} onClick={()=>setRows([{...rows[0],percent:100}])}>Remove split — use one visit</button>}
-        {rows.length===1 && <p className="text-xs text-gray-600">Choose the date and status for the whole job before saving.</p>}
         {historical && <label className="block text-sm">Reason for historical split<input className={field} required maxLength={500} value={reason} onChange={e=>setReason(e.target.value)}/></label>}
         {invalid && total===100 && <p className="text-xs text-red-700">{invalid}</p>}
         <div className="pt-2"><button className={button} disabled={saving || !!invalid || (historical && !reason.trim())}>{saving?"Saving…":"Save visits"}</button></div>
