@@ -12,6 +12,7 @@ if (process.env.VERCEL_ENV === 'production' &&
   run('dead-followups:migrate');
   run('dead-followups:readiness');
 }
+if (process.env.VERCEL_ENV === 'production') run('installation-splits:migrate');
 run('build');
 
 run('release:check-build');

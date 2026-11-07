@@ -2,12 +2,17 @@
 
 import { useMemo, useState } from "react";
 import { gql } from "@/lib/graphql";
+import { loadSplits } from "@/lib/installation-splits/client";
+import { projectUsageJobs, type UsageAllocation } from "@/lib/installation-splits/projection";
 
 type UsageJob = {
+  usageAllocation?: UsageAllocation;
+  archivedAt?: string | null;
   _id: string;
   jobNumber: number;
   stage: string;
   installation?: {
+    checkSheetSignedAsComplete?: boolean | null;
     installDate?: string | null;
     installStatus?: string | null;
     installNote?: string | null;
@@ -28,6 +33,7 @@ type UsageJob = {
     };
   };
   installerChecksheet?: {
+    complete?: boolean | null;
     budgetBags?: number | null;
     actualBags?: number | null;
     wallAreaQuoted?: number | null;
@@ -84,8 +90,10 @@ const USAGE_JOBS_QUERY = `
         _id
         jobNumber
         stage
+        archivedAt
         installation {
           installDate
+          checkSheetSignedAsComplete
           installStatus
           installNote
         }
@@ -105,6 +113,7 @@ const USAGE_JOBS_QUERY = `
           }
         }
         installerChecksheet {
+          complete
           budgetBags
           actualBags
           wallAreaQuoted
@@ -177,7 +186,7 @@ function formatNzDate(iso?: string | null) {
   }).format(d);
 }
 
-function formatNumber(value: number | null | undefined, digits = 0) {
+function formatNumber(value: number | null | undefined, digits = 2) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "-";
   return new Intl.NumberFormat("en-NZ", {
     minimumFractionDigits: digits,
@@ -185,7 +194,7 @@ function formatNumber(value: number | null | undefined, digits = 0) {
   }).format(value);
 }
 
-function formatSigned(value: number | null | undefined, digits = 0) {
+function formatSigned(value: number | null | undefined, digits = 2) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "-";
   const prefix = value > 0 ? "+" : "";
   return `${prefix}${formatNumber(value, digits)}`;
@@ -219,13 +228,13 @@ function rowFromJob(job: UsageJob): UsageRow | null {
   const dateKey = toDateKeyNz(job.installation?.installDate);
   if (!dateKey) return null;
 
-  const budget = typeof job.installerChecksheet?.budgetBags === "number"
+  const budget = job.usageAllocation ? (job.installerChecksheet?.budgetBags ?? null) : typeof job.installerChecksheet?.budgetBags === "number"
     ? job.installerChecksheet.budgetBags
     : typeof job.quote?.wall?.c_bagCount === "number"
       ? job.quote.wall.c_bagCount
       : null;
   const actual = typeof job.installerChecksheet?.actualBags === "number" ? job.installerChecksheet.actualBags : null;
-  const variance = typeof actual === "number" && typeof budget === "number" ? actual - budget : null;
+  const variance = job.usageAllocation?.basis === "budget-estimate" ? null : typeof actual === "number" && typeof budget === "number" ? actual - budget : null;
   const variancePct = typeof variance === "number" && typeof budget === "number" && budget !== 0
     ? (variance / budget) * 100
     : null;
@@ -244,7 +253,7 @@ function rowFromJob(job: UsageJob): UsageRow | null {
     installTs: new Date(job.installation?.installDate || 0).getTime(),
     customer: job.client?.contactDetails?.name || "Unnamed customer",
     address: fullAddress(job.client?.contactDetails),
-    statusLabel: statusLabel(job.installation?.installStatus),
+    statusLabel: job.usageAllocation ? `${job.usageAllocation.percent}% work recorded` : statusLabel(job.installation?.installStatus),
     isVariation: job.installation?.installStatus === "INSTALLED_WITH_VARIATIONS_FROM_QUOTE",
     budget,
     actual,
@@ -354,7 +363,7 @@ function TrendBars({ points }: { points: { label: string; count: number; budget:
             <div key={point.label} className="flex flex-1 min-w-7 flex-col items-center gap-2">
               <div className="relative flex h-36 w-full items-end justify-center rounded-lg bg-gray-50 px-1">
                 <div className="absolute bottom-0 w-2 rounded-t bg-[#1a3a4a]/25" style={{ height: `${budgetHeight}px` }} title={`Budget: ${formatNumber(point.budget)}`} />
-                <div className="relative w-3 rounded-t bg-[#e85d04]" style={{ height: `${height}px` }} title={`Actual: ${formatNumber(point.actual)}`} />
+                <div className="relative w-3 rounded-t bg-[#e85d04]" style={{ height: `${height}px` }} title={`Reported: ${formatNumber(point.actual)}`} />
               </div>
               <div className="text-center">
                 <div className="text-[10px] font-semibold text-gray-500">{point.label}</div>
@@ -413,20 +422,19 @@ export default function ReportsPage() {
     setRows(null);
 
     try {
-      const data = await gql<UsageJobsResponse>(USAGE_JOBS_QUERY, {
-        stages: ["INSTALLATION", "INVOICE", "COMPLETED"],
-        skip: 0,
-        limit: 5000,
-      }, {
-        cacheKey: "report:usage-jobs",
-        ttlMs: 5 * 60 * 1000,
-      });
-
-      const installedJobs = (data.jobs.results || [])
-        .filter((job) => INSTALLED_STATUSES.includes(job.installation?.installStatus || ""));
-
-      const nextRows = installedJobs
-        .map(rowFromJob)
+      const allJobs: UsageJob[] = [];
+      let expected: number | null = null;
+      for(let page=0;page<100;page++) {
+        const data=await gql<UsageJobsResponse>(USAGE_JOBS_QUERY,{stages:["SCHEDULED","INSTALLATION","INVOICE","COMPLETED"],skip:allJobs.length,limit:250});
+        if(expected===null) expected=data.jobs.total;
+        if(data.jobs.total!==expected || (!data.jobs.results.length && allJobs.length<expected)) throw new Error("Jobs changed or results were incomplete. Run the report again.");
+        allJobs.push(...data.jobs.results);
+        if(allJobs.length>=expected)break;
+      }
+      if(expected===null || allJobs.length!==expected || new Set(allJobs.map(j=>j._id)).size!==expected)throw new Error("Usage results are incomplete. Run the report again.");
+      const splits=await loadSplits(allJobs.map(j=>j._id));
+      const reportJobs=allJobs.flatMap(job=>splits[job._id] ? projectUsageJobs(job,splits[job._id]) : INSTALLED_STATUSES.includes(job.installation?.installStatus || "") ? [job] : []);
+      const nextRows = reportJobs.map(rowFromJob)
         .filter((row): row is UsageRow => Boolean(row))
         .filter((row) => row.dateKey >= fromDate && row.dateKey <= toDate)
         .sort((a, b) => a.installTs - b.installTs);
@@ -454,10 +462,12 @@ export default function ReportsPage() {
   const metrics = useMemo(() => {
     const reportRows = rows || [];
     const completeRows = reportRows.filter((row) => typeof row.budget === "number" && typeof row.actual === "number");
+    const comparableRows = completeRows.filter(row=>row.variance!==null);
     const totalBudget = completeRows.reduce((sum, row) => sum + (row.budget || 0), 0);
     const totalActual = completeRows.reduce((sum, row) => sum + (row.actual || 0), 0);
-    const netVariance = totalActual - totalBudget;
-    const variancePct = totalBudget > 0 ? (netVariance / totalBudget) * 100 : null;
+    const netVariance = comparableRows.reduce((sum,row)=>sum+(row.variance||0),0);
+    const comparableBudget = comparableRows.reduce((sum,row)=>sum+(row.budget||0),0);
+    const variancePct = comparableBudget > 0 ? (netVariance / comparableBudget) * 100 : null;
     const missingBudget = reportRows.filter((row) => typeof row.budget !== "number").length;
     const missingActual = reportRows.filter((row) => typeof row.actual !== "number").length;
     const missingChecksheetValues = reportRows.filter((row) => typeof row.budget !== "number" || typeof row.actual !== "number").length;
@@ -466,9 +476,9 @@ export default function ReportsPage() {
     const avgIntensity = intensityRows.length
       ? intensityRows.reduce((sum, row) => sum + (row.intensity || 0), 0) / intensityRows.length
       : null;
-    const under = completeRows.filter((row) => (row.variance || 0) < 0).length;
-    const over = completeRows.filter((row) => (row.variance || 0) > 0).length;
-    const onBudget = completeRows.filter((row) => (row.variance || 0) === 0).length;
+    const under = comparableRows.filter((row) => (row.variance || 0) < 0).length;
+    const over = comparableRows.filter((row) => (row.variance || 0) > 0).length;
+    const onBudget = comparableRows.filter((row) => (row.variance || 0) === 0).length;
 
     return {
       totalBudget,
@@ -485,7 +495,7 @@ export default function ReportsPage() {
       under,
       over,
       onBudget,
-      completeRows,
+      completeRows: comparableRows,
     };
   }, [rows]);
 
@@ -567,8 +577,9 @@ export default function ReportsPage() {
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-widest text-[#e85d04]">Reports</div>
               <h1 className="mt-1 text-2xl font-bold tracking-tight text-gray-950">Usage Dashboard</h1>
+
               <p className="mt-1 max-w-2xl text-sm text-gray-500">
-                Installed jobs by NZ install date, comparing budgeted bags with actual usage and the notes behind any movement.
+                Bag usage by NZ work date. Completed split visits are included even while the job remains unfinished.
               </p>
             </div>
 
@@ -608,20 +619,21 @@ export default function ReportsPage() {
         {!hasResults && (
           <div className="rounded-xl border border-dashed border-gray-200 bg-white px-4 py-12 text-center shadow-sm">
             <div className="text-sm font-semibold text-gray-900">Choose a date range and run the dashboard.</div>
-            <p className="mt-1 text-sm text-gray-500">The report will include installed jobs from Installation, Invoice, and Completed stages.</p>
+            <p className="mt-1 text-sm text-gray-500">The report includes installed jobs and completed portions of split jobs. Planned visits are excluded.</p>
           </div>
         )}
 
         {hasResults && (
           <div className="space-y-5">
+            {rows.some(row=>row.job.usageAllocation) && <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Split visits: quoted bag budget × completed percentage until the final checksheet is locked. Final actual bags then recalculate earlier weeks. Visit amounts remain allocated estimates. Missing usage is not zero. This retains the existing usage report’s bag fields; ceiling-specific usage is not added. Bags/m² excludes split estimates. {rows.filter(row=>row.job.usageAllocation?.basis === "budget-estimate").length} rows currently use budget estimates.</p>}
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
-              <KpiCard label="Installed jobs" value={String(rows.length)} detail={`${fromDate} to ${toDate}`} tone="brand" />
-              <KpiCard label="Budget bags" value={formatNumber(metrics.totalBudget)} detail="complete rows only" />
-              <KpiCard label="Actual bags" value={formatNumber(metrics.totalActual)} detail="complete rows only" />
+              <KpiCard label="Jobs / visit rows" value={String(rows.length)} detail={`${fromDate} to ${toDate}`} tone="brand" />
+              <KpiCard label="Budget bags" value={formatNumber(metrics.totalBudget)} detail="rows with budget and usage" />
+              <KpiCard label="Reported bags" value={formatNumber(metrics.totalActual)} detail="rows with budget and usage" />
               <KpiCard
                 label="Net variance"
                 value={formatSigned(metrics.netVariance)}
-                detail={formatPercent(metrics.variancePct)}
+                detail={`${formatPercent(metrics.variancePct)} · excludes budget estimates`}
                 tone={metrics.netVariance > 0 ? "bad" : metrics.netVariance < 0 ? "good" : "neutral"}
               />
               <KpiCard
@@ -639,10 +651,10 @@ export default function ReportsPage() {
             </div>
 
             <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
-              <Section title="Budget vs actual" subtitle="Budget and actual bag totals for jobs with both values present.">
+              <Section title="Budget vs reported usage" subtitle="Includes labelled estimates for split visits; only rows with both values present.">
                 <div className="space-y-5">
                   <ProgressBar label="Budget bags" value={metrics.totalBudget} max={maxUsage} color="bg-[#1a3a4a]" />
-                  <ProgressBar label="Actual bags" value={metrics.totalActual} max={maxUsage} color="bg-[#e85d04]" />
+                  <ProgressBar label="Reported bags" value={metrics.totalActual} max={maxUsage} color="bg-[#e85d04]" />
                   <div className="grid grid-cols-2 gap-3">
                     <div className="rounded-xl bg-gray-50 px-4 py-3">
                       <div className="text-xs font-semibold text-gray-500">Usage intensity</div>
@@ -650,15 +662,15 @@ export default function ReportsPage() {
                       <div className="text-xs text-gray-500">bags per installed m², {metrics.intensityCoverage} jobs</div>
                     </div>
                     <div className="rounded-xl bg-gray-50 px-4 py-3">
-                      <div className="text-xs font-semibold text-gray-500">Complete usage rows</div>
+                      <div className="text-xs font-semibold text-gray-500">Actual-supported rows</div>
                       <div className="mt-1 text-xl font-bold text-gray-900">{metrics.completeRows.length}</div>
-                      <div className="text-xs text-gray-500">of {rows.length} installed jobs</div>
+                      <div className="text-xs text-gray-500">of {rows.length} report rows</div>
                     </div>
                   </div>
                 </div>
               </Section>
 
-              <Section title="Variance distribution" subtitle="Jobs grouped by actual bags compared with budget.">
+              <Section title="Variance distribution" subtitle="Rows with actual-supported usage compared with budget. Budget-only estimates are excluded.">
                 <div className="space-y-4">
                   <ProgressBar label="Under budget" value={metrics.under} max={distributionMax} color="bg-emerald-500" meta={`${metrics.under} jobs`} />
                   <ProgressBar label="On budget" value={metrics.onBudget} max={distributionMax} color="bg-gray-400" meta={`${metrics.onBudget} jobs`} />
@@ -670,7 +682,7 @@ export default function ReportsPage() {
               </Section>
             </div>
 
-            <Section title="Usage trend" subtitle={daysBetween(fromDate, toDate) > 31 ? "Weekly buckets for longer ranges. Orange is actual, muted teal is budget." : "Daily buckets. Orange is actual, muted teal is budget."}>
+            <Section title="Usage trend" subtitle={daysBetween(fromDate, toDate) > 31 ? "Weekly buckets for longer ranges. Orange is reported usage (including estimates), muted teal is budget." : "Daily buckets. Orange is reported usage (including estimates), muted teal is budget."}>
               <TrendBars points={trendPoints} />
             </Section>
 
@@ -679,7 +691,7 @@ export default function ReportsPage() {
                 <div className="space-y-2">
                   {varianceCallouts.highest.length === 0 && <p className="text-sm text-gray-500">No complete usage rows.</p>}
                   {varianceCallouts.highest.map((row) => (
-                    <a key={row.job._id} href={jobHref(row.job._id)} className="block rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-sm hover:bg-red-100">
+                    <a key={`${row.job._id}:${row.job.usageAllocation?.id || "job"}`} href={jobHref(row.job._id)} className="block rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-sm hover:bg-red-100">
                       <div className="flex items-center justify-between gap-3">
                         <span className="font-semibold text-gray-900">#{row.job.jobNumber}</span>
                         <span className="font-bold text-red-700">{formatSigned(row.variance)}</span>
@@ -694,7 +706,7 @@ export default function ReportsPage() {
                 <div className="space-y-2">
                   {varianceCallouts.lowest.length === 0 && <p className="text-sm text-gray-500">No complete usage rows.</p>}
                   {varianceCallouts.lowest.map((row) => (
-                    <a key={row.job._id} href={jobHref(row.job._id)} className="block rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm hover:bg-emerald-100">
+                    <a key={`${row.job._id}:${row.job.usageAllocation?.id || "job"}`} href={jobHref(row.job._id)} className="block rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm hover:bg-emerald-100">
                       <div className="flex items-center justify-between gap-3">
                         <span className="font-semibold text-gray-900">#{row.job.jobNumber}</span>
                         <span className="font-bold text-emerald-700">{formatSigned(row.variance)}</span>
@@ -712,7 +724,7 @@ export default function ReportsPage() {
               ) : (
                 <div className="grid gap-3 lg:grid-cols-2">
                   {varianceCallouts.explained.map((row) => (
-                    <a key={row.job._id} href={jobHref(row.job._id)} className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 hover:bg-gray-100">
+                    <a key={`${row.job._id}:${row.job.usageAllocation?.id || "job"}`} href={jobHref(row.job._id)} className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 hover:bg-gray-100">
                       <div className="mb-2 flex items-start justify-between gap-3">
                         <div>
                           <div className="text-sm font-bold text-gray-900">#{row.job.jobNumber} · {row.customer}</div>
@@ -728,7 +740,7 @@ export default function ReportsPage() {
               )}
             </Section>
 
-            <Section title="Installed jobs" subtitle={`${filteredRows.length} of ${rows.length} jobs shown`}>
+            <Section title="Usage rows" subtitle={`${filteredRows.length} of ${rows.length} job / visit rows shown`}>
               <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex flex-wrap gap-2">
                   {QUICK_FILTERS.map((filter) => (
@@ -750,7 +762,7 @@ export default function ReportsPage() {
                 <div className="flex flex-wrap gap-2">
                   <SortButton label="Date" sortKey="date" activeSort={sortKey} descending={sortDescending} onClick={handleSort} />
                   <SortButton label="Variance" sortKey="variance" activeSort={sortKey} descending={sortDescending} onClick={handleSort} />
-                  <SortButton label="Actual" sortKey="actual" activeSort={sortKey} descending={sortDescending} onClick={handleSort} />
+                  <SortButton label="Reported" sortKey="actual" activeSort={sortKey} descending={sortDescending} onClick={handleSort} />
                   <SortButton label="Job #" sortKey="job" activeSort={sortKey} descending={sortDescending} onClick={handleSort} />
                 </div>
               </div>
@@ -763,7 +775,7 @@ export default function ReportsPage() {
                       <th className="px-3 py-3 font-semibold">Customer</th>
                       <th className="px-3 py-3 font-semibold">Install</th>
                       <th className="px-3 py-3 text-right font-semibold">Budget</th>
-                      <th className="px-3 py-3 text-right font-semibold">Actual</th>
+                      <th className="px-3 py-3 text-right font-semibold">Reported / basis</th>
                       <th className="px-3 py-3 text-right font-semibold">Variance</th>
                       <th className="px-3 py-3 text-right font-semibold">Variance %</th>
                       <th className="px-3 py-3 text-right font-semibold">Bags/m²</th>
@@ -782,7 +794,7 @@ export default function ReportsPage() {
                       const under = (row.variance || 0) < 0;
                       return (
                         <tr
-                          key={row.job._id}
+                          key={`${row.job._id}:${row.job.usageAllocation?.id || "job"}`}
                           className={classNames(
                             "align-top",
                             missing && "bg-amber-50/50",
@@ -809,7 +821,7 @@ export default function ReportsPage() {
                             </div>
                           </td>
                           <td className="px-3 py-3 text-right font-semibold text-gray-900">{formatNumber(row.budget)}</td>
-                          <td className="px-3 py-3 text-right font-semibold text-gray-900">{formatNumber(row.actual)}</td>
+                          <td className="px-3 py-3 text-right font-semibold text-gray-900">{formatNumber(row.actual)}{row.job.usageAllocation && <div className="mt-1 max-w-[180px] text-[10px] font-medium text-amber-800">{row.job.usageAllocation.basis === "budget-estimate" ? "Estimated · quoted budget" : row.job.usageAllocation.basis === "recorded" ? "Recorded visit usage" : "Revised · allocated actual total"}{row.job.usageAllocation.warning && <p className="text-red-700">{row.job.usageAllocation.warning}</p>}</div>}</td>
                           <td className={classNames("px-3 py-3 text-right font-bold", over ? "text-red-700" : under ? "text-emerald-700" : "text-gray-700")}>{formatSigned(row.variance)}</td>
                           <td className={classNames("px-3 py-3 text-right font-semibold", over ? "text-red-700" : under ? "text-emerald-700" : "text-gray-700")}>{formatPercent(row.variancePct)}</td>
                           <td className="px-3 py-3 text-right font-semibold text-gray-700">{formatNumber(row.intensity, 2)}</td>

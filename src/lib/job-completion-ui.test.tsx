@@ -22,6 +22,7 @@ beforeEach(() => {
   state.planning = { status: "confirmed", note: "", installScope: "external", councilApprovalNA: false };
   state.job = { _id: "69ea7a15a5185b0a06d7615e", jobNumber: 123, stage: "INSTALLATION", updatedAt: "2026-09-18", installation: { installDate: "2026-07-23" }, council: { _id: "council" }, client: { contactDetails: { name: "Test owner" } } };
   vi.stubGlobal("fetch", vi.fn(async (url: string, options?: RequestInit) => {
+    if (url.includes("installation-splits")) return Response.json({ job: state.job, split: null });
     if (url.includes("manual-invoice")) {
       if (options?.method === "POST") { state.calls.push("manual"); state.confirmation = { reference: JSON.parse(options.body as string).reference, confirmedAt: "2026-09-18", confirmedBy: "user", confirmedByName: "Sam" }; }
       return Response.json({ confirmation: state.confirmation });

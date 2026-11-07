@@ -381,7 +381,7 @@ export default function SalesInstallsPage() {
               {salesCount > 0 ? (
                 <CompactTable headers={["Address", "SQM", "$", "Salesperson"]}>
                   {result.sales.map((job) => (
-                    <tr key={job._id} className="align-top">
+                    <tr key={`${job._id}:${job.splitVisit?.id || "job"}`} className="align-top">
                       <td className="px-3 py-2 text-gray-500 truncate">{fullAddress(job.client?.contactDetails) || "-"}</td>
                       <td className="px-3 py-2 font-medium text-gray-800">{formatSqm(jobSqm(job))}</td>
                       <td className="px-3 py-2 font-medium text-gray-800">{formatNzd(job.quote?.c_total || 0)}</td>
@@ -394,22 +394,22 @@ export default function SalesInstallsPage() {
               )}
             </Section>
 
-            <Section title="Installs" subtitle="Jobs scheduled for install">
+            <Section title="Installs" subtitle="Scheduled work and completed visits; split values and m² are allocated estimates. Quote values retain their existing GST basis.">
               <div className="mb-3 grid grid-cols-3 gap-2">
-                <MetricCard label="Scheduled" value={String(installCount)} tone="brand" />
+                <MetricCard label="Jobs / visits" value={String(installCount)} tone="brand" />
                 <MetricCard label="SQM" value={formatSqm(installSqm)} />
                 <MetricCard label="Value" value={formatNzd(installTotal)} tone="orange" />
               </div>
               {installCount > 0 ? (
                 <CompactTable headers={["Address", "Install", "SQM", "Status"]}>
                   {result.installs.map((job) => (
-                    <tr key={job._id} className="align-top">
+                    <tr key={`${job._id}:${job.splitVisit?.id || "job"}`} className="align-top">
                       <td className="px-3 py-2 text-gray-500 truncate">{fullAddress(job.client?.contactDetails) || "-"}</td>
                       <td className="px-3 py-2 font-medium text-gray-800">{formatInstallDate(job.installation?.installDate)}</td>
                       <td className="px-3 py-2 font-medium text-gray-800">{formatSqm(jobSqm(job))}</td>
                       <td className="px-3 py-2">
                         <span className="rounded-full bg-gray-100 px-2 py-1 text-[10px] font-semibold text-gray-700">
-                          {installStatusLabel(job.installation?.installStatus)}
+                          {job.splitVisit ? `${job.splitVisit.percent}% · ${job.splitVisit.state === "completed" ? "Work recorded" : "Planned"}` : installStatusLabel(job.installation?.installStatus)}
                         </span>
                       </td>
                     </tr>

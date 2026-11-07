@@ -98,6 +98,7 @@ export function DateTimeCalendarField({
 }
 
 export default function InstallPlanningForm({
+  hideDate = false,
   installDate,
   onInstallDateChange,
   saving = false,
@@ -112,6 +113,7 @@ export default function InstallPlanningForm({
   note,
   onNoteChange,
 }: {
+  hideDate?: boolean;
   installDate: string;
   onInstallDateChange: (next: string) => void;
   saving?: boolean;
@@ -134,7 +136,7 @@ export default function InstallPlanningForm({
 
   return (
     <div className="space-y-3">
-      <section>
+      {!hideDate && <section>
         <div className="mb-2 flex items-center justify-between gap-3">
           <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Installation date</div>
           <div className="flex items-center gap-3">
@@ -157,7 +159,7 @@ export default function InstallPlanningForm({
           </div>
         </div>
         <DateTimeCalendarField value={installDate} onChange={onInstallDateChange} defaultTime={DEFAULT_INSTALL_TIME} />
-      </section>
+      </section>}
 
       <section>
         <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Booking status</div>

@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { calendarVisits } from "@/lib/installation-splits/views";
+import { readSplits } from "@/lib/installation-splits/store";
+import { projectVisits } from "@/lib/installation-splits/projection";
 
 interface CalendarJob {
   _id: string;
   jobNumber: number;
   stage: string;
+  archivedAt?: string | null;
   notes?: string | null;
   installation?: {
     installDate?: string | null;
@@ -36,18 +40,21 @@ interface CalendarJob {
 interface JobsData {
   jobs: {
     results: CalendarJob[];
+    total: number;
   };
 }
 
 const INSULHUB_GRAPHQL_URL = "https://api.insulhub.nz/graphql";
 const CALENDAR_STAGES = ["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"];
 const CALENDAR_JOBS_QUERY = `
-  query CalendarJobs($stages: [JobStage!], $skip: Int, $limit: Int, $installStartDate: DateTimeISO, $installEndDate: DateTimeISO) {
-    jobs(stages: $stages, skip: $skip, limit: $limit, installStartDate: $installStartDate, installEndDate: $installEndDate) {
+  query CalendarJobs($stages: [JobStage!], $skip: Int, $limit: Int) {
+    jobs(stages: $stages, skip: $skip, limit: $limit) {
+      total
       results {
         _id
         jobNumber
         stage
+        archivedAt
         notes
         installation {
           installDate
@@ -72,7 +79,7 @@ const CALENDAR_JOBS_QUERY = `
         }
         quote {
           c_total
-          wall { SQM }
+          wall { SQM c_bagCount }
           ceiling { SQM }
         }
       }
@@ -118,6 +125,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const allJobs: CalendarJob[] = [];
+    let total: number | null = null;
+    for (let page = 0; page < 100; page++) {
     const response = await fetch(INSULHUB_GRAPHQL_URL, {
       method: "POST",
       headers: {
@@ -128,10 +138,8 @@ export async function GET(request: NextRequest) {
         query: CALENDAR_JOBS_QUERY,
         variables: {
           stages: CALENDAR_STAGES,
-          skip: 0,
-          limit: 5000,
-          installStartDate: start.toISOString(),
-          installEndDate: end.toISOString(),
+          skip: allJobs.length,
+          limit: 250,
         },
       }),
       cache: "no-store",
@@ -154,14 +162,24 @@ export async function GET(request: NextRequest) {
     }
 
     const data = json.data as JobsData;
+    if (total === null) total = data.jobs.total;
+    if (data.jobs.total !== total) throw new Error("Jobs changed while loading. Refresh the calendar.");
+    if (!data.jobs.results.length && allJobs.length < total) throw new Error("Calendar results are incomplete.");
+    allJobs.push(...data.jobs.results);
+    if (allJobs.length >= total) break;
+    }
+    if (total === null || allJobs.length !== total || new Set(allJobs.map(j=>j._id)).size !== total) throw new Error("Calendar results are incomplete. Refresh before scheduling.");
+    const active = allJobs.filter(job=>!job.archivedAt);
+    const splits = await readSplits(active.map(j=>j._id));
+    const projected = active.flatMap(job=>calendarVisits(job,splits[job._id] || null));
     const startKey = dateKeyFromIsoNz(start.toISOString());
     const endKey = dateKeyFromIsoNz(end.toISOString());
-    const jobs = (data.jobs.results || []).filter((job) => {
-      const key = dateKeyFromIsoNz(job.installation?.installDate);
-      return !!key && !!startKey && !!endKey && key >= startKey && key <= endKey;
+    const jobs = projected.filter(job=>{
+      const key=dateKeyFromIsoNz(job.installation?.installDate);
+      return key && startKey && endKey && key>=startKey && key<=endKey;
     });
-
-    return NextResponse.json({ jobs });
+    const unscheduled = active.flatMap(job=>splits[job._id] ? projectVisits(job,splits[job._id]).filter(v=>!v.installation?.installDate && v.splitVisit.state==='planned') : []);
+    return NextResponse.json({ jobs, unscheduled }, {headers:{"Cache-Control":"no-store"}});
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to load calendar jobs" },

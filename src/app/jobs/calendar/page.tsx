@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { getSplitRevision } from "@/lib/installation-splits/client";
+import InstallationVisits from "@/components/InstallationVisits";
+import { calendarSource, calendarVisits, replaceCalendarJob } from "@/lib/installation-splits/views";
+import type { SavedSplit, VisitLabel } from "@/lib/installation-splits/projection";
 import { useRouter } from "next/navigation";
 import { gql } from "@/lib/graphql";
 import { readBrowserCache, writeBrowserCache } from "@/lib/client-cache";
@@ -10,6 +14,9 @@ import InstallPlanningForm, { InstallPlanningActions } from "@/components/Instal
 import { useAppDialog } from "@/components/AppDialog";
 
 interface CalendarJob {
+  installationSplit?: SavedSplit | null;
+  splitSource?: CalendarJob;
+  splitVisit?: VisitLabel;
   _id: string;
   jobNumber: number;
   stage: string;
@@ -218,6 +225,7 @@ function normalizedInstallStatus(job: CalendarJob) {
 }
 
 function isCompleteForCalendar(job: CalendarJob) {
+  if (job.splitVisit) return job.splitVisit.state === "completed";
   if (job.stage === "COMPLETED") return true;
   return ["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"].includes(normalizedInstallStatus(job));
 }
@@ -317,14 +325,13 @@ function mergeDateAndTime(date: Date, time: string) {
   return `${dateKeyLocal(date)}T${safeTime}`;
 }
 
-const CALENDAR_RAW_CACHE_PREFIX = "calendar:install-jobs-window:";
-const CALENDAR_VIEW_CACHE_PREFIX = "calendar:view:";
-const CALENDAR_RAW_CACHE_TTL_MS = 20 * 60 * 1000;
-const CALENDAR_VIEW_CACHE_TTL_MS = 20 * 60 * 1000;
+const CALENDAR_RAW_CACHE_PREFIX = "calendar:install-jobs-window:v3:";
+const CALENDAR_VIEW_CACHE_PREFIX = "calendar:view:v3:";
 const OVERLAY_CACHE_TTL_MS = 60 * 1000;
 
 type CalendarCachePayload = { jobs: CalendarJob[]; ts: number };
 
+let calendarSplitRevision = 0;
 const calendarMemoryCache = new Map<string, CalendarCachePayload>();
 const rawJobsMemoryCache = new Map<string, CalendarCachePayload>();
 
@@ -406,6 +413,8 @@ export default function JobsCalendarPage() {
   const { confirm, dialog } = useAppDialog();
   const [monthCursor, setMonthCursor] = useState(() => startOfMonth(new Date()));
   const [jobs, setJobs] = useState<CalendarJob[]>([]);
+  const loadSequence = useRef(0);
+  const [visitsEditing,setVisitsEditing] = useState(false);
   const [placeholders, setPlaceholders] = useState<CalendarPlaceholder[]>([]);
   const [installPlanningByJobId, setInstallPlanningByJobId] = useState<Record<string, InstallPlanningMeta>>({});
   const [loading, setLoading] = useState(true);
@@ -444,11 +453,16 @@ export default function JobsCalendarPage() {
 
   const load = useCallback(async (force = false) => {
     setError("");
+    const sequence = ++loadSequence.current;
+    const splitRevision = getSplitRevision();
+    if (calendarSplitRevision !== splitRevision) {
+      calendarCache.current.clear(); rawJobsCache.current.clear();
+      calendarSplitRevision = splitRevision;
+    }
     const { calendarStart, calendarEnd, cacheKey } = calendarRangeForMonth(monthCursor);
     const loadRange = calendarLoadRangeForMonth(monthCursor);
     const viewCacheKey = `${CALENDAR_VIEW_CACHE_PREFIX}${cacheKey}`;
     const rawCacheKey = `${CALENDAR_RAW_CACHE_PREFIX}${loadRange.cacheKey}`;
-    const now = Date.now();
     let renderedFromCache = force && visibleJobsCountRef.current > 0;
 
     const renderFromRaw = (payload: CalendarCachePayload) => {
@@ -468,23 +482,23 @@ export default function JobsCalendarPage() {
           setJobs(memoryCached.jobs);
           setLoading(false);
           renderedFromCache = true;
-          if (now - memoryCached.ts < CALENDAR_VIEW_CACHE_TTL_MS) return;
+
         }
 
-        const viewCached = readSessionPayload(viewCacheKey) || readSessionPayload(`calendar:${cacheKey}`);
+        const viewCached = readSessionPayload(viewCacheKey);
         if (viewCached) {
           calendarCache.current.set(cacheKey, viewCached);
           setJobs(viewCached.jobs);
           setLoading(false);
           renderedFromCache = true;
-          if (now - viewCached.ts < CALENDAR_VIEW_CACHE_TTL_MS) return;
+
         }
 
         const rawCached = rawJobsCache.current.get(loadRange.cacheKey) || readSessionPayload(rawCacheKey);
         if (rawCached?.jobs.length) {
           rawJobsCache.current.set(loadRange.cacheKey, rawCached);
           renderFromRaw(rawCached);
-          if (now - rawCached.ts < CALENDAR_RAW_CACHE_TTL_MS) return;
+
         }
       }
 
@@ -524,6 +538,7 @@ export default function JobsCalendarPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Failed to load installation calendar");
 
+      if (sequence !== loadSequence.current || splitRevision !== getSplitRevision()) return;
       const rawPayload = { jobs: json.jobs || [], ts: Date.now() };
       rawJobsCache.current.set(loadRange.cacheKey, rawPayload);
       writeSessionPayload(rawCacheKey, rawPayload);
@@ -540,11 +555,11 @@ export default function JobsCalendarPage() {
         writeSessionPayload(`${CALENDAR_VIEW_CACHE_PREFIX}${adjacentRange.cacheKey}`, adjacentPayload);
       }
     } catch (err) {
+      if (sequence !== loadSequence.current || splitRevision !== getSplitRevision()) return;
       const msg = err instanceof Error ? err.message : "Failed to load installation calendar";
-      if (msg !== "Unauthorized" && !renderedFromCache) setError(msg);
+      if (msg !== "Unauthorized") setError(`${msg} — displayed cached totals may be out of date.`);
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (sequence === loadSequence.current) { setLoading(false); setRefreshing(false); }
     }
   }, [monthCursor]);
 
@@ -833,7 +848,7 @@ export default function JobsCalendarPage() {
         scope: installScope,
       };
       const originalPlanning = getInstallPlanning(selectedJob);
-      const installDateChanged = !sameInstallDate(selectedJob.installation?.installDate, nextInstallDate);
+      const installDateChanged = !selectedJob.installationSplit && !sameInstallDate(selectedJob.installation?.installDate, nextInstallDate);
       const planningChanged = !sameInstallPlanning(originalPlanning, nextPlanning);
       const requests: Promise<unknown>[] = [];
       const jobId = selectedJob._id;
@@ -905,7 +920,7 @@ export default function JobsCalendarPage() {
   };
 
   const clearInstallDate = async () => {
-    if (!selectedJob) return;
+    if (!selectedJob || selectedJob.installationSplit) return;
     setSaving(true);
     setError("");
     try {
@@ -1090,6 +1105,7 @@ export default function JobsCalendarPage() {
         <div className="flex items-center justify-between gap-3 mb-3">
           <div>
             <h1 className="text-lg font-bold text-gray-900">Installation Calendar</h1>
+
             <p className="text-sm text-gray-500">Accepted, in-progress, invoice, and completed jobs with install dates.</p>
           </div>
           <button
@@ -1227,12 +1243,12 @@ export default function JobsCalendarPage() {
                             const isInstalled = isCompleteForCalendar(job);
                             const isPencilled = meta.status === "pencilled";
                             const scopeBadge = installScopeBadge(meta.scope);
-                            const installTime = timeFromDatetimeLocal(job.installation?.installDate);
-                            const statusLabel = isInstalled ? calendarStatusLabel(job) : isPencilled ? "Pencilled" : "Confirmed";
+                            const installTime = job.splitVisit ? "" : timeFromDatetimeLocal(job.installation?.installDate);
+                            const statusLabel = job.splitVisit ? `${job.splitVisit.percent}% · ${job.splitVisit.state === "completed" ? "Work recorded" : "Planned"}` : isInstalled ? calendarStatusLabel(job) : isPencilled ? "Pencilled" : "Confirmed";
                             const csBadge = checksheetBadge(job);
                             const phone = customerPhone(job);
                             return (
-                              <div key={job._id} className={`group w-full rounded-xl border p-2 shadow-sm transition-colors border-l-4 ${isInstalled ? "border-emerald-200 bg-emerald-50/70 hover:bg-emerald-50" : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/70"} ${isPencilled ? "border-l-amber-500" : "border-l-emerald-500"}`}>
+                              <div key={`${job._id}:${job.splitVisit?.id || "job"}`} data-split-visit={job.splitVisit && job.splitVisit.count !== 1 ? "true" : undefined} className={`group w-full rounded-xl border p-2 shadow-sm transition-colors border-l-4 ${job.splitVisit && job.splitVisit.count !== 1 ? "border-blue-200 bg-blue-50 hover:bg-blue-100/70" : isInstalled ? "border-emerald-200 bg-emerald-50/70 hover:bg-emerald-50" : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/70"} ${job.splitVisit && job.splitVisit.count !== 1 ? "border-l-blue-500" : isPencilled ? "border-l-amber-500" : "border-l-emerald-500"}`}>
                                 <button onClick={() => openJobSheet(job)} className="w-full text-left">
                                   <div className="mb-1 flex items-start justify-between gap-2">
                                     <div className="min-w-0 text-[15px] leading-5 font-semibold text-gray-900 line-clamp-2">
@@ -1255,6 +1271,7 @@ export default function JobsCalendarPage() {
                                   )}
 
                                   <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-500">
+                                    {job.splitVisit && job.splitVisit.count !== 1 && <span className="rounded-full border border-blue-200 bg-blue-100 px-1.5 py-0.5 font-black text-blue-800">Split job</span>}
                                     {installTime && <span>{installTime}</span>}
                                     {installTime && <span className="text-gray-300">/</span>}
                                     <span className={isInstalled ? "font-black text-emerald-700" : ""}>{statusLabel}</span>
@@ -1313,6 +1330,7 @@ export default function JobsCalendarPage() {
           </div>
         )}
       </div>
+
 
       <BottomSheet open={placeholderSheetOpen} onClose={closePlaceholderSheet} title={selectedPlaceholder ? "Edit placeholder" : "Add placeholder"}>
         {placeholderDate && (
@@ -1396,7 +1414,28 @@ export default function JobsCalendarPage() {
               </div>
             </div>
 
+            <InstallationVisits key={selectedJob._id} jobId={selectedJob._id}
+              initialData={selectedJob.installationSplit !== undefined ? {job:calendarSource(selectedJob),split:selectedJob.installationSplit} : undefined}
+              onEditingChange={setVisitsEditing}
+              onSaved={(split) => {
+                calendarSplitRevision = getSplitRevision();
+                const source = calendarSource(selectedJob);
+                ++loadSequence.current;
+                const range = calendarRangeForMonth(monthCursor);
+                calendarCache.current.clear(); rawJobsCache.current.clear(); clearCalendarSessionCache();
+                setJobs(prev => {
+                  const updated = filterJobsForRange(replaceCalendarJob(prev,source,split),range.calendarStart,range.calendarEnd);
+                  const payload = {jobs:updated,ts:Date.now()};
+                  calendarCache.current.set(range.cacheKey,payload);
+                  writeSessionPayload(`${CALENDAR_VIEW_CACHE_PREFIX}${range.cacheKey}`,payload);
+                  return updated;
+                });
+                const cards = calendarVisits(source,split);
+                setSelectedJob(cards.find(v=>v.splitVisit?.id===selectedJob.splitVisit?.id) || cards[0]);
+                setLoading(false); setRefreshing(false);
+              }} />
             <InstallPlanningForm
+              hideDate={!!selectedJob.installationSplit}
               installDate={installDate}
               onInstallDateChange={setInstallDate}
               saving={saving}
@@ -1414,7 +1453,7 @@ export default function JobsCalendarPage() {
 
             <InstallPlanningActions
               saving={saving}
-              canSave={!!installDate && !!installScope}
+              canSave={!visitsEditing && (!!selectedJob.installationSplit || !!installDate) && !!installScope}
               onCancel={closeSheet}
               onSave={saveInstallMeta}
             />

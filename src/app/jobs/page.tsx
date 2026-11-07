@@ -4,10 +4,13 @@ import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { gql } from "@/lib/graphql";
-import { JOBS_QUERY, USERS_QUERY } from "@/lib/queries";
+import { JOB_QUERY, JOBS_QUERY, USERS_QUERY } from "@/lib/queries";
 import { isActiveJob } from "@/lib/awaiting-completion";
 import StageTabs from "@/components/StageTabs";
 import JobCard from "@/components/JobCard";
+import { getSplitRevision, loadSplits, loadPendingSplits } from "@/lib/installation-splits/client";
+import { queueVisits, searchVisits } from "@/lib/installation-splits/views";
+import type { SavedSplit, VisitLabel } from "@/lib/installation-splits/projection";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { LEAD_SOURCE_OPTIONS, canonicalLeadSourceLabel, normalizeLeadSourceValue } from "@/lib/lead-sources";
 
@@ -15,7 +18,7 @@ const PAGE_SIZE = 40;
 const UNASSIGNED_SALESPERSON = "UNASSIGNED";
 const STAGE_CACHE_TTL_MS = 30 * 60 * 1000;
 const SORT_PREFERENCE_KEY = "jobs-sort-order";
-const CACHE_KEY_VERSION = "v5";
+const CACHE_KEY_VERSION = "v6";
 const EMAIL_LOGS_QUERY = `
   query EmailLogs($skip: Int, $limit: Int) {
     listEmailLogs(skip: $skip, limit: $limit) {
@@ -37,6 +40,9 @@ interface User {
 }
 
 interface Job {
+  splitVisit?: VisitLabel;
+  splitSource?: Job;
+  installationSplit?: SavedSplit | null;
   _id: string;
   jobNumber: number;
   stage: string;
@@ -78,6 +84,33 @@ interface EmailLogData {
   listEmailLogs: {
     results: { createdAt?: string; type?: string; to_email?: string }[];
   };
+}
+
+async function prepareQueue(first: JobsData["jobs"]): Promise<Job[]> {
+  const all = [...first.results];
+  while (all.length < first.total) {
+    const next = await gql<JobsData>(JOBS_QUERY, {stages:["SCHEDULED","INSTALLATION","INVOICE"],skip:all.length,limit:1000});
+    if (next.jobs.total !== first.total || !next.jobs.results.length)
+      throw Error("Jobs changed while loading. Please refresh the queue.");
+    all.push(...next.jobs.results);
+  }
+  if (new Set(all.map(j=>j._id)).size !== first.total)
+    throw Error("Job queue results are incomplete. Please refresh.");
+  const [activeSplits,pending] = await Promise.all([loadSplits(all.map(j=>j._id)),loadPendingSplits()]);
+  const known = new Set(all.map(j=>j._id));
+  const missing = Object.keys(pending).filter(id=>!known.has(id));
+  // Fetch only split parents with unfinished work, never scan completed-job history.
+  for (let start=0;start<missing.length;start+=10) {
+    const parents=await Promise.all(missing.slice(start,start+10).map(async id=>{
+      const result=await gql<{job:Job|null}>(JOB_QUERY,{_id:id});
+      return result.job;
+    }));
+    all.push(...parents.filter((job):job is Job=>!!job && ["SCHEDULED","INSTALLATION","INVOICE","COMPLETED"].includes(job.stage)));
+  }
+  for (const [id,split] of Object.entries(pending)) {
+    if (!activeSplits[id] || split.version > activeSplits[id].version) activeSplits[id]=split;
+  }
+  return queueVisits(all,activeSplits);
 }
 
 function JobsPageContent() {
@@ -146,11 +179,12 @@ function JobsPageContent() {
   }, [cacheKey]);
 
   const isActiveForStage = useCallback((job: Job, stage: string) => {
-    if (stage === "JOBS") return isActiveJob(job);
+    if (stage === "JOBS") return !job.archivedAt && (isActiveJob(job) || job.splitVisit?.state === "planned");
     return !job.archivedAt;
   }, []);
 
   const prefetchJobsForStage = useCallback(async (stage: string) => {
+    const revision = getSplitRevision();
     try {
       const stageFilter = stage === "JOBS" ? ["SCHEDULED", "INSTALLATION", "INVOICE"] : [stage];
       const data = await gql<JobsData>(JOBS_QUERY, {
@@ -161,7 +195,9 @@ function JobsPageContent() {
         cacheKey: `jobs:${stage}`,
         ttlMs: 2 * 60 * 1000,
       });
-      const activeJobs = data.jobs.results.filter((j) => isActiveForStage(j, stage));
+      const stageJobs = stage === "JOBS" ? await prepareQueue(data.jobs) : data.jobs.results;
+      if (revision !== getSplitRevision()) return;
+      const activeJobs = stageJobs.filter((j) => isActiveForStage(j, stage));
       const activeTotal = stage === "JOBS" || stage === "COMPLETED" ? activeJobs.length : data.jobs.total;
       cacheRef.current[stage] = { jobs: activeJobs, total: activeTotal };
 
@@ -323,6 +359,7 @@ function JobsPageContent() {
 
   const fetchJobs = useCallback(async () => {
     const currentFetchId = ++fetchIdRef.current;
+    const revision = getSplitRevision();
     setError("");
     setIsFetchingStage(true);
     if (!stageHydrated) setLoading(true);
@@ -340,10 +377,11 @@ function JobsPageContent() {
         ...(q ? { search: q } : {}),
       });
 
-      // Ignore stale responses
-      if (currentFetchId !== fetchIdRef.current) return;
-
-      const allFetched = data.jobs.results;
+      const allFetched = isSearching
+        ? searchVisits(data.jobs.results,await loadSplits(data.jobs.results.map(j=>j._id)))
+        : activeStage === "JOBS" ? await prepareQueue(data.jobs) : data.jobs.results;
+      // Ignore responses started before a local visit save.
+      if (currentFetchId !== fetchIdRef.current || revision !== getSplitRevision()) return;
       // Search is global across leads, quotes, and jobs; only archived records are hidden.
       const activeJobs = isSearching
         ? allFetched.filter((j) => !j.archivedAt)
@@ -384,7 +422,7 @@ function JobsPageContent() {
         }
       }
     } catch (err) {
-      if (currentFetchId !== fetchIdRef.current) return;
+      if (currentFetchId !== fetchIdRef.current || revision !== getSplitRevision()) return;
       const msg = err instanceof Error ? err.message : "Failed to load jobs";
       if (msg !== "Unauthorized") setError(msg);
     } finally {
@@ -987,11 +1025,12 @@ function JobsPageContent() {
         ) : (
           <div className="px-4 pt-1">
             {paginatedResults.map((job) => (
-              <JobCard key={job._id} job={job} />
+              <JobCard key={`${job._id}:${job.splitVisit?.id || "job"}`} job={job} />
             ))}
           </div>
         )}
       </div>
+
 
     </div>
   );

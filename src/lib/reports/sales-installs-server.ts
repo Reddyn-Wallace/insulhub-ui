@@ -1,4 +1,6 @@
 import "server-only";
+import { readSplits } from "@/lib/installation-splits/store";
+import { projectVisits } from "@/lib/installation-splits/projection";
 
 import { ensureOverlaySchema, overlaySql } from "@/lib/overlay-db";
 import {
@@ -19,7 +21,7 @@ type InstallPlanningRow = {
 type ReportCacheStatus = ReportResponse["cache"]["status"];
 
 const INSULHUB_GRAPHQL_URL = "https://api.insulhub.nz/graphql";
-const REPORT_KEY = "sales-installs";
+const REPORT_KEY = "sales-installs-v2";
 const REPORT_STAGES = ["LEAD", "QUOTE", "SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"];
 const SCHEDULED_STAGES = new Set(["SCHEDULED", "INSTALLATION", "INVOICE"]);
 const INSTALL_REPORT_STAGES = new Set(["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"]);
@@ -317,7 +319,9 @@ async function buildReport(token: string, fromDate: string, toDate: string): Pro
     })
     .sort((a, b) => toNzDateKey(a.acceptedAt).localeCompare(toNzDateKey(b.acceptedAt)));
 
-  const installs = allJobs
+  const splits=await readSplits(allJobs.map(job=>job._id));
+  const visitJobs: ReportJob[]=allJobs.flatMap(job=>splits[job._id] ? projectVisits(job,splits[job._id]) : [job]);
+  const installs = visitJobs
     .filter((job) => {
       const key = toNzDateKey(job.installation?.installDate);
       return INSTALL_REPORT_STAGES.has(job.stage || "")
@@ -327,7 +331,7 @@ async function buildReport(token: string, fromDate: string, toDate: string): Pro
     })
     .sort((a, b) => (a.installation?.installDate || "").localeCompare(b.installation?.installDate || ""));
 
-  const upcomingJobs = allJobs.filter(isActivePipelineJob);
+  const upcomingJobs = visitJobs.filter(job=>job.splitVisit ? job.splitVisit.state === "planned" : isActivePipelineJob(job));
   const upcomingWithDates = upcomingJobs.filter((job) => !!toNzDateKey(job.installation?.installDate));
   const planningStatuses = await fetchInstallPlanningStatuses(upcomingWithDates.map((job) => job._id));
   const upcoming = {
@@ -505,6 +509,8 @@ export async function getSalesInstallsReport(
   await ensureOverlaySchema();
   const today = todayNzKey();
   const ttlMs = snapshotTtlMs(fromDate, toDate, today);
+  // Split allocations are mutable and must not be served from stale weekly snapshots.
+  if (Object.keys(await readSplits()).length) options = { ...options, refresh: true };
 
   if (!options.refresh) {
     const snapshot = await readFreshSnapshot(fromDate, toDate);

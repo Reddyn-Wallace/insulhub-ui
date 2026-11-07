@@ -1,4 +1,7 @@
 "use client";
+
+import InstallationVisits from "@/components/InstallationVisits";
+import type { SavedSplit } from "@/lib/installation-splits/projection";
 import {displayFollowupNotes} from '@/lib/dead-followups/note-display';
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
@@ -487,6 +490,7 @@ export default function JobDetailPage() {
   const [quoteBookingSendEmailReminder, setQuoteBookingSendEmailReminder] = useState(false);
   const [quoteBookingSendTextReminder, setQuoteBookingSendTextReminder] = useState(false);
   const [installDate, setInstallDate] = useState("");
+  const [installationSplit, setInstallationSplit] = useState<SavedSplit | null>(null);
   const [consentNumber, setConsentNumber] = useState("");
   const [manualInvoice, setManualInvoice] = useState<ManualInvoiceConfirmation | null>(null);
   const [manualInvoiceReference, setManualInvoiceReference] = useState("");
@@ -2250,16 +2254,17 @@ export default function JobDetailPage() {
   });
   const completionActions = [
     {
-      title: "Add installation date",
-      description: `${installDateDisplay} • ${installScopeLabel}`,
+      title: installationSplit ? "Manage installation visits" : "Add installation date",
+      description: installationSplit ? "Split job: dates and progress are recorded in the visit panel" : `${installDateDisplay} • ${installScopeLabel}`,
       status: job.installation?.installDate
         ? installMeta.installScope
           ? "Recorded"
           : "Details missing"
         : "Missing",
       wired: true,
-      actionLabel: job.installation?.installDate ? "Edit date" : "Set date",
+      actionLabel: installationSplit ? "Manage visits" : job.installation?.installDate ? "Edit date" : "Set date",
       action: () => {
+        if (installationSplit) { document.getElementById("installation-visits")?.scrollIntoView({ behavior: "smooth" }); return; }
         setInstallDate(toDatetimeLocal(job.installation?.installDate));
         setInstallPlanningStatus(installMeta.status);
         setInstallPlanningScope(installMeta.installScope || "");
@@ -2575,6 +2580,7 @@ export default function JobDetailPage() {
 
         {activeDetailTab === "job" ? (
           <>
+            <InstallationVisits key={id} jobId={id} onLoaded={setInstallationSplit} />
             <Section title="Job checklist">
               <p className="text-xs text-gray-500 mb-2">Complete top to bottom. Each step shows if it is done, ready, in progress, or blocked.</p>
               <div className="space-y-1.5">
