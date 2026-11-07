@@ -69,7 +69,7 @@ export default function InstallationVisits({
       .filter((v) => v.state === "completed")
       .reduce((n, v) => n + v.percent, 0) || 0;
   const usage = source && split ? reconcileUsage(source, split) : null;
-  async function save(action: "complete" | "reschedule" | "undo") {
+  async function save(action: "complete" | "reschedule" | "undo", dateOverride?: string | null) {
     setSaving(true);
     setError("");
     setNotice("");
@@ -83,7 +83,7 @@ export default function InstallationVisits({
           percent: Number(percent),
           completedDate,
           reason,
-          date: action === "reschedule" ? moveDate || null : returnDate || null,
+          date: dateOverride !== undefined ? dateOverride : action === "reschedule" ? moveDate || null : returnDate || null,
         },
       );
       setSplit(result.split);
@@ -306,6 +306,16 @@ export default function InstallationVisits({
                   <button className={button} disabled={saving}>
                     Save remaining visit date
                   </button>
+                  {pending.date && (
+                    <button
+                      type="button"
+                      className="ml-3 rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold disabled:opacity-50"
+                      disabled={saving}
+                      onClick={() => void save("reschedule", null)}
+                    >
+                      Remove revisit date
+                    </button>
+                  )}
                   <p className="text-xs text-gray-500">
                     Blank keeps the remainder unscheduled. Completed visits do
                     not move.

@@ -111,3 +111,15 @@ it("offers a historical split for a completed checksheet and requires a correcti
   );
   expect(screen.queryByText(/requires reviewed backfill/)).toBeNull();
 });
+
+it('removes the revisit date with one action without changing recorded work', async () => {
+ const split={...initialSplit(source),...completeVisit(initialSplit(source),'initial',60,'2026-11-10'),version:1};
+ const cleared={...split,version:2,visits:split.visits.map(v=>v.state==='planned'?{...v,date:null}:v)};
+ mocks.request.mockResolvedValueOnce({job:source,split}).mockResolvedValueOnce({split:cleared});
+ render(<InstallationVisits jobId={source._id}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'Remove revisit date'}));
+ await waitFor(()=>expect(mocks.request.mock.calls[1][1]).toMatchObject({action:'reschedule',date:null,visitId:split.visits[1].id,version:1}));
+ await screen.findByText(/Visit 2 · Unscheduled/);
+ expect(screen.getByText(/Visit 1 · 2026-11-06/)).toBeTruthy();
+ expect(screen.queryByRole('button',{name:'Remove revisit date'})).toBeNull();
+});

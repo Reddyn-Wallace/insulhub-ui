@@ -1236,7 +1236,7 @@ export default function JobsCalendarPage() {
                             const csBadge = checksheetBadge(job);
                             const phone = customerPhone(job);
                             return (
-                              <div key={`${job._id}:${job.splitVisit?.id || "job"}`} className={`group w-full rounded-xl border p-2 shadow-sm transition-colors border-l-4 ${isInstalled ? "border-emerald-200 bg-emerald-50/70 hover:bg-emerald-50" : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/70"} ${isPencilled ? "border-l-amber-500" : "border-l-emerald-500"}`}>
+                              <div key={`${job._id}:${job.splitVisit?.id || "job"}`} data-split-visit={job.splitVisit ? "true" : undefined} className={`group w-full rounded-xl border p-2 shadow-sm transition-colors border-l-4 ${job.splitVisit ? "border-blue-200 bg-blue-50 hover:bg-blue-100/70" : isInstalled ? "border-emerald-200 bg-emerald-50/70 hover:bg-emerald-50" : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/70"} ${job.splitVisit ? "border-l-blue-500" : isPencilled ? "border-l-amber-500" : "border-l-emerald-500"}`}>
                                 <button onClick={() => openJobSheet(job)} className="w-full text-left">
                                   <div className="mb-1 flex items-start justify-between gap-2">
                                     <div className="min-w-0 text-[15px] leading-5 font-semibold text-gray-900 line-clamp-2">
@@ -1259,6 +1259,7 @@ export default function JobsCalendarPage() {
                                   )}
 
                                   <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-500">
+                                    {job.splitVisit && <span className="rounded-full border border-blue-200 bg-blue-100 px-1.5 py-0.5 font-black text-blue-800">Split job</span>}
                                     {installTime && <span>{installTime}</span>}
                                     {installTime && <span className="text-gray-300">/</span>}
                                     <span className={isInstalled ? "font-black text-emerald-700" : ""}>{statusLabel}</span>
@@ -1318,7 +1319,7 @@ export default function JobsCalendarPage() {
         )}
       </div>
 
-      {unscheduledVisits.length > 0 && <section className="mx-4 my-4 rounded-xl border border-amber-200 bg-amber-50 p-4"><h2 className="font-bold text-amber-900">Unscheduled return visits</h2><div className="mt-2 space-y-2">{unscheduledVisits.map(job=><button key={`${job._id}:${job.splitVisit?.id}`} onClick={()=>openJobSheet(job)} className="block w-full rounded-lg bg-white p-3 text-left text-sm">#{job.jobNumber} · {job.client?.contactDetails?.name} · {job.splitVisit?.percent}% remaining · {formatSqm(combinedSqm(job))} · {formatCurrency(job.quote?.c_total || 0)}</button>)}</div></section>}
+      {unscheduledVisits.length > 0 && <section className="mx-4 my-4 rounded-xl border border-amber-200 bg-amber-50 p-4"><h2 className="font-bold text-amber-900">Unscheduled return visits</h2><div className="mt-2 space-y-2">{unscheduledVisits.map(job=><button key={`${job._id}:${job.splitVisit?.id}`} onClick={()=>openJobSheet(job)} className="block w-full rounded-lg border border-blue-200 border-l-4 border-l-blue-500 bg-blue-50 p-3 text-left text-sm"><span className="font-semibold text-blue-800">Split job · </span>#{job.jobNumber} · {job.client?.contactDetails?.name} · {job.splitVisit?.percent}% remaining · {formatSqm(combinedSqm(job))} · {formatCurrency(job.quote?.c_total || 0)}</button>)}</div></section>}
       <BottomSheet open={placeholderSheetOpen} onClose={closePlaceholderSheet} title={selectedPlaceholder ? "Edit placeholder" : "Add placeholder"}>
         {placeholderDate && (
           <div className="space-y-4">

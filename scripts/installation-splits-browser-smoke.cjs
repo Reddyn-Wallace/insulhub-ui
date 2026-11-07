@@ -132,6 +132,9 @@ const base =
         .getByRole("button", { name: "Record completed work", exact: true })
         .click();
       await page.getByText("40% · Planned", { exact: true }).waitFor();
+      const splitCard = page.locator('[data-split-visit="true"]').first();
+      assert((await splitCard.getAttribute("class")).includes("bg-blue-50"));
+      await splitCard.getByText("Split job", { exact: true }).waitFor();
       assert.equal(split.visits[0].percent, 60);
       await page.goto(base + "/jobs/reports");
       const run = page.getByRole("button", {
@@ -179,9 +182,8 @@ const base =
         .getByRole("button")
         .filter({ hasText: "40% · Planned" })
         .click();
-      await page.getByLabel("Remaining visit date").fill("");
       await page
-        .getByRole("button", { name: "Save remaining visit date", exact: true })
+        .getByRole("button", { name: "Remove revisit date", exact: true })
         .click();
       await page
         .getByRole("heading", { name: "Unscheduled return visits" })
