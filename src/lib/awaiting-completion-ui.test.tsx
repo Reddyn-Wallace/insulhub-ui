@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import JobsPage from "@/app/jobs/page";
 import JobsLayout from "@/app/jobs/layout";
 const mocks = vi.hoisted(() => ({ replace: vi.fn(), push: vi.fn(), prefetch: vi.fn(), requests: [] as Record<string, unknown>[], params: new URLSearchParams("stage=JOBS") }));
+vi.mock("@/lib/installation-splits/client", () => ({loadSplits:async()=>({}),loadPendingSplits:async()=>({}),getSplitRevision:()=>0}));
 vi.mock("next/navigation", () => ({ useRouter: () => mocks, usePathname: () => "/jobs", useSearchParams: () => mocks.params }));
 vi.mock("@/lib/graphql", () => ({ gql: async (query: string, variables: Record<string, unknown> = {}) => {
   if (query.includes("query Users")) return { users: { results: [] } };

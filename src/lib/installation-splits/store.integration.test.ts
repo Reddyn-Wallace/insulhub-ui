@@ -9,7 +9,7 @@ vi.mock("@/lib/overlay-db", () => ({
     return (await state.pool!.query(sql, values)).rows;
   },
 }));
-import { readSplits, saveSplit } from "./store";
+import { readSplits, readPendingSplits, saveSplit } from "./store";
 import { initialSplit } from "./projection";
 import { completeVisit } from "./model";
 const url = process.env.INSTALLATION_SPLITS_TEST_DATABASE_URL;
@@ -81,4 +81,12 @@ describe.skipIf(!url)("installation split PostgreSQL persistence", () => {
     ).rejects.toThrow();
     expect((await readSplits())[split.id].version).toBe(2);
   });
+  it("finds only split records with remaining planned work",async()=>{
+    const base=initialSplit({_id:"cccccccccccccccccccccccc",quote:{c_total:100,wall:{SQM:10}},installation:{installDate:"2026-11-06"}});
+    const saved=await saveSplit(base,0,"staff",{action:"test"});
+    expect((await readPendingSplits())[base.id]).toBeTruthy();
+    await saveSplit({...saved,visits:[{...saved.visits[0],state:"completed"}]},saved.version,"staff",{action:"test"});
+    expect((await readPendingSplits())[base.id]).toBeUndefined();
+  });
+
 });

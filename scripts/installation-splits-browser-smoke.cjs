@@ -77,7 +77,7 @@ const base =
             );
             return send({
               data: {
-                jobs: { total: 1, results: [job] },
+                jobs: { total: body.variables?.stages && !body.variables.stages.includes(job.stage) ? 0 : 1, results: body.variables?.stages && !body.variables.stages.includes(job.stage) ? [] : [job] },
                 job,
                 users: { results: [] },
                 listEmailLogs: {total:0,results:[]},

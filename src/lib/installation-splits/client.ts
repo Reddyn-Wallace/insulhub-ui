@@ -42,3 +42,9 @@ export function invalidateSplitCaches() {
     ["session", "local"],
   );
 }
+
+
+export async function loadPendingSplits() {
+  const {splits} = await splitRequest<{splits:Record<string,SavedSplit>}>("/api/installation-splits",{pending:true});
+  return splits;
+}

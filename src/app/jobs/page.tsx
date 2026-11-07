@@ -4,11 +4,11 @@ import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { gql } from "@/lib/graphql";
-import { JOBS_QUERY, USERS_QUERY } from "@/lib/queries";
+import { JOB_QUERY, JOBS_QUERY, USERS_QUERY } from "@/lib/queries";
 import { isActiveJob } from "@/lib/awaiting-completion";
 import StageTabs from "@/components/StageTabs";
 import JobCard from "@/components/JobCard";
-import { getSplitRevision, loadSplits } from "@/lib/installation-splits/client";
+import { getSplitRevision, loadSplits, loadPendingSplits } from "@/lib/installation-splits/client";
 import { queueVisits, searchVisits } from "@/lib/installation-splits/views";
 import type { SavedSplit, VisitLabel } from "@/lib/installation-splits/projection";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
@@ -89,14 +89,28 @@ interface EmailLogData {
 async function prepareQueue(first: JobsData["jobs"]): Promise<Job[]> {
   const all = [...first.results];
   while (all.length < first.total) {
-    const next = await gql<JobsData>(JOBS_QUERY, {stages:["SCHEDULED","INSTALLATION","INVOICE","COMPLETED"],skip:all.length,limit:1000});
+    const next = await gql<JobsData>(JOBS_QUERY, {stages:["SCHEDULED","INSTALLATION","INVOICE"],skip:all.length,limit:1000});
     if (next.jobs.total !== first.total || !next.jobs.results.length)
       throw Error("Jobs changed while loading. Please refresh the queue.");
     all.push(...next.jobs.results);
   }
   if (new Set(all.map(j=>j._id)).size !== first.total)
     throw Error("Job queue results are incomplete. Please refresh.");
-  return queueVisits(all,await loadSplits(all.map(j=>j._id)));
+  const [activeSplits,pending] = await Promise.all([loadSplits(all.map(j=>j._id)),loadPendingSplits()]);
+  const known = new Set(all.map(j=>j._id));
+  const missing = Object.keys(pending).filter(id=>!known.has(id));
+  // Fetch only split parents with unfinished work, never scan completed-job history.
+  for (let start=0;start<missing.length;start+=10) {
+    const parents=await Promise.all(missing.slice(start,start+10).map(async id=>{
+      const result=await gql<{job:Job|null}>(JOB_QUERY,{_id:id});
+      return result.job;
+    }));
+    all.push(...parents.filter((job):job is Job=>!!job && ["SCHEDULED","INSTALLATION","INVOICE","COMPLETED"].includes(job.stage)));
+  }
+  for (const [id,split] of Object.entries(pending)) {
+    if (!activeSplits[id] || split.version > activeSplits[id].version) activeSplits[id]=split;
+  }
+  return queueVisits(all,activeSplits);
 }
 
 function JobsPageContent() {
@@ -172,7 +186,7 @@ function JobsPageContent() {
   const prefetchJobsForStage = useCallback(async (stage: string) => {
     const revision = getSplitRevision();
     try {
-      const stageFilter = stage === "JOBS" ? ["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"] : [stage];
+      const stageFilter = stage === "JOBS" ? ["SCHEDULED", "INSTALLATION", "INVOICE"] : [stage];
       const data = await gql<JobsData>(JOBS_QUERY, {
         stages: stageFilter,
         skip: 0,
@@ -355,7 +369,7 @@ function JobsPageContent() {
 
     try {
       const shouldFetchAllForStage = !isSearching && (activeStage === "LEAD" || activeStage === "QUOTE" || activeStage === "JOBS" || activeStage === "COMPLETED");
-      const stageFilter = activeStage === "JOBS" ? ["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"] : [activeStage];
+      const stageFilter = activeStage === "JOBS" ? ["SCHEDULED", "INSTALLATION", "INVOICE"] : [activeStage];
       const data = await gql<JobsData>(JOBS_QUERY, {
         ...(isSearching ? {} : { stages: stageFilter }),
         skip: shouldFetchAllForStage ? 0 : page * PAGE_SIZE,

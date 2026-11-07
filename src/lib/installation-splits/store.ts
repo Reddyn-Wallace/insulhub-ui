@@ -52,3 +52,15 @@ export async function saveSplit(
     version: Number(rows[0].version),
   };
 }
+
+export async function readPendingSplits(): Promise<Record<string, SavedSplit>> {
+  const rows = await overlaySql`
+    SELECT insulhub_job_id, version, payload FROM job_installation_splits
+    WHERE EXISTS (
+      SELECT 1 FROM jsonb_array_elements(payload->'visits') visit
+      WHERE visit->>'state' = 'planned'
+    )`;
+  return Object.fromEntries(rows.map(r=>[
+    String(r.insulhub_job_id),{...(r.payload as SavedSplit),version:Number(r.version)},
+  ]));
+}

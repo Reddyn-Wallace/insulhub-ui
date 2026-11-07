@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
   read: vi.fn(),
+  pending: vi.fn(),
   save: vi.fn(),
   fetch: vi.fn(),
 }));
@@ -13,6 +14,7 @@ vi.mock("@/lib/insulhub-auth", () => ({
 vi.mock("./store", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./store")>()),
   readSplits: mocks.read,
+  readPendingSplits: mocks.pending,
   saveSplit: mocks.save,
 }));
 import { GET, POST } from "@/app/api/jobs/[id]/installation-splits/route";
@@ -240,4 +242,16 @@ it("saves a complete visit list atomically with trusted snapshots and audit", as
  expect(mocks.save.mock.calls[0][3]?.visits).toEqual(visits);
  expect(split.history[0]).toContain("actor");
  expect((await POST(req({version:0,action:"edit",visits:visits.slice(0,2)}),context)).status).toBe(400);
+});
+
+
+it("lists pending overlays for the queue without fetching completed-job history",async()=>{
+ mocks.pending.mockResolvedValue({[id]:initialSplit(source)});
+ const response=await list(req({pending:true}));
+ expect(response.status).toBe(200);
+ expect((await response.json()).splits[id].visits[0].state).toBe("planned");
+ expect(mocks.fetch).not.toHaveBeenCalled();
+ mocks.auth.mockResolvedValue(NextResponse.json({error:"Unauthorized"},{status:401}));
+ expect((await list(req({pending:true}))).status).toBe(401);
+ expect(mocks.pending).toHaveBeenCalledTimes(1);
 });
