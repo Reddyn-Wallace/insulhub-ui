@@ -21,7 +21,13 @@ import {
   saveSettings,
 } from "./store";
 import { buildSnapshot } from "./model";
-const url = process.env.GM_REPORT_TEST_DATABASE_URL || process.env.INSTALLATION_SPLITS_TEST_DATABASE_URL;
+import {
+  readUnchangedAcceptanceDates,
+  writeAcceptanceFacts,
+} from "./accepted-date-cache";
+const url =
+  process.env.GM_REPORT_TEST_DATABASE_URL ||
+  process.env.INSTALLATION_SPLITS_TEST_DATABASE_URL;
 const settings = {
   wallBagCost: 100,
   ceilingBagCost: 200,
@@ -50,12 +56,55 @@ describe.skipIf(!url)("GM snapshot PostgreSQL lifecycle", () => {
     const sql = readFileSync("scripts/gm-report-schema.sql", "utf8");
     await state.pool.query(sql);
     await state.pool.query(sql);
+    await state.pool.query("TRUNCATE gm_report_accepted_dates");
     await state.pool.query(
       "TRUNCATE gm_report_events,gm_reports,gm_report_settings",
     );
   });
   afterAll(async () => {
     await state.pool?.end();
+  });
+  it("stores acceptance facts in a batch, reuses unchanged dates and protects newer lookups", async () => {
+    await writeAcceptanceFacts([
+      {
+        jobId: "cached",
+        acceptedAt: "2026-11-10T00:00:00Z",
+        checkedAt: "2026-11-11T00:00:00Z",
+      },
+      { jobId: "missing", acceptedAt: null, checkedAt: "2026-11-11T00:00:00Z" },
+    ]);
+    const jobs = [
+      { _id: "cached", updatedAt: "2026-11-09T00:00:00Z" },
+      { _id: "missing", updatedAt: "2026-11-09T00:00:00Z" },
+    ];
+    expect(await readUnchangedAcceptanceDates(jobs)).toEqual(
+      new Map([["cached", "2026-11-10T00:00:00.000Z"]]),
+    );
+    expect(
+      await readUnchangedAcceptanceDates([
+        { _id: "cached", updatedAt: "2026-11-12T00:00:00Z" },
+      ]),
+    ).toEqual(new Map());
+    await writeAcceptanceFacts([
+      {
+        jobId: "cached",
+        acceptedAt: "2026-11-03T00:00:00Z",
+        checkedAt: "2026-11-04T00:00:00Z",
+      },
+    ]);
+    expect((await readUnchangedAcceptanceDates(jobs)).get("cached")).toBe(
+      "2026-11-10T00:00:00.000Z",
+    );
+    await writeAcceptanceFacts([
+      {
+        jobId: "missing",
+        acceptedAt: "2026-11-10T00:00:00Z",
+        checkedAt: "2026-11-12T00:00:00Z",
+      },
+    ]);
+    expect((await readUnchangedAcceptanceDates(jobs)).get("missing")).toBe(
+      "2026-11-10T00:00:00.000Z",
+    );
   });
   it("requires explicit initial settings and protects concurrent settings writes", async () => {
     expect(await readSettings()).toBeNull();

@@ -9,6 +9,7 @@ export type Settings = {
   councilAliases: string[];
 };
 export type Job = SourceJob & {
+  updatedAt?: string | null;
   createdAt?: string | null;
   acceptedAt?: string | null;
   acceptedAtMissing?: boolean;
