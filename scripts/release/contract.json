@@ -79,6 +79,7 @@
     "src/lib/gm-report/store.integration.test.ts",
     "src/lib/gm-report/ui.test.tsx",
     "src/lib/gm-report/api.test.ts",
-    "scripts/gm-report-browser-smoke.cjs"
+    "scripts/gm-report-browser-smoke.cjs",
+    "src/lib/gm-report/source-query.test.ts"
   ]
 }
