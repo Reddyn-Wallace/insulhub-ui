@@ -34,6 +34,35 @@ it("requires verified management identity and never trusts browser-supplied role
     status: 403,
   });
 });
+it("accepts the existing LICENSEE management role used by the Wellington owner and GM", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValue(
+        Response.json({
+          data: { me: { _id: "wellington-licensee", role: "LICENSEE" } },
+        }),
+      ),
+  );
+  expect((await requireReportActor(request())).id).toBe("wellington-licensee");
+});
+it.each(["INSTALLER", "SALESPERSON"])(
+  "keeps %s outside management reporting",
+  async (role) => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          Response.json({ data: { me: { _id: "staff", role } } }),
+        ),
+    );
+    await expect(requireReportActor(request())).rejects.toMatchObject({
+      status: 403,
+    });
+  },
+);
 it("allows internal ADMIN or explicitly configured GM IDs, with no cached permission on revocation", async () => {
   const f = vi
     .fn()
