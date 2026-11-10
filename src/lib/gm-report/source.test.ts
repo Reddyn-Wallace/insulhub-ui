@@ -3,7 +3,7 @@ const m = vi.hoisted(() => ({ query: vi.fn(), sql: vi.fn(), splits: vi.fn() }));
 vi.mock("./access", () => ({ sourceQuery: m.query }));
 vi.mock("@/lib/overlay-db", () => ({ overlaySql: m.sql }));
 vi.mock("@/lib/installation-splits/store", () => ({ readSplits: m.splits }));
-import { loadSnapshot } from "./source";
+import { loadSnapshot, GM_JOBS_QUERY } from "./source";
 const settings = {
   wallBagCost: 100,
   ceilingBagCost: 200,
@@ -17,6 +17,38 @@ beforeEach(() => {
   vi.resetAllMocks();
   m.splits.mockResolvedValue({});
   m.sql.mockResolvedValue([]);
+});
+it("does not request acceptedAt from the bulk endpoint that returns null for that non-null field", async () => {
+  m.query.mockImplementation(async (_token, query) => {
+    if (query === GM_JOBS_QUERY) {
+      if (/\bacceptedAt\b/.test(query))
+        throw Error(
+          "Cannot return null for non-nullable field JobSchema.acceptedAt",
+        );
+      return {
+        jobs: {
+          total: 1,
+          results: [
+            {
+              _id: "a",
+              stage: "SCHEDULED",
+              quote: {
+                status: "ACCEPTED",
+                c_total: 1150,
+                wall: { SQM: 80, c_bagCount: 10 },
+              },
+              installation: { installDate: "2026-11-17T00:00:00Z" },
+            },
+          ],
+        },
+      };
+    }
+    return { job: { _id: "a", acceptedAt: "2026-11-10T00:00:00Z" } };
+  });
+  const snapshot = await loadSnapshot("token", "2026-11-09", settings);
+  expect(snapshot.sales.sqm).toBe(80);
+  expect(snapshot.sales.jobs[0].date).toBe("2026-11-10");
+  expect(m.query).toHaveBeenCalledTimes(2);
 });
 it("re-reads missing acceptance dates on refresh and reads real split and placeholder sources", async () => {
   const j = {
