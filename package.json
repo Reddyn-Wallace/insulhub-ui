@@ -19,7 +19,7 @@
     "partner:live-test-once": "node --conditions=react-server --import tsx scripts/partner-live-test-once.ts",
     "partner:notification-test-once": "node --conditions=react-server --import tsx scripts/partner-notification-test-once.ts",
     "partner:provision": "node scripts/partner-provision.mjs",
-    "test": "npm run test:site-plan-drawings && npm run test:sms-replies && npm run test:partner && npm run test:job-sms && npm run test:communications && npm run test:cloudflare && npm run test:job-email && npm run test:sender-ownership && npm run test:job-completion && npm run test:campaigns && npm run test:dead-followups && npm run test:installation-splits",
+    "test": "npm run test:site-plan-drawings && npm run test:sms-replies && npm run test:partner && npm run test:job-sms && npm run test:communications && npm run test:cloudflare && npm run test:job-email && npm run test:sender-ownership && npm run test:job-completion && npm run test:campaigns && npm run test:dead-followups && npm run test:installation-splits && npm run test:gm-report",
     "test:job-sms": "vitest run src/lib/job-sms*.test.*",
     "test:job-sms-browser": "node scripts/job-sms-browser-smoke.cjs",
     "job-sms:migrate": "node scripts/job-sms-migrate.mjs",
@@ -42,7 +42,10 @@
     "release:check-build": "node scripts/release/check-build.mjs",
     "test:installation-splits": "vitest run src/lib/installation-splits",
     "installation-splits:migrate": "node scripts/installation-splits-migrate.mjs",
-    "test:installation-splits:browser": "node scripts/installation-splits-browser-smoke.cjs"
+    "test:installation-splits:browser": "node scripts/installation-splits-browser-smoke.cjs && node scripts/gm-report-browser-smoke.cjs",
+    "test:gm-report": "vitest run src/lib/gm-report",
+    "gm-report:migrate": "node scripts/gm-report-migrate.mjs",
+    "test:gm-report:browser": "node scripts/gm-report-browser-smoke.cjs"
   },
   "dependencies": {
     "@ducanh2912/next-pwa": "^10.2.9",

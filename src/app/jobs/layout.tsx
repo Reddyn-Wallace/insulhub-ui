@@ -11,6 +11,10 @@ const OTHER_STAGES = [
 
 function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | null> }) {
   const router = useRouter();
+  const navigate = (href: string) => {
+    const event = new CustomEvent("gm-report-navigate", { cancelable: true, detail: { href } });
+    if (window.dispatchEvent(event)) router.push(href);
+  };
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -107,7 +111,7 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
     if (pathname === "/jobs") {
       router.replace(`/jobs?${params.toString()}`);
     } else {
-      router.push(`/jobs?${params.toString()}`);
+      navigate(`/jobs?${params.toString()}`);
     }
   };
 
@@ -124,7 +128,7 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
         </span>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => router.push("/jobs/new")}
+            onClick={() => navigate("/jobs/new")}
             className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-[#e85d04]/40 text-[#f97316] bg-[#e85d04]/10 active:bg-[#e85d04]/20"
           >
             + Lead
@@ -171,7 +175,7 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
           Jobs
         </button>
         <button
-          onClick={() => router.push("/jobs/calendar")}
+          onClick={() => navigate("/jobs/calendar")}
           className={`min-w-0 px-1.5 py-1.5 rounded-lg text-xs font-semibold transition-all sm:px-4 sm:text-sm ${
             isCalendarView
               ? "bg-[#e85d04] text-white shadow-md shadow-orange-500/30 ring-1 ring-orange-300/40"
@@ -209,7 +213,7 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
               <button
                 onClick={() => {
                   setIsMenuOpen(false);
-                  router.push("/jobs/campaigns");
+                  navigate("/jobs/campaigns");
                 }}
                 className={`w-full text-left px-4 py-2.5 text-sm font-medium transition-colors ${
                   isCampaignsView
@@ -223,7 +227,7 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
               <button
                 onClick={() => {
                   setIsMenuOpen(false);
-                  router.push("/jobs/reports");
+                  navigate("/jobs/reports");
                 }}
                 className={`w-full text-left px-4 py-2.5 text-sm font-medium transition-colors ${
                   pathname === "/jobs/reports"
@@ -235,9 +239,13 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
                 {pathname === "/jobs/reports" && <span className="float-right text-[#e85d04]">✓</span>}
               </button>
               <button
+                onClick={() => { setIsMenuOpen(false); navigate("/jobs/reports/weekly-gm"); }}
+                className={`w-full text-left px-4 py-2.5 text-sm font-medium ${pathname.startsWith("/jobs/reports/weekly-gm") ? "bg-orange-50 text-[#e85d04]" : "text-gray-700 hover:bg-gray-50"}`}
+              >Weekly GM report</button>
+              <button
                 onClick={() => {
                   setIsMenuOpen(false);
-                  router.push("/jobs/reports/sales-installs");
+                  navigate("/jobs/reports/sales-installs");
                 }}
                 className={`w-full text-left px-4 py-2.5 text-sm font-medium transition-colors ${
                   pathname === "/jobs/reports/sales-installs"
@@ -251,7 +259,7 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
               <button
                 onClick={() => {
                   setIsMenuOpen(false);
-                  router.push("/jobs/settings");
+                  navigate("/jobs/settings");
                 }}
                 className={`w-full text-left px-4 py-2.5 text-sm font-medium transition-colors ${
                   pathname.startsWith("/jobs/settings")
