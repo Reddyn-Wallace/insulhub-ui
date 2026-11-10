@@ -2,6 +2,7 @@ import "server-only";
 import type { NextRequest } from "next/server";
 import { tokenFromRequest } from "@/lib/insulhub-auth";
 import { ReportError } from "./model";
+import { SourceReadError, type SourceDiagnostic } from "./source-error";
 const diagnosticFields = new Set([
   "jobs",
   "job",
@@ -33,7 +34,11 @@ const diagnosticFields = new Set([
   "role",
   "_id",
 ]);
-function sourceDiagnostic(query: string, status: number, errors: unknown[]) {
+function sourceDiagnostic(
+  query: string,
+  status: number,
+  errors: unknown[],
+): SourceDiagnostic {
   const operation =
     query.match(
       /\bquery\s+(GMReportIdentity|GMReportJobs|GMReportAcceptedAt)\b/,
@@ -47,7 +52,7 @@ function sourceDiagnostic(query: string, status: number, errors: unknown[]) {
   return {
     operation,
     httpStatus: status,
-    errors: errors.slice(0, 5).map((value) => {
+    errors: errors.map((value) => {
       const e =
         value && typeof value === "object"
           ? (value as {
@@ -96,15 +101,13 @@ export async function sourceQuery<T>(
   const data = await response.json().catch(() => null);
   const errors = Array.isArray(data?.errors) ? data.errors : [];
   if (!response.ok || errors.length || !data?.data) {
+    const diagnostic = sourceDiagnostic(query, response.status, errors);
     // Never log raw upstream messages, exception objects, tokens, variables or customer values.
     console.error(
       "gm-report-source-failure",
-      JSON.stringify(sourceDiagnostic(query, response.status, errors)),
+      JSON.stringify({ ...diagnostic, errors: diagnostic.errors.slice(0, 5) }),
     );
-    throw new ReportError(
-      "The CRM source could not be read. Please retry.",
-      503,
-    );
+    throw new SourceReadError(diagnostic);
   }
   return data.data as T;
 }

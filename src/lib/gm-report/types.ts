@@ -11,6 +11,7 @@ export type Settings = {
 export type Job = SourceJob & {
   createdAt?: string | null;
   acceptedAt?: string | null;
+  acceptedAtMissing?: boolean;
   quote?: SourceJob["quote"] & {
     status?: string | null;
     ceiling?: { SQM?: number | null; c_bagCount?: number | null } | null;
@@ -95,6 +96,12 @@ export type Snapshot = {
     sqm: number;
     budget: number;
     variance: number;
+    undatedJobs?: {
+      id: string;
+      number: string;
+      customer: string;
+      sqm: number;
+    }[];
   };
   issues: string[];
 };

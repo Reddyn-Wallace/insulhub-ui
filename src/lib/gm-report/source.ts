@@ -3,6 +3,7 @@ import { overlaySql } from "@/lib/overlay-db";
 import { readSplits } from "@/lib/installation-splits/store";
 import { sourceQuery } from "./access";
 import { buildSnapshot, ReportError } from "./model";
+import { SourceReadError } from "./source-error";
 import type { Job, Placeholder, Settings } from "./types";
 // acceptedAt is non-null in the schema but absent from bulk job results. Read it
 // through job(_id:) below, as the existing Sales & Usage report does.
@@ -53,19 +54,32 @@ export async function loadSnapshot(
   for (let i = 0; i < accepted.length; i += 24)
     await Promise.all(
       accepted.slice(i, i + 24).map(async (j) => {
-        const d = await sourceQuery<{
-          job: { _id: string; acceptedAt?: string | null };
-        }>(
-          token,
-          "query GMReportAcceptedAt($_id:ObjectId!){job(_id:$_id){_id acceptedAt}}",
-          { _id: j._id },
-        );
-        if (d.job?._id !== j._id)
-          throw new ReportError(
-            "Sale acceptance date lookup was incomplete.",
-            503,
+        try {
+          const d = await sourceQuery<{
+            job: { _id: string; acceptedAt?: string | null };
+          }>(
+            token,
+            "query GMReportAcceptedAt($_id:ObjectId!){job(_id:$_id){_id acceptedAt}}",
+            { _id: j._id },
           );
-        j.acceptedAt = d.job.acceptedAt;
+          if (d.job?._id !== j._id)
+            throw new ReportError(
+              "Sale acceptance date lookup was incomplete.",
+              503,
+            );
+          j.acceptedAt = d.job.acceptedAt;
+          j.acceptedAtMissing = !d.job.acceptedAt;
+        } catch (error) {
+          // A legacy job without a date is a known data gap, not a failed refresh.
+          // All network/auth/other field errors still abort and retain the old snapshot.
+          if (
+            !(error instanceof SourceReadError) ||
+            !error.isMissingAcceptanceDate
+          )
+            throw error;
+          j.acceptedAt = null;
+          j.acceptedAtMissing = true;
+        }
       }),
     );
   const [splits, ph] = await Promise.all([

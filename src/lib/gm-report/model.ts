@@ -372,6 +372,14 @@ export function buildSnapshot(
     },
     sales: {
       jobs: sold,
+      undatedJobs: unique
+        .filter((j) => j.acceptedAtMissing)
+        .map((j) => ({
+          id: j._id,
+          number: String(j.jobNumber ?? ""),
+          customer: j.client?.contactDetails?.name || "Unnamed customer",
+          sqm: money((j.quote?.wall?.SQM ?? 0) + (j.quote?.ceiling?.SQM ?? 0)),
+        })),
       sqm: salesSqm,
       budget: settings.salesSqmBudget,
       variance: money(salesSqm - settings.salesSqmBudget),

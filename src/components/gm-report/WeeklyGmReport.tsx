@@ -660,6 +660,11 @@ export default function WeeklyGmReport() {
                 <strong className="text-2xl text-[#1a3a4a]">
                   {sqm(s.sales.sqm)} m²
                 </strong>
+                {!!s.sales.undatedJobs?.length && (
+                  <span className="ml-2 text-sm text-slate-500">
+                    known dated sales
+                  </span>
+                )}
                 <span className="ml-2 text-sm text-slate-500">
                   against {sqm(s.sales.budget)} m² budget
                 </span>
@@ -667,10 +672,37 @@ export default function WeeklyGmReport() {
               <p
                 className={`text-sm font-bold ${s.sales.variance >= 0 ? "text-emerald-800" : "text-rose-800"}`}
               >
-                {s.sales.variance >= 0 ? "+" : ""}
-                {sqm(s.sales.variance)} m²
+                {s.sales.undatedJobs?.length
+                  ? "Sales comparison incomplete"
+                  : `${s.sales.variance >= 0 ? "+" : ""}${sqm(s.sales.variance)} m²`}
               </p>
             </div>
+            {!!s.sales.undatedJobs?.length && (
+              <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                <p>
+                  {s.sales.undatedJobs.length} accepted{" "}
+                  {s.sales.undatedJobs.length === 1 ? "job has" : "jobs have"}{" "}
+                  no acceptance date available from the CRM. These jobs are excluded from
+                  weekly sales totals because their sale week is unknown.
+                  Installation figures are unaffected.
+                </p>
+                <details className="mt-2">
+                  <summary className="cursor-pointer font-semibold">
+                    Review undated jobs
+                  </summary>
+                  <ul className="mt-2 space-y-1">
+                    {s.sales.undatedJobs.map((j) => (
+                      <li key={j.id}>
+                        <Link className="underline" href={`/jobs/${j.id}`}>
+                          #{j.number} · {j.customer}
+                        </Link>{" "}
+                        · {sqm(j.sqm)} m²
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              </div>
+            )}
             <p className="mb-3 text-xs text-slate-500">
               Whole jobs counted once by acceptance date · wall and ceiling
               combined · values exclude GST.
@@ -678,7 +710,9 @@ export default function WeeklyGmReport() {
             <div className="space-y-2">
               {!s.sales.jobs.length && (
                 <p className="text-sm text-slate-500">
-                  No jobs accepted this week.
+                  {s.sales.undatedJobs?.length
+                    ? "No dated acceptances recorded for this week."
+                    : "No jobs accepted this week."}
                 </p>
               )}
               {s.sales.jobs.map((j) => (

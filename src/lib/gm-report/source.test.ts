@@ -4,6 +4,7 @@ vi.mock("./access", () => ({ sourceQuery: m.query }));
 vi.mock("@/lib/overlay-db", () => ({ overlaySql: m.sql }));
 vi.mock("@/lib/installation-splits/store", () => ({ readSplits: m.splits }));
 import { loadSnapshot, GM_JOBS_QUERY } from "./source";
+import { SourceReadError } from "./source-error";
 const settings = {
   wallBagCost: 100,
   ceilingBagCost: 200,
@@ -91,4 +92,63 @@ it("fails a whole refresh when an acceptance-date lookup fails", async () => {
     })
     .mockRejectedValue(Error("upstream"));
   await expect(loadSnapshot("token", "2026-11-09", settings)).rejects.toThrow();
+});
+it("flags a specifically missing acceptance date without inventing a sale week or losing the remaining report", async () => {
+  m.query
+    .mockResolvedValueOnce({
+      jobs: {
+        total: 1,
+        results: [
+          {
+            _id: "a",
+            stage: "SCHEDULED",
+            quote: {
+              status: "ACCEPTED",
+              c_total: 1150,
+              wall: { SQM: 80, c_bagCount: 10 },
+            },
+            installation: { installDate: "2026-11-17T00:00:00Z" },
+          },
+        ],
+      },
+    })
+    .mockRejectedValueOnce(
+      new SourceReadError({
+        operation: "GMReportAcceptedAt",
+        httpStatus: 200,
+        errors: [
+          {
+            code: "INTERNAL_SERVER_ERROR",
+            path: ["job", "acceptedAt"],
+            cause: "missing-required-field",
+          },
+        ],
+      }),
+    );
+  const s = await loadSnapshot("token", "2026-11-09", settings);
+  expect(s.sales.jobs).toHaveLength(0);
+  expect(s.sales.undatedJobs).toHaveLength(1);
+  expect(s.pipeline.sqm).toBe(80);
+});
+it("still rejects a failed refresh when a different required CRM field is missing", async () => {
+  m.query
+    .mockResolvedValueOnce({
+      jobs: { total: 1, results: [{ _id: "a", stage: "SCHEDULED" }] },
+    })
+    .mockRejectedValueOnce(
+      new SourceReadError({
+        operation: "GMReportAcceptedAt",
+        httpStatus: 200,
+        errors: [
+          {
+            code: "INTERNAL_SERVER_ERROR",
+            path: ["job", "_id"],
+            cause: "missing-required-field",
+          },
+        ],
+      }),
+    );
+  await expect(
+    loadSnapshot("token", "2026-11-09", settings),
+  ).rejects.toMatchObject({ status: 503 });
 });
