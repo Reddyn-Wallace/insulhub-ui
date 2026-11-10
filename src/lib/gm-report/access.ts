@@ -2,6 +2,84 @@ import "server-only";
 import type { NextRequest } from "next/server";
 import { tokenFromRequest } from "@/lib/insulhub-auth";
 import { ReportError } from "./model";
+const diagnosticFields = new Set([
+  "jobs",
+  "job",
+  "results",
+  "quote",
+  "ceiling",
+  "wall",
+  "c_bagCount",
+  "c_total",
+  "acceptedAt",
+  "SQM",
+  "extras",
+  "name",
+  "price",
+  "installerChecksheet",
+  "actualBags",
+  "complete",
+  "client",
+  "contactDetails",
+  "installation",
+  "createdAt",
+  "archivedAt",
+  "stage",
+  "jobNumber",
+  "installDate",
+  "installStatus",
+  "checkSheetSignedAsComplete",
+  "me",
+  "role",
+  "_id",
+]);
+function sourceDiagnostic(query: string, status: number, errors: unknown[]) {
+  const operation =
+    query.match(
+      /\bquery\s+(GMReportIdentity|GMReportJobs|GMReportAcceptedAt)\b/,
+    )?.[1] || "unknown";
+  const codes = new Set([
+    "GRAPHQL_VALIDATION_FAILED",
+    "INTERNAL_SERVER_ERROR",
+    "UNAUTHENTICATED",
+    "FORBIDDEN",
+  ]);
+  return {
+    operation,
+    httpStatus: status,
+    errors: errors.slice(0, 5).map((value) => {
+      const e =
+        value && typeof value === "object"
+          ? (value as {
+              message?: unknown;
+              path?: unknown;
+              extensions?: { code?: unknown };
+            })
+          : {};
+      const text = typeof e.message === "string" ? e.message : "";
+      return {
+        code:
+          typeof e.extensions?.code === "string" && codes.has(e.extensions.code)
+            ? e.extensions.code
+            : "UPSTREAM_ERROR",
+        path: Array.isArray(e.path)
+          ? e.path.map((p) =>
+              Number.isInteger(p)
+                ? p
+                : typeof p === "string" && diagnosticFields.has(p)
+                  ? p
+                  : "[field]",
+            )
+          : [],
+        cause: /\b(Float|Int) cannot represent\b/.test(text)
+          ? "non-numeric"
+          : /Cannot return null for non-nullable field/.test(text)
+            ? "missing-required-field"
+            : "upstream-error",
+      };
+    }),
+  };
+}
 export async function sourceQuery<T>(
   token: string,
   query: string,
@@ -15,17 +93,19 @@ export async function sourceQuery<T>(
     redirect: "error",
     signal: AbortSignal.timeout(30000),
   });
-  if (!response.ok)
+  const data = await response.json().catch(() => null);
+  const errors = Array.isArray(data?.errors) ? data.errors : [];
+  if (!response.ok || errors.length || !data?.data) {
+    // Never log raw upstream messages, exception objects, tokens, variables or customer values.
+    console.error(
+      "gm-report-source-failure",
+      JSON.stringify(sourceDiagnostic(query, response.status, errors)),
+    );
     throw new ReportError(
       "The CRM source could not be read. Please retry.",
       503,
     );
-  const data = await response.json();
-  if (data.errors?.length || !data.data)
-    throw new ReportError(
-      "The CRM source could not be read. Please retry.",
-      503,
-    );
+  }
   return data.data as T;
 }
 export async function requireReportActor(request: NextRequest) {
