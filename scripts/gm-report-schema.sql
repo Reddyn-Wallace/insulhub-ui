@@ -24,3 +24,11 @@ END $$;
 DROP TRIGGER IF EXISTS gm_report_finalised_lock ON gm_reports;
 CREATE TRIGGER gm_report_finalised_lock BEFORE UPDATE OR DELETE ON gm_reports
 FOR EACH ROW EXECUTE FUNCTION gm_report_prevent_finalised_change();
+
+-- Private acceptance-date cache: older reports use different lookup timestamps.
+CREATE TABLE IF NOT EXISTS gm_report_accepted_dates (
+ insulhub_job_id text PRIMARY KEY, accepted_at timestamptz,
+ accepted_at_missing boolean NOT NULL DEFAULT false,
+ last_checked_at timestamptz NOT NULL, last_error text NOT NULL DEFAULT '',
+ updated_at timestamptz NOT NULL DEFAULT now()
+);

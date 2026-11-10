@@ -4,10 +4,15 @@ import { readSplits } from "@/lib/installation-splits/store";
 import { sourceQuery } from "./access";
 import { buildSnapshot, ReportError } from "./model";
 import { SourceReadError } from "./source-error";
+import {
+  readUnchangedAcceptanceDates,
+  writeAcceptanceFacts,
+  type AcceptanceFact,
+} from "./accepted-date-cache";
 import type { Job, Placeholder, Settings } from "./types";
 // acceptedAt is non-null in the schema but absent from bulk job results. Read it
 // through job(_id:) below, as the existing Sales & Usage report does.
-export const GM_JOBS_QUERY = `query GMReportJobs($skip:Int,$limit:Int){jobs(stages:[LEAD,QUOTE,SCHEDULED,INSTALLATION,INVOICE,COMPLETED],skip:$skip,limit:$limit){total results{_id jobNumber stage archivedAt createdAt quote{status c_total wall{SQM c_bagCount} ceiling{SQM c_bagCount} extras{name price}} installation{installDate installStatus checkSheetSignedAsComplete} installerChecksheet{complete actualBags} client{contactDetails{name}}}}}`;
+export const GM_JOBS_QUERY = `query GMReportJobs($skip:Int,$limit:Int){jobs(stages:[LEAD,QUOTE,SCHEDULED,INSTALLATION,INVOICE,COMPLETED],skip:$skip,limit:$limit){total results{_id jobNumber stage archivedAt createdAt updatedAt quote{status c_total wall{SQM c_bagCount} ceiling{SQM c_bagCount} extras{name price}} installation{installDate installStatus checkSheetSignedAsComplete} installerChecksheet{complete actualBags} client{contactDetails{name}}}}}`;
 export async function loadSnapshot(
   token: string,
   week: string,
@@ -41,7 +46,6 @@ export async function loadSnapshot(
   }
   if (total !== jobs.length || new Set(jobs.map((j) => j._id)).size !== total)
     throw new ReportError("CRM job load was incomplete. Please retry.", 503);
-  // Acceptance dates must be refreshed too; do not trust the older report's persistent positive-date cache.
   const accepted = jobs.filter(
     (j) =>
       !j.acceptedAt &&
@@ -51,9 +55,19 @@ export async function loadSnapshot(
           j.stage || "",
         )),
   );
-  for (let i = 0; i < accepted.length; i += 24)
+  const cachedDates = await readUnchangedAcceptanceDates(accepted);
+  const pending = accepted.filter((j) => {
+    const date = cachedDates.get(j._id);
+    if (!date) return true;
+    j.acceptedAt = date;
+    return false;
+  });
+  const facts: AcceptanceFact[] = [];
+  for (let i = 0; i < pending.length; i += 24)
     await Promise.all(
-      accepted.slice(i, i + 24).map(async (j) => {
+      pending.slice(i, i + 24).map(async (j) => {
+        // Start time ensures an edit during this request invalidates the cache.
+        const checkedAt = new Date().toISOString();
         try {
           const d = await sourceQuery<{
             job: { _id: string; acceptedAt?: string | null };
@@ -80,8 +94,14 @@ export async function loadSnapshot(
           j.acceptedAt = null;
           j.acceptedAtMissing = true;
         }
+        facts.push({
+          jobId: j._id,
+          acceptedAt: j.acceptedAt || null,
+          checkedAt,
+        });
       }),
     );
+  await writeAcceptanceFacts(facts);
   const [splits, ph] = await Promise.all([
     readSplits(jobs.map((j) => j._id)),
     overlaySql`SELECT id,starts_at,ends_at,title,note FROM calendar_placeholders WHERE resolved_at IS NULL`,

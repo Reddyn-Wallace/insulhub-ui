@@ -51,6 +51,122 @@ it("does not request acceptedAt from the bulk endpoint that returns null for tha
   expect(snapshot.sales.jobs[0].date).toBe("2026-11-10");
   expect(m.query).toHaveBeenCalledTimes(2);
 });
+it("reuses an existing acceptance date only when fresh job metadata proves the job has not changed", async () => {
+  m.sql.mockImplementation(async (strings: TemplateStringsArray) =>
+    strings.join("").includes("gm_report_accepted_dates")
+      ? [
+          {
+            insulhub_job_id: "a",
+            accepted_at: "2026-11-10T00:00:00Z",
+            last_checked_at: "2026-11-11T00:00:00Z",
+          },
+        ]
+      : [],
+  );
+  m.query
+    .mockResolvedValueOnce({
+      jobs: {
+        total: 1,
+        results: [
+          {
+            _id: "a",
+            updatedAt: "2026-11-09T00:00:00Z",
+            stage: "SCHEDULED",
+            quote: {
+              status: "ACCEPTED",
+              c_total: 1150,
+              wall: { SQM: 80, c_bagCount: 10 },
+            },
+            installation: { installDate: "2026-11-17T00:00:00Z" },
+          },
+        ],
+      },
+    })
+    .mockRejectedValue(Error("Unnecessary historical detail read"));
+  const snapshot = await loadSnapshot("token", "2026-11-09", settings);
+  expect(snapshot.sales.sqm).toBe(80);
+  expect(m.query).toHaveBeenCalledTimes(1);
+});
+it("refreshes the acceptance date for a job modified after its last cached lookup", async () => {
+  m.sql.mockImplementation(async (strings: TemplateStringsArray) =>
+    strings.join("").includes("gm_report_accepted_dates")
+      ? [
+          {
+            insulhub_job_id: "a",
+            accepted_at: "2026-11-03T00:00:00Z",
+            last_checked_at: "2026-11-04T00:00:00Z",
+          },
+        ]
+      : [],
+  );
+  m.query
+    .mockResolvedValueOnce({
+      jobs: {
+        total: 1,
+        results: [
+          {
+            _id: "a",
+            updatedAt: "2026-11-10T00:00:00Z",
+            stage: "SCHEDULED",
+            quote: {
+              status: "ACCEPTED",
+              c_total: 1150,
+              wall: { SQM: 80, c_bagCount: 10 },
+            },
+            installation: { installDate: "2026-11-17T00:00:00Z" },
+          },
+        ],
+      },
+    })
+    .mockResolvedValueOnce({
+      job: { _id: "a", acceptedAt: "2026-11-10T00:00:00Z" },
+    });
+  const snapshot = await loadSnapshot("token", "2026-11-09", settings);
+  expect(snapshot.sales.jobs[0].date).toBe("2026-11-10");
+  expect(m.query).toHaveBeenCalledTimes(2);
+});
+it.each([
+  { updatedAt: undefined, accepted_at: "2026-11-10T00:00:00Z" },
+  { updatedAt: "invalid", accepted_at: "2026-11-10T00:00:00Z" },
+  {
+    updatedAt: "2026-11-09T00:00:00Z",
+    accepted_at: null,
+    accepted_at_missing: true,
+  },
+  { updatedAt: "2026-11-09T00:00:00Z", accepted_at: "invalid" },
+  {
+    updatedAt: "2026-11-09T00:00:00Z",
+    accepted_at: "2026-11-10T00:00:00Z",
+    last_error: "old failure",
+  },
+])(
+  "rechecks missing dates and untrustworthy cache metadata: %j",
+  async (row) => {
+    m.sql.mockImplementation(async (strings: TemplateStringsArray) =>
+      strings.join("").includes("gm_report_accepted_dates")
+        ? [
+            {
+              insulhub_job_id: "a",
+              last_checked_at: "2026-11-11T00:00:00Z",
+              ...row,
+            },
+          ]
+        : [],
+    );
+    m.query
+      .mockResolvedValueOnce({
+        jobs: {
+          total: 1,
+          results: [{ _id: "a", stage: "SCHEDULED", updatedAt: row.updatedAt }],
+        },
+      })
+      .mockResolvedValueOnce({
+        job: { _id: "a", acceptedAt: "2026-11-10T00:00:00Z" },
+      });
+    await loadSnapshot("token", "2026-11-09", settings);
+    expect(m.query).toHaveBeenCalledTimes(2);
+  },
+);
 it("re-reads missing acceptance dates on refresh and reads real split and placeholder sources", async () => {
   const j = {
     _id: "a",

@@ -9,6 +9,7 @@ import {
   writeRecovery,
   clearRecovery,
 } from "@/lib/gm-report/client";
+import { refreshReport } from "@/lib/gm-report/refresh-client";
 import type { Commentary, Report } from "@/lib/gm-report/types";
 import {
   button,
@@ -169,15 +170,9 @@ export default function WeeklyGmReport() {
         if (!active) return;
         setHistory(h.reports);
         let r = data.report;
-        if (!r?.snapshot) {
+        if (!r?.snapshot || r.refreshing) {
           setBusy("Building the first snapshot — this can take a moment…");
-          r = (
-            await request<{ report: Report }>(
-              `/api/gm-reports/${week}`,
-              "POST",
-              { action: "refresh" },
-            )
-          ).report;
+          r = await refreshReport(week, r);
         }
         if (!active) return;
         // Cached content was already accepted synchronously. A slow history read
@@ -272,11 +267,7 @@ export default function WeeklyGmReport() {
     setBusy("Refreshing data…");
     setError("");
     try {
-      const data = await request<{ report: Report }>(
-        `/api/gm-reports/${week}`,
-        "POST",
-        { action: "refresh" },
-      );
+      const data = { report: await refreshReport(week, current.current) };
       if (
         !same(draft.current, saved.current) &&
         !same(data.report.commentary, saved.current)
@@ -682,9 +673,9 @@ export default function WeeklyGmReport() {
                 <p>
                   {s.sales.undatedJobs.length} accepted{" "}
                   {s.sales.undatedJobs.length === 1 ? "job has" : "jobs have"}{" "}
-                  no acceptance date available from the CRM. These jobs are excluded from
-                  weekly sales totals because their sale week is unknown.
-                  Installation figures are unaffected.
+                  no acceptance date available from the CRM. These jobs are
+                  excluded from weekly sales totals because their sale week is
+                  unknown. Installation figures are unaffected.
                 </p>
                 <details className="mt-2">
                   <summary className="cursor-pointer font-semibold">
