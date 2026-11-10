@@ -4,29 +4,58 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
-it("identifies a failed job field without exposing upstream request secrets or partial data", async () => {
-  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+it("does not tolerate a hidden authentication error after five missing-date errors", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const dateError = {
+    message: "Cannot return null for non-nullable field JobSchema.acceptedAt",
+    path: ["job", "acceptedAt"],
+    extensions: { code: "INTERNAL_SERVER_ERROR" },
+  };
   vi.stubGlobal(
     "fetch",
     vi
       .fn()
       .mockResolvedValue(
         Response.json({
-          data: { jobs: { results: [] } },
+          data: null,
           errors: [
+            ...Array.from({ length: 5 }, () => dateError),
             {
-              message: "Float cannot represent non numeric value: NaN",
-              path: ["jobs", "results", 12, "quote", "ceiling", "c_bagCount"],
-              extensions: {
-                code: "INTERNAL_SERVER_ERROR",
-                exception: {
-                  headers: { authorization: "secret-upstream-value" },
-                },
-              },
+              message: "UNAUTHENTICATED",
+              path: ["job"],
+              extensions: { code: "UNAUTHENTICATED" },
             },
           ],
         }),
       ),
+  );
+  const failure = await sourceQuery(
+    "secret",
+    "query GMReportAcceptedAt {job{acceptedAt}}",
+  ).catch((e) => e);
+  expect(failure.isMissingAcceptanceDate).toBe(false);
+});
+it("identifies a failed job field without exposing upstream request secrets or partial data", async () => {
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(
+      Response.json({
+        data: { jobs: { results: [] } },
+        errors: [
+          {
+            message: "Float cannot represent non numeric value: NaN",
+            path: ["jobs", "results", 12, "quote", "ceiling", "c_bagCount"],
+            extensions: {
+              code: "INTERNAL_SERVER_ERROR",
+              exception: {
+                headers: { authorization: "secret-upstream-value" },
+              },
+            },
+          },
+        ],
+      }),
+    ),
   );
   await expect(
     sourceQuery(
@@ -45,22 +74,20 @@ it("records useful diagnostics for GraphQL errors returned with HTTP 400", async
   const log = vi.spyOn(console, "error").mockImplementation(() => {});
   vi.stubGlobal(
     "fetch",
-    vi
-      .fn()
-      .mockResolvedValue(
-        Response.json(
-          {
-            errors: [
-              {
-                message: "Unexpected error value: authorization Bearer PRIVATE",
-                path: ["job", "acceptedAt"],
-                extensions: { code: "INTERNAL_SERVER_ERROR" },
-              },
-            ],
-          },
-          { status: 400 },
-        ),
+    vi.fn().mockResolvedValue(
+      Response.json(
+        {
+          errors: [
+            {
+              message: "Unexpected error value: authorization Bearer PRIVATE",
+              path: ["job", "acceptedAt"],
+              extensions: { code: "INTERNAL_SERVER_ERROR" },
+            },
+          ],
+        },
+        { status: 400 },
       ),
+    ),
   );
   await expect(
     sourceQuery(

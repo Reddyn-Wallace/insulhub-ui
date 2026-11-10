@@ -105,6 +105,17 @@ it("renders all report sections and autosaves commentary without a manual save a
   });
   await waitFor(() => expect(current.commentary.profit).toBe("Good result"));
 });
+it("marks the sales comparison incomplete when accepted jobs have unknown dates", async () => {
+  current.snapshot!.sales.undatedJobs = [
+    { id: "unknown", number: "42", customer: "Undated example", sqm: 80 },
+  ];
+  render(<WeeklyGmReport />);
+  await screen.findByText("Leads by day");
+  expect(
+    screen.getByText(/1 accepted job has no acceptance date/),
+  ).toBeTruthy();
+  expect(screen.getByText("Sales comparison incomplete")).toBeTruthy();
+});
 it("preserves text typed during a refresh and saves it afterwards", async () => {
   render(<WeeklyGmReport />);
   await screen.findByText("Leads by day");
