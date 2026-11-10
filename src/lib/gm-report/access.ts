@@ -41,7 +41,7 @@ export async function requireReportActor(request: NextRequest) {
     .split(",")
     .map((v) => v.trim())
     .filter(Boolean);
-  if (me.role !== "ADMIN" && !allow.includes(me._id))
+  if (!["ADMIN", "LICENSEE"].includes(me.role) && !allow.includes(me._id))
     throw new ReportError(
       "Weekly GM reports are restricted to internal management.",
       403,

@@ -27,5 +27,9 @@ Prepared 10 November 2026 (NZ). This records the pre-release verification; the d
 - Quotes supply revenue, excluding GST. Council extras remain in revenue once and are also treated as council cost under the agreed business assumption.
 - Ceiling bags use the quoted estimate wherever no ceiling actual source exists. Whole-job actual bags allocated to visits are labelled allocated estimates; explicit visit records take precedence.
 - Saved snapshots are durable. Finalised reports cannot be reopened. Source changes and later completed-job reconciliations do not rewrite locked weeks.
-- Management access uses server-verified upstream ADMIN identities or explicitly configured GM actor IDs; partner cookies do not authenticate this API. This preserves the existing single-CRM deployment boundary rather than adding a multi-organisation permission model.
+- Management access uses server-verified upstream ADMIN/LICENSEE management identities or explicitly configured GM actor IDs; partner cookies do not authenticate this API. This preserves the existing single-CRM deployment boundary rather than adding a multi-organisation permission model.
 - Two minor limitations remain: the immediately preceding week uses the normal weekly-reporting grace period before retrospective warnings start; another session's draft/finalised status may remain cached until refresh/reload, while server revision checks and locks remain authoritative.
+
+## Live access correction
+
+The first authenticated production check found that the Wellington owner and GM use the existing `LICENSEE` role, rather than `ADMIN`. Confirmed from the original CRM Region Staff screen, without changing users or roles. A follow-up protected release recognises `LICENSEE` as management while continuing to reject `INSTALLER`, `SALESPERSON`, anonymous and partner-cookie-only requests. A regression reproduced the 403 before the fix and passes with the actual management role. No account permissions or customer records are modified.
