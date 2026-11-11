@@ -2,6 +2,7 @@ import React from "react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import type { Pnl, Week, Snapshot } from "@/lib/gm-report/types";
+import { addDays } from "@/lib/gm-report/model";
 import { toNzDateKey } from "@/lib/reports/sales-installs-types";
 export const dollars = (cents: number) =>
   new Intl.NumberFormat("en-NZ", {
@@ -121,91 +122,110 @@ export function Schedule({ week }: { week: Week }) {
     })),
   ].sort((a, b) => a.date.localeCompare(b.date));
   return (
-    <div className="space-y-2">
-      {!items.length && (
-        <p className="py-3 text-sm text-slate-500">
-          No work scheduled for this week.
-        </p>
-      )}
-      {items.map((item) => (
-        <div
-          key={item.key}
-          className={`rounded-xl border p-3 ${item.placeholder ? "border-dashed border-slate-300 bg-slate-50" : "border-slate-200"}`}
-        >
-          <div className="flex flex-wrap justify-between gap-2">
-            <span className="text-xs font-semibold text-slate-500">
-              {day(item.date)}
-            </span>
-            {item.row && (
-              <span className="text-xs text-slate-500">
-                {item.row.completed ? "Completed" : "Planned"}
-                {item.row.percent < 100 ? ` · ${item.row.percent}% of job` : ""}
-              </span>
-            )}
-          </div>
-          {item.row ? (
-            <>
-              <Link
-                href={`/jobs/${item.row.jobId}`}
-                className="mt-1 inline-block font-semibold text-[#1a3a4a] underline decoration-slate-300 underline-offset-4"
-              >
-                #{item.row.number} · {item.row.customer}
-              </Link>
-              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-600">
-                <span>
-                  {sqm(item.row.sqm)} m²{" "}
-                  <span className="text-xs">
-                    ({sqm(item.row.wallSqm)} wall / {sqm(item.row.ceilingSqm)}{" "}
-                    ceiling)
-                  </span>
-                </span>
-                <span>{dollars(item.row.revenue)}</span>
+    <div
+      role="region"
+      aria-label={`Calendar for week of ${day(week.week)}`}
+      tabIndex={0}
+      className="overflow-x-auto rounded-lg border border-slate-200 focus-visible:outline-2 focus-visible:outline-[#1a3a4a]"
+    >
+      <div className="grid min-w-[980px] grid-cols-7 divide-x divide-slate-200 bg-slate-50">
+        {Array.from({ length: 7 }, (_, i) => {
+          const date = addDays(week.week, i);
+          const daily = items.filter((item) => item.date === date);
+          return (
+            <div key={date} className="min-w-0">
+              <h4 className="border-b border-slate-200 bg-white px-2 py-2 text-sm font-bold text-[#1a3a4a]">
+                {day(date)}
+              </h4>
+              <div className="min-h-20 space-y-2 p-2">
+                {daily.length === 0 && (
+                  <p className="py-2 text-xs text-slate-500">
+                    No work scheduled
+                  </p>
+                )}
+                {daily.map((item) => (
+                  <div
+                    key={item.key}
+                    className={`rounded-lg border border-l-4 p-2 break-words ${item.placeholder ? "border-dashed border-violet-300 bg-violet-50" : item.row?.completed ? "border-slate-200 border-l-emerald-600 bg-white" : "border-slate-200 border-l-sky-600 bg-white"}`}
+                  >
+                    {item.row && (
+                      <p className="text-xs text-slate-500">
+                        {item.row.completed ? "Completed" : "Planned"}
+                        {item.row.percent < 100
+                          ? ` · ${item.row.percent}% of job`
+                          : ""}
+                      </p>
+                    )}
+                    {item.row ? (
+                      <>
+                        <Link
+                          href={`/jobs/${item.row.jobId}`}
+                          className="mt-1 inline-block text-sm font-semibold text-[#1a3a4a] underline decoration-slate-300 underline-offset-4"
+                        >
+                          #{item.row.number} · {item.row.customer}
+                        </Link>
+                        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-600">
+                          <span>
+                            {sqm(item.row.sqm)} m²{" "}
+                            {item.row.wallSqm > 0 &&
+                              item.row.ceilingSqm > 0 && (
+                                <span className="text-xs">
+                                  ({sqm(item.row.wallSqm)} wall /{" "}
+                                  {sqm(item.row.ceilingSqm)} ceiling)
+                                </span>
+                              )}
+                          </span>
+                          <span>{dollars(item.row.revenue)}</span>
+                        </div>
+                        <p
+                          className={`mt-1 text-xs ${item.row.estimated ? "font-medium text-amber-800" : "text-slate-500"}`}
+                        >
+                          {item.row.basis}
+                          {item.row.wallBags !== 0 &&
+                            ` · Wall bags: ${item.row.wallBags === null ? "Missing" : sqm(item.row.wallBags)}`}
+                          {item.row.ceilingBags !== 0 &&
+                            ` · Ceiling bags: ${item.row.ceilingBags === null ? "Missing" : sqm(item.row.ceilingBags)}`}
+                        </p>
+                        {item.row.issues.map((issue, i) => (
+                          <p key={i} className="mt-1 text-xs text-red-700">
+                            {issue}
+                          </p>
+                        ))}
+                        {item.row.councilLines.length > 0 && (
+                          <details className="mt-1 text-xs text-slate-500">
+                            <summary className="cursor-pointer">
+                              Council extras
+                            </summary>
+                            {item.row.councilLines.map((l, i) => (
+                              <p key={i}>
+                                {l.name}: {dollars(l.cents)} for whole job
+                              </p>
+                            ))}
+                          </details>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <p className="mt-1 font-medium text-slate-700">
+                          {item.placeholder!.title}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Schedule note · excluded from financial and m² totals
+                        </p>
+                        {item.placeholder!.note && (
+                          <p className="mt-1 text-sm text-slate-600">
+                            {item.placeholder!.note}
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ))}
               </div>
-              <p
-                className={`mt-1 text-xs ${item.row.estimated ? "font-medium text-amber-800" : "text-slate-500"}`}
-              >
-                {item.row.basis} · Wall bags:{" "}
-                {item.row.wallBags === null
-                  ? "Missing"
-                  : sqm(item.row.wallBags)}{" "}
-                · Ceiling bags:{" "}
-                {item.row.ceilingBags === null
-                  ? "Missing"
-                  : sqm(item.row.ceilingBags)}
-              </p>
-              {item.row.issues.map((issue, i) => (
-                <p key={i} className="mt-1 text-xs text-red-700">
-                  {issue}
-                </p>
-              ))}
-              {item.row.councilLines.length > 0 && (
-                <details className="mt-1 text-xs text-slate-500">
-                  <summary className="cursor-pointer">Council extras</summary>
-                  {item.row.councilLines.map((l, i) => (
-                    <p key={i}>
-                      {l.name}: {dollars(l.cents)} for whole job
-                    </p>
-                  ))}
-                </details>
-              )}
-            </>
-          ) : (
-            <>
-              <p className="mt-1 font-medium text-slate-700">
-                {item.placeholder!.title}
-              </p>
-              <p className="mt-1 text-xs text-slate-500">
-                Schedule note · excluded from financial and m² totals
-              </p>
-              {item.placeholder!.note && (
-                <p className="mt-1 text-sm text-slate-600">
-                  {item.placeholder!.note}
-                </p>
-              )}
-            </>
-          )}
-        </div>
-      ))}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

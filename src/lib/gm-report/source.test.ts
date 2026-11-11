@@ -268,3 +268,24 @@ it("still rejects a failed refresh when a different required CRM field is missin
     loadSnapshot("token", "2026-11-09", settings),
   ).rejects.toMatchObject({ status: 503 });
 });
+it("does not look up sale dates for leads carrying an accepted quote status", async () => {
+  m.query
+    .mockResolvedValueOnce({
+      jobs: {
+        total: 1,
+        results: [
+          {
+            _id: "lead",
+            stage: "LEAD",
+            quote: { status: "ACCEPTED" },
+            createdAt: "2026-11-10T00:00:00Z",
+          },
+        ],
+      },
+    })
+    .mockRejectedValue(new Error("Lead must not be hydrated"));
+  const snapshot = await loadSnapshot("token", "2026-11-09", settings);
+  expect(snapshot.leads[1].count).toBe(1);
+  expect(snapshot.sales.undatedJobs).toEqual([]);
+  expect(m.query).toHaveBeenCalledTimes(1);
+});

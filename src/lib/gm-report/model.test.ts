@@ -205,7 +205,7 @@ it("does not turn leads, unaccepted quotes or completed-but-unmarked jobs into b
   const s = build([lead, completed]);
   expect(s.pipeline.sqm).toBe(0);
   expect(s.pipeline.unscheduledSqm).toBe(0);
-  expect(s.upcoming[0].sqm).toBe(0);
+  expect(s.upcoming[0].rows.map((r) => r.jobId)).toEqual(["done"]);
 });
 it("does not silently discard wall costs when a mixed job is missing wall area", () => {
   const mixed = {
@@ -246,4 +246,63 @@ it("uses explicitly recorded actual bags for a completed split visit even before
   const s = build([incomplete], { a: split });
   expect(s.current.pnl.wallCogs).toBe(9000);
   expect(s.current.rows[0].basis).toBe("Actual recorded");
+});
+it("shows completed and planned calendar visits in a retrospective forward week", () => {
+  const completed = {
+    ...job,
+    installation: { ...job.installation, installDate: "2026-11-17" },
+  };
+  const planned = {
+    ...completed,
+    _id: "planned",
+    installerChecksheet: { complete: false, actualBags: 0 },
+    installation: {
+      installDate: "2026-11-18",
+      installStatus: "SCHEDULED",
+      checkSheetSignedAsComplete: false,
+    },
+  };
+  const snapshot = build([completed, planned]);
+  expect(snapshot.upcoming[0].rows.map((r) => [r.jobId, r.completed])).toEqual([
+    ["a", true],
+    ["planned", false],
+  ]);
+  expect(snapshot.upcoming[0].sqm).toBe(160);
+  expect(snapshot.upcoming[0].pnl).toMatchObject({
+    revenue: 200000,
+    wallCogs: 18000,
+  });
+  expect(snapshot.pipeline.sqm).toBe(80);
+});
+it("does not count a lead or label it as a missing sale even when it carries acceptance fields", () => {
+  const lead = { ...job, stage: "LEAD", acceptedAtMissing: true };
+  expect(build([lead]).sales).toMatchObject({
+    jobs: [],
+    undatedJobs: [],
+    sqm: 0,
+  });
+});
+it("flags a scheduled installation whose source quote has zero area", () => {
+  const emptyQuote = {
+    ...job,
+    quote: { ...job.quote, wall: { SQM: 0, c_bagCount: 0 } },
+    installerChecksheet: { complete: true, actualBags: 0 },
+  };
+  expect(build([emptyQuote]).current.issues.join(" ")).toMatch(/area/i);
+});
+it("keeps signed installation work in actuals when the calendar status has not caught up", () => {
+  const signed = {
+    ...job,
+    installation: {
+      ...job.installation,
+      installStatus: "SCHEDULED",
+      checkSheetSignedAsComplete: true,
+    },
+  };
+  const snapshot = build([signed]);
+  expect(snapshot.current.pnl).toMatchObject({
+    revenue: 100000,
+    wallCogs: 8000,
+  });
+  expect(snapshot.pipeline.sqm).toBe(0);
 });

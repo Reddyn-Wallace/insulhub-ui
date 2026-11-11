@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { calendarVisits } from "@/lib/installation-splits/views";
+import { CALENDAR_STAGES, calendarVisits } from "@/lib/installation-splits/views";
 import { readSplits } from "@/lib/installation-splits/store";
 import { projectVisits } from "@/lib/installation-splits/projection";
 
@@ -45,7 +45,6 @@ interface JobsData {
 }
 
 const INSULHUB_GRAPHQL_URL = "https://api.insulhub.nz/graphql";
-const CALENDAR_STAGES = ["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"];
 const CALENDAR_JOBS_QUERY = `
   query CalendarJobs($stages: [JobStage!], $skip: Int, $limit: Int) {
     jobs(stages: $stages, skip: $skip, limit: $limit) {
