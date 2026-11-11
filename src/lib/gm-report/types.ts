@@ -15,6 +15,9 @@ export type Job = SourceJob & {
   acceptedAtMissing?: boolean;
   quote?: SourceJob["quote"] & {
     status?: string | null;
+    consentFee?: number | null;
+    c_gst?: number | null;
+    totalOverridden?: boolean | null;
     ceiling?: { SQM?: number | null; c_bagCount?: number | null } | null;
     extras?: { name?: string | null; price?: number | null }[] | null;
   };
@@ -51,6 +54,8 @@ export type Row = {
   ceilingSqm: number;
   sqm: number;
   revenue: number;
+  grossRevenue?: number;
+  calendarRevenue?: number;
   wallBags: number | null;
   ceilingBags: number | null;
   council: number;
@@ -93,6 +98,7 @@ export type Snapshot = {
       ceilingSqm: number;
       sqm: number;
       revenue: number;
+      revenueIssue?: string;
     }[];
     sqm: number;
     budget: number;

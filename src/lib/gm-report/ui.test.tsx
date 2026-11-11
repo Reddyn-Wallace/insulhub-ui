@@ -341,3 +341,49 @@ it("shows each forward week as its own Monday–Sunday calendar row", async () =
   expect(screen.getByRole("heading", { name: day("2026-11-16") })).toBeTruthy();
   expect(screen.getByRole("heading", { name: day("2026-11-22") })).toBeTruthy();
 });
+it("reconciles gross scheduled value, completed revenue and planned council costs on the same P&L", async () => {
+  const jobs = [
+    {
+      _id: "done",
+      stage: "INSTALLATION",
+      quote: {
+        c_total: 1150,
+        wall: { SQM: 80, c_bagCount: 10 },
+        extras: [{ name: "Council Fee", price: 330 }],
+      },
+      installation: {
+        installDate: "2026-11-10",
+        installStatus: "INSTALLED_AS_QUOTED",
+      },
+      installerChecksheet: { actualBags: 8 },
+    },
+    {
+      _id: "planned",
+      stage: "SCHEDULED",
+      quote: {
+        c_total: 1250,
+        consentFee: 100,
+        wall: { SQM: 80, c_bagCount: 10 },
+        extras: [{ name: "Council Fee", price: 350 }],
+      },
+      installation: { installDate: "2026-11-12", installStatus: "SCHEDULED" },
+    },
+  ];
+  current.snapshot = buildSnapshot(current.week, jobs, {}, [], settings);
+  render(<WeeklyGmReport />);
+  await screen.findByRole("columnheader", { name: "Full schedule" });
+  expect(
+    screen.getByRole("row", {
+      name: /Calendar value incl GST.*\$1,150.*\$2,400/,
+    }),
+  ).toBeTruthy();
+  expect(
+    screen.getByRole("row", { name: /Revenue excl GST.*\$1,000.*\$2,100/ }),
+  ).toBeTruthy();
+  expect(
+    screen.getByRole("row", { name: /Council fees.*\$330.*\$680/ }),
+  ).toBeTruthy();
+  expect(
+    screen.getByRole("row", { name: /Operating profit.*\$440.*\$1,090/ }),
+  ).toBeTruthy();
+});

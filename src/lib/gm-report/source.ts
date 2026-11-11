@@ -12,7 +12,7 @@ import {
 import type { Job, Placeholder, Settings } from "./types";
 // acceptedAt is non-null in the schema but absent from bulk job results. Read it
 // through job(_id:) below, as the existing Sales & Usage report does.
-export const GM_JOBS_QUERY = `query GMReportJobs($skip:Int,$limit:Int){jobs(stages:[LEAD,QUOTE,SCHEDULED,INSTALLATION,INVOICE,COMPLETED],skip:$skip,limit:$limit){total results{_id jobNumber stage archivedAt createdAt updatedAt quote{status c_total wall{SQM c_bagCount} ceiling{SQM c_bagCount} extras{name price}} installation{installDate installStatus checkSheetSignedAsComplete} installerChecksheet{complete actualBags} client{contactDetails{name}}}}}`;
+export const GM_JOBS_QUERY = `query GMReportJobs($skip:Int,$limit:Int){jobs(stages:[LEAD,QUOTE,SCHEDULED,INSTALLATION,INVOICE,COMPLETED],skip:$skip,limit:$limit){total results{_id jobNumber stage archivedAt createdAt updatedAt quote{status c_total consentFee c_gst totalOverridden wall{SQM c_bagCount} ceiling{SQM c_bagCount} extras{name price}} installation{installDate installStatus checkSheetSignedAsComplete} installerChecksheet{complete actualBags} client{contactDetails{name}}}}}`;
 export async function loadSnapshot(
   token: string,
   week: string,

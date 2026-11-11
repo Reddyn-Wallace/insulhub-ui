@@ -1,14 +1,15 @@
 import React from "react";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import type { Pnl, Week, Snapshot } from "@/lib/gm-report/types";
-import { addDays } from "@/lib/gm-report/model";
+import type { Pnl, Row, Settings, Week, Snapshot } from "@/lib/gm-report/types";
+import { addDays, calculatePnl } from "@/lib/gm-report/model";
 import { toNzDateKey } from "@/lib/reports/sales-installs-types";
 export const dollars = (cents: number) =>
   new Intl.NumberFormat("en-NZ", {
     style: "currency",
     currency: "NZD",
-    maximumFractionDigits: 0,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
   }).format(cents / 100);
 export const sqm = (value: number) =>
   new Intl.NumberFormat("en-NZ", { maximumFractionDigits: 2 }).format(value);
@@ -106,6 +107,112 @@ export function PnlTable({
     </div>
   );
 }
+function quoteTotal(rows: Row[], field: "grossRevenue" | "calendarRevenue") {
+  if (rows.some((row) => row[field] === undefined)) return undefined;
+  return rows.reduce((sum, row) => sum + (row[field] ?? 0), 0);
+}
+
+export function WeeklyPnl({
+  week,
+  settings,
+}: {
+  week: Week;
+  settings: Settings;
+}) {
+  const completed = week.rows.filter((row) => row.completed);
+  const full = calculatePnl(week.rows, settings);
+  const actual = week.pnl;
+  const gross = quoteTotal(week.rows, "grossRevenue");
+  const actualGross = quoteTotal(completed, "grossRevenue");
+  const calendar = quoteTotal(week.rows, "calendarRevenue");
+  const actualCalendar = quoteTotal(completed, "calendarRevenue");
+  const quoteChanged = gross !== calendar || actualGross !== actualCalendar;
+  const fullIncomplete = week.rows.some((row) => row.issues.length > 0);
+  const lines: [string, number, number][] = [
+    ["Revenue excl GST", actual.revenue, full.revenue],
+    ["COGS — wall bags", actual.wallCogs, full.wallCogs],
+    ["COGS — ceiling bags", actual.ceilingCogs, full.ceilingCogs],
+    ["Council fees", actual.council, full.council],
+    ["Wages", actual.wages, full.wages],
+    ["Opex", actual.opex, full.opex],
+    ["Operating profit", actual.profit, full.profit],
+    ["Operating profit budget", actual.budget, full.budget],
+    ["Variance to budget", actual.variance, full.variance],
+  ];
+  if (quoteChanged && gross !== undefined && actualGross !== undefined)
+    lines.unshift(["Latest quote value incl GST", actualGross, gross]);
+  if (calendar !== undefined && actualCalendar !== undefined)
+    lines.unshift(["Calendar value incl GST", actualCalendar, calendar]);
+  return (
+    <div>
+      <p className="mb-3 text-sm text-slate-600">
+        Full schedule includes {week.rows.length - completed.length} planned{" "}
+        {week.rows.length - completed.length === 1 ? "visit" : "visits"} with
+        estimated costs. P&amp;L figures are NZD excluding GST.
+      </p>
+      <table
+        aria-label="Weekly profit and loss comparison"
+        className="w-full text-sm tabular-nums"
+      >
+        <thead className="border-b border-slate-200 text-slate-700">
+          <tr>
+            <th scope="col" className="sr-only">
+              Measure
+            </th>
+            <th scope="col" className="px-2 py-2 text-right">
+              Completed work
+            </th>
+            <th scope="col" className="px-2 py-2 text-right">
+              Full schedule
+            </th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {lines.map(([label, completedValue, fullValue]) => (
+            <tr
+              key={label}
+              className={
+                label === "Operating profit" ? "bg-slate-50 font-bold" : ""
+              }
+            >
+              <th
+                scope="row"
+                className="py-2 text-left font-medium text-slate-700"
+              >
+                {label}
+              </th>
+              <td className="whitespace-nowrap px-2 py-2 text-right">
+                {dollars(completedValue)}
+              </td>
+              <td className="whitespace-nowrap px-2 py-2 text-right">
+                {dollars(fullValue)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {quoteChanged && calendar !== undefined && (
+        <p className="mt-3 text-xs text-slate-600">
+          Some split visits use a saved quote value in the calendar. Revenue
+          uses the latest quote.
+        </p>
+      )}
+      {week.estimated && (
+        <p className="mt-3 text-xs text-amber-800">
+          Completed work includes some estimated costs.
+        </p>
+      )}
+      {fullIncomplete && (
+        <p className="mt-3 text-xs text-amber-800">
+          {week.issues.length
+            ? "Completed and full schedule figures are incomplete. Review the highlighted visits."
+            : "Full schedule figures are incomplete. Review the highlighted planned visits."}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function Schedule({ week }: { week: Week }) {
   const items = [
     ...week.rows.map((r) => ({
@@ -196,6 +303,10 @@ export function Schedule({ week }: { week: Week }) {
                             <summary className="cursor-pointer">
                               Council extras
                             </summary>
+                            <p className="my-1 font-medium">
+                              Allocated to this visit:{" "}
+                              {dollars(item.row.council)}
+                            </p>
                             {item.row.councilLines.map((l, i) => (
                               <p key={i}>
                                 {l.name}: {dollars(l.cents)} for whole job

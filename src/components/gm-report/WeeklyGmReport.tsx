@@ -17,6 +17,7 @@ import {
   dollars,
   Leads,
   PnlTable,
+  WeeklyPnl,
   Schedule,
   Section,
   sqm,
@@ -569,16 +570,12 @@ export default function WeeklyGmReport() {
               <strong className="text-slate-800">
                 {sqm(s.current.sqm)} m² completed
               </strong>{" "}
-              · Planned visits are shown but excluded from this week’s P&amp;L.
+              · Planned work is included in the full schedule projection below.
             </p>
             <Schedule week={s.current} />
           </Section>
           <Section title="Weekly P&L" kicker="03 · Operating performance">
-            <PnlTable
-              pnl={s.current.pnl}
-              incomplete={!!s.current.issues.length}
-              estimated={s.current.estimated}
-            />
+            <WeeklyPnl week={s.current} settings={s.settings} />
             {comment(
               "profit",
               "Was the week over or under budget? What was this due to?",
@@ -730,7 +727,9 @@ export default function WeeklyGmReport() {
                   </div>
                   <div className="text-right">
                     <strong>{sqm(j.sqm)} m²</strong>
-                    <p className="mt-1 text-slate-500">{dollars(j.revenue)}</p>
+                    <p className="mt-1 text-slate-500">
+                      {j.revenueIssue || dollars(j.revenue)}
+                    </p>
                   </div>
                 </div>
               ))}

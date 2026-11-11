@@ -289,3 +289,29 @@ it("does not look up sale dates for leads carrying an accepted quote status", as
   expect(snapshot.sales.undatedJobs).toEqual([]);
   expect(m.query).toHaveBeenCalledTimes(1);
 });
+it("requests the separate consent fee used to reconcile GST", async () => {
+  m.query.mockImplementation(async (_token, query) => ({
+    jobs: {
+      total: 1,
+      results: [
+        {
+          _id: "a",
+          stage: "INSTALLATION",
+          acceptedAt: "2026-11-10",
+          quote: {
+            c_total: 1250,
+            consentFee: /\bconsentFee\b/.test(query) ? 100 : undefined,
+            wall: { SQM: 80, c_bagCount: 8 },
+          },
+          installation: {
+            installDate: "2026-11-10",
+            installStatus: "INSTALLED_AS_QUOTED",
+          },
+          installerChecksheet: { actualBags: 8 },
+        },
+      ],
+    },
+  }));
+  const s = await loadSnapshot("token", "2026-11-09", settings);
+  expect(s.current.pnl.revenue).toBe(110000);
+});
