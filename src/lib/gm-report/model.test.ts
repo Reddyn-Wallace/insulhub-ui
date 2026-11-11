@@ -306,3 +306,64 @@ it("keeps signed installation work in actuals when the calendar status has not c
   });
   expect(snapshot.pipeline.sqm).toBe(0);
 });
+it("removes GST from the taxable amount and keeps a separate consent fee in revenue", () => {
+  const quoted = {
+    ...job,
+    quote: { ...job.quote, c_total: 1250, consentFee: 100 },
+  };
+  const s = build([quoted]);
+  expect(s.current.rows[0]).toMatchObject({
+    grossRevenue: 125000,
+    revenue: 110000,
+    council: 10000,
+  });
+  expect(s.current.pnl).toMatchObject({
+    revenue: 110000,
+    council: 10000,
+    profit: 77000,
+  });
+  expect(s.sales.jobs[0].revenue).toBe(110000);
+});
+it("keeps the saved calendar value and updated quote distinct on a split visit", () => {
+  const saved = initialSplit(job);
+  const split = {
+    ...saved,
+    visits: [
+      {
+        id: "done",
+        date: "2026-11-10",
+        percent: 50,
+        state: "completed" as const,
+      },
+      {
+        id: "later",
+        date: "2026-11-17",
+        percent: 50,
+        state: "planned" as const,
+      },
+    ],
+  };
+  const updated = { ...job, quote: { ...job.quote, c_total: 1380 } };
+  const s = build([updated], { a: split });
+  expect(s.current.rows[0]).toMatchObject({
+    calendarRevenue: 57500,
+    grossRevenue: 69000,
+    revenue: 60000,
+    council: 5000,
+  });
+});
+it("flags an override whose separate consent fee and recorded GST do not reconcile", () => {
+  const overridden = {
+    ...job,
+    quote: {
+      ...job.quote,
+      c_total: 1250,
+      consentFee: 100,
+      totalOverridden: true,
+      c_gst: 200,
+    },
+  };
+  const s = build([overridden]);
+  expect(s.current.issues.join(" ")).toMatch(/GST.*overridden/i);
+  expect(s.sales.jobs[0].revenueIssue).toMatch(/GST.*overridden/i);
+});

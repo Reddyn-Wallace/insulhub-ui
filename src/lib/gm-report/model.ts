@@ -9,6 +9,7 @@ import type {
   Placeholder,
   Splits,
   Row,
+  Pnl,
   Week,
 } from "./types";
 export class ReportError extends Error {
@@ -128,6 +129,64 @@ function shares(total: number, percents: number[]) {
     return n;
   });
 }
+function quoteRevenue(quote: Job["quote"]) {
+  const gross = quote?.c_total;
+  if (!numeric(gross))
+    return { gross: 0, net: 0, issue: "Quote revenue is missing." };
+  const consent = quote?.consentFee ?? 0;
+  // The CRM adds a separate consent fee after calculating GST on the contract price.
+  if (!numeric(consent) || consent > gross)
+    return {
+      gross: Math.round(gross * 100),
+      net: 0,
+      issue: "Check the consent fee against the CRM quote total.",
+    };
+  const net = Math.round(((gross - consent) / 1.15 + consent) * 100);
+  const grossCents = Math.round(gross * 100);
+  if (
+    consent > 0 &&
+    quote?.totalOverridden === true &&
+    (!numeric(quote.c_gst) ||
+      Math.abs(Math.round(quote.c_gst * 100) - (grossCents - net)) > 1)
+  ) {
+    return {
+      gross: grossCents,
+      net: 0,
+      issue: "Check GST on the overridden quote with a separate consent fee.",
+    };
+  }
+  return { gross: grossCents, net };
+}
+
+export function calculatePnl(rows: Row[], settings: Settings): Pnl {
+  const sum = (f: (row: Row) => number) =>
+    Math.round(rows.reduce((total, row) => total + f(row), 0));
+  const revenue = sum((row) => row.revenue);
+  const wallCogs = sum((row) => (row.wallBags ?? 0) * settings.wallBagCost);
+  const ceilingCogs = sum(
+    (row) => (row.ceilingBags ?? 0) * settings.ceilingBagCost,
+  );
+  const council = sum((row) => row.council);
+  const profit =
+    revenue -
+    wallCogs -
+    ceilingCogs -
+    council -
+    settings.weeklyWages -
+    settings.weeklyOpex;
+  return {
+    revenue,
+    wallCogs,
+    ceilingCogs,
+    council,
+    wages: settings.weeklyWages,
+    opex: settings.weeklyOpex,
+    profit,
+    budget: settings.profitBudget,
+    variance: profit - settings.profitBudget,
+  };
+}
+
 function project(job: Job, splits: Splits, settings: Settings): Row[] {
   const split = splits[job._id],
     wall = job.quote?.wall?.SQM,
@@ -152,10 +211,13 @@ function project(job: Job, splits: Splits, settings: Settings): Row[] {
         },
       ];
   const rawTotal = job.quote?.c_total;
-  const revenues = shares(
-    numeric(rawTotal) ? Math.round((rawTotal / 1.15) * 100) : 0,
-    visits.map((v) => v.percent),
-  );
+  const amounts = quoteRevenue(job.quote);
+  const weights = visits.map((visit) => visit.percent);
+  const revenues = shares(amounts.net, weights);
+  const grossRevenues = shares(amounts.gross, weights);
+  const calendarRevenues = split
+    ? calendarRows(split).map((visit) => Math.round(visit.value * 100))
+    : grossRevenues;
   const council = fees(job, settings),
     councilTotals = shares(
       council.lines.reduce((s, l) => s + l.cents, 0),
@@ -188,7 +250,7 @@ function project(job: Job, splits: Splits, settings: Settings): Row[] {
     const issues = [...council.issues];
     const done = visit.state === "completed",
       share = visit.percent / 100;
-    if (!numeric(rawTotal)) issues.push("Quote revenue is missing.");
+    if (amounts.issue) issues.push(amounts.issue);
     if (w + c === 0)
       issues.push("Quoted area is missing or zero. Check the CRM quote.");
     if (hasWall && (!numeric(wall) || wall === 0))
@@ -251,6 +313,8 @@ function project(job: Job, splits: Splits, settings: Settings): Row[] {
       ceilingSqm: money(c * share),
       sqm: money((w + c) * share),
       revenue: revenues[index],
+      grossRevenue: grossRevenues[index],
+      calendarRevenue: calendarRevenues[index],
       wallBags,
       ceilingBags,
       council: councilTotals[index],
@@ -289,19 +353,6 @@ export function buildSnapshot(
             a.date.localeCompare(b.date) || a.number.localeCompare(b.number),
         );
     const counted = forecast ? selected : selected.filter((r) => r.completed);
-    const sum = (f: (r: Row) => number) =>
-      Math.round(counted.reduce((s, r) => s + f(r), 0));
-    const revenue = sum((r) => r.revenue),
-      wallCogs = sum((r) => (r.wallBags ?? 0) * settings.wallBagCost),
-      ceilingCogs = sum((r) => (r.ceilingBags ?? 0) * settings.ceilingBagCost),
-      council = sum((r) => r.council);
-    const profit =
-      revenue -
-      wallCogs -
-      ceilingCogs -
-      council -
-      settings.weeklyWages -
-      settings.weeklyOpex;
     return {
       week: start,
       rows: selected,
@@ -316,17 +367,7 @@ export function buildSnapshot(
       issues: counted.flatMap((r) =>
         r.issues.map((issue) => `Job ${r.number || r.jobId}: ${issue}`),
       ),
-      pnl: {
-        revenue,
-        wallCogs,
-        ceilingCogs,
-        council,
-        wages: settings.weeklyWages,
-        opex: settings.weeklyOpex,
-        profit,
-        budget: settings.profitBudget,
-        variance: profit - settings.profitBudget,
-      },
+      pnl: calculatePnl(counted, settings),
     };
   }
   const current = buildWeek(week, false),
@@ -345,6 +386,7 @@ export function buildSnapshot(
     .map((j) => {
       const wallSqm = j.quote?.wall?.SQM ?? 0,
         ceilingSqm = j.quote?.ceiling?.SQM ?? 0;
+      const amounts = quoteRevenue(j.quote);
       return {
         id: j._id,
         number: String(j.jobNumber ?? ""),
@@ -353,7 +395,8 @@ export function buildSnapshot(
         wallSqm,
         ceilingSqm,
         sqm: wallSqm + ceilingSqm,
-        revenue: Math.round(((j.quote?.c_total ?? 0) / 1.15) * 100),
+        revenue: amounts.net,
+        revenueIssue: amounts.issue,
       };
     });
   const salesSqm = money(sold.reduce((s, j) => s + j.sqm, 0));
