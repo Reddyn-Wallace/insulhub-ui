@@ -1,4 +1,6 @@
 import { projectVisits, type SourceJob, type SavedSplit, type VisitLabel } from "./projection";
+export const CALENDAR_STAGES: readonly string[] = ["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"];
+
 export type VisitJob<T extends SourceJob> = T & {
   splitSource: T;
   installationSplit: SavedSplit | null;

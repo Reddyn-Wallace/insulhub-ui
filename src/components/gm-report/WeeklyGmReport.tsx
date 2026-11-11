@@ -585,7 +585,7 @@ export default function WeeklyGmReport() {
             )}
           </Section>
           <Section title="Next two weeks" kicker="04 · Forward schedule">
-            <div className="grid gap-6 lg:grid-cols-2">
+            <div className="space-y-8">
               {s.upcoming.map((w) => (
                 <div key={w.week} className="min-w-0 space-y-4">
                   <div>
@@ -593,16 +593,21 @@ export default function WeeklyGmReport() {
                       {day(w.week)} – {day(addDays(w.week, 6))}
                     </h3>
                     <p className="mt-1 text-sm text-slate-500">
-                      Forecast · <strong>{sqm(w.sqm)} m²</strong> · pencilled
-                      and confirmed
+                      {w.rows.some((row) => row.completed)
+                        ? "Scheduled work · actuals where available"
+                        : "Forecast · pencilled and confirmed"}
+                      {" · "}
+                      <strong>{sqm(w.sqm)} m²</strong>
                     </p>
                   </div>
                   <Schedule week={w} />
-                  <PnlTable
-                    pnl={w.pnl}
-                    estimated={w.estimated}
-                    incomplete={!!w.issues.length}
-                  />
+                  <div className="max-w-xl">
+                    <PnlTable
+                      pnl={w.pnl}
+                      estimated={w.estimated}
+                      incomplete={!!w.issues.length}
+                    />
+                  </div>
                 </div>
               ))}
             </div>

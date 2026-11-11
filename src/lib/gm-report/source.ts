@@ -2,7 +2,7 @@ import "server-only";
 import { overlaySql } from "@/lib/overlay-db";
 import { readSplits } from "@/lib/installation-splits/store";
 import { sourceQuery } from "./access";
-import { buildSnapshot, ReportError } from "./model";
+import { buildSnapshot, isSaleCandidate, ReportError } from "./model";
 import { SourceReadError } from "./source-error";
 import {
   readUnchangedAcceptanceDates,
@@ -47,13 +47,7 @@ export async function loadSnapshot(
   if (total !== jobs.length || new Set(jobs.map((j) => j._id)).size !== total)
     throw new ReportError("CRM job load was incomplete. Please retry.", 503);
   const accepted = jobs.filter(
-    (j) =>
-      !j.acceptedAt &&
-      !j.archivedAt &&
-      (["ACCEPTED", "INSTALL"].includes(j.quote?.status || "") ||
-        ["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"].includes(
-          j.stage || "",
-        )),
+    (job) => !job.acceptedAt && isSaleCandidate(job),
   );
   const cachedDates = await readUnchangedAcceptanceDates(accepted);
   const pending = accepted.filter((j) => {

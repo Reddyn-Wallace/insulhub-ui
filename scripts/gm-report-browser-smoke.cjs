@@ -169,6 +169,20 @@ function report(week) {
       });
       await page.getByText("Leads by day", { exact: true }).waitFor();
       await page.getByText("Extra painting", { exact: true }).waitFor();
+      const schedules = page.getByRole("region", { name: /Calendar for week of/ });
+      assert.equal(await schedules.count(), 3);
+      for (const schedule of await schedules.all()) {
+        const days = await schedule.getByRole("heading").evaluateAll((headings) =>
+          headings.map((heading) => {
+            const { x, y } = heading.getBoundingClientRect();
+            return { x, y };
+          }),
+        );
+        assert.equal(days.length, 7);
+        assert.ok(days.every((day, i) => day.y === days[0].y && (i === 0 || day.x > days[i - 1].x)), "Days run left to right on a single row");
+        if (width < 500)
+          assert.ok(await schedule.evaluate((el) => el.scrollWidth > el.clientWidth), "Narrow screens scroll inside the calendar");
+      }
       assert.equal(await page.locator("textarea").count(), 3);
       // Back/Forward is same-document navigation and must recover a failed save.
       await page

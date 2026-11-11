@@ -1,4 +1,5 @@
 import { calendarRows } from "../installation-splits/model";
+import { CALENDAR_STAGES } from "../installation-splits/views";
 import { reconcileUsage } from "../installation-splits/projection";
 import { toNzDateKey } from "../reports/sales-installs-types";
 import type {
@@ -36,6 +37,23 @@ export function weekKey(date: string): string {
   const d = new Date(`${key}T12:00:00Z`);
   return addDays(key, -((d.getUTCDay() + 6) % 7));
 }
+function hasAcceptedQuote(job: Job) {
+  return (
+    job.stage !== "LEAD" &&
+    ["ACCEPTED", "INSTALL"].includes(
+      (job.quote?.status || "").trim().toUpperCase(),
+    )
+  );
+}
+
+export function isSaleCandidate(job: Job) {
+  return (
+    !job.archivedAt &&
+    job.stage !== "LEAD" &&
+    (hasAcceptedQuote(job) || CALENDAR_STAGES.includes(job.stage || ""))
+  );
+}
+
 const numeric = (n: unknown): n is number =>
   typeof n === "number" && Number.isFinite(n) && n >= 0;
 export function parseSettings(input: unknown): Settings {
@@ -121,7 +139,7 @@ function project(job: Job, splits: Splits, settings: Settings): Row[] {
     job.installerChecksheet?.complete === true ||
     job.installation?.checkSheetSignedAsComplete === true ||
     ["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"].includes(
-      job.installation?.installStatus || "",
+      (job.installation?.installStatus || "").trim().toUpperCase(),
     );
   const visits = split
     ? split.visits
@@ -171,8 +189,8 @@ function project(job: Job, splits: Splits, settings: Settings): Row[] {
     const done = visit.state === "completed",
       share = visit.percent / 100;
     if (!numeric(rawTotal)) issues.push("Quote revenue is missing.");
-    if (!numeric(wall) && !numeric(ceiling))
-      issues.push("Quoted area is missing.");
+    if (w + c === 0)
+      issues.push("Quoted area is missing or zero. Check the CRM quote.");
     if (hasWall && (!numeric(wall) || wall === 0))
       issues.push("Wall area is missing or zero despite wall bag usage.");
     if (hasCeiling && (!numeric(ceiling) || ceiling === 0))
@@ -260,20 +278,12 @@ export function buildSnapshot(
     ).values(),
   ];
   const rows = unique
-    .filter(
-      (j) =>
-        splits[j._id] ||
-        ["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"].includes(
-          j.stage || "",
-        ),
-    )
+    .filter((j) => CALENDAR_STAGES.includes(j.stage || ""))
     .flatMap((j) => project(j, splits, settings));
   function buildWeek(start: string, forecast: boolean): Week {
     const end = addDays(start, 7),
       selected = rows
-        .filter(
-          (r) => r.date >= start && r.date < end && (!forecast || !r.completed),
-        )
+        .filter((r) => r.date >= start && r.date < end)
         .sort(
           (a, b) =>
             a.date.localeCompare(b.date) || a.number.localeCompare(b.number),
@@ -298,7 +308,7 @@ export function buildSnapshot(
       placeholders: placeholders
         .filter((p) => {
           const d = toNzDateKey(p.startsAt);
-          return d < end && (p.endsAt ? toNzDateKey(p.endsAt) : d) >= start;
+          return d >= start && d < end;
         })
         .sort((a, b) => a.startsAt.localeCompare(b.startsAt)),
       sqm: money(counted.reduce((s, r) => s + r.sqm, 0)),
@@ -330,7 +340,7 @@ export function buildSnapshot(
   const sold = unique
     .filter((j) => {
       const d = toNzDateKey(j.acceptedAt);
-      return d >= week && d < addDays(week, 7);
+      return isSaleCandidate(j) && d >= week && d < addDays(week, 7);
     })
     .map((j) => {
       const wallSqm = j.quote?.wall?.SQM ?? 0,
@@ -373,7 +383,7 @@ export function buildSnapshot(
     sales: {
       jobs: sold,
       undatedJobs: unique
-        .filter((j) => j.acceptedAtMissing)
+        .filter((j) => j.acceptedAtMissing && hasAcceptedQuote(j))
         .map((j) => ({
           id: j._id,
           number: String(j.jobNumber ?? ""),

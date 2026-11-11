@@ -332,3 +332,12 @@ it("does not reset a newly saved edit when cached week navigation finishes a slo
     (screen.getByLabelText(/Was the week/) as HTMLTextAreaElement).value,
   ).toBe("Latest cached edit");
 });
+it("shows each forward week as its own Monday–Sunday calendar row", async () => {
+  render(<WeeklyGmReport />);
+  await screen.findByText("Leads by day");
+  expect(
+    screen.getAllByRole("region", { name: /calendar for week of/i }),
+  ).toHaveLength(3);
+  expect(screen.getByRole("heading", { name: day("2026-11-16") })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: day("2026-11-22") })).toBeTruthy();
+});
