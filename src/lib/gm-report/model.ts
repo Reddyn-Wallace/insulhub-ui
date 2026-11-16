@@ -187,7 +187,12 @@ export function calculatePnl(rows: Row[], settings: Settings): Pnl {
   };
 }
 
-function project(job: Job, splits: Splits, settings: Settings): Row[] {
+function project(
+  job: Job,
+  splits: Splits,
+  settings: Settings,
+  today: string,
+): Row[] {
   const split = splits[job._id],
     wall = job.quote?.wall?.SQM,
     ceiling = job.quote?.ceiling?.SQM;
@@ -248,8 +253,14 @@ function project(job: Job, splits: Splits, settings: Settings): Row[] {
     : null;
   return visits.map((visit, index) => {
     const issues = [...council.issues];
-    const done = visit.state === "completed",
-      share = visit.percent / 100;
+    const recordedComplete = visit.state === "completed";
+    const assumedCompleted =
+      !recordedComplete &&
+      !!split &&
+      visit.percent < 100 &&
+      !!visit.date &&
+      visit.date < today;
+    const share = visit.percent / 100;
     if (amounts.issue) issues.push(amounts.issue);
     if (w + c === 0)
       issues.push("Quoted area is missing or zero. Check the CRM quote.");
@@ -266,7 +277,7 @@ function project(job: Job, splits: Splits, settings: Settings): Row[] {
         : null;
     let basis = "Estimated",
       estimated = w + c > 0;
-    if (done && hasWall) {
+    if (recordedComplete && hasWall) {
       if (usage) {
         const row = usage.rows.find((r) => r.id === visit.id);
         const recorded = split?.visits.find(
@@ -308,7 +319,8 @@ function project(job: Job, splits: Splits, settings: Settings): Row[] {
       customer: job.client?.contactDetails?.name || "Unnamed customer",
       date: visit.date || "",
       percent: visit.percent,
-      completed: done,
+      completed: recordedComplete || assumedCompleted,
+      ...(assumedCompleted ? { assumedCompleted: true } : {}),
       wallSqm: money(w * share),
       ceilingSqm: money(c * share),
       sqm: money((w + c) * share),
@@ -341,9 +353,10 @@ export function buildSnapshot(
       jobs.filter((j) => !j.archivedAt).map((j) => [j._id, j]),
     ).values(),
   ];
+  const today = toNzDateKey(now);
   const rows = unique
     .filter((j) => CALENDAR_STAGES.includes(j.stage || ""))
-    .flatMap((j) => project(j, splits, settings));
+    .flatMap((j) => project(j, splits, settings, today));
   function buildWeek(start: string, forecast: boolean): Week {
     const end = addDays(start, 7),
       selected = rows

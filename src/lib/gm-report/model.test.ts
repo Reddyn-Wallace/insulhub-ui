@@ -367,3 +367,68 @@ it("flags an override whose separate consent fee and recorded GST do not reconci
   expect(s.current.issues.join(" ")).toMatch(/GST.*overridden/i);
   expect(s.sales.jobs[0].revenueIssue).toMatch(/GST.*overridden/i);
 });
+
+it("counts only elapsed split portions as assumed completed using NZ dates and estimated bags", () => {
+  const source = {
+    ...job,
+    installation: { ...job.installation, installStatus: "SCHEDULED" },
+    installerChecksheet: {
+      complete: false,
+      actualBags: null as unknown as number,
+    },
+  };
+  const split = {
+    ...initialSplit(source),
+    visits: [
+      {
+        id: "past",
+        date: "2026-11-10",
+        percent: 20,
+        state: "planned" as const,
+      },
+      {
+        id: "today",
+        date: "2026-11-11",
+        percent: 30,
+        state: "planned" as const,
+      },
+      {
+        id: "future",
+        date: "2026-11-17",
+        percent: 40,
+        state: "planned" as const,
+      },
+      { id: "undated", date: null, percent: 10, state: "planned" as const },
+    ],
+  };
+  const s = buildSnapshot(
+    "2026-11-09",
+    [source, { ...source, _id: "unsplit" }],
+    { a: split },
+    [],
+    settings,
+    "2026-11-10T11:00:00Z",
+  );
+  expect(s.current.rows.find((r) => r.id === "a:past")).toMatchObject({
+    completed: true,
+    assumedCompleted: true,
+    wallBags: 2,
+    estimated: true,
+  });
+  expect(s.current.rows.filter((r) => !r.completed).map((r) => r.id)).toEqual([
+    "unsplit:whole",
+    "a:today",
+  ]);
+  expect(s.current.pnl).toMatchObject({
+    revenue: 20000,
+    wallCogs: 2000,
+    council: 2000,
+  });
+  expect(s.current.sqm).toBe(16);
+  expect(s.pipeline).toMatchObject({ sqm: 136, unscheduledSqm: 8 });
+  expect(s.upcoming[0].rows[0]).toMatchObject({
+    id: "a:future",
+    completed: false,
+  });
+  expect(split.visits[0].state).toBe("planned");
+});
