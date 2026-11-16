@@ -432,3 +432,24 @@ it("counts only elapsed split portions as assumed completed using NZ dates and e
   });
   expect(split.visits[0].state).toBe("planned");
 });
+
+it("limits missing acceptance dates to jobs that could affect the selected sales week", () => {
+  const undated = {
+    ...job,
+    acceptedAt: null as unknown as string,
+    acceptedAtMissing: true,
+  };
+  const oldCompleted = {
+    ...undated,
+    _id: "old",
+    stage: "COMPLETED",
+    installation: { ...undated.installation, installDate: "2026-03-27" },
+  };
+  const unaccepted = { ...undated, _id: "quote", stage: "QUOTE" };
+  const later = { ...undated, _id: "later", createdAt: "2026-11-17" };
+  const snapshot = build([oldCompleted, unaccepted, later, undated]);
+  expect(snapshot.sales.undatedJobs?.map((j) => j.id)).toEqual(["a"]);
+  expect(
+    build([{ ...unaccepted, acceptedAt: job.acceptedAt }]).sales.jobs,
+  ).toEqual([]);
+});

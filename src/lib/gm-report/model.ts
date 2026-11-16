@@ -38,21 +38,17 @@ export function weekKey(date: string): string {
   const d = new Date(`${key}T12:00:00Z`);
   return addDays(key, -((d.getUTCDay() + 6) % 7));
 }
-function hasAcceptedQuote(job: Job) {
-  return (
-    job.stage !== "LEAD" &&
-    ["ACCEPTED", "INSTALL"].includes(
-      (job.quote?.status || "").trim().toUpperCase(),
-    )
-  );
+export function isSaleCandidate(job: Job) {
+  return !job.archivedAt && CALENDAR_STAGES.includes(job.stage || "");
 }
 
-export function isSaleCandidate(job: Job) {
-  return (
-    !job.archivedAt &&
-    job.stage !== "LEAD" &&
-    (hasAcceptedQuote(job) || CALENDAR_STAGES.includes(job.stage || ""))
-  );
+function missingSaleDateCouldAffectWeek(job: Job, week: string, end: string) {
+  if (!job.acceptedAtMissing || !isSaleCandidate(job)) return false;
+  const created = toNzDateKey(job.createdAt);
+  if (created && created >= end) return false;
+  // An existing installation date is only an upper bound when the job is complete.
+  const installed = toNzDateKey(job.installation?.installDate);
+  return job.stage !== "COMPLETED" || !installed || installed >= week;
 }
 
 const numeric = (n: unknown): n is number =>
@@ -391,10 +387,11 @@ export function buildSnapshot(
   // Pipeline is what is still booked at the snapshot time, including overdue remaining visits.
   const pending = rows.filter((r) => !r.completed),
     sqm = money(pending.filter((r) => r.date).reduce((s, r) => s + r.sqm, 0));
+  const weekEnd = addDays(week, 7);
   const sold = unique
     .filter((j) => {
       const d = toNzDateKey(j.acceptedAt);
-      return isSaleCandidate(j) && d >= week && d < addDays(week, 7);
+      return isSaleCandidate(j) && d >= week && d < weekEnd;
     })
     .map((j) => {
       const wallSqm = j.quote?.wall?.SQM ?? 0,
@@ -439,7 +436,7 @@ export function buildSnapshot(
     sales: {
       jobs: sold,
       undatedJobs: unique
-        .filter((j) => j.acceptedAtMissing && hasAcceptedQuote(j))
+        .filter((j) => missingSaleDateCouldAffectWeek(j, week, weekEnd))
         .map((j) => ({
           id: j._id,
           number: String(j.jobNumber ?? ""),

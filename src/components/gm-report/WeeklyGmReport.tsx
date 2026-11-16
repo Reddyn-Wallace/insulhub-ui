@@ -677,7 +677,7 @@ export default function WeeklyGmReport() {
                   {s.sales.undatedJobs.length === 1 ? "job has" : "jobs have"}{" "}
                   no acceptance date available from the CRM. These jobs are
                   excluded from weekly sales totals because their sale week is
-                  unknown. Installation figures are unaffected.
+                  unknown. These jobs could affect this week’s sales comparison.
                 </p>
                 <details className="mt-2">
                   <summary className="cursor-pointer font-semibold">
