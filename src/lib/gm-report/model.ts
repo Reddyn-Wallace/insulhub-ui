@@ -38,21 +38,17 @@ export function weekKey(date: string): string {
   const d = new Date(`${key}T12:00:00Z`);
   return addDays(key, -((d.getUTCDay() + 6) % 7));
 }
-function hasAcceptedQuote(job: Job) {
-  return (
-    job.stage !== "LEAD" &&
-    ["ACCEPTED", "INSTALL"].includes(
-      (job.quote?.status || "").trim().toUpperCase(),
-    )
-  );
+export function isSaleCandidate(job: Job) {
+  return !job.archivedAt && CALENDAR_STAGES.includes(job.stage || "");
 }
 
-export function isSaleCandidate(job: Job) {
-  return (
-    !job.archivedAt &&
-    job.stage !== "LEAD" &&
-    (hasAcceptedQuote(job) || CALENDAR_STAGES.includes(job.stage || ""))
-  );
+function missingSaleDateCouldAffectWeek(job: Job, week: string, end: string) {
+  if (!job.acceptedAtMissing || !isSaleCandidate(job)) return false;
+  const created = toNzDateKey(job.createdAt);
+  if (created && created >= end) return false;
+  // An existing installation date is only an upper bound when the job is complete.
+  const installed = toNzDateKey(job.installation?.installDate);
+  return job.stage !== "COMPLETED" || !installed || installed >= week;
 }
 
 const numeric = (n: unknown): n is number =>
@@ -187,7 +183,12 @@ export function calculatePnl(rows: Row[], settings: Settings): Pnl {
   };
 }
 
-function project(job: Job, splits: Splits, settings: Settings): Row[] {
+function project(
+  job: Job,
+  splits: Splits,
+  settings: Settings,
+  today: string,
+): Row[] {
   const split = splits[job._id],
     wall = job.quote?.wall?.SQM,
     ceiling = job.quote?.ceiling?.SQM;
@@ -248,8 +249,14 @@ function project(job: Job, splits: Splits, settings: Settings): Row[] {
     : null;
   return visits.map((visit, index) => {
     const issues = [...council.issues];
-    const done = visit.state === "completed",
-      share = visit.percent / 100;
+    const recordedComplete = visit.state === "completed";
+    const assumedCompleted =
+      !recordedComplete &&
+      !!split &&
+      visit.percent < 100 &&
+      !!visit.date &&
+      visit.date < today;
+    const share = visit.percent / 100;
     if (amounts.issue) issues.push(amounts.issue);
     if (w + c === 0)
       issues.push("Quoted area is missing or zero. Check the CRM quote.");
@@ -266,7 +273,7 @@ function project(job: Job, splits: Splits, settings: Settings): Row[] {
         : null;
     let basis = "Estimated",
       estimated = w + c > 0;
-    if (done && hasWall) {
+    if (recordedComplete && hasWall) {
       if (usage) {
         const row = usage.rows.find((r) => r.id === visit.id);
         const recorded = split?.visits.find(
@@ -308,7 +315,8 @@ function project(job: Job, splits: Splits, settings: Settings): Row[] {
       customer: job.client?.contactDetails?.name || "Unnamed customer",
       date: visit.date || "",
       percent: visit.percent,
-      completed: done,
+      completed: recordedComplete || assumedCompleted,
+      ...(assumedCompleted ? { assumedCompleted: true } : {}),
       wallSqm: money(w * share),
       ceilingSqm: money(c * share),
       sqm: money((w + c) * share),
@@ -341,9 +349,10 @@ export function buildSnapshot(
       jobs.filter((j) => !j.archivedAt).map((j) => [j._id, j]),
     ).values(),
   ];
+  const today = toNzDateKey(now);
   const rows = unique
     .filter((j) => CALENDAR_STAGES.includes(j.stage || ""))
-    .flatMap((j) => project(j, splits, settings));
+    .flatMap((j) => project(j, splits, settings, today));
   function buildWeek(start: string, forecast: boolean): Week {
     const end = addDays(start, 7),
       selected = rows
@@ -378,10 +387,11 @@ export function buildSnapshot(
   // Pipeline is what is still booked at the snapshot time, including overdue remaining visits.
   const pending = rows.filter((r) => !r.completed),
     sqm = money(pending.filter((r) => r.date).reduce((s, r) => s + r.sqm, 0));
+  const weekEnd = addDays(week, 7);
   const sold = unique
     .filter((j) => {
       const d = toNzDateKey(j.acceptedAt);
-      return isSaleCandidate(j) && d >= week && d < addDays(week, 7);
+      return isSaleCandidate(j) && d >= week && d < weekEnd;
     })
     .map((j) => {
       const wallSqm = j.quote?.wall?.SQM ?? 0,
@@ -426,7 +436,7 @@ export function buildSnapshot(
     sales: {
       jobs: sold,
       undatedJobs: unique
-        .filter((j) => j.acceptedAtMissing && hasAcceptedQuote(j))
+        .filter((j) => missingSaleDateCouldAffectWeek(j, week, weekEnd))
         .map((j) => ({
           id: j._id,
           number: String(j.jobNumber ?? ""),

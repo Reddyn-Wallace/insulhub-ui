@@ -197,6 +197,12 @@ export function WeeklyPnl({
           uses the latest quote.
         </p>
       )}
+      {completed.some((row) => row.assumedCompleted) && (
+        <p className="mt-3 text-xs text-amber-800">
+          Completed work includes split visits assumed complete after their
+          scheduled day.
+        </p>
+      )}
       {week.estimated && (
         <p className="mt-3 text-xs text-amber-800">
           Completed work includes some estimated costs.
@@ -257,7 +263,11 @@ export function Schedule({ week }: { week: Week }) {
                   >
                     {item.row && (
                       <p className="text-xs text-slate-500">
-                        {item.row.completed ? "Completed" : "Planned"}
+                        {item.row.assumedCompleted
+                          ? "Assumed completed"
+                          : item.row.completed
+                            ? "Completed"
+                            : "Planned"}
                         {item.row.percent < 100
                           ? ` · ${item.row.percent}% of job`
                           : ""}

@@ -50,6 +50,7 @@ export type Row = {
   date: string;
   percent: number;
   completed: boolean;
+  assumedCompleted?: boolean;
   wallSqm: number;
   ceilingSqm: number;
   sqm: number;
