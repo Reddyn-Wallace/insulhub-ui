@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAppDialog } from "@/components/AppDialog";
+import GmSettings from "@/components/gm-report/GmSettings";
 import PartnerSettings from "@/components/PartnerSettings";
 import { clearComposerDetails } from "@/lib/dead-followups/composer-client";
 
@@ -76,7 +77,7 @@ export default function SettingsPage() {
   const { confirm, dialog } = useAppDialog();
   const [templates, setTemplates] = useState<ContactTemplate[]>([]);
   const [senders, setSenders] = useState<CommunicationSender[]>([]);
-  const [activeSection, setActiveSection] = useState<"templates" | "senders" | "communication-settings" | "partners">("templates");
+  const [activeSection, setActiveSection] = useState<"templates" | "senders" | "communication-settings" | "partners" | "weekly-gm">("templates");
   const [sectionReady, setSectionReady] = useState(false);
   const [activeChannel, setActiveChannel] = useState<ContactTemplate["channel"]>("sms");
   const [senderChannel, setSenderChannel] = useState<CommunicationSender["channel"]>("email");
@@ -113,6 +114,7 @@ export default function SettingsPage() {
     const requestedSection = params.get("section");
     if (requestedSection === "communications" || requestedSection === "senders") setActiveSection("senders");
     if (requestedSection === "communication-settings") setActiveSection("communication-settings");
+    if (requestedSection === "weekly-gm") setActiveSection("weekly-gm");
     if (requestedSection === "partners") setActiveSection("partners");
     const requestedChannel = params.get("channel");
     if (requestedChannel === "sms" || requestedChannel === "email" || requestedChannel === "calendar") {
@@ -539,10 +541,17 @@ export default function SettingsPage() {
               >
                 Communication Settings
               </button>
+              <button
+                type="button"
+                onClick={() => { setActiveSection("weekly-gm"); router.replace("/jobs/settings?section=weekly-gm"); }}
+                className={`shrink-0 rounded-lg px-4 py-2.5 text-left text-sm font-semibold md:w-full ${activeSection === "weekly-gm" ? "bg-[#1a3a4a] text-white" : "bg-white text-gray-700 ring-1 ring-gray-200"}`}
+              >
+                Weekly GM Report
+              </button>
             </nav>
           </aside>
 
-          {!sectionReady ? <p role="status">Loading settings…</p> : activeSection === "partners" ? <PartnerSettings /> : activeSection === "templates" ? (
+          {!sectionReady ? <p role="status">Loading settings…</p> : activeSection === "partners" ? <PartnerSettings /> : activeSection === "weekly-gm" ? <GmSettings /> : activeSection === "templates" ? (
           <section className="min-w-0 rounded-lg border border-gray-200 bg-white">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 p-3">
               <div className="grid flex-1 grid-cols-3 gap-2 sm:max-w-md">

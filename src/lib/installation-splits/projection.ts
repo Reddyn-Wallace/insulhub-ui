@@ -5,7 +5,7 @@ export type SourceJob = {
   jobNumber?: number | null;
   stage?: string | null;
   archivedAt?: string | null;
-  client?: { contactDetails?: { name?: string | null } | null } | null;
+  client?: { contactDetails?: { name?: string | null; streetAddress?: string | null; suburb?: string | null; city?: string | null } | null } | null;
   quote?: {
     c_total?: number | null;
     wall?: { SQM?: number | null; c_bagCount?: number | null } | null;
