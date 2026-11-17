@@ -326,6 +326,7 @@ function project(
       date: visit.date || "",
       percent: visit.percent,
       completed: recordedComplete || assumedCompleted,
+      bookingStatus: job.bookingStatus,
       ...(assumedCompleted ? { assumedCompleted: true } : {}),
       wallSqm: money(w * share),
       ceilingSqm: money(c * share),

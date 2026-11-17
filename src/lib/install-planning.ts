@@ -86,3 +86,32 @@ export function buildInstallPlanningSummaryLines(input?: Partial<InstallPlanning
 
   return lines;
 }
+
+export type InstallBookingStatus = "confirmed" | "pencilled";
+
+const INSTALL_META_START = "[INSTALL_META]";
+const INSTALL_META_END = "[/INSTALL_META]";
+
+export function parseInstallMeta(notes?: string | null): { status: InstallBookingStatus; note: string; scope: "internal" | "external" | "both" | "" } {
+  const text = notes || "";
+  const start = text.indexOf(INSTALL_META_START);
+  const end = text.indexOf(INSTALL_META_END);
+  if (start === -1 || end === -1 || end < start) {
+    return { status: "confirmed", note: "", scope: "" };
+  }
+
+  const body = text
+    .slice(start + INSTALL_META_START.length, end)
+    .trim();
+
+  const statusMatch = body.match(/^status:\s*(.+)$/im);
+  const noteMatch = body.match(/^note:\s*([\s\S]*?)(?:\n[a-z_]+:|$)/im);
+  const scopeMatch = body.match(/^install_scope:\s*(.+)$/im);
+  const rawStatus = (statusMatch?.[1] || "confirmed").trim().toLowerCase();
+  const rawScope = (scopeMatch?.[1] || "").trim().toLowerCase();
+  return {
+    status: rawStatus === "pencilled" ? "pencilled" : "confirmed",
+    note: (noteMatch?.[1] || "").trim(),
+    scope: rawScope === "internal" || rawScope === "external" || rawScope === "both" ? rawScope : "",
+  };
+}

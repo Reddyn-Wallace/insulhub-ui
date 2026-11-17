@@ -1,3 +1,4 @@
+import type { InstallBookingStatus } from "../install-planning";
 import type { SourceJob, SavedSplit } from "../installation-splits/projection";
 export type Settings = {
   wallBagCost: number;
@@ -9,6 +10,8 @@ export type Settings = {
   councilAliases: string[];
 };
 export type Job = SourceJob & {
+  notes?: string | null;
+  bookingStatus?: InstallBookingStatus;
   updatedAt?: string | null;
   createdAt?: string | null;
   acceptedAt?: string | null;
@@ -52,6 +55,7 @@ export type Row = {
   percent: number;
   completed: boolean;
   assumedCompleted?: boolean;
+  bookingStatus?: InstallBookingStatus;
   wallSqm: number;
   ceilingSqm: number;
   sqm: number;

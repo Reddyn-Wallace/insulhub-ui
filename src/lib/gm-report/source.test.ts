@@ -318,3 +318,39 @@ it("requests the separate consent fee used to reconcile GST", async () => {
   const s = await loadSnapshot("token", "2026-11-09", settings);
   expect(s.current.pnl.revenue).toBe(110000);
 });
+
+it("uses calendar booking status with planning records taking precedence over legacy notes", async () => {
+  const booking = {
+    stage: "SCHEDULED",
+    acceptedAt: "2026-11-10",
+    installation: { installDate: "2026-11-17" },
+    quote: { c_total: 1150, wall: { SQM: 80, c_bagCount: 10 } },
+  };
+  const pencilled = "[INSTALL_META]\nstatus: pencilled\n[/INSTALL_META]";
+  m.query.mockResolvedValueOnce({
+    jobs: {
+      total: 3,
+      results: [
+        { ...booking, _id: "overridden", notes: pencilled },
+        { ...booking, _id: "legacy", notes: pencilled },
+        { ...booking, _id: "default" },
+      ],
+    },
+  });
+  m.sql.mockImplementation(async (query: TemplateStringsArray) =>
+    query.join("").includes("FROM job_install_planning")
+      ? [{ insulhub_job_id: "overridden", status: "confirmed" }]
+      : [],
+  );
+  const snapshot = await loadSnapshot("token", "2026-11-09", settings);
+  expect(
+    Object.fromEntries(
+      snapshot.upcoming[0].rows.map((row) => [row.jobId, row.bookingStatus]),
+    ),
+  ).toEqual({
+    overridden: "confirmed",
+    legacy: "pencilled",
+    default: "confirmed",
+  });
+  expect(snapshot.upcoming[0].sqm).toBe(240);
+});
