@@ -9,6 +9,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { buildSnapshot } from "./model";
+import { initialSplit } from "../installation-splits/projection";
 import type { Report } from "./types";
 import WeeklyGmReport from "@/components/gm-report/WeeklyGmReport";
 import GmSettings from "@/components/gm-report/GmSettings";
@@ -452,4 +453,44 @@ it("colours confirmed and pencilled installs differently and leaves missing book
   expect(screen.getByText("Planned").closest("article")?.className).toContain(
     "border-l-slate-300",
   );
+});
+
+it("keeps the calendar's blue styling for split visits regardless of status", () => {
+  const job = {
+    _id: "split",
+    stage: "SCHEDULED",
+    bookingStatus: "pencilled" as const,
+    quote: { c_total: 1150, wall: { SQM: 80, c_bagCount: 10 } },
+  };
+  const split = {
+    ...initialSplit(job),
+    visits: [
+      {
+        id: "first",
+        date: "2026-11-10",
+        percent: 20,
+        state: "completed" as const,
+      },
+      {
+        id: "next",
+        date: "2026-11-12",
+        percent: 80,
+        state: "planned" as const,
+      },
+    ],
+  };
+  const { current } = buildSnapshot(
+    "2026-11-09",
+    [job],
+    { split },
+    [],
+    settings,
+    "2026-11-11T00:00:00Z",
+  );
+  render(<Schedule week={current} />);
+  for (const status of ["Completed · 20%", "Pencilled · 80%"]) {
+    expect(screen.getByText(status).closest("article")?.className).toContain(
+      "border-l-blue-500 bg-blue-50",
+    );
+  }
 });
