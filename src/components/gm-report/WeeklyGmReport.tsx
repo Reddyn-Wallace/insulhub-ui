@@ -540,91 +540,7 @@ export default function WeeklyGmReport() {
             </div>
           )}
           <Leads snapshot={s} />
-          <Section title="Installs for the week" kicker="02 · Work delivered">
-            <p className="mb-4 text-sm text-slate-500">
-              <strong className="text-slate-800">
-                {sqm(s.current.sqm)} m² completed
-              </strong>
-            </p>
-            <Schedule week={s.current} />
-          </Section>
-          <Section title="Weekly P&L" kicker="03 · Operating performance">
-            <PnlTable
-              pnl={s.current.pnl}
-              incomplete={!!s.current.issues.length}
-            />
-            {comment(
-              "profit",
-              "Was the week over or under budget? What was this due to?",
-            )}
-          </Section>
-          <Section title="Next two weeks" kicker="04 · Forward schedule">
-            <div className="space-y-8">
-              {s.upcoming.map((w) => (
-                <div key={w.week} className="min-w-0 space-y-4">
-                  <div>
-                    <h3 className="font-bold text-[#1a3a4a]">
-                      {day(w.week)} – {day(addDays(w.week, 6))}
-                    </h3>
-                    <p className="mt-1 text-sm text-slate-500">
-                      {w.rows.some((row) => row.completed)
-                        ? "Scheduled work · actuals where available"
-                        : "Forecast · pencilled and confirmed"}
-                      {" · "}
-                      <strong>{sqm(w.sqm)} m²</strong>
-                    </p>
-                  </div>
-                  <Schedule week={w} />
-                  <div className="max-w-xl">
-                    <PnlTable
-                      pnl={w.pnl}
-                      estimated={w.estimated}
-                      incomplete={!!w.issues.length}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-            {comment(
-              "upcoming",
-              "Are the upcoming weeks schedules above budget? If no what is being done?",
-            )}
-          </Section>
-          <Section
-            title="Booked pipeline"
-            kicker="05 · Remaining scheduled work"
-          >
-            <div className="grid grid-cols-3 gap-3">
-              {[
-                [sqm(s.pipeline.sqm), "m² booked"],
-                [sqm(s.pipeline.days), "working days"],
-                [sqm(s.pipeline.weeks), "working weeks"],
-              ].map(([value, label]) => (
-                <div key={label} className="rounded-xl bg-slate-50 p-3 sm:p-5">
-                  <p className="text-xl font-bold text-[#1a3a4a] sm:text-3xl">
-                    {value}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500">{label}</p>
-                </div>
-              ))}
-            </div>
-            <p className="mt-4 text-xs text-slate-500">
-              Pencilled and confirmed combined · 80 m²/day · 5 days/week.
-              Pipeline as at{" "}
-              {new Date(s.builtAt).toLocaleDateString("en-NZ", {
-                timeZone: "Pacific/Auckland",
-              })}
-              .
-              {s.pipeline.unscheduledSqm > 0
-                ? ` A further ${sqm(s.pipeline.unscheduledSqm)} m² is unscheduled and excluded.`
-                : ""}
-            </p>
-            {comment(
-              "pipeline",
-              "How are you feeling about the current levels of pipeline? What are you focusing on in this area?",
-            )}
-          </Section>
-          <Section title="Jobs sold" kicker="06 · Newly accepted work">
+          <Section title="Jobs sold" kicker="02 · Newly accepted work">
             <div className="mb-5 flex flex-wrap items-baseline justify-between gap-3">
               <p>
                 <strong className="text-2xl text-[#1a3a4a]">
@@ -711,6 +627,90 @@ export default function WeeklyGmReport() {
                 </div>
               ))}
             </div>
+          </Section>
+          <Section title="Installs for the week" kicker="03 · Work delivered">
+            <p className="mb-4 text-sm text-slate-500">
+              <strong className="text-slate-800">
+                {sqm(s.current.sqm)} m² completed
+              </strong>
+            </p>
+            <Schedule week={s.current} />
+          </Section>
+          <Section title="Weekly P&L" kicker="04 · Operating performance">
+            <PnlTable
+              pnl={s.current.pnl}
+              incomplete={!!s.current.issues.length}
+            />
+            {comment(
+              "profit",
+              "Was the week over or under budget? What was this due to?",
+            )}
+          </Section>
+          <Section title="Next two weeks" kicker="05 · Forward schedule">
+            <div className="space-y-8">
+              {s.upcoming.map((w) => (
+                <div key={w.week} className="min-w-0 space-y-4">
+                  <div>
+                    <h3 className="font-bold text-[#1a3a4a]">
+                      {day(w.week)} – {day(addDays(w.week, 6))}
+                    </h3>
+                    <p className="mt-1 text-sm text-slate-500">
+                      {w.rows.some((row) => row.completed)
+                        ? "Scheduled work · actuals where available"
+                        : "Forecast · pencilled and confirmed"}
+                      {" · "}
+                      <strong>{sqm(w.sqm)} m²</strong>
+                    </p>
+                  </div>
+                  <Schedule week={w} />
+                  <div className="max-w-xl">
+                    <PnlTable
+                      pnl={w.pnl}
+                      estimated={w.estimated}
+                      incomplete={!!w.issues.length}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+            {comment(
+              "upcoming",
+              "Are the upcoming weeks schedules above budget? If no what is being done?",
+            )}
+          </Section>
+          <Section
+            title="Booked pipeline"
+            kicker="06 · Remaining scheduled work"
+          >
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                [sqm(s.pipeline.sqm), "m² booked"],
+                [sqm(s.pipeline.days), "working days"],
+                [sqm(s.pipeline.weeks), "working weeks"],
+              ].map(([value, label]) => (
+                <div key={label} className="rounded-xl bg-slate-50 p-3 sm:p-5">
+                  <p className="text-xl font-bold text-[#1a3a4a] sm:text-3xl">
+                    {value}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">{label}</p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-4 text-xs text-slate-500">
+              Pencilled and confirmed combined · 80 m²/day · 5 days/week.
+              Pipeline as at{" "}
+              {new Date(s.builtAt).toLocaleDateString("en-NZ", {
+                timeZone: "Pacific/Auckland",
+              })}
+              .
+              {s.pipeline.unscheduledSqm > 0
+                ? ` A further ${sqm(s.pipeline.unscheduledSqm)} m² is unscheduled and excluded.`
+                : ""}
+            </p>
+            {comment(
+              "pipeline",
+              "How are you feeling about the current levels of pipeline? What are you focusing on in this area?",
+            )}
           </Section>
         </>
       )}

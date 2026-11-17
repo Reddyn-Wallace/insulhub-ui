@@ -96,7 +96,12 @@ it("renders all report sections and autosaves commentary without a manual save a
   await screen.findByText("Leads by day");
   expect(screen.queryByRole("link", { name: "Report settings" })).toBeNull();
   expect(screen.queryByLabelText("Saved reports")).toBeNull();
-  expect(screen.getByText("Jobs sold")).toBeTruthy();
+  expect(
+    screen
+      .getAllByRole("heading", { level: 2 })
+      .slice(0, 3)
+      .map((heading) => heading.textContent),
+  ).toEqual(["Leads by day", "Jobs sold", "Installs for the week"]);
   expect(screen.getByText("Booked pipeline")).toBeTruthy();
   fireEvent.change(screen.getByLabelText(/Was the week/), {
     target: { value: "Good result" },
@@ -327,6 +332,7 @@ it("shows compact install and sales cards and a completed-only weekly P&L", asyn
       quote: {
         c_total: 1150,
         wall: { SQM: 80, c_bagCount: 10 },
+        ceiling: { SQM: 20, c_bagCount: 2 },
         extras: [{ name: "Council Fee", price: 330 }],
       },
       installation: {
@@ -353,7 +359,12 @@ it("shows compact install and sales cards and a completed-only weekly P&L", asyn
   expect(
     screen.getAllByText("12 Test Street, Wellington", { exact: true }),
   ).toHaveLength(2);
-  expect(screen.getByText(/10 budgeted.*8 used.*−2/)).toBeTruthy();
+  expect(screen.getByText("Bag variance: −2")).toBeTruthy();
+  expect(
+    screen.queryByText(/budgeted|8 used|COGS — wall|COGS — ceiling/),
+  ).toBeNull();
+  expect(screen.getByText("12% of revenue")).toBeTruthy();
+  expect(screen.getByText("$120", { exact: true })).toBeTruthy();
   expect(screen.getByText(/Accepted Mon, 9 Nov/)).toBeTruthy();
   expect(
     screen.queryByText(
@@ -362,4 +373,11 @@ it("shows compact install and sales cards and a completed-only weekly P&L", asyn
   ).toBeNull();
   expect(screen.getByRole("heading", { name: "Weekly P&L" })).toBeTruthy();
   expect(screen.getAllByText("$330", { exact: true })).toHaveLength(1);
+});
+
+it("omits the COGS percentage when revenue is zero", async () => {
+  render(<WeeklyGmReport />);
+  await screen.findByText("Leads by day");
+  expect(screen.getAllByText("COGS", { exact: true })).toHaveLength(3);
+  expect(screen.queryByText(/of revenue|NaN|Infinity/)).toBeNull();
 });

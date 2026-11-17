@@ -54,6 +54,14 @@ export function PnlTable({
   incomplete?: boolean;
   estimated?: boolean;
 }) {
+  const cogs = pnl.wallCogs + pnl.ceilingCogs;
+  const cogsShare =
+    pnl.revenue > 0 && !incomplete
+      ? new Intl.NumberFormat("en-NZ", {
+          style: "percent",
+          maximumFractionDigits: 1,
+        }).format(cogs / pnl.revenue)
+      : null;
   return (
     <div>
       <p className="mb-3 text-xs text-slate-500">
@@ -61,11 +69,25 @@ export function PnlTable({
         {incomplete ? " · Incomplete figures" : ""}
       </p>
       <dl className="divide-y divide-slate-100">
+        <div className="flex justify-between gap-4 py-2 text-sm">
+          <dt className="text-slate-600">Revenue</dt>
+          <dd className="font-medium tabular-nums text-slate-900">
+            {dollars(pnl.revenue)}
+          </dd>
+        </div>
+        <div className="flex justify-between gap-4 py-2 text-sm">
+          <dt className="text-slate-600">COGS</dt>
+          <dd className="text-right tabular-nums">
+            <span className="font-medium text-slate-900">{dollars(cogs)}</span>
+            {cogsShare && (
+              <span className="ml-2 text-slate-500">
+                {cogsShare} of revenue
+              </span>
+            )}
+          </dd>
+        </div>
         {(
           [
-            ["Revenue", pnl.revenue],
-            ["COGS — wall bags", pnl.wallCogs],
-            ["COGS — ceiling bags", pnl.ceilingCogs],
             ["Council fees", pnl.council],
             ["Wages", pnl.wages],
             ["Opex", pnl.opex],
@@ -107,39 +129,22 @@ export function PnlTable({
     </div>
   );
 }
-function BagSummary({ row }: { row: Row }) {
-  const recorded =
-    row.basis.startsWith("Actual recorded") ||
-    row.basis.startsWith("Allocated from actual total");
-  const wallBudget = row.budgetWallBags ?? (!recorded ? row.wallBags : null);
-  const ceilingBudget = row.ceilingBags;
-  const used = recorded ? row.wallBags : null;
-  const variance =
-    used === null || wallBudget === null ? null : money(used - wallBudget);
-  const delta =
-    variance === null
-      ? ""
-      : ` (${variance > 0 ? "+" : variance < 0 ? "−" : ""}${sqm(Math.abs(variance))})`;
-
+function BagVariance({ row }: { row: Row }) {
+  const allocated = row.basis.startsWith("Allocated from actual total");
+  if (
+    (!allocated && !row.basis.startsWith("Actual recorded")) ||
+    row.wallBags == null ||
+    row.budgetWallBags == null
+  )
+    return null;
+  const variance = money(row.wallBags - row.budgetWallBags);
+  const sign = variance > 0 ? "+" : variance < 0 ? "−" : "";
   return (
-    <div className="mt-1 space-y-0.5 text-xs leading-4 text-gray-600">
-      {(row.wallSqm > 0 || !!wallBudget || used !== null) && (
-        <p>
-          Wall bags: {wallBudget !== null && `${sqm(wallBudget)} budgeted`}
-          {used !== null &&
-            `${wallBudget !== null ? " / " : ""}${sqm(used)} ${row.basis.startsWith("Actual recorded") ? "used" : "allocated"}${delta}`}
-          {wallBudget === null && used === null && "Budget missing"}
-        </p>
-      )}
-      {(row.ceilingSqm > 0 || !!ceilingBudget) && (
-        <p>
-          Ceiling bags:{" "}
-          {ceilingBudget === null
-            ? "Budget missing"
-            : `${sqm(ceilingBudget)} budgeted`}
-        </p>
-      )}
-    </div>
+    <p className="mt-1 text-xs leading-4 text-gray-600">
+      Bag variance: {sign}
+      {sqm(Math.abs(variance))}
+      {allocated && " (allocated)"}
+    </p>
   );
 }
 
@@ -179,7 +184,7 @@ function InstallCard({ row }: { row: Row }) {
         <span aria-hidden="true">/</span>
         <span>{dollars(row.revenue)}</span>
       </p>
-      <BagSummary row={row} />
+      <BagVariance row={row} />
       {row.issues.map((issue, index) => (
         <p key={index} className="mt-1 text-xs text-red-700">
           {issue}
