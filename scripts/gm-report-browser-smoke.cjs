@@ -73,6 +73,7 @@ function report(week) {
     for (const width of [1440, 390]) {
       const context = await browser.newContext({
         viewport: { width, height: 1000 },
+        hasTouch: width < 500,
       });
       await context.addInitScript(() => {
         localStorage.setItem("token", "fictional-test-token");
@@ -169,6 +170,15 @@ function report(week) {
       });
       await page.getByText("Leads by day", { exact: true }).waitFor();
       await page.getByText("Extra painting", { exact: true }).waitFor();
+      const cogsInfo = page.getByRole("button", { name: "COGS details", exact: true }).first();
+      const cogsTooltip = page.getByRole("tooltip");
+      assert.equal(await cogsTooltip.count(), 0);
+      if (width < 500) await cogsInfo.tap();
+      else await cogsInfo.hover();
+      await cogsTooltip.waitFor();
+      assert.equal(await cogsTooltip.innerText(), "10.5% of revenue · 35 bags");
+      await page.keyboard.press("Escape");
+      await cogsTooltip.waitFor({ state: "hidden" });
       const schedules = page.getByRole("region", { name: /Calendar for week of/ });
       assert.equal(await schedules.count(), 3);
       for (const schedule of await schedules.all()) {

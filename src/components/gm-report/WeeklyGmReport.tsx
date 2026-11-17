@@ -637,10 +637,7 @@ export default function WeeklyGmReport() {
             <Schedule week={s.current} />
           </Section>
           <Section title="Weekly P&L" kicker="04 · Operating performance">
-            <PnlTable
-              pnl={s.current.pnl}
-              incomplete={!!s.current.issues.length}
-            />
+            <PnlTable week={s.current} completedOnly />
             {comment(
               "profit",
               "Was the week over or under budget? What was this due to?",
@@ -664,11 +661,7 @@ export default function WeeklyGmReport() {
                   </div>
                   <Schedule week={w} />
                   <div className="max-w-xl">
-                    <PnlTable
-                      pnl={w.pnl}
-                      estimated={w.estimated}
-                      incomplete={!!w.issues.length}
-                    />
+                    <PnlTable week={w} estimated={w.estimated} />
                   </div>
                 </div>
               ))}

@@ -363,7 +363,28 @@ it("shows compact install and sales cards and a completed-only weekly P&L", asyn
   expect(
     screen.queryByText(/budgeted|8 used|COGS — wall|COGS — ceiling/),
   ).toBeNull();
-  expect(screen.getByText("12% of revenue")).toBeTruthy();
+  const cogsInfo = screen.getByRole("button", {
+    name: "COGS details",
+  });
+  const description = document.getElementById(
+    cogsInfo.getAttribute("aria-describedby")!,
+  );
+  expect(description?.textContent).toMatch(/12% of revenue.*10 bags/);
+  expect(description?.hidden).toBe(true);
+  fireEvent.mouseEnter(cogsInfo);
+  expect(screen.getByRole("tooltip").textContent).toMatch(
+    /12% of revenue.*10 bags/,
+  );
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(screen.queryByRole("tooltip")).toBeNull();
+  fireEvent.focus(cogsInfo);
+  expect(screen.getByRole("tooltip")).toBeTruthy();
+  fireEvent.blur(cogsInfo);
+  expect(screen.queryByRole("tooltip")).toBeNull();
+  fireEvent.click(cogsInfo);
+  expect(screen.getByRole("tooltip")).toBeTruthy();
+  fireEvent.pointerDown(document.body);
+  expect(screen.queryByRole("tooltip")).toBeNull();
   expect(screen.getByText("$120", { exact: true })).toBeTruthy();
   expect(screen.getByText(/Accepted Mon, 9 Nov/)).toBeTruthy();
   expect(
@@ -380,6 +401,28 @@ it("omits the COGS percentage when revenue is zero", async () => {
   await screen.findByText("Leads by day");
   expect(screen.getAllByText("COGS", { exact: true })).toHaveLength(3);
   expect(screen.queryByText(/of revenue|NaN|Infinity/)).toBeNull();
+  expect(screen.queryByRole("button", { name: "COGS details" })).toBeNull();
+});
+
+it("still shows known bag usage when non-revenue work has no COGS percentage", async () => {
+  current.snapshot = buildSnapshot(
+    current.week,
+    [
+      {
+        _id: "no-charge",
+        stage: "COMPLETED",
+        quote: { c_total: 0, wall: { SQM: 6.5, c_bagCount: 1 } },
+        installation: { installDate: "2026-11-10" },
+        installerChecksheet: { actualBags: 1 },
+      },
+    ],
+    {},
+    [],
+    settings,
+  );
+  render(<WeeklyGmReport />);
+  fireEvent.click(await screen.findByRole("button", { name: "COGS details" }));
+  expect(screen.getByRole("tooltip").textContent).toBe("1 bag");
 });
 
 it("colours confirmed and pencilled installs differently and leaves missing booking status neutral", () => {
