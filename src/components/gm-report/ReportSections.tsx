@@ -245,13 +245,16 @@ function InstallCard({ row }: { row: Row }) {
         : row.bookingStatus === "confirmed"
           ? "Confirmed"
           : "Planned";
-  const colours = row.completed
-    ? "border-emerald-200 border-l-emerald-500 bg-emerald-50"
-    : row.bookingStatus === "pencilled"
-      ? "border-amber-200 border-l-amber-500 bg-amber-50/60"
-      : row.bookingStatus === "confirmed"
-        ? "border-emerald-200 border-l-emerald-500 bg-white"
-        : "border-slate-200 border-l-slate-300 bg-white";
+  const isSplit = row.percent < 100;
+  const colours = isSplit
+    ? "border-blue-200 border-l-blue-500 bg-blue-50"
+    : row.completed
+      ? "border-emerald-200 border-l-emerald-500 bg-emerald-50"
+      : row.bookingStatus === "pencilled"
+        ? "border-amber-200 border-l-amber-500 bg-amber-50/60"
+        : row.bookingStatus === "confirmed"
+          ? "border-emerald-200 border-l-emerald-500 bg-white"
+          : "border-slate-200 border-l-slate-300 bg-white";
   return (
     <article
       className={`w-full min-w-0 break-words rounded-xl border border-l-4 p-2 shadow-sm ${colours}`}
@@ -269,7 +272,7 @@ function InstallCard({ row }: { row: Row }) {
       )}
       <p className="mt-1 text-[10px] font-bold uppercase leading-4 tracking-wide text-gray-600">
         {status}
-        {row.percent < 100 && ` · ${row.percent}%`}
+        {isSplit && ` · ${row.percent}%`}
       </p>
       <p className="mt-1 flex flex-wrap gap-x-1 text-xs font-semibold tabular-nums text-gray-800">
         <span>{sqm(row.sqm)} m²</span>
