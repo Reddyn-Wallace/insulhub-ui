@@ -184,10 +184,10 @@ function report(week) {
           assert.ok(await schedule.evaluate((el) => el.scrollWidth > el.clientWidth), "Narrow screens scroll inside the calendar");
       }
       assert.equal(await page.locator("textarea").count(), 3);
-      // Back/Forward is same-document navigation and must recover a failed save.
-      await page
-        .getByRole("link", { name: "Report settings", exact: true })
-        .click();
+      assert.equal(await page.getByText("Saved reports", { exact: true }).count(), 0);
+      // Old settings links keep the selected week. Back/Forward must recover a failed save.
+      await page.goto(`${base}/jobs/reports/weekly-gm/settings?week=2026-11-09`);
+      await page.waitForURL("**/jobs/settings?section=weekly-gm&week=2026-11-09");
       await page
         .getByRole("link", { name: "← Weekly GM report", exact: true })
         .click();
@@ -279,9 +279,9 @@ function report(week) {
         path: `outputs/gm-report/weekly-gm-${width}.png`,
         fullPage: true,
       });
-      await page
-        .getByRole("link", { name: "Report settings", exact: true })
-        .click();
+      await page.getByRole("button", { name: "Reports", exact: true }).click();
+      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await page.getByRole("button", { name: "Weekly GM Report", exact: true }).click();
       await page.getByLabel("Wall bag cost", { exact: true }).waitFor();
       assert.equal(
         await page.getByLabel("Wall bag cost", { exact: true }).inputValue(),

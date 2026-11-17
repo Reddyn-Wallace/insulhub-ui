@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
 import {
-  act,
   cleanup,
   fireEvent,
   render,
@@ -95,9 +94,8 @@ afterEach(() => {
 it("renders all report sections and autosaves commentary without a manual save action", async () => {
   render(<WeeklyGmReport />);
   await screen.findByText("Leads by day");
-  expect(
-    screen.getByRole("link", { name: "Report settings" }).getAttribute("href"),
-  ).toContain("week=2026-11-09");
+  expect(screen.queryByRole("link", { name: "Report settings" })).toBeNull();
+  expect(screen.queryByLabelText("Saved reports")).toBeNull();
   expect(screen.getByText("Jobs sold")).toBeTruthy();
   expect(screen.getByText("Booked pipeline")).toBeTruthy();
   fireEvent.change(screen.getByLabelText(/Was the week/), {
@@ -294,43 +292,14 @@ it("recovers unsaved commentary after a failed save and history-navigation unmou
     (screen.getByLabelText(/Was the week/) as HTMLTextAreaElement).value,
   ).toBe("Recover after Back");
 });
-it("does not reset a newly saved edit when cached week navigation finishes a slower history read", async () => {
-  const original = vi.mocked(fetch).getMockImplementation()!;
-  let reads = 0,
-    finish: ((r: Response) => void) | null = null;
-  vi.mocked(fetch).mockImplementation((url, init) => {
-    if (url === "/api/gm-reports" && ++reads === 3)
-      return new Promise<Response>((r) => {
-        finish = r;
-      });
-    return original(url, init);
-  });
+it("loads a saved week without fetching saved-report navigation", async () => {
   render(<WeeklyGmReport />);
   await screen.findByText("Leads by day");
-  fireEvent.click(screen.getByRole("button", { name: "Previous week" }));
-  await waitFor(() =>
-    expect(
-      (screen.getByLabelText("Report week") as HTMLInputElement).value,
-    ).toBe("2026-11-02"),
-  );
-  await screen.findByText("Leads by day");
-  fireEvent.click(screen.getByRole("button", { name: "Next week" }));
-  await waitFor(() => expect(finish).not.toBeNull());
-  fireEvent.change(screen.getByLabelText(/Was the week/), {
-    target: { value: "Latest cached edit" },
-  });
-  fireEvent.blur(screen.getByLabelText(/Was the week/));
-  await waitFor(() =>
-    expect(current.commentary.profit).toBe("Latest cached edit"),
-  );
-  await act(async () => {
-    finish!(
-      Response.json({ reports: [{ week: "2026-11-09", status: "draft" }] }),
-    );
-  });
   expect(
-    (screen.getByLabelText(/Was the week/) as HTMLTextAreaElement).value,
-  ).toBe("Latest cached edit");
+    vi.mocked(fetch).mock.calls.some(([url]) => url === "/api/gm-reports"),
+  ).toBe(false);
+  expect(screen.getByRole("button", { name: "Previous week" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Next week" })).toBeTruthy();
 });
 it("shows each forward week as its own Monday–Sunday calendar row", async () => {
   render(<WeeklyGmReport />);
@@ -341,10 +310,19 @@ it("shows each forward week as its own Monday–Sunday calendar row", async () =
   expect(screen.getByRole("heading", { name: day("2026-11-16") })).toBeTruthy();
   expect(screen.getByRole("heading", { name: day("2026-11-22") })).toBeTruthy();
 });
-it("reconciles gross scheduled value, completed revenue and planned council costs on the same P&L", async () => {
+it("shows compact install and sales cards and a completed-only weekly P&L", async () => {
   const jobs = [
     {
       _id: "done",
+      jobNumber: 123456,
+      acceptedAt: "2026-11-09",
+      client: {
+        contactDetails: {
+          name: "Completed customer",
+          streetAddress: "12 Test Street",
+          city: "Wellington",
+        },
+      },
       stage: "INSTALLATION",
       quote: {
         c_total: 1150,
@@ -371,19 +349,17 @@ it("reconciles gross scheduled value, completed revenue and planned council cost
   ];
   current.snapshot = buildSnapshot(current.week, jobs, {}, [], settings);
   render(<WeeklyGmReport />);
-  await screen.findByRole("columnheader", { name: "Full schedule" });
+  await screen.findByText("Leads by day");
   expect(
-    screen.getByRole("row", {
-      name: /Calendar value incl GST.*\$1,150.*\$2,400/,
-    }),
-  ).toBeTruthy();
+    screen.getAllByText("12 Test Street, Wellington", { exact: true }),
+  ).toHaveLength(2);
+  expect(screen.getByText(/10 budgeted.*8 used.*−2/)).toBeTruthy();
+  expect(screen.getByText(/Accepted Mon, 9 Nov/)).toBeTruthy();
   expect(
-    screen.getByRole("row", { name: /Revenue excl GST.*\$1,000.*\$2,100/ }),
-  ).toBeTruthy();
-  expect(
-    screen.getByRole("row", { name: /Council fees.*\$330.*\$680/ }),
-  ).toBeTruthy();
-  expect(
-    screen.getByRole("row", { name: /Operating profit.*\$440.*\$1,090/ }),
-  ).toBeTruthy();
+    screen.queryByText(
+      /123456|Council extras|Whole jobs counted once|Full schedule/,
+    ),
+  ).toBeNull();
+  expect(screen.getByRole("heading", { name: "Weekly P&L" })).toBeTruthy();
+  expect(screen.getAllByText("$330", { exact: true })).toHaveLength(1);
 });

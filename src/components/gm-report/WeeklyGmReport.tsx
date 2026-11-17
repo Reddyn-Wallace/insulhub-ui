@@ -17,7 +17,6 @@ import {
   dollars,
   Leads,
   PnlTable,
-  WeeklyPnl,
   Schedule,
   Section,
   sqm,
@@ -29,7 +28,6 @@ export default function WeeklyGmReport() {
   const [week, setWeek] = useState(""),
     [report, setReport] = useState<Report | null>(null),
     [text, setText] = useState<Commentary>(empty),
-    [history, setHistory] = useState<{ week: string; status: string }[]>([]),
     [busy, setBusy] = useState("Loading report…"),
     [saveState, setSaveState] = useState("Saved"),
     [error, setError] = useState(""),
@@ -160,38 +158,33 @@ export default function WeeklyGmReport() {
     }
     void (async () => {
       try {
-        const [data, h] = await Promise.all([
-          cached
-            ? Promise.resolve({ report: cached })
-            : request<{ report: Report | null }>(`/api/gm-reports/${week}`),
-          request<{ reports: { week: string; status: string }[] }>(
-            "/api/gm-reports",
-          ),
-        ]);
-        if (!active) return;
-        setHistory(h.reports);
-        let r = data.report;
-        if (!r?.snapshot || r.refreshing) {
-          setBusy("Building the first snapshot — this can take a moment…");
-          r = await refreshReport(week, r);
+        if (!cached) {
+          let { report: nextReport } = await request<{ report: Report | null }>(
+            `/api/gm-reports/${week}`,
+          );
+          if (!active) return;
+          if (!nextReport?.snapshot || nextReport.refreshing) {
+            setBusy("Building the first snapshot — this can take a moment…");
+            nextReport = await refreshReport(week, nextReport);
+          }
+          if (!active) return;
+          accept(nextReport);
+          setSaveState("Saved");
         }
-        if (!active) return;
-        // Cached content was already accepted synchronously. A slow history read
-        // must not replay that older report over edits made in the meantime.
-        if (!cached) accept(r);
-        setSaveState("Saved");
-        for (const adjacent of [addDays(week, -7), addDays(week, 7)])
-          if (
-            h.reports.some((x) => x.week === adjacent) &&
-            !cache.current.has(adjacent)
-          )
-            void request<{ report: Report | null }>(
-              `/api/gm-reports/${adjacent}`,
-            )
-              .then((d) => {
-                if (active && d.report) cache.current.set(adjacent, d.report);
-              })
-              .catch(() => {});
+        for (const adjacent of [addDays(week, -7), addDays(week, 7)]) {
+          if (cache.current.has(adjacent)) continue;
+          void request<{ report: Report | null }>(`/api/gm-reports/${adjacent}`)
+            .then(({ report }) => {
+              if (
+                active &&
+                report?.snapshot &&
+                !report.refreshing &&
+                !cache.current.has(adjacent)
+              )
+                cache.current.set(adjacent, report);
+            })
+            .catch(() => {});
+        }
       } catch (e) {
         if (active) {
           setError(e instanceof Error ? e.message : "Report failed to load.");
@@ -300,9 +293,6 @@ export default function WeeklyGmReport() {
         { action: "finalise", revision: current.current!.revision },
       );
       accept(d.report);
-      setHistory((h) =>
-        h.map((x) => (x.week === week ? { ...x, status: "finalised" } : x)),
-      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Finalisation failed.");
     } finally {
@@ -365,21 +355,6 @@ export default function WeeklyGmReport() {
             <span className="rounded-full bg-white/15 px-3 py-1 text-xs font-bold">
               {locked ? "Finalised" : "Draft"}
             </span>
-            <Link
-              className="text-sm underline underline-offset-4"
-              href={`/jobs/reports/weekly-gm/settings?week=${week}`}
-              onClick={(e) => {
-                if (!same(draft.current, saved.current)) {
-                  e.preventDefault();
-                  void save().then((ok) => {
-                    if (ok)
-                      window.location.href = `/jobs/reports/weekly-gm/settings?week=${week}`;
-                  });
-                }
-              }}
-            >
-              Report settings
-            </Link>
           </div>
         </div>
         <div className="mt-6 flex flex-wrap gap-2">
@@ -453,7 +428,7 @@ export default function WeeklyGmReport() {
           <p>{error}</p>
           {setup ? (
             <Link
-              href={`/jobs/reports/weekly-gm/settings?week=${week}`}
+              href={`/jobs/settings?section=weekly-gm&week=${week}`}
               className="mt-2 inline-block font-bold underline"
             >
               Set up costs and targets
@@ -569,13 +544,15 @@ export default function WeeklyGmReport() {
             <p className="mb-4 text-sm text-slate-500">
               <strong className="text-slate-800">
                 {sqm(s.current.sqm)} m² completed
-              </strong>{" "}
-              · Planned work is included in the full schedule projection below.
+              </strong>
             </p>
             <Schedule week={s.current} />
           </Section>
           <Section title="Weekly P&L" kicker="03 · Operating performance">
-            <WeeklyPnl week={s.current} settings={s.settings} />
+            <PnlTable
+              pnl={s.current.pnl}
+              incomplete={!!s.current.issues.length}
+            />
             {comment(
               "profit",
               "Was the week over or under budget? What was this due to?",
@@ -687,7 +664,7 @@ export default function WeeklyGmReport() {
                     {s.sales.undatedJobs.map((j) => (
                       <li key={j.id}>
                         <Link className="underline" href={`/jobs/${j.id}`}>
-                          #{j.number} · {j.customer}
+                          {j.customer}
                         </Link>{" "}
                         · {sqm(j.sqm)} m²
                       </li>
@@ -696,10 +673,6 @@ export default function WeeklyGmReport() {
                 </details>
               </div>
             )}
-            <p className="mb-3 text-xs text-slate-500">
-              Whole jobs counted once by acceptance date · wall and ceiling
-              combined · values exclude GST.
-            </p>
             <div className="space-y-2">
               {!s.sales.jobs.length && (
                 <p className="text-sm text-slate-500">
@@ -718,11 +691,15 @@ export default function WeeklyGmReport() {
                       className="font-semibold text-[#1a3a4a] underline"
                       href={`/jobs/${j.id}`}
                     >
-                      #{j.number} · {j.customer}
+                      {j.customer}
                     </Link>
+                    {j.address && (
+                      <p className="mt-0.5 text-xs font-medium text-gray-700">
+                        {j.address}
+                      </p>
+                    )}
                     <p className="mt-1 text-xs text-slate-500">
-                      Accepted {day(j.date)} · {sqm(j.wallSqm)} wall /{" "}
-                      {sqm(j.ceilingSqm)} ceiling m²
+                      Accepted {day(j.date)}
                     </p>
                   </div>
                   <div className="text-right">
@@ -736,35 +713,6 @@ export default function WeeklyGmReport() {
             </div>
           </Section>
         </>
-      )}
-      {history.length > 0 && (
-        <nav
-          aria-label="Previous weekly reports"
-          className="rounded-xl border border-slate-200 bg-white p-4"
-        >
-          <label
-            htmlFor="report-history"
-            className="mr-3 text-sm font-semibold text-slate-600"
-          >
-            Saved reports
-          </label>
-          <select
-            id="report-history"
-            value={history.some((h) => h.week === week) ? week : ""}
-            onChange={(e) => {
-              if (e.target.value) void navigate(e.target.value);
-            }}
-            disabled={!!busy}
-            className="mt-2 min-h-11 max-w-full rounded-lg border border-slate-300 px-3 text-sm sm:mt-0"
-          >
-            <option value="">Choose a saved week</option>
-            {history.map((h) => (
-              <option key={h.week} value={h.week}>
-                {day(h.week)} {h.week.slice(0, 4)} · {h.status}
-              </option>
-            ))}
-          </select>
-        </nav>
       )}
     </main>
   );

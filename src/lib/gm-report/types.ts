@@ -47,6 +47,7 @@ export type Row = {
   jobId: string;
   number: string;
   customer: string;
+  address?: string;
   date: string;
   percent: number;
   completed: boolean;
@@ -58,6 +59,7 @@ export type Row = {
   grossRevenue?: number;
   calendarRevenue?: number;
   wallBags: number | null;
+  budgetWallBags?: number | null;
   ceilingBags: number | null;
   council: number;
   councilLines: { name: string; cents: number }[];
@@ -94,6 +96,7 @@ export type Snapshot = {
       id: string;
       number: string;
       customer: string;
+      address?: string;
       date: string;
       wallSqm: number;
       ceilingSqm: number;

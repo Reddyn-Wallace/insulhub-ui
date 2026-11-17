@@ -94,7 +94,7 @@ export default function GmSettings() {
     }
   }
   return (
-    <main className="mx-auto max-w-3xl space-y-5 p-4 pb-20 sm:p-6">
+    <div className="min-w-0 space-y-4">
       <Link
         href={
           returnWeek
@@ -105,18 +105,6 @@ export default function GmSettings() {
       >
         ← Weekly GM report
       </Link>
-      <div>
-        <p className="text-xs font-bold uppercase tracking-widest text-slate-500">
-          Weekly management report
-        </p>
-        <h1 className="mt-2 text-2xl font-bold text-[#1a3a4a]">
-          Costs & targets
-        </h1>
-        <p className="mt-2 text-sm leading-6 text-slate-500">
-          Enter NZD excluding GST. Each refreshed draft saves its own copy of
-          these settings.
-        </p>
-      </div>
       {error && (
         <p
           role="alert"
@@ -133,12 +121,15 @@ export default function GmSettings() {
           {notice}
         </p>
       )}
-      <Section title="Weekly report settings">
+      <Section title="Costs & targets">
         <form onSubmit={(e) => void submit(e)} className="space-y-5">
           {loading ? (
             <p role="status">Loading settings…</p>
           ) : (
             <>
+              <p className="text-sm text-slate-500">
+                Enter costs and budgets in NZD excluding GST.
+              </p>
               <div className="grid gap-5 sm:grid-cols-2">
                 {fields.map(([key, label]) => (
                   <div key={key}>
@@ -204,6 +195,6 @@ export default function GmSettings() {
           )}
         </form>
       </Section>
-    </main>
+    </div>
   );
 }

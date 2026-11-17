@@ -154,7 +154,7 @@ function quoteRevenue(quote: Job["quote"]) {
   return { gross: grossCents, net };
 }
 
-export function calculatePnl(rows: Row[], settings: Settings): Pnl {
+function calculatePnl(rows: Row[], settings: Settings): Pnl {
   const sum = (f: (row: Row) => number) =>
     Math.round(rows.reduce((total, row) => total + f(row), 0));
   const revenue = sum((row) => row.revenue);
@@ -181,6 +181,14 @@ export function calculatePnl(rows: Row[], settings: Settings): Pnl {
     budget: settings.profitBudget,
     variance: profit - settings.profitBudget,
   };
+}
+
+function siteAddress(job: Job) {
+  const contact = job.client?.contactDetails;
+  return [contact?.streetAddress, contact?.suburb, contact?.city]
+    .map((part) => part?.trim())
+    .filter(Boolean)
+    .join(", ");
 }
 
 function project(
@@ -264,13 +272,14 @@ function project(
       issues.push("Wall area is missing or zero despite wall bag usage.");
     if (hasCeiling && (!numeric(ceiling) || ceiling === 0))
       issues.push("Ceiling area is missing or zero despite ceiling bag usage.");
-    let wallBags: number | null = !hasWall
+    const budgetWallBags: number | null = !hasWall
       ? 0
       : numeric(budget)
         ? estimates
           ? estimates[index].area
           : budget
         : null;
+    let wallBags = budgetWallBags;
     let basis = "Estimated",
       estimated = w + c > 0;
     if (recordedComplete && hasWall) {
@@ -313,6 +322,7 @@ function project(
       jobId: job._id,
       number: String(job.jobNumber ?? ""),
       customer: job.client?.contactDetails?.name || "Unnamed customer",
+      address: siteAddress(job),
       date: visit.date || "",
       percent: visit.percent,
       completed: recordedComplete || assumedCompleted,
@@ -324,6 +334,7 @@ function project(
       grossRevenue: grossRevenues[index],
       calendarRevenue: calendarRevenues[index],
       wallBags,
+      budgetWallBags,
       ceilingBags,
       council: councilTotals[index],
       councilLines: council.lines,
@@ -401,6 +412,7 @@ export function buildSnapshot(
         id: j._id,
         number: String(j.jobNumber ?? ""),
         customer: j.client?.contactDetails?.name || "Unnamed customer",
+        address: siteAddress(j),
         date: toNzDateKey(j.acceptedAt),
         wallSqm,
         ceilingSqm,
