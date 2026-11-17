@@ -1,7 +1,7 @@
-import React from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import type { Pnl, Row, Week, Snapshot } from "@/lib/gm-report/types";
+import type { Row, Week, Snapshot } from "@/lib/gm-report/types";
 import { addDays, money } from "@/lib/gm-report/model";
 import { toNzDateKey } from "@/lib/reports/sales-installs-types";
 export const dollars = (cents: number) =>
@@ -45,15 +45,102 @@ export function Section({
     </section>
   );
 }
+function CogsTooltip({
+  share,
+  bags,
+}: {
+  share: string | null;
+  bags: number | null;
+}) {
+  const id = useId();
+  const root = useRef<HTMLSpanElement>(null);
+  const pinned = useRef(false);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    function dismiss() {
+      pinned.current = false;
+      setOpen(false);
+    }
+    function onPointerDown(event: PointerEvent) {
+      if (!root.current?.contains(event.target as Node)) dismiss();
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") dismiss();
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <span
+      ref={root}
+      className="relative inline-flex"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => {
+        if (!pinned.current && !root.current?.contains(document.activeElement))
+          setOpen(false);
+      }}
+    >
+      <button
+        type="button"
+        aria-label="COGS details"
+        aria-expanded={open}
+        aria-describedby={id}
+        className="-my-0.5 inline-flex size-6 items-center justify-center rounded-full text-slate-600 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-[#1a3a4a]"
+        onFocus={() => setOpen(true)}
+        onBlur={() => {
+          pinned.current = false;
+          setOpen(false);
+        }}
+        onClick={() => {
+          pinned.current = !pinned.current;
+          setOpen(pinned.current);
+        }}
+      >
+        <span aria-hidden="true">ⓘ</span>
+      </button>
+      <span
+        id={id}
+        role="tooltip"
+        hidden={!open}
+        className="absolute bottom-full left-0 z-10 whitespace-nowrap rounded-md bg-[#1a3a4a] px-2 py-1 text-xs font-medium text-white shadow-md"
+      >
+        {share && `${share} of revenue`}
+        {share && bags !== null && " · "}
+        {bags !== null && `${sqm(bags)} ${bags === 1 ? "bag" : "bags"}`}
+      </span>
+    </span>
+  );
+}
+
 export function PnlTable({
-  pnl,
-  incomplete = false,
+  week,
+  completedOnly = false,
   estimated = false,
 }: {
-  pnl: Pnl;
-  incomplete?: boolean;
+  week: Week;
+  completedOnly?: boolean;
   estimated?: boolean;
 }) {
+  const { pnl, rows } = week;
+  const incomplete = week.issues.length > 0;
+  const counted = completedOnly ? rows.filter((row) => row.completed) : rows;
+  const bags = counted.every(
+    (row) => row.wallBags !== null && row.ceilingBags !== null,
+  )
+    ? money(
+        counted.reduce(
+          (total, row) => total + (row.wallBags ?? 0) + (row.ceilingBags ?? 0),
+          0,
+        ),
+      )
+    : null;
   const cogs = pnl.wallCogs + pnl.ceilingCogs;
   const cogsShare =
     pnl.revenue > 0 && !incomplete
@@ -76,14 +163,14 @@ export function PnlTable({
           </dd>
         </div>
         <div className="flex justify-between gap-4 py-2 text-sm">
-          <dt className="text-slate-600">COGS</dt>
-          <dd className="text-right tabular-nums">
-            <span className="font-medium text-slate-900">{dollars(cogs)}</span>
-            {cogsShare && (
-              <span className="ml-2 text-slate-500">
-                {cogsShare} of revenue
-              </span>
+          <dt className="flex items-center gap-1 text-slate-600">
+            COGS{" "}
+            {(cogsShare || (bags !== null && bags > 0)) && (
+              <CogsTooltip share={cogsShare} bags={bags} />
             )}
+          </dt>
+          <dd className="text-right font-medium tabular-nums text-slate-900">
+            {dollars(cogs)}
           </dd>
         </div>
         {(
