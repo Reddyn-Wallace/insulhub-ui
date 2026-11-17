@@ -1,5 +1,10 @@
 import "server-only";
 import { overlaySql } from "@/lib/overlay-db";
+import {
+  parseInstallMeta,
+  type InstallBookingStatus,
+} from "@/lib/install-planning";
+import { CALENDAR_STAGES } from "@/lib/installation-splits/views";
 import { readSplits } from "@/lib/installation-splits/store";
 import { sourceQuery } from "./access";
 import { buildSnapshot, isSaleCandidate, ReportError } from "./model";
@@ -12,7 +17,7 @@ import {
 import type { Job, Placeholder, Settings } from "./types";
 // acceptedAt is non-null in the schema but absent from bulk job results. Read it
 // through job(_id:) below, as the existing Sales & Usage report does.
-export const GM_JOBS_QUERY = `query GMReportJobs($skip:Int,$limit:Int){jobs(stages:[LEAD,QUOTE,SCHEDULED,INSTALLATION,INVOICE,COMPLETED],skip:$skip,limit:$limit){total results{_id jobNumber stage archivedAt createdAt updatedAt quote{status c_total consentFee c_gst totalOverridden wall{SQM c_bagCount} ceiling{SQM c_bagCount} extras{name price}} installation{installDate installStatus checkSheetSignedAsComplete} installerChecksheet{complete actualBags} client{contactDetails{name streetAddress suburb city}}}}}`;
+export const GM_JOBS_QUERY = `query GMReportJobs($skip:Int,$limit:Int){jobs(stages:[LEAD,QUOTE,SCHEDULED,INSTALLATION,INVOICE,COMPLETED],skip:$skip,limit:$limit){total results{_id jobNumber stage archivedAt createdAt updatedAt notes quote{status c_total consentFee c_gst totalOverridden wall{SQM c_bagCount} ceiling{SQM c_bagCount} extras{name price}} installation{installDate installStatus checkSheetSignedAsComplete} installerChecksheet{complete actualBags} client{contactDetails{name streetAddress suburb city}}}}}`;
 export async function loadSnapshot(
   token: string,
   week: string,
@@ -96,10 +101,25 @@ export async function loadSnapshot(
       }),
     );
   await writeAcceptanceFacts(facts);
-  const [splits, ph] = await Promise.all([
+  const installJobs = jobs.filter(
+    (job) => !job.archivedAt && CALENDAR_STAGES.includes(job.stage || ""),
+  );
+  const [splits, ph, planning] = await Promise.all([
     readSplits(jobs.map((j) => j._id)),
     overlaySql`SELECT id,starts_at,ends_at,title,note FROM calendar_placeholders WHERE resolved_at IS NULL`,
+    overlaySql`SELECT insulhub_job_id, status FROM job_install_planning WHERE insulhub_job_id = ANY(${installJobs.map((job) => job._id)}::text[])`,
   ]);
+  const bookingByJob = new Map<string, InstallBookingStatus>();
+  for (const row of planning) {
+    if (
+      typeof row.insulhub_job_id === "string" &&
+      (row.status === "confirmed" || row.status === "pencilled")
+    )
+      bookingByJob.set(row.insulhub_job_id, row.status);
+  }
+  for (const job of installJobs)
+    job.bookingStatus =
+      bookingByJob.get(job._id) ?? parseInstallMeta(job.notes).status;
   const placeholders: Placeholder[] = ph.map((p) => ({
     id: String(p.id),
     startsAt: new Date(String(p.starts_at)).toISOString(),

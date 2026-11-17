@@ -153,13 +153,18 @@ function InstallCard({ row }: { row: Row }) {
     ? "Assumed completed"
     : row.completed
       ? "Completed"
-      : "Planned";
-  const colours =
-    row.percent < 100
-      ? "border-blue-200 border-l-blue-500 bg-blue-50"
-      : row.completed
-        ? "border-emerald-200 border-l-emerald-500 bg-emerald-50/70"
-        : "border-gray-200 border-l-amber-500 bg-white";
+      : row.bookingStatus === "pencilled"
+        ? "Pencilled"
+        : row.bookingStatus === "confirmed"
+          ? "Confirmed"
+          : "Planned";
+  const colours = row.completed
+    ? "border-emerald-200 border-l-emerald-500 bg-emerald-50"
+    : row.bookingStatus === "pencilled"
+      ? "border-amber-200 border-l-amber-500 bg-amber-50/60"
+      : row.bookingStatus === "confirmed"
+        ? "border-emerald-200 border-l-emerald-500 bg-white"
+        : "border-slate-200 border-l-slate-300 bg-white";
   return (
     <article
       className={`w-full min-w-0 break-words rounded-xl border border-l-4 p-2 shadow-sm ${colours}`}

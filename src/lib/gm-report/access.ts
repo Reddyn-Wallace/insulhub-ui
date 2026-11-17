@@ -33,6 +33,7 @@ const diagnosticFields = new Set([
   "archivedAt",
   "stage",
   "jobNumber",
+  "notes",
   "installDate",
   "installStatus",
   "checkSheetSignedAsComplete",

@@ -381,3 +381,32 @@ it("omits the COGS percentage when revenue is zero", async () => {
   expect(screen.getAllByText("COGS", { exact: true })).toHaveLength(3);
   expect(screen.queryByText(/of revenue|NaN|Infinity/)).toBeNull();
 });
+
+it("colours confirmed and pencilled installs differently and leaves missing booking status neutral", () => {
+  const scheduled = {
+    stage: "SCHEDULED",
+    quote: { c_total: 1150, wall: { SQM: 80, c_bagCount: 10 } },
+    installation: { installDate: "2026-11-17" },
+  };
+  const week = buildSnapshot(
+    "2026-11-09",
+    [
+      { ...scheduled, _id: "confirmed", bookingStatus: "confirmed" },
+      { ...scheduled, _id: "pencilled", bookingStatus: "pencilled" },
+      { ...scheduled, _id: "unknown" },
+    ],
+    {},
+    [],
+    settings,
+  ).upcoming[0];
+  render(<Schedule week={week} />);
+  expect(screen.getByText("Confirmed").closest("article")?.className).toContain(
+    "border-l-emerald-500",
+  );
+  expect(screen.getByText("Pencilled").closest("article")?.className).toContain(
+    "border-l-amber-500",
+  );
+  expect(screen.getByText("Planned").closest("article")?.className).toContain(
+    "border-l-slate-300",
+  );
+});

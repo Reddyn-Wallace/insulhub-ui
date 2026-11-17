@@ -11,6 +11,7 @@ import { gql } from "@/lib/graphql";
 import { readBrowserCache, writeBrowserCache } from "@/lib/client-cache";
 import BottomSheet from "@/components/BottomSheet";
 import InstallPlanningForm, { InstallPlanningActions } from "@/components/InstallPlanningForm";
+import { parseInstallMeta } from "@/lib/install-planning";
 import { useAppDialog } from "@/components/AppDialog";
 
 interface CalendarJob {
@@ -104,8 +105,6 @@ const UPDATE_INSTALLATION = `
     }
   }
 `;
-const INSTALL_META_START = "[INSTALL_META]";
-const INSTALL_META_END = "[/INSTALL_META]";
 
 function startOfMonth(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), 1);
@@ -263,30 +262,6 @@ function customerPhone(job: CalendarJob) {
     job.client?.contactDetails?.phoneMobile,
     job.client?.contactDetails?.phoneSecondary,
   ].map((phone) => phone?.trim()).find(Boolean) || "";
-}
-
-function parseInstallMeta(notes?: string | null): { status: "confirmed" | "pencilled"; note: string; scope: "internal" | "external" | "both" | "" } {
-  const text = notes || "";
-  const start = text.indexOf(INSTALL_META_START);
-  const end = text.indexOf(INSTALL_META_END);
-  if (start === -1 || end === -1 || end < start) {
-    return { status: "confirmed" as "confirmed" | "pencilled", note: "", scope: "" };
-  }
-
-  const body = text
-    .slice(start + INSTALL_META_START.length, end)
-    .trim();
-
-  const statusMatch = body.match(/^status:\s*(.+)$/im);
-  const noteMatch = body.match(/^note:\s*([\s\S]*?)(?:\n[a-z_]+:|$)/im);
-  const scopeMatch = body.match(/^install_scope:\s*(.+)$/im);
-  const rawStatus = (statusMatch?.[1] || "confirmed").trim().toLowerCase();
-  const rawScope = (scopeMatch?.[1] || "").trim().toLowerCase();
-  return {
-    status: rawStatus === "pencilled" ? "pencilled" : "confirmed",
-    note: (noteMatch?.[1] || "").trim(),
-    scope: rawScope === "internal" || rawScope === "external" || rawScope === "both" ? rawScope : "",
-  };
 }
 
 function toDatetimeLocal(iso?: string | null) {
