@@ -49,6 +49,7 @@
     "src/lib/calendar/cache.test.ts",
     "src/lib/crm-read/board.test.ts",
     "src/lib/crm-read/detail.test.ts",
+    "src/lib/crm-read/quotes-ui.test.tsx",
     "src/lib/job-lead-source-filter.test.tsx",
     "src/lib/job-eba-access.test.tsx",
     "src/lib/calendar/shared-schedule.test.ts",

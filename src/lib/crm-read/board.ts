@@ -4,6 +4,7 @@ import { getSplitRevision, loadPendingSplits } from "@/lib/installation-splits/c
 import { queueVisits } from "@/lib/installation-splits/views";
 import type { SavedSplit, VisitLabel } from "@/lib/installation-splits/projection";
 import { crmFreshMs, loadCrmRead, recentCrmRead } from "./client";
+import { boardPageSize, compareQuoteDate, loadQuoteContacts, quoteSortPreference, quoteState } from "./quotes";
 
 export interface BoardJob {
   _id: string;
@@ -40,6 +41,15 @@ const salesQuery = `
     jobs(stages: $stages, skip: $skip, limit: $limit) { total results { ${salesFields} } }
   }
 `;
+const quoteIndexQuery = `
+  query Jobs($stages: [JobStage!], $skip: Int, $limit: Int) {
+    jobs(stages: $stages, skip: $skip, limit: $limit) { total results {
+      _id jobNumber stage createdAt updatedAt archivedAt
+      lead { leadStatus leadSource allocatedTo { _id } callbackDate quoteBookingDate }
+      quote { quoteNumber date status deferralDate c_total }
+    } }
+  }
+`;
 const revisitFields = `${salesFields}
   installation { installDate installStatus checkSheetSignedAsComplete }
   installerChecksheet { complete }
@@ -54,7 +64,7 @@ export const isBoardStage = (stage: string) =>
 
 async function readAll(stage: string, token: string) {
   const stages = stage === "JOBS" ? activeStages : [stage];
-  const query = stage === "LEAD" || stage === "QUOTE" ? salesQuery : JOBS_QUERY;
+  const query = stage === "QUOTE" ? quoteIndexQuery : stage === "LEAD" ? salesQuery : JOBS_QUERY;
   const jobs = new Map<string, BoardJob>();
   let total: number | undefined;
   for (let page = 0; page < 100; page++) {
@@ -98,11 +108,11 @@ async function addRevisits(rows: BoardRows, splits: Record<string, SavedSplit>, 
   return { jobs, total: jobs.length };
 }
 
-export const recentBoard = (stage: string, token: string) => recentCrmRead<BoardRows>("board", stage, token);
+export const recentBoard = (stage: string, token: string) => recentCrmRead<BoardRows>("board", stage === "QUOTE" ? "quote-index" : stage, token);
 
 export async function loadBoard(stage: string, token: string) {
   const revision = getSplitRevision();
-  return (await loadCrmRead("board", stage, token, async () => {
+  return (await loadCrmRead("board", stage === "QUOTE" ? "quote-index" : stage, token, async () => {
     if (stage === "JOBS") {
       const [rows, splits] = await Promise.all([readAll(stage, token), loadPendingSplits(token)]);
       const result = await addRevisits(rows, splits, token);
@@ -119,6 +129,12 @@ export async function warmBoard(stage: string) {
   const token = localStorage.getItem("token");
   if (!token || !isBoardStage(stage)) return;
   const cached = await recentBoard(stage, token);
-  if (cached && Date.now() - cached.checkedAt < crmFreshMs) return;
-  await loadBoard(stage, token);
+  const rows = cached && Date.now() - cached.checkedAt < crmFreshMs ? cached.data : await loadBoard(stage, token);
+  if (stage === "QUOTE") {
+    const newest = localStorage.getItem(quoteSortPreference) === "newest";
+    const open = rows.jobs.filter(job => quoteState(job) === "OPEN")
+      .sort((a, b) => compareQuoteDate(a, b, newest))
+      .slice(0, boardPageSize);
+    await loadQuoteContacts(open, token);
+  }
 }
