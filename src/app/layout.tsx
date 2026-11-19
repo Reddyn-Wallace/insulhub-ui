@@ -34,6 +34,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head><link rel="preconnect" href="https://api.insulhub.nz" crossOrigin="anonymous" /></head>
       <body className={`${inter.className} antialiased bg-gray-50`}>
         {children}
       </body>

@@ -65,3 +65,10 @@ it("includes planned work from a completed parent and retains the frozen allocat
     quote: expect.objectContaining({ c_total: 600, wall: { SQM: 27 }, ceiling: { SQM: 3 } }),
   })]);
 });
+
+it("reads quote status for the full stage without loading every customer's contact", async () => {
+  mocks.gql.mockResolvedValue({ jobs: { total: 1, results: [{ ...card, stage: "QUOTE" }] } });
+  expect((await loadBoard("QUOTE", "staff")).total).toBe(1);
+  expect(mocks.gql.mock.calls[0][0]).not.toContain("contactDetails");
+  expect(mocks.gql.mock.calls[0][0]).toContain("callbackDate");
+});

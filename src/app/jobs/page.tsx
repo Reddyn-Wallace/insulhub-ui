@@ -12,11 +12,11 @@ import { searchVisits } from "@/lib/installation-splits/views";
 import { isBoardStage, loadBoard, recentBoard, warmBoard, type BoardJob as Job, type BoardRows, type JobsData } from "@/lib/crm-read/board";
 import { loadSalesDirectory } from "@/lib/crm-read/directory";
 import { crmFreshMs } from "@/lib/crm-read/client";
+import { boardPageSize as PAGE_SIZE, compareQuoteDate, loadQuoteContacts, quoteContactsKey, QuoteSelectionChanged, quoteState, type QuoteContacts } from "@/lib/crm-read/quotes";
 import { loadCrmEmailIndex } from "@/lib/crm-read/sent-index";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { LEAD_SOURCE_OPTIONS, canonicalLeadSourceLabel, normalizeLeadSourceValue } from "@/lib/lead-sources";
 
-const PAGE_SIZE = 40;
 const UNASSIGNED_SALESPERSON = "UNASSIGNED";
 const SORT_PREFERENCE_KEY = "jobs-sort-order";
 const noJobs: Job[] = [];
@@ -25,11 +25,6 @@ interface User { _id: string; firstname: string; lastname: string; role?: string
 const isQuoteBooked = (job: Job) => Boolean(job.lead?.quoteBookingDate);
 const isCallbackLead = (job: Job) => ["CALLBACK", "ON_HOLD"].includes((job.lead?.leadStatus || "").toUpperCase());
 const isNewLead = (job: Job) => (!job.lead?.leadStatus || job.lead.leadStatus === "NEW") && !isQuoteBooked(job);
-const quoteState = (job: Job) => {
-  if (job.quote?.status === "DEFERRED" || isCallbackLead(job) || job.lead?.callbackDate) return "CALLBACK";
-  if (job.lead?.leadStatus === "DEAD" || job.quote?.status === "DECLINED") return "DEAD";
-  return "OPEN";
-};
 
 function JobsPageContent() {
   const router = useRouter();
@@ -64,6 +59,9 @@ function JobsPageContent() {
   const [leadSourceFilters, setLeadSourceFilters] = useState<string[]>(initLeadSourceFilters);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [leadSourceMenuOpen, setLeadSourceMenuOpen] = useState(false);
+  const [quoteCards, setQuoteCards] = useState<{ key: string; data: QuoteContacts } | null>(null);
+  const [quoteCardsError, setQuoteCardsError] = useState<{ key: string; message: string } | null>(null);
+  const [quoteCardsRetry, setQuoteCardsRetry] = useState(0);
   const [quoteSentByEmail, setQuoteSentByEmail] = useState<Record<string, string>>({});
   const [loadError, setLoadError] = useState<{ key: string; message: string } | null>(null);
   const error = loadError?.key === resultKey ? loadError.message : "";
@@ -74,6 +72,7 @@ function JobsPageContent() {
   const leadSourceMenuRef = useRef<HTMLDivElement | null>(null);
   const sortPreferenceKey = useCallback((stage: string) => `${SORT_PREFERENCE_KEY}:${stage}`, []);
   const viewedStage = useRef<string | null>(null);
+  const refreshedQuoteSelection = useRef<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -203,7 +202,7 @@ function JobsPageContent() {
       if (!isBoardStage(activeStage)) throw Error("This job stage is unavailable.");
       const cached = await recentBoard(activeStage, token);
       if (!current()) return;
-      if (cached) setResult({ key: resultKey, ...cached.data });
+      if (cached && !force) setResult({ key: resultKey, ...cached.data });
       if (!force && cached && Date.now() - cached.checkedAt < crmFreshMs) return;
       const data = await loadBoard(activeStage, token);
       if (current()) setResult({ key: resultKey, ...data });
@@ -228,6 +227,7 @@ function JobsPageContent() {
         setResult(null);
         setUsers([]);
         setQuoteSentByEmail({});
+        setQuoteCards(null);
         viewedStage.current = null;
         if (localStorage.getItem("token")) window.location.reload();
         else router.replace("/login");
@@ -238,18 +238,6 @@ function JobsPageContent() {
   }, [router]);
 
   useEffect(() => {
-    if (!stageHydrated || searchMode || viewedStage.current !== null) return;
-    const timer = window.setTimeout(async () => {
-      if (document.visibilityState !== "visible") return;
-      viewedStage.current = activeStage;
-      for (const stage of ["LEAD", "QUOTE", "JOBS"]) {
-        if (stage !== activeStage) await warmBoard(stage).catch(() => {});
-      }
-    }, 600);
-    return () => window.clearTimeout(timer);
-  }, [activeStage, searchMode, stageHydrated]);
-
-  useEffect(() => {
     const token = localStorage.getItem("token");
     if (!filtersOpen || !token) return;
     let current = true;
@@ -258,17 +246,6 @@ function JobsPageContent() {
     }).catch(() => {});
     return () => { current = false; };
   }, [filtersOpen]);
-
-  useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!stageHydrated || !token || (!searchMode && activeStage !== "QUOTE") ||
-        !jobs.some(job => job.stage === "QUOTE" && job.client?.contactDetails?.email)) return;
-    let active = true;
-    const timer = window.setTimeout(() => void loadCrmEmailIndex(token)
-      .then(data => { if (active) setQuoteSentByEmail(data.quote); })
-      .catch(() => {}), 400);
-    return () => { active = false; window.clearTimeout(timer); };
-  }, [activeStage, jobs, searchMode, stageHydrated]);
 
   // Debounced search
   function handleSearchInput(val: string) {
@@ -321,14 +298,6 @@ function JobsPageContent() {
     DEAD: jobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "DEAD" : j.lead?.leadStatus === "DEAD").length,
   }), [activeStage, jobs]);
 
-  const decoratedJobs = useMemo(() => (
-    jobs.map((j) => {
-      const email = j.client?.contactDetails?.email?.trim().toLowerCase();
-      const sentAt = email ? quoteSentByEmail[email] : undefined;
-      return sentAt ? { ...j, quoteLastSentAt: sentAt } : j;
-    })
-  ), [jobs, quoteSentByEmail]);
-
   const salespersonOptions = useMemo(() => (
     [
       { _id: UNASSIGNED_SALESPERSON, firstname: "Unassigned", lastname: "" },
@@ -350,7 +319,7 @@ function JobsPageContent() {
   const activeFilterCount = salespersonFilters.length + leadSourceFilters.length;
 
   // Client-side sub-tab filter
-  const filtered = useMemo(() => decoratedJobs.filter((job) => {
+  const filtered = useMemo(() => jobs.filter((job) => {
     if (salespersonFilters.length > 0 && !salespersonFilters.includes(job.lead?.allocatedTo?._id || UNASSIGNED_SALESPERSON)) return false;
     if (leadSourceFilters.length > 0) {
       const jobLeadSources = (job.lead?.leadSource || []).map(normalizeLeadSourceValue).filter(Boolean);
@@ -365,13 +334,9 @@ function JobsPageContent() {
       return subTab === status;
     }
     return true;
-  }), [activeStage, decoratedJobs, leadSourceFilters, salespersonFilters, searchMode, subTab]);
+  }), [activeStage, jobs, leadSourceFilters, salespersonFilters, searchMode, subTab]);
 
   const sortedJobs = useMemo(() => {
-    const quoteSortTs = (job: Job) => {
-      if (!job.quote?.date) return Number.MAX_SAFE_INTEGER;
-      return new Date(job.quote.date).getTime();
-    };
     const leadSortTs = (job: Job) => new Date(job.createdAt || job.updatedAt).getTime();
 
     return [...filtered].sort((a, b) => {
@@ -405,15 +370,7 @@ function JobsPageContent() {
         return sortOrder === "oldest" ? asc : -asc;
       }
 
-      if (activeStage === "QUOTE") {
-        const aHasDate = Boolean(a.quote?.date);
-        const bHasDate = Boolean(b.quote?.date);
-        if (!aHasDate && bHasDate) return -1;
-        if (aHasDate && !bHasDate) return 1;
-        const aTime = quoteSortTs(a);
-        const bTime = quoteSortTs(b);
-        return sortOrder === "newest" ? bTime - aTime : aTime - bTime;
-      }
+      if (activeStage === "QUOTE") return compareQuoteDate(a, b, sortOrder === "newest");
 
       if (activeStage === "JOBS" || activeStage === "COMPLETED") {
         const aInstall = a.installation?.installDate ? new Date(a.installation.installDate).getTime() : null;
@@ -447,7 +404,78 @@ function JobsPageContent() {
   useEffect(() => { setPage(0); }, [subTab, salespersonFilters, leadSourceFilters]);
 
   // Client-side paginate after filtering/sorting.
-  const paginatedResults = searchMode ? sortedJobs : sortedJobs.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const visibleRows = useMemo(() => (
+    searchMode ? sortedJobs : sortedJobs.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+  ), [page, searchMode, sortedJobs]);
+  const quoteCardKey = !searchMode && activeStage === "QUOTE" ? quoteContactsKey(visibleRows) : "";
+  const contacts = quoteCardKey && quoteCards?.key === quoteCardKey ? quoteCards.data : null;
+  const quoteError = quoteCardsError?.key === quoteCardKey ? quoteCardsError.message : "";
+  const quoteCardsLoading = Boolean(quoteCardKey && !contacts && !quoteError);
+
+  useEffect(() => {
+    if (!quoteCardKey) return;
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    let active = true;
+    setQuoteCardsError(null);
+    const selection = visibleRows.map(job => job._id).sort().join(",");
+    void loadQuoteContacts(visibleRows, token)
+      .then(data => {
+        if (!active || localStorage.getItem("token") !== token) return;
+        refreshedQuoteSelection.current = null;
+        setQuoteCards({ key: quoteCardKey, data });
+      })
+      .catch(err => {
+        if (active && localStorage.getItem("token") === token) {
+          setQuoteCards(null);
+          setQuoteCardsError({ key: quoteCardKey, message: err instanceof Error ? err.message : "Could not load quote cards." });
+          if (err instanceof QuoteSelectionChanged && refreshedQuoteSelection.current !== selection) {
+            refreshedQuoteSelection.current = selection;
+            void fetchJobs(true);
+          }
+        }
+      });
+    return () => { active = false; };
+  }, [fetchJobs, quoteCardKey, quoteCardsRetry, result, visibleRows]);
+
+  const displayedJobs = useMemo(() => {
+    if (!quoteCardKey) return visibleRows;
+    if (!contacts) return noJobs;
+    return visibleRows.flatMap(job => {
+      const detail = contacts[job._id];
+      return detail ? [{ ...job, client: detail.client, lead: { ...job.lead, allocatedTo: detail.lead?.allocatedTo } }] : [];
+    });
+  }, [contacts, quoteCardKey, visibleRows]);
+
+  const paginatedResults = useMemo(() => displayedJobs.map(job => {
+    const email = job.client?.contactDetails?.email?.trim().toLowerCase();
+    const sentAt = email ? quoteSentByEmail[email] : undefined;
+    return sentAt ? { ...job, quoteLastSentAt: sentAt } : job;
+  }), [displayedJobs, quoteSentByEmail]);
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!stageHydrated || !token || (!searchMode && activeStage !== "QUOTE") ||
+        !displayedJobs.some(job => job.stage === "QUOTE" && job.client?.contactDetails?.email)) return;
+    let active = true;
+    const timer = window.setTimeout(() => void loadCrmEmailIndex(token)
+      .then(data => { if (active) setQuoteSentByEmail(data.quote); })
+      .catch(() => {}), 400);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [activeStage, displayedJobs, searchMode, stageHydrated]);
+
+  useEffect(() => {
+    if (!stageHydrated || quoteCardsLoading || searchMode || viewedStage.current !== null) return;
+    const timer = window.setTimeout(async () => {
+      if (document.visibilityState !== "visible") return;
+      viewedStage.current = activeStage;
+      for (const stage of ["LEAD", "QUOTE", "JOBS"]) {
+        if (stage !== activeStage) await warmBoard(stage).catch(() => {});
+      }
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [activeStage, quoteCardsLoading, searchMode, stageHydrated]);
+
   const rowCount = searchMode && stageHydrated ? result.total : sortedJobs.length;
   const totalPages = Math.max(1, Math.ceil(rowCount / PAGE_SIZE));
   const currentPage = page + 1;
@@ -468,7 +496,7 @@ function JobsPageContent() {
           router.replace(buildJobsUrl({ subTab: tab }));
         }}
         counts={showSubTabs && stageHydrated ? counts : undefined}
-        loadFollowupCount={stageHydrated && !searchMode}
+        loadFollowupCount={stageHydrated && !searchMode && !quoteCardsLoading && !quoteError}
         searchMode={searchMode}
       />
 
@@ -683,7 +711,16 @@ function JobsPageContent() {
             <button onClick={() => void fetchJobs(true)} className="ml-2 underline">Retry</button>
           </div>
         )}
-        {loading ? <LoadingSkeleton /> : !stageHydrated ? null : paginatedResults.length === 0 ? (
+        {quoteError && !error && (
+          <div role="status" className="mx-4 mt-2 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            {quoteError}
+            <button onClick={() => {
+              void fetchJobs(true);
+              setQuoteCardsRetry(value => value + 1);
+            }} className="ml-2 underline">Retry</button>
+          </div>
+        )}
+        {loading || quoteCardsLoading ? <LoadingSkeleton /> : !stageHydrated || (quoteError && !contacts) ? null : paginatedResults.length === 0 ? (
           <div className="px-4 pt-8 text-center text-gray-400 text-sm">
             {searchMode ? `No results for "${searchInput}"` : "No jobs found"}
           </div>

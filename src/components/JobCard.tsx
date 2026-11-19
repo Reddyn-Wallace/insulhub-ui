@@ -2,7 +2,7 @@ import { isAwaitingCompletion } from "@/lib/awaiting-completion";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { warmJobDetail } from "@/lib/crm-read/detail";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 interface Job {
   splitVisit?: {id:string;percent:number;state:"planned"|"completed";count?:number};
@@ -131,8 +131,10 @@ const STATUS_STYLE: Record<string, { pill: string; border: string; label: string
 export default function JobCard({ job }: { job: Job }) {
   const c = job.client?.contactDetails;
   const addressParts = [c?.streetAddress, c?.suburb, c?.city].filter(Boolean).join(", ");
+  const router = useRouter();
   const searchParams = useSearchParams();
   const returnTo = `/jobs${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
+  const href = `/jobs/${job._id}?${new URLSearchParams({ returnTo })}`;
   const stageParam = searchParams.get("stage");
   const isInstallWorkflowTab = stageParam === "JOBS" || stageParam === "COMPLETED" || stageParam === "AWAITING_COMPLETION";
   const missingInstallDate = isInstallWorkflowTab && !job.installation?.installDate;
@@ -144,6 +146,10 @@ export default function JobCard({ job }: { job: Job }) {
   };
   useEffect(() => () => { if (hoverTimer.current) clearTimeout(hoverTimer.current); }, [job._id]);
   const prefetchDetail = () => { void warmJobDetail(job._id).catch(() => {}); };
+  const prefetchOnIntent = () => {
+    router.prefetch?.(href);
+    prefetchDetail();
+  };
   const sentAt = job.quoteLastSentAt || null;
 
   const leadStatusRaw = (job.lead?.leadStatus || "NEW").toUpperCase();
@@ -217,10 +223,10 @@ export default function JobCard({ job }: { job: Job }) {
   const isQuoteBookingOverdue = Boolean(quoteBookingTime && quoteBookingTime < now);
 
   return (
-    <Link prefetch={false} href={{ pathname: `/jobs/${job._id}`, query: returnTo ? { returnTo } : {} }}
-      onPointerEnter={() => { stopPrefetch(); hoverTimer.current = setTimeout(prefetchDetail, 100); }}
+    <Link prefetch={false} href={href}
+      onPointerEnter={() => { stopPrefetch(); hoverTimer.current = setTimeout(prefetchOnIntent, 100); }}
       onPointerLeave={stopPrefetch}
-      onFocus={prefetchDetail}
+      onFocus={prefetchOnIntent}
       onClick={prefetchDetail}
     >
       <div className={`rounded-xl shadow-sm border border-gray-100 border-l-4 ${cardBorder} ${awaitingCompletion ? "bg-amber-50" : missingInstallDate ? "bg-red-50/40" : "bg-white"} px-3 py-2.5 mb-2 active:bg-gray-50 transition-colors cursor-pointer`}>
