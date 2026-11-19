@@ -1,6 +1,7 @@
 import { isAwaitingCompletion } from "@/lib/awaiting-completion";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { warmJobDetail } from "@/lib/crm-read/detail";
 import { useSearchParams } from "next/navigation";
 
 interface Job {
@@ -137,6 +138,12 @@ export default function JobCard({ job }: { job: Job }) {
   const missingInstallDate = isInstallWorkflowTab && !job.installation?.installDate;
 
   const [now] = useState(() => Date.now());
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stopPrefetch = () => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+  };
+  useEffect(() => () => { if (hoverTimer.current) clearTimeout(hoverTimer.current); }, [job._id]);
+  const prefetchDetail = () => { void warmJobDetail(job._id).catch(() => {}); };
   const sentAt = job.quoteLastSentAt || null;
 
   const leadStatusRaw = (job.lead?.leadStatus || "NEW").toUpperCase();
@@ -210,7 +217,12 @@ export default function JobCard({ job }: { job: Job }) {
   const isQuoteBookingOverdue = Boolean(quoteBookingTime && quoteBookingTime < now);
 
   return (
-    <Link href={{ pathname: `/jobs/${job._id}`, query: returnTo ? { returnTo } : {} }}>
+    <Link prefetch={false} href={{ pathname: `/jobs/${job._id}`, query: returnTo ? { returnTo } : {} }}
+      onPointerEnter={() => { stopPrefetch(); hoverTimer.current = setTimeout(prefetchDetail, 100); }}
+      onPointerLeave={stopPrefetch}
+      onFocus={prefetchDetail}
+      onClick={prefetchDetail}
+    >
       <div className={`rounded-xl shadow-sm border border-gray-100 border-l-4 ${cardBorder} ${awaitingCompletion ? "bg-amber-50" : missingInstallDate ? "bg-red-50/40" : "bg-white"} px-3 py-2.5 mb-2 active:bg-gray-50 transition-colors cursor-pointer`}>
         <div className="flex items-start justify-between gap-3 mb-1">
           <div className="min-w-0">

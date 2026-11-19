@@ -27,6 +27,7 @@ interface StageTabsProps {
   counts?: Record<string, number>;
   searchMode?: boolean;
   followupCount?: number | null;
+  loadFollowupCount?: boolean;
 }
 
 export default function StageTabs({
@@ -36,13 +37,14 @@ export default function StageTabs({
   counts,
   searchMode,
   followupCount,
+  loadFollowupCount = true,
 }: StageTabsProps) {
   const [loadedCount,setLoadedCount]=useState<number|null>(()=>typeof window!=='undefined'?cachedCount():null);
   const [loadedQuoteCounts,setLoadedQuoteCounts]=useState<Record<string,number>|null>(()=>typeof window!=='undefined'&&lastQuoteCounts?.token===localStorage.getItem('token')?lastQuoteCounts.counts:null);
   useEffect(()=>{if(activeStage==='QUOTE'&&counts)lastQuoteCounts={token:localStorage.getItem('token')||'',counts};},[activeStage,counts]);
   const visibleCounts=counts||(activeStage==='QUOTE'?loadedQuoteCounts:null);
   useEffect(()=>{
-    if(activeStage!=="QUOTE")return;
+    if(activeStage!=="QUOTE" || !loadFollowupCount)return;
     const token=localStorage.getItem('token')||'';
     if(followupCount!==undefined){if(followupCount!==null)lastFollowupCount={token,count:followupCount};return;}
     const controller=new AbortController();
@@ -50,7 +52,7 @@ export default function StageTabs({
       if(!controller.signal.aborted){if(queue.quoteCounts){lastQuoteCounts={token,counts:queue.quoteCounts};setLoadedQuoteCounts(queue.quoteCounts);}const count=queue.items.filter(row=>needsFollowup(row,queue.checkedAt)).length;lastFollowupCount={token,count};setLoadedCount(count);}
     }).catch(()=>{/* Keep the last verified count during a failed refresh. */});
     return()=>controller.abort();
-  },[activeStage,followupCount]);
+  },[activeStage,followupCount,loadFollowupCount]);
   const count=followupCount==null?loadedCount:followupCount;
   const subTabs =
     activeStage === "LEAD"

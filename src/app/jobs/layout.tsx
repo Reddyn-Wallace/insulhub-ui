@@ -3,6 +3,7 @@
 import { loadFinanceOverview, clearFinanceOverview } from "@/lib/finance/overview-client";
 import { ReactNode, Suspense, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { warmBoard } from "@/lib/crm-read/board";
 import { warmCurrentCalendar } from "@/lib/calendar/month-client";
 import { clearBrowserCachePrefixes } from "@/lib/client-cache";
 
@@ -102,7 +103,7 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
   const handleLogout = () => {
     clearFinanceOverview();
     if (typeof window !== "undefined") {
-      clearBrowserCachePrefixes(["gql:", "jobs-cache:", "job-cache:", "users-cache", "calendar:", "install-planning:", "calendar-placeholders:"], ["session", "local"]);
+      clearBrowserCachePrefixes(["gql:", "jobs-cache:", "crm-sent-cache:", "job-cache:", "users-cache", "calendar:", "install-planning:", "calendar-placeholders:"], ["session", "local"]);
       localStorage.removeItem("token");
       localStorage.removeItem("me");
       window.location.href = "/login";
@@ -159,6 +160,7 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
       {/* Row 2: Stage navigation */}
       <div className="grid grid-cols-5 gap-1.5 px-2 pb-2.5 sm:flex sm:items-center sm:px-3">
         <button
+          onPointerEnter={() => { if (stage !== "LEAD" || !isStageView) void warmBoard("LEAD").catch(() => {}); }}
           onClick={() => goStage("LEAD")}
           className={`min-w-0 px-1.5 py-1.5 rounded-lg text-xs font-semibold transition-all sm:px-4 sm:text-sm ${
             stage === "LEAD" && isStageView
@@ -169,6 +171,7 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
           Leads
         </button>
         <button
+          onPointerEnter={() => { if (stage !== "QUOTE" || !isStageView) void warmBoard("QUOTE").catch(() => {}); }}
           onClick={() => goStage("QUOTE")}
           className={`min-w-0 px-1.5 py-1.5 rounded-lg text-xs font-semibold transition-all sm:px-4 sm:text-sm ${
             stage === "QUOTE" && isStageView
@@ -179,6 +182,7 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
           Quotes
         </button>
         <button
+          onPointerEnter={() => { if (stage !== "JOBS" || !isStageView) void warmBoard("JOBS").catch(() => {}); }}
           onClick={() => goStage("JOBS")}
           className={`min-w-0 px-1.5 py-1.5 rounded-lg text-xs font-semibold transition-all sm:px-4 sm:text-sm ${
             stage === "JOBS" && isStageView

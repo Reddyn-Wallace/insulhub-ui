@@ -4,114 +4,32 @@ import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { gql } from "@/lib/graphql";
-import { JOB_QUERY, JOBS_QUERY, USERS_QUERY } from "@/lib/queries";
-import { isActiveJob } from "@/lib/awaiting-completion";
+import { JOBS_QUERY } from "@/lib/queries";
 import StageTabs from "@/components/StageTabs";
 import JobCard from "@/components/JobCard";
-import { getSplitRevision, loadSplits, loadPendingSplits } from "@/lib/installation-splits/client";
-import { queueVisits, searchVisits } from "@/lib/installation-splits/views";
-import type { SavedSplit, VisitLabel } from "@/lib/installation-splits/projection";
+import { getSplitRevision, loadSplits } from "@/lib/installation-splits/client";
+import { searchVisits } from "@/lib/installation-splits/views";
+import { isBoardStage, loadBoard, recentBoard, warmBoard, type BoardJob as Job, type BoardRows, type JobsData } from "@/lib/crm-read/board";
+import { loadSalesDirectory } from "@/lib/crm-read/directory";
+import { crmFreshMs } from "@/lib/crm-read/client";
+import { loadCrmEmailIndex } from "@/lib/crm-read/sent-index";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { LEAD_SOURCE_OPTIONS, canonicalLeadSourceLabel, normalizeLeadSourceValue } from "@/lib/lead-sources";
 
 const PAGE_SIZE = 40;
 const UNASSIGNED_SALESPERSON = "UNASSIGNED";
-const STAGE_CACHE_TTL_MS = 30 * 60 * 1000;
 const SORT_PREFERENCE_KEY = "jobs-sort-order";
-const CACHE_KEY_VERSION = "v6";
-const EMAIL_LOGS_QUERY = `
-  query EmailLogs($skip: Int, $limit: Int) {
-    listEmailLogs(skip: $skip, limit: $limit) {
-      results {
-        createdAt
-        type
-        to_email
-      }
-    }
-  }
-`;
+const noJobs: Job[] = [];
+interface User { _id: string; firstname: string; lastname: string; role?: string }
 
-
-interface User {
-  _id: string;
-  firstname: string;
-  lastname: string;
-  role?: string;
-}
-
-interface Job {
-  splitVisit?: VisitLabel;
-  splitSource?: Job;
-  installationSplit?: SavedSplit | null;
-  _id: string;
-  jobNumber: number;
-  stage: string;
-  createdAt?: string;
-  updatedAt: string;
-  archivedAt?: string;
-  quoteLastSentAt?: string;
-  ebaLastSentAt?: string;
-  installation?: {
-    installDate?: string;
-    installStatus?: string;
-  };
-  lead?: {
-    leadStatus?: string;
-    leadSource?: string[];
-    allocatedTo?: { _id: string; firstname: string; lastname: string };
-    callbackDate?: string;
-    quoteBookingDate?: string;
-  };
-  quote?: { quoteNumber?: string; date?: string; status?: string; deferralDate?: string; c_total?: number };
-  client?: {
-    contactDetails?: {
-      name?: string;
-      email?: string;
-      phoneMobile?: string;
-      streetAddress?: string;
-      suburb?: string;
-      city?: string;
-      postCode?: string;
-    };
-  };
-}
-
-interface JobsData {
-  jobs: { total: number; results: Job[] };
-}
-
-interface EmailLogData {
-  listEmailLogs: {
-    results: { createdAt?: string; type?: string; to_email?: string }[];
-  };
-}
-
-async function prepareQueue(first: JobsData["jobs"]): Promise<Job[]> {
-  const all = [...first.results];
-  while (all.length < first.total) {
-    const next = await gql<JobsData>(JOBS_QUERY, {stages:["SCHEDULED","INSTALLATION","INVOICE"],skip:all.length,limit:1000});
-    if (next.jobs.total !== first.total || !next.jobs.results.length)
-      throw Error("Jobs changed while loading. Please refresh the queue.");
-    all.push(...next.jobs.results);
-  }
-  if (new Set(all.map(j=>j._id)).size !== first.total)
-    throw Error("Job queue results are incomplete. Please refresh.");
-  const [activeSplits,pending] = await Promise.all([loadSplits(all.map(j=>j._id)),loadPendingSplits()]);
-  const known = new Set(all.map(j=>j._id));
-  const missing = Object.keys(pending).filter(id=>!known.has(id));
-  // Fetch only split parents with unfinished work, never scan completed-job history.
-  for (let start=0;start<missing.length;start+=10) {
-    const parents=await Promise.all(missing.slice(start,start+10).map(async id=>{
-      const result=await gql<{job:Job|null}>(JOB_QUERY,{_id:id});
-      return result.job;
-    }));
-    all.push(...parents.filter((job):job is Job=>!!job && ["SCHEDULED","INSTALLATION","INVOICE","COMPLETED"].includes(job.stage)));
-  }
-  for (const [id,split] of Object.entries(pending)) {
-    if (!activeSplits[id] || split.version > activeSplits[id].version) activeSplits[id]=split;
-  }
-  return queueVisits(all,activeSplits);
-}
+const isQuoteBooked = (job: Job) => Boolean(job.lead?.quoteBookingDate);
+const isCallbackLead = (job: Job) => ["CALLBACK", "ON_HOLD"].includes((job.lead?.leadStatus || "").toUpperCase());
+const isNewLead = (job: Job) => (!job.lead?.leadStatus || job.lead.leadStatus === "NEW") && !isQuoteBooked(job);
+const quoteState = (job: Job) => {
+  if (job.quote?.status === "DEFERRED" || isCallbackLead(job) || job.lead?.callbackDate) return "CALLBACK";
+  if (job.lead?.leadStatus === "DEAD" || job.quote?.status === "DECLINED") return "DEAD";
+  return "OPEN";
+};
 
 function JobsPageContent() {
   const router = useRouter();
@@ -130,101 +48,32 @@ function JobsPageContent() {
   const initSalespersonFilters = useMemo(() => searchParams.getAll("salesperson").filter(Boolean), [searchParams]);
   const initLeadSourceFilters = useMemo(() => searchParams.getAll("leadSource").map(normalizeLeadSourceValue).filter(Boolean), [searchParams]);
 
-  const [activeStage, setActiveStage] = useState<string>(initStage);
+  const activeStage = initStage;
   const [subTab, setSubTab] = useState(initSubTab);
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState(initSearch);
   const [searchInput, setSearchInput] = useState(initSearch);
   const [searchMode, setSearchMode] = useState(initSearch.trim().length > 0);
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("oldest");
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [total, setTotal] = useState(0);
-  const [globalCounts, setGlobalCounts] = useState<Record<string, number> | null>(null);
-  const [stageHydrated, setStageHydrated] = useState(false);
+  const [result, setResult] = useState<(BoardRows & { key: string }) | null>(null);
+  const resultKey = searchMode ? `search:${search}:${page}` : `stage:${activeStage}`;
+  const stageHydrated = result?.key === resultKey;
+  const jobs = stageHydrated ? result.jobs : noJobs;
   const [users, setUsers] = useState<User[]>([]);
   const [salespersonFilters, setSalespersonFilters] = useState<string[]>(initSalespersonFilters);
   const [leadSourceFilters, setLeadSourceFilters] = useState<string[]>(initLeadSourceFilters);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [leadSourceMenuOpen, setLeadSourceMenuOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [isFetchingStage, setIsFetchingStage] = useState(false);
   const [quoteSentByEmail, setQuoteSentByEmail] = useState<Record<string, string>>({});
-  const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState<{ key: string; message: string } | null>(null);
+  const error = loadError?.key === resultKey ? loadError.message : "";
+  const loading = !stageHydrated && !error;
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fetchIdRef = useRef(0);
   const leadSourceMenuRef = useRef<HTMLDivElement | null>(null);
-  // Cache for first page of stage jobs to enable instant switching
-  const cacheRef = useRef<Record<string, { jobs: Job[]; total: number }>>({});
-
-  const cacheKey = useCallback((stage: string) => `jobs-cache:${CACHE_KEY_VERSION}:${stage}`, []);
   const sortPreferenceKey = useCallback((stage: string) => `${SORT_PREFERENCE_KEY}:${stage}`, []);
-
-  const readStageCache = useCallback((stage: string): { jobs: Job[]; total: number; counts?: Record<string, number>; ts: number } | null => {
-    if (typeof window === "undefined") return null;
-    try {
-      const raw = sessionStorage.getItem(cacheKey(stage));
-      if (!raw) return null;
-      const parsed = JSON.parse(raw) as { jobs: Job[]; total: number; counts?: Record<string, number>; ts: number };
-      if (Date.now() - parsed.ts > STAGE_CACHE_TTL_MS) return null;
-      return parsed;
-    } catch {
-      return null;
-    }
-  }, [cacheKey]);
-
-  const writeStageCache = useCallback((stage: string, data: { jobs: Job[]; total: number; counts?: Record<string, number> }) => {
-    if (typeof window === "undefined") return;
-    sessionStorage.setItem(cacheKey(stage), JSON.stringify({ ...data, ts: Date.now() }));
-  }, [cacheKey]);
-
-  const isActiveForStage = useCallback((job: Job, stage: string) => {
-    if (stage === "JOBS") return !job.archivedAt && (isActiveJob(job) || job.splitVisit?.state === "planned");
-    return !job.archivedAt;
-  }, []);
-
-  const prefetchJobsForStage = useCallback(async (stage: string) => {
-    const revision = getSplitRevision();
-    try {
-      const stageFilter = stage === "JOBS" ? ["SCHEDULED", "INSTALLATION", "INVOICE"] : [stage];
-      const data = await gql<JobsData>(JOBS_QUERY, {
-        stages: stageFilter,
-        skip: 0,
-        limit: 5000,
-      }, {
-        cacheKey: `jobs:${stage}`,
-        ttlMs: 2 * 60 * 1000,
-      });
-      const stageJobs = stage === "JOBS" ? await prepareQueue(data.jobs) : data.jobs.results;
-      if (revision !== getSplitRevision()) return;
-      const activeJobs = stageJobs.filter((j) => isActiveForStage(j, stage));
-      const activeTotal = stage === "JOBS" || stage === "COMPLETED" ? activeJobs.length : data.jobs.total;
-      cacheRef.current[stage] = { jobs: activeJobs, total: activeTotal };
-
-      const isQuoteBooked = (job: Job) => Boolean(job.lead?.quoteBookingDate);
-      const isCallbackLead = (job: Job) => ["CALLBACK", "ON_HOLD"].includes((job.lead?.leadStatus || "").toUpperCase());
-      const isNewLead = (job: Job) => (!job.lead?.leadStatus || job.lead.leadStatus === "NEW") && !isQuoteBooked(job);
-      const quoteState = (job: Job) => {
-        if (job.quote?.status === "DEFERRED" || isCallbackLead(job) || job.lead?.callbackDate) return "CALLBACK";
-        if (job.lead?.leadStatus === "DEAD" || job.quote?.status === "DECLINED") return "DEAD";
-        return "OPEN";
-      };
-      const counts = {
-        ALL: activeJobs.length,
-        NEW: activeJobs.filter((j) => isNewLead(j)).length,
-        CALLBACK: activeJobs.filter((j) => stage === "QUOTE" ? quoteState(j) === "CALLBACK" : isCallbackLead(j)).length,
-        QUOTE_BOOKED: activeJobs.filter((j) => isQuoteBooked(j)).length,
-        OPEN: activeJobs.filter((j) => quoteState(j) === "OPEN").length,
-        DEAD: activeJobs.filter((j) => stage === "QUOTE" ? quoteState(j) === "DEAD" : j.lead?.leadStatus === "DEAD").length,
-      };
-      if (stage !== "COMPLETED") {
-        writeStageCache(stage, { jobs: activeJobs, total: activeTotal, counts });
-      }
-      return cacheRef.current[stage];
-    } catch (err) {
-      console.warn(`[Prefetch] Failed for ${stage}:`, err);
-    }
-  }, [isActiveForStage, writeStageCache]);
+  const viewedStage = useRef<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -295,38 +144,11 @@ function JobsPageContent() {
   // Sync state with URL changes (back/forward or tab click)
   // Preserve the open source picker while its selections update the URL.
   useEffect(() => {
-    setActiveStage(initStage);
     setSubTab(initSubTab);
     setSalespersonFilters(initSalespersonFilters);
     setLeadSourceFilters(initLeadSourceFilters);
     setPage(0);
-    setGlobalCounts(null);
-
-    // If we have cached data for this stage and we're not searching, use it immediately
-    const inMemCached = cacheRef.current[initStage];
-    const persisted = !searchMode ? readStageCache(initStage) : null;
-    const cached = inMemCached || (persisted ? { jobs: persisted.jobs, total: persisted.total } : null);
-
-    if (cached && !searchMode && cached.jobs.length > 0) {
-      setJobs(cached.jobs);
-      setTotal(cached.total);
-      setGlobalCounts(persisted?.counts || null);
-      setStageHydrated(true);
-      setLoading(false);
-    } else {
-      // Otherwise show loading state (including empty/expired cache)
-      setJobs([]);
-      setStageHydrated(false);
-      setLoading(true);
-    }
-  }, [
-    initStage,
-    initSubTab,
-    initSalespersonFilters,
-    initLeadSourceFilters,
-    searchMode,
-    readStageCache,
-  ]); // Depend on searchMode too to ensure we clear/show correctly
+  }, [initStage, initSubTab, initSalespersonFilters, initLeadSourceFilters]);
 
   useEffect(() => {
     setLeadSourceMenuOpen(false);
@@ -357,200 +179,96 @@ function JobsPageContent() {
     };
   }, [leadSourceMenuOpen]);
 
-  const fetchJobs = useCallback(async () => {
+  const searchPage = searchMode ? page : 0;
+  const fetchJobs = useCallback(async (force = false) => {
+    const token = localStorage.getItem("token");
+    if (!token) { router.push("/login"); return; }
     const currentFetchId = ++fetchIdRef.current;
     const revision = getSplitRevision();
-    setError("");
-    setIsFetchingStage(true);
-    if (!stageHydrated) setLoading(true);
-
-    const isSearching = searchMode;
-    const q = search;
+    const current = () => currentFetchId === fetchIdRef.current && localStorage.getItem("token") === token;
+    setLoadError(null);
 
     try {
-      const shouldFetchAllForStage = !isSearching && (activeStage === "LEAD" || activeStage === "QUOTE" || activeStage === "JOBS" || activeStage === "COMPLETED");
-      const stageFilter = activeStage === "JOBS" ? ["SCHEDULED", "INSTALLATION", "INVOICE"] : [activeStage];
-      const data = await gql<JobsData>(JOBS_QUERY, {
-        ...(isSearching ? {} : { stages: stageFilter }),
-        skip: shouldFetchAllForStage ? 0 : page * PAGE_SIZE,
-        limit: shouldFetchAllForStage ? 5000 : PAGE_SIZE,
-        ...(q ? { search: q } : {}),
-      });
-
-      const allFetched = isSearching
-        ? searchVisits(data.jobs.results,await loadSplits(data.jobs.results.map(j=>j._id)))
-        : activeStage === "JOBS" ? await prepareQueue(data.jobs) : data.jobs.results;
-      // Ignore responses started before a local visit save.
-      if (currentFetchId !== fetchIdRef.current || revision !== getSplitRevision()) return;
-      // Search is global across leads, quotes, and jobs; only archived records are hidden.
-      const activeJobs = isSearching
-        ? allFetched.filter((j) => !j.archivedAt)
-        : allFetched.filter((j) => isActiveForStage(j, activeStage));
-
-      setJobs(activeJobs);
-      setTotal(activeStage === "JOBS" || activeStage === "COMPLETED" ? activeJobs.length : data.jobs.total);
-      setStageHydrated(true);
-
-      if (!isSearching && (activeStage === "LEAD" || activeStage === "QUOTE")) {
-        const stageJobs = activeJobs;
-        const isQuoteBooked = (job: Job) => Boolean(job.lead?.quoteBookingDate);
-        const isCallbackLead = (job: Job) => ["CALLBACK", "ON_HOLD"].includes((job.lead?.leadStatus || "").toUpperCase());
-        const isNewLead = (job: Job) => (!job.lead?.leadStatus || job.lead.leadStatus === "NEW") && !isQuoteBooked(job);
-        const quoteState = (job: Job) => {
-          if (job.lead?.leadStatus === "DEAD" || job.quote?.status === "DECLINED") return "DEAD";
-          if (job.quote?.status === "DEFERRED" || isCallbackLead(job)) return "CALLBACK";
-          return "OPEN";
-        };
-        const computedCounts = {
-          ALL: stageJobs.length,
-          NEW: stageJobs.filter((j) => isNewLead(j)).length,
-          CALLBACK: stageJobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "CALLBACK" : isCallbackLead(j)).length,
-          QUOTE_BOOKED: stageJobs.filter((j) => isQuoteBooked(j)).length,
-          OPEN: stageJobs.filter((j) => quoteState(j) === "OPEN").length,
-          DEAD: stageJobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "DEAD" : j.lead?.leadStatus === "DEAD").length,
-        };
-        setGlobalCounts(computedCounts);
-        writeStageCache(activeStage, { jobs: activeJobs, total: data.jobs.total, counts: computedCounts });
+      if (searchMode) {
+        const data = await gql<JobsData>(JOBS_QUERY, { skip: searchPage * PAGE_SIZE, limit: PAGE_SIZE, search }, { token });
+        if (!current()) return;
+        const splits = await loadSplits(data.jobs.results.map(job => job._id), token);
+        if (!current()) return;
+        if (revision !== getSplitRevision()) throw Error("Visits changed while loading. Please retry.");
+        setResult({ key: resultKey, jobs: searchVisits(data.jobs.results, splits).filter(job => !job.archivedAt),
+          total: data.jobs.total });
+        return;
       }
 
-      // Update cache for stage first page
-      if (!isSearching && page === 0) {
-        const activeTotal = activeStage === "JOBS" || activeStage === "COMPLETED" ? activeJobs.length : data.jobs.total;
-        cacheRef.current[activeStage] = { jobs: activeJobs, total: activeTotal };
-        if (activeStage === "JOBS") {
-          writeStageCache(activeStage, { jobs: activeJobs, total: activeTotal });
-        }
-      }
+      if (!isBoardStage(activeStage)) throw Error("This job stage is unavailable.");
+      const cached = await recentBoard(activeStage, token);
+      if (!current()) return;
+      if (cached) setResult({ key: resultKey, ...cached.data });
+      if (!force && cached && Date.now() - cached.checkedAt < crmFreshMs) return;
+      const data = await loadBoard(activeStage, token);
+      if (current()) setResult({ key: resultKey, ...data });
     } catch (err) {
-      if (currentFetchId !== fetchIdRef.current || revision !== getSplitRevision()) return;
-      const msg = err instanceof Error ? err.message : "Failed to load jobs";
-      if (msg !== "Unauthorized") setError(msg);
-    } finally {
-      if (currentFetchId === fetchIdRef.current) {
-        setLoading(false);
-        setIsFetchingStage(false);
-      }
+      if (!current()) return;
+      const message = err instanceof Error ? err.message : "Failed to load jobs.";
+      if (/unauthorized|unauthenticated/i.test(message)) setResult(null);
+      setLoadError({ key: resultKey, message });
     }
-  }, [activeStage, isActiveForStage, page, search, searchMode, stageHydrated, writeStageCache]);
+  }, [activeStage, search, searchMode, searchPage, resultKey, router]);
 
   useEffect(() => {
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-    if (!token) { router.push("/login"); return; }
-
-    const canUseWarmCache = !searchMode && !search && page === 0 && (activeStage === "LEAD" || activeStage === "QUOTE" || activeStage === "JOBS" || activeStage === "COMPLETED");
-    const cached = canUseWarmCache ? readStageCache(activeStage) : null;
-
-    if (canUseWarmCache && cached && cached.jobs.length > 0) {
-      // Cache-first for snappy tab switches.
-      setJobs(cached.jobs);
-      setTotal(cached.total);
-      if (cached.counts) setGlobalCounts(cached.counts);
-      setStageHydrated(true);
-      setLoading(false);
-      // Stale-while-revalidate: refresh quietly in background.
-      fetchJobs();
-      return;
-    }
-
-    fetchJobs();
-  }, [fetchJobs, router, readStageCache, activeStage, searchMode, search, page]);
-
-  // Initial prefetch - only once on mount
-  useEffect(() => {
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-    if (token) {
-      prefetchJobsForStage("LEAD");
-      prefetchJobsForStage("QUOTE");
-      prefetchJobsForStage("JOBS");
-    }
-  }, [prefetchJobsForStage]);
-
+    void fetchJobs();
+    return () => { ++fetchIdRef.current; };
+  }, [fetchJobs]);
 
   useEffect(() => {
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-    if (!token) return;
-    gql<{ users: { results: User[] } }>(USERS_QUERY, undefined, {
-      cacheKey: "users",
-      ttlMs: 30 * 60 * 1000,
-    })
-      .then((d) => setUsers((d.users?.results || []).filter((u) => (u.role || "").toUpperCase() !== "INSTALLER")))
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-    if (!token) return;
-
-    const cacheKey = "quote-sent-email-map-v2";
-    const cacheTtlMs = 30 * 60 * 1000;
-
-    let cachedMap: Record<string, string> = {};
-    try {
-      const fromSession = sessionStorage.getItem(cacheKey);
-      const fromLocal = localStorage.getItem(cacheKey);
-      const raw = fromSession || fromLocal;
-      if (raw) {
-        const parsed = JSON.parse(raw) as { ts: number; map: Record<string, string> };
-        if (Date.now() - parsed.ts < cacheTtlMs) {
-          cachedMap = parsed.map || {};
-          setQuoteSentByEmail(cachedMap);
-        }
+    const token = localStorage.getItem("token");
+    const changeSession = (event: StorageEvent) => {
+      if ((event.key === "token" || event.key === null) && localStorage.getItem("token") !== token) {
+        ++fetchIdRef.current;
+        setResult(null);
+        setUsers([]);
+        setQuoteSentByEmail({});
+        viewedStage.current = null;
+        if (localStorage.getItem("token")) window.location.reload();
+        else router.replace("/login");
       }
-    } catch {}
-
-    let cancelled = false;
-    (async () => {
-      try {
-        let skip = 0;
-        const limit = 500;
-        let total = Number.MAX_SAFE_INTEGER;
-        const map: Record<string, string> = { ...cachedMap };
-        let changed = false;
-
-        while (skip < total) {
-          const data = await gql<{ listEmailLogs: { total: number; results: Array<{ createdAt: string; type?: string; subject?: string; to_email?: string }> } }>(
-            `query($skip:Int,$limit:Int){listEmailLogs(skip:$skip,limit:$limit){total results{createdAt type subject to_email}}}`,
-            { skip, limit }
-          );
-
-          total = data.listEmailLogs.total;
-          const batch = data.listEmailLogs.results || [];
-          for (const row of batch) {
-            const to = (row.to_email || "").trim().toLowerCase();
-            const subject = (row.subject || "").toLowerCase();
-            const type = (row.type || "").toLowerCase();
-            if (!to) continue;
-            if (!(subject.includes("quote") || type === "quote")) continue;
-            const curr = map[to];
-            if (!curr || new Date(row.createdAt).getTime() > new Date(curr).getTime()) {
-              map[to] = row.createdAt;
-              changed = true;
-            }
-          }
-
-          if (!cancelled && changed) {
-            setQuoteSentByEmail({ ...map });
-          }
-
-          skip += batch.length;
-          if (batch.length === 0) break;
-        }
-
-        if (!cancelled && changed) {
-          setQuoteSentByEmail({ ...map });
-          const payload = JSON.stringify({ ts: Date.now(), map });
-          sessionStorage.setItem(cacheKey, payload);
-          localStorage.setItem(cacheKey, payload);
-        }
-      } catch {
-        // best-effort only
-      }
-    })();
-
-    return () => {
-      cancelled = true;
     };
-  }, []);
+    window.addEventListener("storage", changeSession);
+    return () => window.removeEventListener("storage", changeSession);
+  }, [router]);
+
+  useEffect(() => {
+    if (!stageHydrated || searchMode || viewedStage.current !== null) return;
+    const timer = window.setTimeout(async () => {
+      if (document.visibilityState !== "visible") return;
+      viewedStage.current = activeStage;
+      for (const stage of ["LEAD", "QUOTE", "JOBS"]) {
+        if (stage !== activeStage) await warmBoard(stage).catch(() => {});
+      }
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [activeStage, searchMode, stageHydrated]);
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!filtersOpen || !token) return;
+    let current = true;
+    void loadSalesDirectory(token).then(users => {
+      if (current && localStorage.getItem("token") === token) setUsers(users);
+    }).catch(() => {});
+    return () => { current = false; };
+  }, [filtersOpen]);
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!stageHydrated || !token || (!searchMode && activeStage !== "QUOTE") ||
+        !jobs.some(job => job.stage === "QUOTE" && job.client?.contactDetails?.email)) return;
+    let active = true;
+    const timer = window.setTimeout(() => void loadCrmEmailIndex(token)
+      .then(data => { if (active) setQuoteSentByEmail(data.quote); })
+      .catch(() => {}), 400);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [activeStage, jobs, searchMode, stageHydrated]);
 
   // Debounced search
   function handleSearchInput(val: string) {
@@ -574,20 +292,6 @@ function JobsPageContent() {
     setPage(0);
   }
 
-  function handleStageChange(stage: string) {
-    if (stage === activeStage) return;
-    router.replace(buildJobsUrl({
-      stage,
-      subTab: stage === "QUOTE" ? "OPEN" : stage === "LEAD" ? "NEW" : undefined,
-    }));
-  }
-
-  function handleLogout() {
-    localStorage.removeItem("token");
-    localStorage.removeItem("me");
-    router.push("/login");
-  }
-
   function updateSalespersonFilters(next: string[]) {
     setSalespersonFilters(next);
     setPage(0);
@@ -607,24 +311,15 @@ function JobsPageContent() {
     router.replace(buildJobsUrl({ salespersonFilters: [], leadSourceFilters: [] }));
   }
 
-  // Calculate counts for sub-tabs across all fetched non-archived jobs for this stage
-  const isQuoteBooked = (job: Job) => Boolean(job.lead?.quoteBookingDate);
-  const isCallbackLead = (job: Job) => ["CALLBACK", "ON_HOLD"].includes((job.lead?.leadStatus || "").toUpperCase());
-  const isNewLead = (job: Job) => (!job.lead?.leadStatus || job.lead.leadStatus === "NEW") && !isQuoteBooked(job);
-  const quoteState = (job: Job) => {
-    if (job.quote?.status === "DEFERRED" || isCallbackLead(job) || job.lead?.callbackDate) return "CALLBACK";
-    if (job.lead?.leadStatus === "DEAD" || job.quote?.status === "DECLINED") return "DEAD";
-    return "OPEN";
-  };
 
-  const counts = globalCounts || {
+  const counts = useMemo(() => ({
     ALL: jobs.length,
     NEW: jobs.filter((j) => isNewLead(j)).length,
     CALLBACK: jobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "CALLBACK" : isCallbackLead(j)).length,
     QUOTE_BOOKED: jobs.filter((j) => isQuoteBooked(j)).length,
     OPEN: jobs.filter((j) => quoteState(j) === "OPEN").length,
     DEAD: jobs.filter((j) => activeStage === "QUOTE" ? quoteState(j) === "DEAD" : j.lead?.leadStatus === "DEAD").length,
-  };
+  }), [activeStage, jobs]);
 
   const decoratedJobs = useMemo(() => (
     jobs.map((j) => {
@@ -655,7 +350,7 @@ function JobsPageContent() {
   const activeFilterCount = salespersonFilters.length + leadSourceFilters.length;
 
   // Client-side sub-tab filter
-  const filtered = decoratedJobs.filter((job) => {
+  const filtered = useMemo(() => decoratedJobs.filter((job) => {
     if (salespersonFilters.length > 0 && !salespersonFilters.includes(job.lead?.allocatedTo?._id || UNASSIGNED_SALESPERSON)) return false;
     if (leadSourceFilters.length > 0) {
       const jobLeadSources = (job.lead?.leadSource || []).map(normalizeLeadSourceValue).filter(Boolean);
@@ -670,7 +365,7 @@ function JobsPageContent() {
       return subTab === status;
     }
     return true;
-  });
+  }), [activeStage, decoratedJobs, leadSourceFilters, salespersonFilters, searchMode, subTab]);
 
   const sortedJobs = useMemo(() => {
     const quoteSortTs = (job: Job) => {
@@ -740,44 +435,21 @@ function JobsPageContent() {
 
   // If current page has no rows after filtering/pagination, jump back to page 1.
   useEffect(() => {
-    if (!loading && !error && page > 0 && sortedJobs.length > 0 && page * PAGE_SIZE >= sortedJobs.length) {
+    if (!searchMode && !loading && !error && page > 0 && sortedJobs.length > 0 && page * PAGE_SIZE >= sortedJobs.length) {
       setPage(0);
       return;
     }
-    if (!loading && !error && page > 0 && jobs.length > 0 && sortedJobs.length === 0) {
+    if (!searchMode && !loading && !error && page > 0 && jobs.length > 0 && sortedJobs.length === 0) {
       setPage(0);
     }
-  }, [loading, error, page, jobs.length, sortedJobs.length]);
+  }, [loading, error, page, jobs.length, sortedJobs.length, searchMode]);
 
   useEffect(() => { setPage(0); }, [subTab, salespersonFilters, leadSourceFilters]);
 
-  // Self-heal: if tab counts say there should be rows but current filtered list is empty,
-  // force a refetch to resolve stale cache/list mismatches.
-  useEffect(() => {
-    if (loading || error || searchMode) return;
-    if (salespersonFilters.length > 0 || leadSourceFilters.length > 0) return;
-    if (!(activeStage === "LEAD" || activeStage === "QUOTE")) return;
-
-    const expected = globalCounts?.[subTab as keyof typeof globalCounts];
-    if (typeof expected === "number" && expected > 0 && sortedJobs.length === 0) {
-      fetchJobs();
-    }
-  }, [
-    loading,
-    error,
-    searchMode,
-    salespersonFilters,
-    leadSourceFilters,
-    activeStage,
-    subTab,
-    globalCounts,
-    sortedJobs.length,
-    fetchJobs,
-  ]);
-
   // Client-side paginate after filtering/sorting.
-  const paginatedResults = sortedJobs.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-  const totalPages = Math.max(1, Math.ceil(sortedJobs.length / PAGE_SIZE));
+  const paginatedResults = searchMode ? sortedJobs : sortedJobs.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const rowCount = searchMode && stageHydrated ? result.total : sortedJobs.length;
+  const totalPages = Math.max(1, Math.ceil(rowCount / PAGE_SIZE));
   const currentPage = page + 1;
 
   function toggleMultiSelectValue(values: string[], value: string) {
@@ -795,7 +467,8 @@ function JobsPageContent() {
           setPage(0);
           router.replace(buildJobsUrl({ subTab: tab }));
         }}
-        counts={showSubTabs ? counts : undefined}
+        counts={showSubTabs && stageHydrated ? counts : undefined}
+        loadFollowupCount={stageHydrated && !searchMode}
         searchMode={searchMode}
       />
 
@@ -961,7 +634,7 @@ function JobsPageContent() {
       </div>
 
       {/* Pagination */}
-      {!loading && !error && sortedJobs.length > PAGE_SIZE && (
+      {stageHydrated && totalPages > 1 && (
         <div className="px-4 pb-2 pt-1 flex items-center justify-between">
           <div className="flex items-center gap-1">
             <button
@@ -981,12 +654,12 @@ function JobsPageContent() {
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[11px] text-gray-500 font-medium bg-gray-100 px-2 py-1 rounded-full">Page {currentPage} / {totalPages}</span>
-            <span className="text-[10px] text-gray-400">{page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, sortedJobs.length)} of {sortedJobs.length}</span>
+            <span className="text-[10px] text-gray-400">{page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, rowCount)} of {rowCount}</span>
           </div>
           <div className="flex items-center gap-1">
             <button
               onClick={() => { setPage((p) => Math.min(totalPages - 1, p + 1)); window.scrollTo(0, 0); }}
-              disabled={(page + 1) * PAGE_SIZE >= sortedJobs.length}
+              disabled={page >= totalPages - 1}
               className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs text-gray-700 disabled:opacity-40 font-medium"
             >
               Next →
@@ -1004,21 +677,13 @@ function JobsPageContent() {
 
       {/* Content */}
       <div className={`flex-1 transition-opacity duration-200 ${loading ? "opacity-50 pointer-events-none" : "opacity-100"}`}>
-        {(isFetchingStage && paginatedResults.length === 0 && !error) ? (
-          <div className="px-4 pt-10 flex flex-col items-center gap-3 text-gray-400 text-sm">
-            <div className="w-7 h-7 border-2 border-gray-200 border-t-[#e85d04] rounded-full animate-spin" />
-            <span>Loading jobs...</span>
+        {error && (
+          <div role="status" className="mx-4 mt-2 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            {stageHydrated ? "Couldn’t update this list. Showing the last loaded results." : error}
+            <button onClick={() => void fetchJobs(true)} className="ml-2 underline">Retry</button>
           </div>
-        ) : ((loading && jobs.length === 0) || (!stageHydrated && !error)) ? (
-          <LoadingSkeleton />
-        ) : error ? (
-          <div className="px-4 pt-2">
-            <div className="bg-red-50 text-red-700 text-sm px-4 py-3 rounded-xl">
-              {error}
-              <button onClick={() => fetchJobs()} className="ml-2 underline">Retry</button>
-            </div>
-          </div>
-        ) : paginatedResults.length === 0 ? (
+        )}
+        {loading ? <LoadingSkeleton /> : !stageHydrated ? null : paginatedResults.length === 0 ? (
           <div className="px-4 pt-8 text-center text-gray-400 text-sm">
             {searchMode ? `No results for "${searchInput}"` : "No jobs found"}
           </div>
