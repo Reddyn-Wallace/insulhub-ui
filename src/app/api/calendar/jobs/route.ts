@@ -80,14 +80,16 @@ const CALENDAR_JOB_FIELDS = `
     ceiling { SQM }
   }
 `;
-const CALENDAR_JOBS_QUERY = `
+const calendarJobsQuery = (fields: string) => `
   query CalendarJobs($stages: [JobStage!], $skip: Int, $limit: Int, $installStartDate: DateTimeISO, $installEndDate: DateTimeISO) {
     jobs(stages: $stages, skip: $skip, limit: $limit, installStartDate: $installStartDate, installEndDate: $installEndDate) {
       total
-      results { ${CALENDAR_JOB_FIELDS} }
+      results { ${fields} }
     }
   }
 `;
+const CALENDAR_JOBS_QUERY = calendarJobsQuery(CALENDAR_JOB_FIELDS);
+const CALENDAR_JOB_MANIFEST_QUERY = calendarJobsQuery("_id jobNumber stage archivedAt installation { installDate }");
 const pageSize = 250;
 const sourceBatchSize = 40;
 const stages: ReadonlySet<string> = new Set(CALENDAR_STAGES);
@@ -134,11 +136,13 @@ async function graphql<T>(
   return json.data as T;
 }
 
-async function jobsInRange(token: string, bounds: { start: string; end: string }, signal: AbortSignal) {
+async function jobsInRange(
+  token: string, bounds: { start: string; end: string }, signal: AbortSignal, query = CALENDAR_JOBS_QUERY,
+) {
   const jobs = new Map<string, CalendarJob>();
   let total: number | undefined;
   for (let page = 0; page < 100; page++) {
-    const data = await graphql<JobsData>(token, CALENDAR_JOBS_QUERY, {
+    const data = await graphql<JobsData>(token, query, {
       stages: CALENDAR_STAGES,
       skip: jobs.size,
       limit: pageSize,
@@ -206,21 +210,32 @@ export async function GET(request: NextRequest) {
     const signal = AbortSignal.any([request.signal, AbortSignal.timeout(12000), work.signal]);
     const batches = includeUnscheduled ? [calendarDateBounds(start, end)] : calendarDateBatches(start, end);
     let dateSources: Map<string, CalendarJob> | undefined;
+    const fullRange = calendarDateBounds(start, end);
     const dateLoad = timed("jobs", (async () => {
-      const parts = await Promise.all(batches.map((bounds, index) =>
-        batches.length === 1 ? jobsInRange(token, bounds, signal) :
-          timed(`days_${index + 1}`, jobsInRange(token, bounds, signal)),
-      ));
-      const sources = new Map<string, CalendarJob>();
-      for (const part of parts) {
-        for (const [id, job] of part) {
-          if (sources.has(id)) throw new Error("Jobs changed while loading. Refresh the calendar.");
-          sources.set(id, job);
-        }
-      }
+      if (batches.length === 1) return jobsInRange(token, fullRange, signal);
+
+      const partialJobs = batches.map((bounds, index) =>
+        timed(`days_${index + 1}`, jobsInRange(token, bounds, signal)),
+      );
+      const [parts, manifest] = await Promise.all([
+        Promise.all(partialJobs),
+        timed("manifest", jobsInRange(token, fullRange, signal, CALENDAR_JOB_MANIFEST_QUERY)),
+      ]);
+      const sources = new Map(parts.flatMap(part => [...part]));
+      const matches = sources.size === manifest.size &&
+        parts.reduce((count, part) => count + part.size, 0) === manifest.size &&
+        [...manifest].every(([id, job]) => {
+          const source = sources.get(id);
+          return source && source.installation?.installDate === job.installation?.installDate &&
+            source.stage === job.stage && source.archivedAt === job.archivedAt;
+        });
+      // A job can move between two independently read batches. Fall back to a
+      // single range if the authoritative list disagrees with the batch union.
+      return matches ? sources : timed("full_range", jobsInRange(token, fullRange, signal));
+    })()).then(sources => {
       dateSources = sources;
       return sources;
-    })());
+    });
     const splitLoad = timed("auth", requireInsulhubAuth(request)).then(async denied => {
       if (denied) {
         throw new CalendarReadError(denied.status === 401 ? "Unauthorized" : "Could not verify calendar access", denied.status);

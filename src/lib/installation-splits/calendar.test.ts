@@ -203,7 +203,7 @@ it("loads a six-week calendar as three concurrent, gap-free NZ date batches", as
   mocks.fetch.mockImplementation(() => new Promise(resolve => { finishes.push(resolve); }));
   const loading = GET(req("start=2026-09-21&end=2026-11-01&includeUnscheduled=0"));
   try {
-    await vi.waitFor(() => expect(finishes).toHaveLength(3), { timeout: 350 });
+    await vi.waitFor(() => expect(finishes).toHaveLength(4), { timeout: 350 });
     const expected = [
       ["2026-09-20T12:00:00.000Z", "2026-10-04T10:59:59.999Z"],
       ["2026-10-04T11:00:00.000Z", "2026-10-18T10:59:59.999Z"],
@@ -213,14 +213,29 @@ it("loads a six-week calendar as three concurrent, gap-free NZ date batches", as
       expect(queryAt(index).variables).toMatchObject({ installStartDate: start, installEndDate: end });
     }
   } finally {
-    finishes.forEach((finish, index) => finish(list([{
-      ...job,
-      _id: String(index),
-      installation: { installDate: ["2026-09-23", "2026-10-08", "2026-10-21"][index] },
-    }])));
+    const rows = ["2026-09-23", "2026-10-08", "2026-10-21"].map((date, index) => ({
+      ...job, _id: String(index), installation: { installDate: date },
+    }));
+    finishes.forEach((finish, index) => finish(list(index === 3 ? rows : [rows[index]])));
     await loading;
   }
   const result = await loading;
   expect(result.status).toBe(200);
   expect((await result.json()).jobs).toHaveLength(3);
+});
+
+it("reads the full range when concurrent edits make the detailed batches disagree with the date manifest", async () => {
+  const moved = { ...job, installation: { installDate: "2026-11-14T00:00:00Z" } };
+  mocks.fetch
+    .mockResolvedValueOnce(list([]))
+    .mockResolvedValueOnce(list([regular]))
+    .mockResolvedValueOnce(list([]))
+    .mockResolvedValueOnce(list([regular, moved]))
+    .mockResolvedValueOnce(list([regular, moved]));
+  const result = await GET(req("start=2026-10-26&end=2026-12-06&includeUnscheduled=0"));
+  expect(result.status).toBe(200);
+  expect(queryAt(3).query).not.toContain("installerChecksheet");
+  expect(queryAt(4).query).toContain("installerChecksheet");
+  expect(result.headers.get("server-timing")).toContain("full_range;dur=");
+  expect((await result.json()).jobs).toHaveLength(2);
 });
