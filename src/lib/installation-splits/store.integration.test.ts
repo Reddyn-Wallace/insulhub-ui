@@ -9,7 +9,7 @@ vi.mock("@/lib/overlay-db", () => ({
     return (await state.pool!.query(sql, values)).rows;
   },
 }));
-import { readSplits, readPendingSplits, saveSplit } from "./store";
+import { readCalendarSplits, readSplits, readPendingSplits, saveSplit } from "./store";
 import { initialSplit } from "./projection";
 import { completeVisit } from "./model";
 const url = process.env.INSTALLATION_SPLITS_TEST_DATABASE_URL;
@@ -87,6 +87,20 @@ describe.skipIf(!url)("installation split PostgreSQL persistence", () => {
     expect((await readPendingSplits())[base.id]).toBeTruthy();
     await saveSplit({...saved,visits:[{...saved.visits[0],state:"completed"}]},saved.version,"staff",{action:"test"});
     expect((await readPendingSplits())[base.id]).toBeUndefined();
+  });
+
+  it("returns split identifiers and only the payloads relevant to the calendar window", async () => {
+    const dated = await readCalendarSplits("2026-11-10", "2026-11-10", false);
+    expect(dated.aaaaaaaaaaaaaaaaaaaaaaaa?.visits.map(visit => visit.date)).toEqual(["2026-11-06", "2026-11-10"]);
+    expect(dated.cccccccccccccccccccccccc).toBeNull();
+
+    const base = initialSplit({
+      _id: "dddddddddddddddddddddddd", quote: { c_total: 100, wall: { SQM: 10 } },
+      installation: { installDate: "2026-10-01" },
+    });
+    await saveSplit({ ...base, ...completeVisit(base, "initial", 50, null) }, 0, "staff", {});
+    expect((await readCalendarSplits("2026-11-01", "2026-11-30", false))[base.id]).toBeNull();
+    expect((await readCalendarSplits("2026-11-01", "2026-11-30", true))[base.id]?.visits[1].date).toBeNull();
   });
 
 });

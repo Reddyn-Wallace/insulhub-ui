@@ -1,3 +1,4 @@
+import { invalidateCalendarData } from "./calendar/cache";
 import {isTrackedMutation} from './dead-followups/dates';
 import {
   type BrowserCacheStorage,
@@ -10,6 +11,7 @@ type GqlOptions = {
   cacheKey?: string;
   ttlMs?: number;
   storage?: BrowserCacheStorage;
+  calendarCacheHandled?: boolean;
 };
 
 const inFlightQueries = new Map<string, Promise<unknown>>();
@@ -84,13 +86,14 @@ function queryCacheKey(query: string, variables?: Record<string, unknown>, cache
   return `gql:${query}:${stableStringify(variables || {})}`;
 }
 
-function invalidateDataCachesAfterMutation() {
+function invalidateDataCachesAfterMutation(calendarCacheHandled: boolean) {
+  if (!calendarCacheHandled) invalidateCalendarData();
   clearBrowserCachePrefixes([
     "gql:",
     "jobs-cache:",
     "job-cache:",
     "users-cache",
-    "calendar:",
+    ...(!calendarCacheHandled ? ["calendar:"] : []),
     "calendar-view:",
     "calendar-raw",
     "install-planning:",
@@ -145,7 +148,7 @@ export async function gql<T>(
     if (!res.ok) throw new Error(json.error || "Request failed. Refresh before retrying.");
     const data = json.data as T;
     if (cacheKey) writeBrowserCache(cacheKey, data, options.storage);
-    if (!isQuery) invalidateDataCachesAfterMutation();
+    if (!isQuery) invalidateDataCachesAfterMutation(options.calendarCacheHandled === true);
     return data;
   };
 

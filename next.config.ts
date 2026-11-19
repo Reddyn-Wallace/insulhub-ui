@@ -5,6 +5,8 @@ const withPWA = withPWAInit({
   dest: "public",
   workboxOptions: {
     runtimeCaching: [
+      { urlPattern: /\/api\/calendar\//, handler: "NetworkOnly" },
+      { urlPattern: /\/api\/install-planning(?:\?|$)/, handler: "NetworkOnly" },
       { urlPattern: /\/api\/gm-reports/, handler: "NetworkOnly" },
       { urlPattern: /\/jobs\/reports\/weekly-gm/, handler: "NetworkOnly" },
       { urlPattern: /\/api\/finance\//, handler: "NetworkOnly" },

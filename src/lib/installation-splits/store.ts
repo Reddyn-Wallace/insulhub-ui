@@ -22,6 +22,26 @@ export async function readSplits(
     ]),
   );
 }
+// An out-of-range split still suppresses its original job date. Return its ID
+// with a null payload so only relevant visits require source-job lookups.
+export async function readCalendarSplits(
+  from: string,
+  to: string,
+  includeUnscheduled: boolean,
+): Promise<Record<string, SavedSplit | null>> {
+  const rows = await overlaySql`
+    SELECT insulhub_job_id, version, CASE WHEN EXISTS (
+      SELECT 1 FROM jsonb_array_elements(payload->'visits') visit
+      WHERE visit->>'date' BETWEEN ${from} AND ${to}
+        OR (${includeUnscheduled}::boolean AND visit->>'date' IS NULL AND visit->>'state' = 'planned')
+    ) THEN payload END AS payload
+    FROM job_installation_splits
+  `;
+  return Object.fromEntries(rows.map(row => [
+    String(row.insulhub_job_id),
+    row.payload ? { ...(row.payload as SavedSplit), version: Number(row.version) } : null,
+  ]));
+}
 export async function saveSplit(
   split: SavedSplit,
   expectedVersion: number,
