@@ -2,54 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { getSplitRevision } from "@/lib/installation-splits/client";
 import InstallationVisits from "@/components/InstallationVisits";
 import { calendarSource, calendarVisits } from "@/lib/installation-splits/views";
-import type { SavedSplit, VisitLabel } from "@/lib/installation-splits/projection";
 import { useRouter } from "next/navigation";
 import { gql } from "@/lib/graphql";
-import { CalendarCacheInvalidated, calendarCacheScope, calendarDataRevision, createCalendarCache } from "@/lib/calendar/cache";
-import { calendarDateBounds, calendarDay } from "@/lib/calendar/dates";
+import { CalendarCacheInvalidated, calendarCacheScope, calendarLastWrite, createCalendarCache, invalidateCalendarData } from "@/lib/calendar/cache";
+import { addDays, addMonths, calendarDateBounds, calendarDay, calendarRangeForMonth, dateKeyLocal, startOfMonth, startOfWeekMonday } from "@/lib/calendar/dates";
+import { CalendarRequestError, jobsCache, loadMonthJobs, readCalendar, refreshAfterMs, scheduleIsFresh, type CalendarJob } from "@/lib/calendar/month-client";
 import BottomSheet from "@/components/BottomSheet";
 import InstallPlanningForm, { InstallPlanningActions } from "@/components/InstallPlanningForm";
 import { parseInstallMeta } from "@/lib/install-planning";
 import { useAppDialog } from "@/components/AppDialog";
-
-interface CalendarJob {
-  installationSplit?: SavedSplit | null;
-  splitSource?: CalendarJob;
-  splitVisit?: VisitLabel;
-  _id: string;
-  jobNumber: number;
-  stage: string;
-  notes?: string | null;
-  installation?: {
-    installDate?: string | null;
-    installNote?: string | null;
-    installStatus?: string | null;
-    checkSheetSignedAsComplete?: boolean | null;
-  };
-  installerChecksheet?: {
-    _id?: string | null;
-    complete?: boolean | null;
-  } | null;
-  client?: {
-    contactDetails?: {
-      name?: string;
-      email?: string;
-      phoneMobile?: string;
-      phoneSecondary?: string;
-      streetAddress?: string;
-      suburb?: string;
-      city?: string;
-    };
-  };
-  quote?: {
-    c_total?: number | null;
-    wall?: { SQM?: number | null };
-    ceiling?: { SQM?: number | null };
-  };
-}
 
 interface CalendarPlaceholder {
   source: "overlay";
@@ -106,40 +69,6 @@ const UPDATE_INSTALLATION = `
     }
   }
 `;
-
-function startOfMonth(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), 1);
-}
-
-function addMonths(date: Date, amount: number) {
-  return new Date(date.getFullYear(), date.getMonth() + amount, 1);
-}
-
-function endOfMonth(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth() + 1, 0);
-}
-
-function startOfWeekMonday(date: Date) {
-  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-function addDays(date: Date, amount: number) {
-  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  d.setDate(d.getDate() + amount);
-  return d;
-}
-
-function dateKeyLocal(date: Date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
 
 function formatMonth(date: Date) {
   return new Intl.DateTimeFormat("en-NZ", {
@@ -285,59 +214,17 @@ function mergeDateAndTime(date: Date, time: string) {
   return `${dateKeyLocal(date)}T${safeTime}`;
 }
 
-const refreshAfterMs = 30_000;
-const jobsCache = createCalendarCache<CalendarJob[]>("jobs");
 const placeholderCache = createCalendarCache<CalendarPlaceholder[]>("placeholders");
 const planningCache = createCalendarCache<Record<string, InstallPlanningMeta>>("planning");
 const noJobs: CalendarJob[] = [];
 const noPlaceholders: CalendarPlaceholder[] = [];
 
-function calendarRangeForMonth(month: Date) {
-  const calendarStart = startOfWeekMonday(month);
-  const calendarEnd = addDays(startOfWeekMonday(endOfMonth(month)), 6);
-  const from = dateKeyLocal(calendarStart);
-  const to = dateKeyLocal(calendarEnd);
-  return { calendarStart, calendarEnd, from, to, key: `${from}_${to}` };
-}
-
-type MonthRange = ReturnType<typeof calendarRangeForMonth>;
 type CalendarRead = "jobs" | "placeholders" | "planning";
 
 function inWindow(key: string, date?: string | null) {
   const day = calendarDay(date);
   const [from, to] = key.split("_");
   return day >= from && day <= to;
-}
-
-class CalendarRequestError extends Error {
-  constructor(message: string, readonly status: number) {
-    super(message);
-  }
-}
-
-async function readCalendar<T>(path: string, token: string, errorMessage: string): Promise<T> {
-  const response = await fetch(path, {
-    headers: { "x-access-token": token },
-    cache: "no-store",
-    signal: AbortSignal.timeout(14_000),
-  });
-  const data = await response.json().catch(() => null);
-  if (!response.ok || !data) throw new CalendarRequestError(data?.error || errorMessage, response.status);
-  return data as T;
-}
-
-function loadMonthJobs(scope: string, token: string, range: MonthRange) {
-  return jobsCache.refresh(scope, range.key, async () => {
-    const revision = calendarDataRevision();
-    const splitRevision = getSplitRevision();
-    const params = new URLSearchParams({ start: range.from, end: range.to, includeUnscheduled: "0" });
-    const data = await readCalendar<{ jobs: CalendarJob[] }>(
-      `/api/calendar/jobs?${params}`, token, "Could not load scheduled jobs.",
-    );
-    if (revision !== calendarDataRevision() || splitRevision !== getSplitRevision()) throw new CalendarCacheInvalidated();
-    if (!Array.isArray(data.jobs)) throw Error("The calendar returned an incomplete schedule.");
-    return data.jobs;
-  });
 }
 
 export default function JobsCalendarPage() {
@@ -429,21 +316,36 @@ export default function JobsCalendarPage() {
     if (!current()) return;
     scopeRef.current = scope;
     const cached = jobsCache.read(scope, range.key);
-    if (cached) setJobView({ key: range.key, rows: cached.data });
-    if (!force && cached && Date.now() - cached.at < refreshAfterMs) {
+    if (cached) setJobView({ key: range.key, rows: cached.data.jobs });
+    if (!force && cached && scheduleIsFresh(cached.data) && cached.at >= calendarLastWrite()) {
       setRefreshing(false);
       return;
     }
     setRefreshing(true);
+    const fetchSchedule = async (live: boolean) => {
+      try {
+        return await loadMonthJobs(scope, token, range, live);
+      } catch (error) {
+        if (!(error instanceof CalendarCacheInvalidated) || !current()) throw error;
+        return loadMonthJobs(scope, token, range, true);
+      }
+    };
     try {
-      const rows = await loadMonthJobs(scope, token, range);
-      if (current()) setJobView({ key: range.key, rows });
+      const data = await fetchSchedule(force || !!cached);
+      if (!current()) return;
+      setJobView({ key: range.key, rows: data.jobs });
+      if (!force && !cached && !scheduleIsFresh(data)) {
+        const fresh = await fetchSchedule(true);
+        if (current()) setJobView({ key: range.key, rows: fresh.jobs });
+      }
     } catch (err) {
-      if (!current() || err instanceof CalendarCacheInvalidated) return;
+      if (!current()) return;
       if (err instanceof CalendarRequestError && [401, 403].includes(err.status)) {
         clearScopedCalendar();
       }
-      reportIssue("jobs", err instanceof Error ? err.message : "Could not load scheduled jobs.");
+      reportIssue("jobs", err instanceof CalendarCacheInvalidated
+        ? "The schedule changed while loading. Try again."
+        : err instanceof Error ? err.message : "Could not load scheduled jobs.");
     } finally {
       if (current()) setRefreshing(false);
     }
@@ -455,7 +357,11 @@ export default function JobsCalendarPage() {
       if (!additions.length && !rows.some(job => job._id === jobId)) return rows;
       return [...rows.filter(job => job._id !== jobId), ...additions];
     };
-    if (scopeRef.current) jobsCache.patch(scopeRef.current, patch);
+    invalidateCalendarData();
+    if (scopeRef.current) jobsCache.patch(scopeRef.current, (key, data) => {
+      const rows = patch(key, data.jobs);
+      return rows === data.jobs ? data : { ...data, jobs: rows };
+    });
     setJobView(view => view ? { ...view, rows: patch(view.key, view.rows) } : view);
   };
 

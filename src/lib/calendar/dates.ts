@@ -31,21 +31,46 @@ export function calendarDateBounds(from: string, to: string) {
   };
 }
 
-export function calendarDateBatches(from: string, to: string) {
-  const first = Date.parse(`${from}T00:00:00Z`);
-  const last = Date.parse(`${to}T00:00:00Z`);
-  const days = (last - first) / dayMs + 1;
-  // The normal month grid has four to six complete weeks. Keep other date
-  // ranges on the existing paginated path and cap month reads at three batches.
-  if (days < 28 || days > 42 || days % 7 !== 0) return [calendarDateBounds(from, to)];
-
-  const batches = [];
-  for (let start = first; start <= last; start += 14 * dayMs) {
-    const end = Math.min(last, start + 13 * dayMs);
-    batches.push(calendarDateBounds(
-      new Date(start).toISOString().slice(0, 10),
-      new Date(end).toISOString().slice(0, 10),
-    ));
-  }
-  return batches;
+export function startOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
 }
+
+export function addMonths(date: Date, amount: number) {
+  return new Date(date.getFullYear(), date.getMonth() + amount, 1);
+}
+
+function endOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+}
+
+export function startOfWeekMonday(date: Date) {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+export function addDays(date: Date, amount: number) {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  d.setDate(d.getDate() + amount);
+  return d;
+}
+
+export function dateKeyLocal(date: Date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+export function calendarRangeForMonth(month: Date) {
+  const calendarStart = startOfWeekMonday(month);
+  const calendarEnd = addDays(startOfWeekMonday(endOfMonth(month)), 6);
+  const from = dateKeyLocal(calendarStart);
+  const to = dateKeyLocal(calendarEnd);
+  return { calendarStart, calendarEnd, from, to, key: `${from}_${to}` };
+}
+
+export type MonthRange = ReturnType<typeof calendarRangeForMonth>;

@@ -3,6 +3,7 @@
 import { loadFinanceOverview, clearFinanceOverview } from "@/lib/finance/overview-client";
 import { ReactNode, Suspense, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { warmCurrentCalendar } from "@/lib/calendar/month-client";
 import { clearBrowserCachePrefixes } from "@/lib/client-cache";
 
 const OTHER_STAGES = [
@@ -22,6 +23,7 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
   const searchParams = useSearchParams();
   const menuRef = useRef<HTMLDivElement>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const warmedCalendar = useRef(false);
 
   const returnTo = searchParams.get("returnTo");
   const returnToStage = (() => {
@@ -87,6 +89,15 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
     }, 1500);
     return () => window.clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (pathname !== "/jobs" || warmedCalendar.current) return;
+    const timer = window.setTimeout(() => {
+      warmedCalendar.current = true;
+      void warmCurrentCalendar().catch(() => {});
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [pathname]);
 
   const handleLogout = () => {
     clearFinanceOverview();
@@ -178,6 +189,12 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
           Jobs
         </button>
         <button
+          onPointerEnter={() => {
+            if (!isCalendarView) void warmCurrentCalendar().catch(() => {});
+          }}
+          onFocus={() => {
+            if (!isCalendarView) void warmCurrentCalendar().catch(() => {});
+          }}
           onClick={() => navigate("/jobs/calendar")}
           className={`min-w-0 px-1.5 py-1.5 rounded-lg text-xs font-semibold transition-all sm:px-4 sm:text-sm ${
             isCalendarView

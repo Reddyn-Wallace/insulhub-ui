@@ -51,3 +51,15 @@ it("prefers the newer snapshot if browser storage is full", async () => {
     write.mockRestore();
   }
 });
+
+it("allows a live refresh to supersede a pending recent read", async () => {
+  const cache = createCalendarCache<string[]>("test");
+  let finish!: (rows: string[]) => void;
+  const recent = cache.refresh("staff", "November", () => new Promise(resolve => { finish = resolve; }));
+  const live = cache.refresh("staff", "November", async () => ["new"], true);
+  const result = recent.catch(error => error);
+  finish(["recent"]);
+  expect(await result).toBeInstanceOf(CalendarCacheInvalidated);
+  await expect(live).resolves.toEqual(["new"]);
+  expect(cache.read("staff", "November")?.data).toEqual(["new"]);
+});

@@ -88,6 +88,19 @@ const novemberStart = "2026-10-26";
     });
     await page.waitForURL("**/login");
     await grid.waitFor({ state: "detached" });
+
+    failures.clear();
+    await page.goto(base + "/jobs/settings");
+    const calendarButton = page.getByRole("button", { name: "Calendar", exact: true }).first();
+    const preloaded = page.waitForResponse(response =>
+      new URL(response.url()).pathname === "/api/calendar/jobs" && response.ok(),
+    );
+    await calendarButton.hover();
+    await preloaded;
+    const afterPreload = reads.get(novemberStart);
+    await calendarButton.click();
+    await page.getByText("November sample", { exact: true }).first().waitFor();
+    assert.equal(reads.get(novemberStart), afterPreload, "Navigation must reuse the prefetched month");
     console.log(`PASS calendar first open ${coldMs} ms, cached month ${warmMs} ms, and independent retries with the grid visible`);
   } finally {
     await browser.close();
