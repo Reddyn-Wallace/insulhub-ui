@@ -5,7 +5,7 @@ import { ReactNode, Suspense, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { warmBoard } from "@/lib/crm-read/board";
 import { warmCurrentCalendar } from "@/lib/calendar/month-client";
-import { clearBrowserCachePrefixes } from "@/lib/client-cache";
+import { clearCrmBrowserSession } from "@/lib/crm-read/session";
 
 const OTHER_STAGES = [
   { label: "Completion", value: "COMPLETED" },
@@ -103,9 +103,7 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
   const handleLogout = () => {
     clearFinanceOverview();
     if (typeof window !== "undefined") {
-      clearBrowserCachePrefixes(["gql:", "jobs-cache:", "crm-sent-cache:", "job-cache:", "users-cache", "calendar:", "install-planning:", "calendar-placeholders:"], ["session", "local"]);
-      localStorage.removeItem("token");
-      localStorage.removeItem("me");
+      clearCrmBrowserSession();
       window.location.href = "/login";
     }
   };

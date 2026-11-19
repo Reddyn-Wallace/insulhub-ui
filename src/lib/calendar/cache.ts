@@ -8,14 +8,14 @@ export class CalendarCacheInvalidated extends Error {}
 
 let dataRevision = 0;
 export const calendarDataRevision = () => dataRevision;
-const lastWriteKey = "calendar-last-write";
+export const calendarLastWriteKey = "calendar-last-write";
 export function calendarLastWrite() {
-  try { return Number(localStorage.getItem(lastWriteKey)) || 0; }
+  try { return Number(localStorage.getItem(calendarLastWriteKey)) || 0; }
   catch { return 0; }
 }
 export function invalidateCalendarData() {
   dataRevision++;
-  try { localStorage.setItem(lastWriteKey, String(Date.now())); }
+  try { localStorage.setItem(calendarLastWriteKey, String(Math.max(Date.now(), calendarLastWrite() + 1))); }
   catch { /* Browser storage unavailable. */ }
 }
 

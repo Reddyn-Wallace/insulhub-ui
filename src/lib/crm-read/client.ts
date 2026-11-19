@@ -1,7 +1,8 @@
 import { calendarCacheScope, calendarDataRevision, calendarLastWrite } from "@/lib/calendar/cache";
 import { readBrowserCache, writeBrowserCache } from "@/lib/client-cache";
+import { persistSharedBrowser, readSharedBrowser, sharesAcrossTabs } from "./shared-browser";
 
-export type RecentCrmRead<T> = { checkedAt: number; data: T };
+export type RecentCrmRead<T> = { checkedAt: number; writeAt?: number; data: T; recovered?: true };
 export const crmFreshMs = 30_000;
 const crmDisplayMs = 30 * 60_000;
 const detailHandoffs = new Map<string, RecentCrmRead<unknown>>();
@@ -21,7 +22,15 @@ export async function recentCrmRead<T>(kind: string, id: string, token: string, 
     return entry && Date.now() - entry.checkedAt < maxAge && entry.checkedAt >= calendarLastWrite() ? entry : null;
   }
   const entry = readBrowserCache<RecentCrmRead<T>>(key, maxAge);
-  return entry && entry.checkedAt >= calendarLastWrite() ? entry : null;
+  const latestWrite = calendarLastWrite();
+  if (entry && Date.now() - entry.checkedAt <= maxAge &&
+      (entry.writeAt === undefined ? entry.checkedAt >= latestWrite : entry.writeAt === latestWrite)) return entry;
+  if (!sharesAcrossTabs(kind)) return null;
+  const shared = await readSharedBrowser<T>(kind, key, token, maxAge);
+  if (!shared) return null;
+  const recovered = { ...shared, recovered: true as const };
+  writeBrowserCache(key, recovered);
+  return recovered;
 }
 
 export async function loadCrmRead<T>(kind: string, id: string, token: string, read: () => Promise<T>, revision = 0) {
@@ -38,13 +47,14 @@ export async function loadCrmRead<T>(kind: string, id: string, token: string, re
     if (localStorage.getItem("token") !== token || calendarLastWrite() !== writeAt || calendarDataRevision() !== writeRevision) {
       throw Error("The record changed while loading. Please try again.");
     }
-    const result = { checkedAt, data };
+    const result = { checkedAt, writeAt, data };
     if (kind === "detail") {
       detailHandoffs.delete(key);
       if (detailHandoffs.size >= 12) detailHandoffs.delete(detailHandoffs.keys().next().value!);
       detailHandoffs.set(key, result);
     } else {
       writeBrowserCache(key, result);
+      if (sharesAcrossTabs(kind)) void persistSharedBrowser(kind, key, token, result, writeAt, writeRevision);
     }
     return result;
   })().finally(() => { pending.delete(requestKey); });
