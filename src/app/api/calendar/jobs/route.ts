@@ -5,6 +5,7 @@ import { readCalendarSplits } from "@/lib/installation-splits/store";
 import { calendarDateBounds, calendarDay } from "@/lib/calendar/dates";
 import { requireInsulhubAuth, tokenFromRequest } from "@/lib/insulhub-auth";
 import { ensureOverlaySchema } from "@/lib/overlay-db";
+import { forgetSharedSchedule, readSharedSchedule, sharedScheduleTtlSeconds, writeSharedSchedule } from "@/lib/calendar/shared-schedule";
 
 interface CalendarJob {
   _id: string;
@@ -95,28 +96,30 @@ const stages: ReadonlySet<string> = new Set(CALENDAR_STAGES);
 
 type CalendarResponse = { jobs: CalendarJob[]; unscheduled: CalendarJob[]; checkedAt: number };
 const snapshots = new Map<string, CalendarResponse>();
-const snapshotMaxAge = 60_000;
+const snapshotMaxAge = sharedScheduleTtlSeconds * 1000;
 const maxSnapshots = 64;
 
 function snapshotScope(token: string) {
   return `${createHash("sha256").update(token).digest("hex")}:`;
 }
 
-function forgetSchedules(token: string) {
+async function forgetSchedules(token: string) {
   const scope = snapshotScope(token);
   for (const key of snapshots.keys()) {
     if (key.startsWith(scope)) snapshots.delete(key);
   }
+  await forgetSharedSchedule(scope);
 }
 
 function rememberSchedule(key: string, snapshot: CalendarResponse) {
-  if ((snapshots.get(key)?.checkedAt ?? 0) > snapshot.checkedAt) return;
+  if ((snapshots.get(key)?.checkedAt ?? 0) > snapshot.checkedAt) return false;
   snapshots.delete(key);
   snapshots.set(key, snapshot);
   while (snapshots.size > maxSnapshots) {
     const oldest = snapshots.keys().next().value;
     if (oldest !== undefined) snapshots.delete(oldest);
   }
+  return true;
 }
 
 
@@ -236,7 +239,12 @@ export async function GET(request: NextRequest) {
     const key = !includeUnscheduled && monthSize && (read === "recent" || read === "live")
       ? `${snapshotScope(token)}${start}:${end}` : null;
     const checkedAt = Date.now();
-    const recent = key && read === "recent" ? snapshots.get(key) : undefined;
+    const inMemory = key && read === "recent" ? snapshots.get(key) : undefined;
+    const memoryIsRecent = inMemory && checkedAt - inMemory.checkedAt < snapshotMaxAge;
+    const shared = key && read === "recent" && !memoryIsRecent && process.env.VERCEL === "1"
+      ? await timed("snapshot_lookup", readSharedSchedule<CalendarResponse>(token, key))
+      : undefined;
+    const recent = memoryIsRecent ? inMemory : shared;
     const useRecent = recent && checkedAt - recent.checkedAt < snapshotMaxAge;
     // Recheck the legacy session on a hit. A live read also asks the jobs API,
     // whose current permission decision supersedes an older overlay memo.
@@ -248,10 +256,11 @@ export async function GET(request: NextRequest) {
       });
     if (useRecent) {
       await authorize;
-      timings.push("snapshot;dur=0");
+      if (key && shared) rememberSchedule(key, recent);
+      timings.push(shared ? "snapshot_shared;dur=0" : "snapshot;dur=0");
       return NextResponse.json(recent, { headers: headers() });
     }
-    if (key && recent) snapshots.delete(key);
+    if (key && inMemory) snapshots.delete(key);
 
     const signal = AbortSignal.any([request.signal, AbortSignal.timeout(12000)]);
     let dateSources: Map<string, CalendarJob> | undefined;
@@ -299,12 +308,14 @@ export async function GET(request: NextRequest) {
       }
     }
     const result = { jobs, unscheduled, checkedAt };
-    if (key) rememberSchedule(key, result);
+    if (key && rememberSchedule(key, result)) {
+      await timed("snapshot_store", writeSharedSchedule(token, key, snapshotScope(token), result, read === "live"));
+    }
     return NextResponse.json(result, { headers: headers() });
   } catch (error) {
     const timedOut = error instanceof Error && error.name === "TimeoutError";
     const status = error instanceof CalendarReadError ? error.status : timedOut ? 504 : 500;
-    if (token && (status === 401 || status === 403)) forgetSchedules(token);
+    if (token && (status === 401 || status === 403)) await forgetSchedules(token);
     const message = timedOut ? "The calendar source took too long to respond" :
       error instanceof Error ? error.message : "Failed to load calendar jobs";
     return NextResponse.json({ error: message }, { status, headers: headers() });
