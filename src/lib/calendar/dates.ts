@@ -30,3 +30,22 @@ export function calendarDateBounds(from: string, to: string) {
     end: new Date(nzMidnight(Date.parse(`${to}T00:00:00Z`) + dayMs) - 1).toISOString(),
   };
 }
+
+export function calendarDateBatches(from: string, to: string) {
+  const first = Date.parse(`${from}T00:00:00Z`);
+  const last = Date.parse(`${to}T00:00:00Z`);
+  const days = (last - first) / dayMs + 1;
+  // The normal month grid has four to six complete weeks. Keep other date
+  // ranges on the existing paginated path and cap month reads at three batches.
+  if (days < 28 || days > 42 || days % 7 !== 0) return [calendarDateBounds(from, to)];
+
+  const batches = [];
+  for (let start = first; start <= last; start += 14 * dayMs) {
+    const end = Math.min(last, start + 13 * dayMs);
+    batches.push(calendarDateBounds(
+      new Date(start).toISOString().slice(0, 10),
+      new Date(end).toISOString().slice(0, 10),
+    ));
+  }
+  return batches;
+}

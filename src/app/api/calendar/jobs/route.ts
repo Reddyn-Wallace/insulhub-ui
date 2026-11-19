@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { CALENDAR_STAGES, calendarVisits } from "@/lib/installation-splits/views";
 import { readCalendarSplits } from "@/lib/installation-splits/store";
-import { calendarDateBounds, calendarDay } from "@/lib/calendar/dates";
+import { calendarDateBatches, calendarDateBounds, calendarDay } from "@/lib/calendar/dates";
 import { requireInsulhubAuth, tokenFromRequest } from "@/lib/insulhub-auth";
 import { ensureOverlaySchema } from "@/lib/overlay-db";
 
@@ -80,14 +80,16 @@ const CALENDAR_JOB_FIELDS = `
     ceiling { SQM }
   }
 `;
-const CALENDAR_JOBS_QUERY = `
+const calendarJobsQuery = (fields: string) => `
   query CalendarJobs($stages: [JobStage!], $skip: Int, $limit: Int, $installStartDate: DateTimeISO, $installEndDate: DateTimeISO) {
     jobs(stages: $stages, skip: $skip, limit: $limit, installStartDate: $installStartDate, installEndDate: $installEndDate) {
       total
-      results { ${CALENDAR_JOB_FIELDS} }
+      results { ${fields} }
     }
   }
 `;
+const CALENDAR_JOBS_QUERY = calendarJobsQuery(CALENDAR_JOB_FIELDS);
+const CALENDAR_JOB_MANIFEST_QUERY = calendarJobsQuery("_id jobNumber stage archivedAt installation { installDate }");
 const pageSize = 250;
 const sourceBatchSize = 40;
 const stages: ReadonlySet<string> = new Set(CALENDAR_STAGES);
@@ -134,11 +136,13 @@ async function graphql<T>(
   return json.data as T;
 }
 
-async function jobsInRange(token: string, bounds: { start: string; end: string }, signal: AbortSignal) {
+async function jobsInRange(
+  token: string, bounds: { start: string; end: string }, signal: AbortSignal, query = CALENDAR_JOBS_QUERY,
+) {
   const jobs = new Map<string, CalendarJob>();
   let total: number | undefined;
   for (let page = 0; page < 100; page++) {
-    const data = await graphql<JobsData>(token, CALENDAR_JOBS_QUERY, {
+    const data = await graphql<JobsData>(token, query, {
       stages: CALENDAR_STAGES,
       skip: jobs.size,
       limit: pageSize,
@@ -182,7 +186,7 @@ async function loadRevisitSources(token: string, ids: string[], signal: AbortSig
 
 export async function GET(request: NextRequest) {
   const timings: string[] = [];
-  const speculation = new AbortController();
+  const work = new AbortController();
   const timed = async <T,>(name: string, work: Promise<T>) => {
     const start = performance.now();
     try {
@@ -203,13 +207,35 @@ export async function GET(request: NextRequest) {
     if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const includeUnscheduled = searchParams.get("includeUnscheduled") !== "0";
-    const signal = AbortSignal.any([request.signal, AbortSignal.timeout(12000)]);
+    const signal = AbortSignal.any([request.signal, AbortSignal.timeout(12000), work.signal]);
+    const batches = includeUnscheduled ? [calendarDateBounds(start, end)] : calendarDateBatches(start, end);
     let dateSources: Map<string, CalendarJob> | undefined;
-    const dateLoad = timed("jobs", jobsInRange(token, calendarDateBounds(start, end), signal))
-      .then(sources => {
-        dateSources = sources;
-        return sources;
-      });
+    const fullRange = calendarDateBounds(start, end);
+    const dateLoad = timed("jobs", (async () => {
+      if (batches.length === 1) return jobsInRange(token, fullRange, signal);
+
+      const partialJobs = batches.map((bounds, index) =>
+        timed(`days_${index + 1}`, jobsInRange(token, bounds, signal)),
+      );
+      const [parts, manifest] = await Promise.all([
+        Promise.all(partialJobs),
+        timed("manifest", jobsInRange(token, fullRange, signal, CALENDAR_JOB_MANIFEST_QUERY)),
+      ]);
+      const sources = new Map(parts.flatMap(part => [...part]));
+      const matches = sources.size === manifest.size &&
+        parts.reduce((count, part) => count + part.size, 0) === manifest.size &&
+        [...manifest].every(([id, job]) => {
+          const source = sources.get(id);
+          return source && source.installation?.installDate === job.installation?.installDate &&
+            source.stage === job.stage && source.archivedAt === job.archivedAt;
+        });
+      // A job can move between two independently read batches. Fall back to a
+      // single range if the authoritative list disagrees with the batch union.
+      return matches ? sources : timed("full_range", jobsInRange(token, fullRange, signal));
+    })()).then(sources => {
+      dateSources = sources;
+      return sources;
+    });
     const splitLoad = timed("auth", requireInsulhubAuth(request)).then(async denied => {
       if (denied) {
         throw new CalendarReadError(denied.status === 401 ? "Unauthorized" : "Could not verify calendar access", denied.status);
@@ -223,7 +249,7 @@ export async function GET(request: NextRequest) {
       // Overlap the two upstream reads when the index arrives first. A date
       // response that already has every source can skip the speculative work.
       const pending = sourceIds.length
-        ? timed("revisits", loadRevisitSources(token, sourceIds, AbortSignal.any([signal, speculation.signal])))
+        ? timed("revisits", loadRevisitSources(token, sourceIds, signal))
           .then(rows => ({ rows }), (error: unknown) => ({ error }))
         : null;
       return { splits, sourceIds, pending };
@@ -259,6 +285,6 @@ export async function GET(request: NextRequest) {
       error instanceof Error ? error.message : "Failed to load calendar jobs";
     return NextResponse.json({ error: message }, { status, headers: headers() });
   } finally {
-    speculation.abort();
+    work.abort();
   }
 }
