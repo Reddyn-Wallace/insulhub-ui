@@ -644,10 +644,25 @@ export default function JobsCalendarPage() {
 
   useEffect(() => {
     const grid = gridRef.current;
-    if (hasJobs && grid && calendarStartedAt.current !== null) {
-      grid.dataset.calendarReadyMs = String(Math.round(performance.now() - calendarStartedAt.current));
+    const startedAt = calendarStartedAt.current;
+    if (hasJobs && grid && startedAt !== null) {
+      grid.dataset.calendarReadyMs = String(Math.round(performance.now() - startedAt));
+      const requests = performance.getEntriesByType("resource") as PerformanceResourceTiming[];
+      const request = requests.reverse().find(entry => {
+        if (entry.startTime < startedAt) return false;
+        const url = new URL(entry.name);
+        return url.pathname === "/api/calendar/jobs" && url.searchParams.get("start") === range.from &&
+          url.searchParams.get("end") === range.to;
+      });
+      if (request) {
+        grid.dataset.calendarRequestTiming = JSON.stringify({
+          start: Math.round(request.startTime),
+          duration: Math.round(request.duration),
+          server: Object.fromEntries((request.serverTiming ?? []).map(metric => [metric.name, Math.round(metric.duration)])),
+        });
+      }
     }
-  }, [hasJobs, range.key]);
+  }, [hasJobs, range.from, range.to]);
 
   const refreshCalendar = () => {
     setError("");

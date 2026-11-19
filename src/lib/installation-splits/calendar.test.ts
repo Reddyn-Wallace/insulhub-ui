@@ -141,3 +141,59 @@ it("never queries the overlay until CRM access has been verified", async () => {
   expect(mocks.schema).not.toHaveBeenCalled();
   expect(mocks.read).not.toHaveBeenCalled();
 });
+
+it("starts relevant revisit lookups while the ordinary date query is still pending", async () => {
+  mocks.read.mockResolvedValue({ [job._id]: split });
+  let finish!: (data: unknown) => void;
+  mocks.fetch.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  mocks.fetch.mockResolvedValueOnce(response({ source0: job }));
+  const loading = GET(req());
+  try {
+    await vi.waitFor(() => expect(mocks.fetch).toHaveBeenCalledTimes(2), { timeout: 350 });
+  } finally {
+    finish(list([regular]));
+    await loading;
+  }
+  const result = await loading;
+  expect((await result.json()).jobs).toHaveLength(2);
+});
+
+it("returns without waiting for an overlapping lookup when the date query supplies the source", async () => {
+  mocks.read.mockResolvedValue({ [job._id]: split });
+  let finishDates!: (data: unknown) => void;
+  let finishAlias!: (data: unknown) => void;
+  mocks.fetch.mockImplementationOnce(() => new Promise(resolve => { finishDates = resolve; }));
+  mocks.fetch.mockImplementationOnce(() => new Promise(resolve => { finishAlias = resolve; }));
+  let finished = false;
+  const loading = GET(req()).then(result => {
+    finished = true;
+    return result;
+  });
+  try {
+    await vi.waitFor(() => expect(finishAlias).toBeDefined());
+    finishDates(list([job]));
+    await vi.waitFor(() => expect(finished).toBe(true), { timeout: 350 });
+  } finally {
+    finishAlias(response({ source0: job }));
+    await loading;
+  }
+  expect((await (await loading).json()).jobs).toHaveLength(1);
+});
+
+it("retries only a real missing source if an overlapping lookup fails", async () => {
+  mocks.read.mockResolvedValue({
+    [job._id]: split,
+    [outOfRange._id]: completeVisit(initialSplit(outOfRange), "initial", 70, "2026-11-15"),
+  });
+  let finishDates!: (data: unknown) => void;
+  mocks.fetch.mockImplementationOnce(() => new Promise(resolve => { finishDates = resolve; }));
+  mocks.fetch.mockRejectedValueOnce(Error("Speculative source request failed"));
+  mocks.fetch.mockResolvedValueOnce(response({ source0: outOfRange }));
+  const loading = GET(req());
+  await vi.waitFor(() => expect(mocks.fetch).toHaveBeenCalledTimes(2));
+  finishDates(list([job]));
+  const result = await loading;
+  expect(result.status).toBe(200);
+  expect(queryAt(2).variables).toEqual({ id0: outOfRange._id });
+  expect((await result.json()).jobs).toHaveLength(2);
+});
