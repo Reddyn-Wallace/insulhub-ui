@@ -1,4 +1,4 @@
-import { invalidateCalendarData } from "./calendar/cache";
+import { calendarDataRevision, calendarLastWrite, invalidateCalendarData } from "./calendar/cache";
 import {isTrackedMutation} from './dead-followups/dates';
 import {
   type BrowserCacheStorage,
@@ -12,6 +12,7 @@ type GqlOptions = {
   ttlMs?: number;
   storage?: BrowserCacheStorage;
   calendarCacheHandled?: boolean;
+  token?: string;
 };
 
 const inFlightQueries = new Map<string, Promise<unknown>>();
@@ -106,8 +107,7 @@ export async function gql<T>(
   variables?: Record<string, unknown>,
   options: GqlOptions = {},
 ): Promise<T> {
-  const token =
-    typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const token = options.token ?? (typeof window !== "undefined" ? localStorage.getItem("token") : null);
   const isQuery = isQueryOperation(query);
   const cacheKey = isQuery && options.ttlMs
     ? queryCacheKey(query, variables, options.cacheKey)
@@ -119,7 +119,7 @@ export async function gql<T>(
   }
 
   const requestKey = isQuery
-    ? `${token || ""}:${query}:${stableStringify(variables || {})}`
+    ? `${token || ""}:${calendarDataRevision()}:${calendarLastWrite()}:${query}:${stableStringify(variables || {})}`
     : "";
 
   const run = async () => {

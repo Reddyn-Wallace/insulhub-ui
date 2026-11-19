@@ -28,3 +28,25 @@ it("keeps a client-signed EBA locked", async () => {
   render(<JobPage />);
   expect(await screen.findByRole("button", { name: /EBA Signed/ })).toHaveProperty("disabled", true);
 });
+
+it("opens the job without a directory request and loads staff when assignment is opened", async () => {
+  let finishDirectory!: (value: unknown) => void;
+  vi.mocked(gql).mockImplementation(async (query) => {
+    if (query.includes("query Users")) {
+      return new Promise(resolve => { finishDirectory = resolve; });
+    }
+    return { job: state.job } as never;
+  });
+  render(<JobPage />);
+  expect(await screen.findByRole("heading", { name: "Test owner" })).toBeTruthy();
+  expect(vi.mocked(gql).mock.calls.some(([query]) => query.includes("query Users"))).toBe(false);
+  const salesperson = screen.getByText("Salesperson", { exact: true }).parentElement?.parentElement;
+  if (!salesperson) throw Error("Salesperson controls missing");
+  const edit = [...salesperson.querySelectorAll("button")].find(button => button.textContent === "Edit");
+  if (!edit) throw Error("Assignment control missing");
+  fireEvent.click(edit);
+  expect(await screen.findByText("Loading salespeople…")).toBeTruthy();
+  await waitFor(() => expect(finishDirectory).toBeTypeOf("function"));
+  finishDirectory({ users: { results: [{ _id: "sam", firstname: "Sam", lastname: "Taylor", email: "sam@example.test" }] } });
+  expect(await screen.findByRole("button", { name: /Sam Taylor/ })).toBeTruthy();
+});

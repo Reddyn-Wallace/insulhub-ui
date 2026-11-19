@@ -72,7 +72,7 @@ export const JOBS_QUERY = `
   }
 `;
 
-export const JOB_QUERY = `
+const jobQuery = (checksheetFields: string) => `
   query Job($_id: ObjectId!) {
     job(_id: $_id) {
       _id
@@ -132,44 +132,7 @@ export const JOB_QUERY = `
         installStatus
         checkSheetSignedAsComplete
       }
-      installerChecksheet {
-        _id
-        complete
-        contractNumber
-        address
-        customerName
-        customerTel
-        installDate
-        cladding
-        budgetBags
-        actualBags
-        wallAreaQuoted
-        wallAreaInstalled
-        ebaSightedAndPreInstallMaintenanceCompleted
-        sampleWallCompletelyFull
-        forDevelopmentWeightOfSampleWall
-        actionTakenIfNotCompletelyFull
-        recordBagIdentificationPhotos { _id thumbnail fileName }
-        commentsOrIssues
-        q0_installedIRChecked
-        q1_underfloorVents
-        q2_inWallToilet
-        q3_loweredCeilings
-        q4_unsealedMasonry
-        q5_masonryJoinerySealed
-        q6_noEvidenceOfLeak
-        ceilingInstall_quotedArea
-        ceilingInstall_quotedRValue
-        ceilingInstall_quotedThickness
-        ceilingInstall_numDownlightsQuoted
-        ceilingInstall_numDownlightsInstalled
-        ceilingInstall_haveAllDownLightsBeenLocated
-        ceilingInstall_bagsRequiredForInstall
-        ceilingInstall_bagsInstalled
-        installerName
-        signature_installer { _id thumbnail fileName }
-        date
-      }
+      installerChecksheet { ${checksheetFields} }
       council {
         _id
         consentNumber
@@ -220,3 +183,43 @@ export const JOB_QUERY = `
     }
   }
 `;
+
+export const JOB_QUERY = jobQuery(`
+        _id
+        complete
+        contractNumber
+        address
+        customerName
+        customerTel
+        installDate
+        cladding
+        budgetBags
+        actualBags
+        wallAreaQuoted
+        wallAreaInstalled
+        ebaSightedAndPreInstallMaintenanceCompleted
+        sampleWallCompletelyFull
+        forDevelopmentWeightOfSampleWall
+        actionTakenIfNotCompletelyFull
+        recordBagIdentificationPhotos { _id thumbnail fileName }
+        commentsOrIssues
+        q0_installedIRChecked
+        q1_underfloorVents
+        q2_inWallToilet
+        q3_loweredCeilings
+        q4_unsealedMasonry
+        q5_masonryJoinerySealed
+        q6_noEvidenceOfLeak
+        ceilingInstall_quotedArea
+        ceilingInstall_quotedRValue
+        ceilingInstall_quotedThickness
+        ceilingInstall_numDownlightsQuoted
+        ceilingInstall_numDownlightsInstalled
+        ceilingInstall_haveAllDownLightsBeenLocated
+        ceilingInstall_bagsRequiredForInstall
+        ceilingInstall_bagsInstalled
+        installerName
+        signature_installer { _id thumbnail fileName }
+        date
+`);
+export const JOB_DETAIL_QUERY = jobQuery("_id complete budgetBags actualBags wallAreaQuoted wallAreaInstalled");

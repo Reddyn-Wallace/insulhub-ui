@@ -1,8 +1,7 @@
 import { invalidateCalendarData } from "@/lib/calendar/cache";
 import { clearBrowserCachePrefixes } from "@/lib/client-cache";
 import type { SavedSplit } from "./projection";
-export async function splitRequest<T>(url: string, body?: unknown): Promise<T> {
-  const token = localStorage.getItem("token");
+export async function splitRequest<T>(url: string, body?: unknown, token = localStorage.getItem("token")): Promise<T> {
   if (!token) throw Error("Please sign in to manage installation visits.");
   const response = await fetch(url, {
     method: body ? "POST" : "GET",
@@ -15,14 +14,14 @@ export async function splitRequest<T>(url: string, body?: unknown): Promise<T> {
     throw Error(data.error || "Could not load installation visits.");
   return data;
 }
-export async function loadSplits(jobIds: string[]) {
+export async function loadSplits(jobIds: string[], token?: string) {
   const combined: Record<string, SavedSplit> = {};
   for (let start = 0; start < jobIds.length; start += 1000) {
     const { splits } = await splitRequest<{
       splits: Record<string, SavedSplit>;
     }>("/api/installation-splits", {
       jobIds: jobIds.slice(start, start + 1000),
-    });
+    }, token);
     Object.assign(combined, splits);
   }
   return combined;
@@ -46,7 +45,7 @@ export function invalidateSplitCaches(calendarCacheHandled = false) {
 }
 
 
-export async function loadPendingSplits() {
-  const {splits} = await splitRequest<{splits:Record<string,SavedSplit>}>("/api/installation-splits",{pending:true});
+export async function loadPendingSplits(token?: string) {
+  const {splits} = await splitRequest<{splits:Record<string,SavedSplit>}>("/api/installation-splits",{pending:true}, token);
   return splits;
 }

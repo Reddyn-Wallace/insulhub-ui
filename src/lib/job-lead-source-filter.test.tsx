@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 const navigation = vi.hoisted(() => ({ params: new URLSearchParams("stage=LEAD"), replace: vi.fn(), push: vi.fn() }));
 vi.mock("next/navigation", () => ({ useSearchParams: () => navigation.params, useRouter: () => navigation }));
 vi.mock("@/lib/graphql", () => ({ gql: vi.fn(async () => ({ jobs: { results: [], total: 0 }, users: { results: [] }, listEmailLogs: { results: [] } })) }));
+import { gql } from "@/lib/graphql";
 import JobsPage from "@/app/jobs/page";
 beforeEach(() => {
   const storage = new Map<string, string>([["token", "test"]]);
@@ -50,4 +51,26 @@ it("clears the saved search and cancels pending input", async () => {
   view.unmount();
   render(<JobsPage />);
   expect((screen.getByRole("searchbox") as HTMLInputElement).value).toBe("");
+});
+
+it("uses the same lead read for subtabs, sorting and pagination", async () => {
+  const leads = Array.from({ length: 42 }, (_, index) => ({
+    _id: `lead-${index}`, jobNumber: index, stage: "LEAD", updatedAt: "2026-11-12",
+    lead: { leadStatus: index ? "CALLBACK" : "NEW" },
+    client: { contactDetails: { name: `Lead example ${index}` } },
+  }));
+  const jobs = { results: leads, total: leads.length };
+  vi.mocked(gql).mockResolvedValue({ jobs, listEmailLogs: { total: 0, results: [] } });
+  vi.stubGlobal("scrollTo", vi.fn());
+  const view = render(<JobsPage />);
+  expect(await screen.findByText("Lead example 0")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: /^Callback/ }));
+  view.rerender(<JobsPage />);
+  expect(await screen.findByText("Lead example 1")).toBeTruthy();
+  expect(screen.queryByText("Lead example 0")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: /^Next/ }));
+  expect(await screen.findByText("Lead example 41")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: /^Sort/ }));
+  expect(vi.mocked(gql).mock.calls.filter(([query]) => query.includes("query Jobs"))).toHaveLength(1);
+  expect(vi.mocked(gql).mock.calls.filter(([query]) => query.includes("listEmailLogs"))).toHaveLength(0);
 });

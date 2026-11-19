@@ -8,7 +8,10 @@ import { invalidateCalendarPlanning } from "@/lib/calendar/cache";
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
 import { gql } from "@/lib/graphql";
-import { JOB_QUERY, USERS_QUERY } from "@/lib/queries";
+import { loadJobDetail, recentJobDetail } from "@/lib/crm-read/detail";
+import { loadSalesDirectory } from "@/lib/crm-read/directory";
+import { loadCrmEmailIndex, readRecordedEba, rememberRecordedEba } from "@/lib/crm-read/sent-index";
+import { JOB_DETAIL_QUERY } from "@/lib/queries";
 import { completionPackBlocker, canCompleteJob, type ManualInvoiceConfirmation } from "@/lib/job-completion";
 import {
   UPDATE_JOB_LEAD, UPDATE_JOB_NOTES,
@@ -306,7 +309,6 @@ function clearedCeilingQuoteSection() {
 }
 
 const API_BASE = "https://api.insulhub.nz";
-const JOB_CACHE_TTL_MS = 3 * 60 * 1000;
 
 function getToken() {
   return typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
@@ -377,12 +379,6 @@ function buildMailtoHref(email: string, subject: string, body: string) {
   return `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
-function isEBAEmailLog(row: { subject?: string | null; type?: string | null }) {
-  const subject = (row.subject || "").toLowerCase();
-  const type = (row.type || "").toLowerCase();
-  return type.includes("eba") || subject.includes("eba") || subject.includes("existing building assessment");
-}
-
 // ── Sub-components ─────────────────────────────────────────────────
 function InfoRow({ label, value }: { label: string; value?: string | null }) {
   if (!value) return null;
@@ -430,7 +426,9 @@ export default function JobDetailPage() {
   }, [router, returnTo]);
 
   const [job, setJob] = useState<Job | null>(null);
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<User[] | null>(null);
+  const [directoryError, setDirectoryError] = useState(false);
+  const detailRead = useRef(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingSitePlan, setUploadingSitePlan] = useState(false);
@@ -455,9 +453,10 @@ export default function JobDetailPage() {
   useEffect(() => {
     let active = true;
     setNoteContext(null);
+    if (job?._id !== id) return;
     void settingsRequest<{linked:false}|{linked:true;companyName:string;tracking:NeutralPartnerTracking}>(`/api/settings/partners/job-context?legacyId=${encodeURIComponent(String(id))}`).then(context=>{if(active)setNoteContext(context);}).catch(()=>{});
     return()=>{active=false;};
-  }, [id]);
+  }, [id, job?._id]);
   async function postPartnerNote(description: string, requestKey: string) {
     const context = await settingsRequest<{linked:false}|{linked:true;companyName:string;tracking:NeutralPartnerTracking}>("/api/settings/partners/job-context","POST",{legacyId:id,description,requestKey});
     setNoteContext(context);
@@ -500,7 +499,9 @@ export default function JobDetailPage() {
   const [manualInvoiceError, setManualInvoiceError] = useState("");
   const [manualInvoiceReload, setManualInvoiceReload] = useState(0);
 
+  const showManualInvoice = job?._id === id && ["SCHEDULED", "INSTALLATION", "INVOICE", "COMPLETED"].includes(job.stage);
   useEffect(() => {
+    if (!showManualInvoice) return;
     let active = true;
     setManualInvoice(null);
     setManualInvoiceLoading(true);
@@ -514,7 +515,7 @@ export default function JobDetailPage() {
       .catch((error) => { if (active) setManualInvoiceError(error instanceof Error ? error.message : "Could not load manual invoice confirmation."); })
       .finally(() => { if (active) setManualInvoiceLoading(false); });
     return () => { active = false; };
-  }, [id, manualInvoiceReload]);
+  }, [id, manualInvoiceReload, showManualInvoice]);
   const [creatingFinalInvoice, setCreatingFinalInvoice] = useState(false);
   const [managerOverride, setManagerOverride] = useState("");
   const [managerAdjustment, setManagerAdjustment] = useState("");
@@ -580,10 +581,9 @@ export default function JobDetailPage() {
     }
   }, [id]);
 
-  const saveInstallPlanningMeta = useCallback(async (next: InstallPlanningMeta) => {
+  const saveInstallPlanningMeta = useCallback(async (next: { status?: InstallPlanningMeta["status"]; note?: string; councilApprovalNA?: boolean; installScope?: InstallPlanningMeta["installScope"] }) => {
     const token = getToken();
     if (!token) throw new Error("Missing auth token");
-    const merged = { ...(installPlanningMeta || {}), ...next };
 
     const res = await fetch("/api/install-planning", {
       method: "PUT",
@@ -597,13 +597,6 @@ export default function JobDetailPage() {
         installScope: next.installScope,
         planningNote: next.note,
         councilApprovalNA: next.councilApprovalNA,
-        accessNotes: merged.accessNotes || "",
-        extensionHosesRequired: merged.extensionHosesRequired ?? false,
-        extensionHosesDistance: merged.extensionHosesDistance || "",
-        extensionLaddersRequired: merged.extensionLaddersRequired ?? false,
-        extensionLaddersLocation: merged.extensionLaddersLocation || "",
-        externalPaintingRequired: merged.externalPaintingRequired ?? false,
-        externalPaintingSupply: merged.externalPaintingSupply || "",
       }),
     });
     const json = await res.json();
@@ -611,7 +604,7 @@ export default function JobDetailPage() {
     invalidateCalendarPlanning();
     setInstallPlanningMeta(json.planning);
     return json.planning as InstallPlanningMeta;
-  }, [id, installPlanningMeta]);
+  }, [id]);
 
   const loadContactTemplates = useCallback(async () => {
     const token = getToken();
@@ -656,48 +649,23 @@ export default function JobDetailPage() {
     }
   }, [id]);
 
-  // Load job + users
-  const load = useCallback(async () => {
+  const load = useCallback(async (useRecent = false) => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    const request = ++detailRead.current;
+    const current = () => detailRead.current === request && localStorage.getItem("token") === token;
+    setError("");
     try {
-      setInstallPlanningMeta(null);
-      if (typeof window !== "undefined") {
-        const rawJob = sessionStorage.getItem(`job-cache:${id}`);
-        const rawUsers = sessionStorage.getItem("users-cache");
-        if (rawJob) {
-          const parsed = JSON.parse(rawJob) as { ts: number; job: Job };
-          if (Date.now() - parsed.ts < JOB_CACHE_TTL_MS) {
-            setJob(parsed.job);
-            setConsentNumber(parsed.job.council?.consentNumber || "");
-            setLoading(false);
-          }
-        }
-        if (rawUsers) {
-          const parsed = JSON.parse(rawUsers) as { ts: number; users: User[] };
-          if (Date.now() - parsed.ts < JOB_CACHE_TTL_MS) {
-            setUsers(parsed.users);
-          }
-        }
-      }
+      const cached = useRecent ? await recentJobDetail<Job>(id, token, true) : null;
+      if (!current()) return;
+      const j = cached ? cached.data : await loadJobDetail<Job>(id, token);
+      if (!current()) return;
+      setJob(j);
+      if (!j) return;
+      void fetchInstallPlanning(id)
+        .then(planning => { if (current()) setInstallPlanningMeta(planning); })
+        .catch(() => {});
 
-      const [jobData, usersData] = await Promise.all([
-        gql<{ job: Job }>(JOB_QUERY, { _id: id }),
-        gql<{ users: { results: User[] } }>(USERS_QUERY, undefined, {
-          cacheKey: "users",
-          ttlMs: JOB_CACHE_TTL_MS,
-        }),
-      ]);
-      setJob(jobData.job);
-      setUsers(usersData.users.results);
-      fetchInstallPlanning(id)
-        .then((planning) => setInstallPlanningMeta(planning))
-        .catch(() => setInstallPlanningMeta(null));
-      if (typeof window !== "undefined") {
-        sessionStorage.setItem(`job-cache:${id}`, JSON.stringify({ ts: Date.now(), job: jobData.job }));
-        sessionStorage.setItem("users-cache", JSON.stringify({ ts: Date.now(), users: usersData.users.results }));
-      }
-
-      // Prefill forms
-      const j = jobData.job;
       const c = j.client?.contactDetails;
       setContactForm({
         name: c?.name || "", email: c?.email || "",
@@ -749,145 +717,79 @@ export default function JobDetailPage() {
         }));
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to load";
-      if (msg !== "Unauthorized") setError(msg);
+      if (current()) {
+        const message = err instanceof Error ? err.message : "Failed to load";
+        if (/unauthorized|unauthenticated/i.test(message)) setJob(null);
+        setError(message);
+      }
     } finally {
-      setLoading(false);
+      if (current()) setLoading(false);
     }
   }, [fetchInstallPlanning, id]);
 
   useEffect(() => {
-    if (!localStorage.getItem("token")) { router.push("/login"); return; }
-    load();
-    loadContactTemplates();
-    loadCampaignCommunications();
-    loadSitePlanDrawings();
-  }, [load, loadCampaignCommunications, loadContactTemplates, loadSitePlanDrawings, router]);
+    const token = localStorage.getItem("token");
+    if (!token) { router.push("/login"); return; }
+    setLoading(true);
+    setJob(null);
+    setInstallPlanningMeta(null);
+    void load(true);
+    const sessionChanged = (event: StorageEvent) => {
+      if ((event.key === "token" || event.key === null) && localStorage.getItem("token") !== token) {
+        ++detailRead.current;
+        setJob(null);
+        if (localStorage.getItem("token")) window.location.reload();
+        else router.replace("/login");
+      }
+    };
+    window.addEventListener("storage", sessionChanged);
+    return () => {
+      ++detailRead.current;
+      window.removeEventListener("storage", sessionChanged);
+    };
+  }, [load, router]);
 
   useEffect(() => {
-    const email = job?.client?.contactDetails?.email?.trim().toLowerCase();
-    if (!email || !(job?.stage === "QUOTE" || job?.stage === "SCHEDULED")) {
-      setQuoteSentAt(null);
-      return;
-    }
+    if (job?._id !== id) return;
+    void loadContactTemplates();
+    void loadCampaignCommunications();
+    void loadSitePlanDrawings();
+  }, [id, job?._id, loadCampaignCommunications, loadContactTemplates, loadSitePlanDrawings]);
 
-    const cacheKey = "quote-sent-email-map-v2";
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
+  const loadDirectory = useCallback(() => {
+    const token = localStorage.getItem("token");
     if (!token) return;
-
-    (async () => {
-      try {
-        const cachedRaw = sessionStorage.getItem(cacheKey);
-        if (cachedRaw) {
-          const parsed = JSON.parse(cachedRaw) as { ts: number; map: Record<string, string> };
-          if (Date.now() - parsed.ts < 10 * 60 * 1000 && parsed.map?.[email]) {
-            setQuoteSentAt(parsed.map[email]);
-            return;
-          }
-        }
-
-        let skip = 0;
-        const limit = 500;
-        let total = Number.MAX_SAFE_INTEGER;
-        const map: Record<string, string> = {};
-
-        while (skip < total) {
-          const res = await fetch("https://api.insulhub.nz/graphql", {
-            method: "POST",
-            headers: { "content-type": "application/json", "x-access-token": token },
-            body: JSON.stringify({
-              query: `query($skip:Int,$limit:Int){listEmailLogs(skip:$skip,limit:$limit){total results{createdAt type subject to_email}}}`,
-              variables: { skip, limit },
-            }),
-          });
-          const json = await res.json();
-          const data = json?.data?.listEmailLogs;
-          if (!data) break;
-
-          total = data.total;
-          const batch = data.results || [];
-          for (const row of batch) {
-            const to = (row.to_email || "").trim().toLowerCase();
-            const subject = (row.subject || "").toLowerCase();
-            const type = (row.type || "").toLowerCase();
-            if (!to) continue;
-            if (!(subject.includes("quote") || type === "quote")) continue;
-            const curr = map[to];
-            if (!curr || new Date(row.createdAt).getTime() > new Date(curr).getTime()) map[to] = row.createdAt;
-          }
-
-          skip += batch.length;
-          if (batch.length === 0) break;
-        }
-
-        sessionStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), map }));
-        setQuoteSentAt(map[email] || null);
-      } catch {
-        // best effort only
-      }
-    })();
-  }, [job?.client?.contactDetails?.email, job?.stage]);
+    setDirectoryError(false);
+    void loadSalesDirectory(token).then(users => {
+      if (localStorage.getItem("token") === token) setUsers(users);
+    }).catch(() => { if (localStorage.getItem("token") === token) setDirectoryError(true); });
+  }, []);
 
   useEffect(() => {
-    const email = job?.client?.contactDetails?.email?.trim().toLowerCase();
-    if (!email || !job?.ebaForm?.complete) {
-      setEbaSentAt(null);
-      return;
+    if (sheet === "allocate" && users === null) loadDirectory();
+  }, [loadDirectory, sheet, users]);
+
+  const sentEmail = job?.client?.contactDetails?.email?.trim().toLowerCase();
+  const wantsQuoteSent = job?.stage === "QUOTE" || job?.stage === "SCHEDULED";
+  const wantsEbaSent = !!job?.ebaForm?.complete;
+  useEffect(() => {
+    setQuoteSentAt(null);
+    setEbaSentAt(null);
+    const token = localStorage.getItem("token");
+    if (!token || !sentEmail || (!wantsQuoteSent && !wantsEbaSent)) return;
+    let active = true;
+    function showEba(sentAt?: string | null) {
+      if (!active || !sentAt || localStorage.getItem("token") !== token) return;
+      setEbaSentAt(previous => previous && Date.parse(previous) > Date.parse(sentAt) ? previous : sentAt);
     }
-
-    const cacheKey = "eba-sent-email-map-v1";
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
-    if (!token) return;
-
-    (async () => {
-      try {
-        const cachedRaw = sessionStorage.getItem(cacheKey);
-        if (cachedRaw) {
-          const parsed = JSON.parse(cachedRaw) as { ts: number; map: Record<string, string> };
-          if (Date.now() - parsed.ts < 10 * 60 * 1000 && parsed.map?.[email]) {
-            setEbaSentAt(parsed.map[email]);
-            return;
-          }
-        }
-
-        let skip = 0;
-        const limit = 500;
-        let total = Number.MAX_SAFE_INTEGER;
-        const map: Record<string, string> = {};
-
-        while (skip < total) {
-          const res = await fetch("https://api.insulhub.nz/graphql", {
-            method: "POST",
-            headers: { "content-type": "application/json", "x-access-token": token },
-            body: JSON.stringify({
-              query: `query($skip:Int,$limit:Int){listEmailLogs(skip:$skip,limit:$limit){total results{createdAt type subject to_email}}}`,
-              variables: { skip, limit },
-            }),
-          });
-          const json = await res.json();
-          const data = json?.data?.listEmailLogs;
-          if (!data) break;
-
-          total = data.total;
-          const batch = data.results || [];
-          for (const row of batch) {
-            const to = (row.to_email || "").trim().toLowerCase();
-            if (!to || !isEBAEmailLog(row)) continue;
-            const curr = map[to];
-            if (!curr || new Date(row.createdAt).getTime() > new Date(curr).getTime()) map[to] = row.createdAt;
-          }
-
-          skip += batch.length;
-          if (batch.length === 0) break;
-        }
-
-        sessionStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), map }));
-        setEbaSentAt(map[email] || null);
-      } catch {
-        // best effort only
-      }
-    })();
-  }, [job?.client?.contactDetails?.email, job?.ebaForm?.complete]);
+    if (wantsEbaSent) void readRecordedEba(id, sentEmail, token).then(showEba).catch(() => {});
+    const timer = window.setTimeout(() => void loadCrmEmailIndex(token).then(index => {
+      if (!active || localStorage.getItem("token") !== token) return;
+      if (wantsQuoteSent) setQuoteSentAt(index.quote[sentEmail] || null);
+      if (wantsEbaSent) showEba(index.eba[sentEmail]);
+    }).catch(() => {}), 400);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [id, sentEmail, wantsEbaSent, wantsQuoteSent]);
 
   useEffect(() => {
     if (!toast) return;
@@ -1150,14 +1052,7 @@ export default function JobDetailPage() {
   }
 
   function setJobNotes(notes: string) {
-    setJob((prev) => {
-      if (!prev) return prev;
-      const nextJob = { ...prev, notes };
-      if (typeof window !== "undefined") {
-        sessionStorage.setItem(`job-cache:${id}`, JSON.stringify({ ts: Date.now(), job: nextJob }));
-      }
-      return nextJob;
-    });
+    setJob(prev => prev ? { ...prev, notes } : prev);
   }
 
   async function saveNotesFast(nextNotes: string, onError?: () => void, keepOpen = false) {
@@ -1175,9 +1070,6 @@ export default function JobDetailPage() {
       return true;
     } catch (err) {
       setJob(previousJob);
-      if (previousJob && typeof window !== "undefined") {
-        sessionStorage.setItem(`job-cache:${id}`, JSON.stringify({ ts: Date.now(), job: previousJob }));
-      }
       onError?.();
       setError(err instanceof Error ? err.message : "Could not save notes");
       return false;
@@ -1192,12 +1084,7 @@ export default function JobDetailPage() {
     try {
       // Save the certificate's canonical consent before enabling the exception.
       if (nextValue) await persistConsentNumber("N/A");
-      await saveInstallPlanningMeta({
-        status: installMeta.status,
-        note: installMeta.note,
-        councilApprovalNA: nextValue,
-        installScope: installMeta.installScope,
-      });
+      await saveInstallPlanningMeta({ councilApprovalNA: nextValue });
       // Re-enabling council requirements must not leave N/A looking like a real consent.
       if (!nextValue && job?.council?.consentNumber?.trim().toUpperCase() === "N/A") await persistConsentNumber("");
       await load();
@@ -1237,7 +1124,7 @@ export default function JobDetailPage() {
     }
 
     const previousJob = job;
-    const nextUser = nextUserId ? users.find((u) => u._id === nextUserId) : undefined;
+    const nextUser = nextUserId ? users?.find((u) => u._id === nextUserId) : undefined;
     const nextAllocatedTo = nextUser
       ? { _id: nextUser._id, firstname: nextUser.firstname, lastname: nextUser.lastname }
       : undefined;
@@ -1268,9 +1155,6 @@ export default function JobDetailPage() {
           notes: result.updateJob.notes,
           lead: result.updateJob.lead,
         };
-        if (typeof window !== "undefined") {
-          sessionStorage.setItem(`job-cache:${id}`, JSON.stringify({ ts: Date.now(), job: nextJob }));
-        }
         return nextJob;
       });
     } catch (err) {
@@ -1630,7 +1514,7 @@ export default function JobDetailPage() {
       const fileNames: string[] = json.fileNames || [];
       if (!fileNames.length) throw new Error("Upload failed");
       await gql(ADD_FILES, { _id: id, documentType: "QUOTE_SITE_PLAN", fileNames });
-      const fresh = await gql<{ job: Job }>(JOB_QUERY, { _id: id });
+      const fresh = await gql<{ job: Job }>(JOB_DETAIL_QUERY, { _id: id });
       const persistedFiles = fresh.job.quote?.files_QuoteSitePlan || [];
       const missingFiles = fileNames.filter((fileName) => !persistedFiles.includes(fileName));
       if (missingFiles.length > 0) throw new Error("Upload completed, but the site plan was not attached to this job.");
@@ -1828,22 +1712,16 @@ export default function JobDetailPage() {
       setToast(msg);
       return;
     }
-    await run(() => gql(SEND_EBA, { jobId: id }));
-    const sentAt = new Date().toISOString();
-    setEbaSentAt(sentAt);
-    const email = job.client?.contactDetails?.email?.trim().toLowerCase();
-    if (email && typeof window !== "undefined") {
-      const cacheKey = "eba-sent-email-map-v1";
-      let map: Record<string, string> = {};
-      try {
-        const cachedRaw = sessionStorage.getItem(cacheKey);
-        if (cachedRaw) map = JSON.parse(cachedRaw)?.map || {};
-      } catch {}
-      sessionStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), map: { ...map, [email]: sentAt } }));
-    }
-    const msg = { type: "success" as const, text: "EBA email sent." };
-    setNotice(msg);
-    setToast(msg);
+    const token = getToken();
+    await run(() => gql(SEND_EBA, { jobId: id }), () => {
+      const sentAt = new Date().toISOString();
+      setEbaSentAt(sentAt);
+      const email = job.client?.contactDetails?.email?.trim().toLowerCase();
+      if (email && token) void rememberRecordedEba(id, email, token, sentAt).catch(() => {});
+      const msg = { type: "success" as const, text: "EBA email sent." };
+      setNotice(msg);
+      setToast(msg);
+    });
   }
 
   async function saveInstallDate() {
@@ -1859,7 +1737,6 @@ export default function JobDetailPage() {
         saveInstallPlanningMeta({
           status: installPlanningStatus,
           note: installPlanningNote,
-          councilApprovalNA: installMeta.councilApprovalNA,
           installScope: installPlanningScope || installMeta.installScope,
         }),
         gql(
@@ -2129,15 +2006,16 @@ export default function JobDetailPage() {
       input: sendInput,
       emailQuoteToCustomer: true,
       quotePDFEmailBodyTemplate: template,
-    }));
-    setQuoteSentAt(new Date().toISOString());
-    const msg = { type: "success" as const, text: "Quote sent to customer." };
-    setNotice(msg);
-    setToast(msg);
+    }), () => {
+      setQuoteSentAt(new Date().toISOString());
+      const msg = { type: "success" as const, text: "Quote sent to customer." };
+      setNotice(msg);
+      setToast(msg);
+    });
   }
 
   // ── Render ─────────────────────────────────────────────────────
-  if (loading) return (
+  if (loading || (job && job._id !== id)) return (
     <div className="min-h-screen bg-gray-50">
       <div className="bg-[#1a3a4a] h-28 animate-pulse" />
       <div className="px-4 pt-4 space-y-3">
@@ -2190,7 +2068,7 @@ export default function JobDetailPage() {
   }
   const templateFields = buildContactTemplateFields({ ...job, installation: { ...job.installation, installDate: fromDatetimeLocal(installDate) || job.installation?.installDate } }, loggedInUserFirstName || loggedInUserName);
   const visibleContactTemplates = contactTemplates.filter((template) => template.channel === contactTemplateMode);
-  const assignableUsers = users.filter((u) => (u.role || "").toUpperCase() !== "INSTALLER");
+  const assignableUsers = (users || []).filter((u) => (u.role || "").toUpperCase() !== "INSTALLER");
   const hasWall = !!job.quote?.wall?.SQM;
   const hasCeiling = !!job.quote?.ceiling?.SQM;
   const quoteExtras = (job.quote?.extras || []).filter((extra) => (
@@ -3398,6 +3276,9 @@ export default function JobDetailPage() {
             className={`w-full text-left px-4 py-3 rounded-xl border text-sm ${!selectedUserId ? "border-[#e85d04] bg-orange-50 text-[#e85d04] font-medium" : "border-gray-200 text-gray-700"} disabled:opacity-50`}>
             Unallocated
           </button>
+          {users === null && <p role="status" className="text-sm text-gray-500">
+            {directoryError ? <button onClick={loadDirectory} className="underline">Retry loading salespeople</button> : "Loading salespeople…"}
+          </p>}
           {assignableUsers.map((u) => (
             <button key={u._id} onClick={() => { setSelectedUserId(u._id); void saveAllocate(u._id); }} disabled={saving}
               className={`w-full text-left px-4 py-3 rounded-xl border text-sm ${selectedUserId === u._id ? "border-[#e85d04] bg-orange-50 text-[#e85d04] font-medium" : "border-gray-200 text-gray-700"} disabled:opacity-50`}>

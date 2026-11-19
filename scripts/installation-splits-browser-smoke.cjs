@@ -75,6 +75,12 @@ const base =
               /^\s*query\b/,
               "No real upstream mutations in browser verification",
             );
+            if (body.query.includes("query BoardRevisitParents")) {
+              const parents = Object.entries(body.variables).map(([key, id]) => [
+                key.replace("job", "parent"), id === job._id ? job : null,
+              ]);
+              return send({ data: Object.fromEntries(parents) });
+            }
             return send({
               data: {
                 jobs: { total: body.variables?.stages && !body.variables.stages.includes(job.stage) ? 0 : 1, results: body.variables?.stages && !body.variables.stages.includes(job.stage) ? [] : [job] },
