@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { CALENDAR_STAGES, calendarVisits } from "@/lib/installation-splits/views";
 import { readCalendarSplits } from "@/lib/installation-splits/store";
 import { calendarDateBounds, calendarDay } from "@/lib/calendar/dates";
-import { tokenFromRequest } from "@/lib/insulhub-auth";
+import { requireInsulhubAuth, tokenFromRequest } from "@/lib/insulhub-auth";
+import { ensureOverlaySchema } from "@/lib/overlay-db";
 
 interface CalendarJob {
   _id: string;
@@ -204,7 +205,13 @@ export async function GET(request: NextRequest) {
     const signal = AbortSignal.any([request.signal, AbortSignal.timeout(12000)]);
     const [sources, splits] = await Promise.all([
       timed("jobs", jobsInRange(token, calendarDateBounds(start, end), signal)),
-      timed("splits", readCalendarSplits(start, end, includeUnscheduled)),
+      timed("auth", requireInsulhubAuth(request)).then(async denied => {
+        if (denied) {
+          throw new CalendarReadError(denied.status === 401 ? "Unauthorized" : "Could not verify calendar access", denied.status);
+        }
+        await ensureOverlaySchema();
+        return timed("splits", readCalendarSplits(start, end, includeUnscheduled));
+      }),
     ]);
     const missingIds = Object.entries(splits)
       .filter(([id, split]) => split && !sources.has(id))

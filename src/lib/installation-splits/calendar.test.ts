@@ -1,8 +1,12 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
-const mocks = vi.hoisted(() => ({ read: vi.fn(), fetch: vi.fn() }));
+const mocks = vi.hoisted(() => ({ read: vi.fn(), fetch: vi.fn(), auth: vi.fn(), schema: vi.fn() }));
 vi.mock("./store", () => ({ readCalendarSplits: mocks.read }));
-vi.mock("@/lib/insulhub-auth", () => ({ tokenFromRequest: (request: Request) => request.headers.get("x-access-token") }));
+vi.mock("@/lib/insulhub-auth", () => ({
+  tokenFromRequest: (request: Request) => request.headers.get("x-access-token"),
+  requireInsulhubAuth: mocks.auth,
+}));
+vi.mock("@/lib/overlay-db", () => ({ ensureOverlaySchema: mocks.schema }));
 import { GET } from "@/app/api/calendar/jobs/route";
 import { initialSplit } from "./projection";
 import { completeVisit } from "./model";
@@ -32,6 +36,8 @@ beforeEach(() => {
   vi.resetAllMocks();
   vi.stubGlobal("fetch", mocks.fetch);
   mocks.read.mockResolvedValue({});
+  mocks.auth.mockResolvedValue(null);
+  mocks.schema.mockResolvedValue(undefined);
   mocks.fetch.mockResolvedValue(list([regular]));
 });
 
@@ -127,4 +133,11 @@ it("fails visibly when range results, split source results or split storage are 
   expect((await GET(req())).status).toBe(500);
   mocks.read.mockRejectedValueOnce(Error("storage unavailable"));
   expect((await GET(req())).status).toBe(500);
+});
+
+it("never queries the overlay until CRM access has been verified", async () => {
+  mocks.auth.mockResolvedValue(new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 }));
+  expect((await GET(req())).status).toBe(401);
+  expect(mocks.schema).not.toHaveBeenCalled();
+  expect(mocks.read).not.toHaveBeenCalled();
 });
