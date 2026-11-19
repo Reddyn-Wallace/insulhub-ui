@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { CALENDAR_STAGES, calendarVisits } from "@/lib/installation-splits/views";
 import { readCalendarSplits } from "@/lib/installation-splits/store";
-import { calendarDateBounds, calendarDay } from "@/lib/calendar/dates";
+import { calendarDateBatches, calendarDateBounds, calendarDay } from "@/lib/calendar/dates";
 import { requireInsulhubAuth, tokenFromRequest } from "@/lib/insulhub-auth";
 import { ensureOverlaySchema } from "@/lib/overlay-db";
 
@@ -182,7 +182,7 @@ async function loadRevisitSources(token: string, ids: string[], signal: AbortSig
 
 export async function GET(request: NextRequest) {
   const timings: string[] = [];
-  const speculation = new AbortController();
+  const work = new AbortController();
   const timed = async <T,>(name: string, work: Promise<T>) => {
     const start = performance.now();
     try {
@@ -203,13 +203,24 @@ export async function GET(request: NextRequest) {
     if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const includeUnscheduled = searchParams.get("includeUnscheduled") !== "0";
-    const signal = AbortSignal.any([request.signal, AbortSignal.timeout(12000)]);
+    const signal = AbortSignal.any([request.signal, AbortSignal.timeout(12000), work.signal]);
+    const batches = includeUnscheduled ? [calendarDateBounds(start, end)] : calendarDateBatches(start, end);
     let dateSources: Map<string, CalendarJob> | undefined;
-    const dateLoad = timed("jobs", jobsInRange(token, calendarDateBounds(start, end), signal))
-      .then(sources => {
-        dateSources = sources;
-        return sources;
-      });
+    const dateLoad = timed("jobs", (async () => {
+      const parts = await Promise.all(batches.map((bounds, index) =>
+        batches.length === 1 ? jobsInRange(token, bounds, signal) :
+          timed(`days_${index + 1}`, jobsInRange(token, bounds, signal)),
+      ));
+      const sources = new Map<string, CalendarJob>();
+      for (const part of parts) {
+        for (const [id, job] of part) {
+          if (sources.has(id)) throw new Error("Jobs changed while loading. Refresh the calendar.");
+          sources.set(id, job);
+        }
+      }
+      dateSources = sources;
+      return sources;
+    })());
     const splitLoad = timed("auth", requireInsulhubAuth(request)).then(async denied => {
       if (denied) {
         throw new CalendarReadError(denied.status === 401 ? "Unauthorized" : "Could not verify calendar access", denied.status);
@@ -223,7 +234,7 @@ export async function GET(request: NextRequest) {
       // Overlap the two upstream reads when the index arrives first. A date
       // response that already has every source can skip the speculative work.
       const pending = sourceIds.length
-        ? timed("revisits", loadRevisitSources(token, sourceIds, AbortSignal.any([signal, speculation.signal])))
+        ? timed("revisits", loadRevisitSources(token, sourceIds, signal))
           .then(rows => ({ rows }), (error: unknown) => ({ error }))
         : null;
       return { splits, sourceIds, pending };
@@ -259,6 +270,6 @@ export async function GET(request: NextRequest) {
       error instanceof Error ? error.message : "Failed to load calendar jobs";
     return NextResponse.json({ error: message }, { status, headers: headers() });
   } finally {
-    speculation.abort();
+    work.abort();
   }
 }

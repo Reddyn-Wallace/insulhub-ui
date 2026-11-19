@@ -197,3 +197,30 @@ it("retries only a real missing source if an overlapping lookup fails", async ()
   expect(queryAt(2).variables).toEqual({ id0: outOfRange._id });
   expect((await result.json()).jobs).toHaveLength(2);
 });
+
+it("loads a six-week calendar as three concurrent, gap-free NZ date batches", async () => {
+  const finishes: Array<(response: unknown) => void> = [];
+  mocks.fetch.mockImplementation(() => new Promise(resolve => { finishes.push(resolve); }));
+  const loading = GET(req("start=2026-09-21&end=2026-11-01&includeUnscheduled=0"));
+  try {
+    await vi.waitFor(() => expect(finishes).toHaveLength(3), { timeout: 350 });
+    const expected = [
+      ["2026-09-20T12:00:00.000Z", "2026-10-04T10:59:59.999Z"],
+      ["2026-10-04T11:00:00.000Z", "2026-10-18T10:59:59.999Z"],
+      ["2026-10-18T11:00:00.000Z", "2026-11-01T10:59:59.999Z"],
+    ];
+    for (const [index, [start, end]] of expected.entries()) {
+      expect(queryAt(index).variables).toMatchObject({ installStartDate: start, installEndDate: end });
+    }
+  } finally {
+    finishes.forEach((finish, index) => finish(list([{
+      ...job,
+      _id: String(index),
+      installation: { installDate: ["2026-09-23", "2026-10-08", "2026-10-21"][index] },
+    }])));
+    await loading;
+  }
+  const result = await loading;
+  expect(result.status).toBe(200);
+  expect((await result.json()).jobs).toHaveLength(3);
+});
