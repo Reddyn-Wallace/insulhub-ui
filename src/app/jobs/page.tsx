@@ -11,8 +11,9 @@ import { getSplitRevision, loadSplits } from "@/lib/installation-splits/client";
 import { searchVisits } from "@/lib/installation-splits/views";
 import { isBoardStage, loadBoard, recentBoard, warmBoard, type BoardJob as Job, type BoardRows, type JobsData } from "@/lib/crm-read/board";
 import { loadSalesDirectory } from "@/lib/crm-read/directory";
+import { calendarLastWriteKey } from "@/lib/calendar/cache";
 import { crmFreshMs } from "@/lib/crm-read/client";
-import { boardPageSize as PAGE_SIZE, compareQuoteDate, loadQuoteContacts, quoteContactsKey, QuoteSelectionChanged, quoteState, type QuoteContacts } from "@/lib/crm-read/quotes";
+import { boardPageSize as PAGE_SIZE, compareQuoteDate, loadQuoteContacts, quoteContactsKey, QuoteSelectionChanged, quoteState, recentQuoteContacts, type QuoteContacts } from "@/lib/crm-read/quotes";
 import { loadCrmEmailIndex } from "@/lib/crm-read/sent-index";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { LEAD_SOURCE_OPTIONS, canonicalLeadSourceLabel, normalizeLeadSourceValue } from "@/lib/lead-sources";
@@ -72,6 +73,8 @@ function JobsPageContent() {
   const leadSourceMenuRef = useRef<HTMLDivElement | null>(null);
   const sortPreferenceKey = useCallback((stage: string) => `${SORT_PREFERENCE_KEY}:${stage}`, []);
   const viewedStage = useRef<string | null>(null);
+  const recoveredBoard = useRef(false);
+  const recoveredQuoteCards = useRef(false);
   const refreshedQuoteSelection = useRef<string | null>(null);
 
   useEffect(() => {
@@ -202,10 +205,16 @@ function JobsPageContent() {
       if (!isBoardStage(activeStage)) throw Error("This job stage is unavailable.");
       const cached = await recentBoard(activeStage, token);
       if (!current()) return;
-      if (cached && !force) setResult({ key: resultKey, ...cached.data });
-      if (!force && cached && Date.now() - cached.checkedAt < crmFreshMs) return;
+      if (cached && !force) {
+        recoveredBoard.current = cached.recovered === true;
+        setResult({ key: resultKey, ...cached.data });
+      }
+      if (!force && cached && !cached.recovered && Date.now() - cached.checkedAt < crmFreshMs) return;
       const data = await loadBoard(activeStage, token);
-      if (current()) setResult({ key: resultKey, ...data });
+      if (current()) {
+        recoveredBoard.current = false;
+        setResult({ key: resultKey, ...data });
+      }
     } catch (err) {
       if (!current()) return;
       const message = err instanceof Error ? err.message : "Failed to load jobs.";
@@ -221,7 +230,16 @@ function JobsPageContent() {
 
   useEffect(() => {
     const token = localStorage.getItem("token");
-    const changeSession = (event: StorageEvent) => {
+    const onSharedStorage = (event: StorageEvent) => {
+      if (event.key === calendarLastWriteKey && localStorage.getItem("token") === token &&
+          (recoveredBoard.current || recoveredQuoteCards.current)) {
+        recoveredBoard.current = false;
+        recoveredQuoteCards.current = false;
+        setResult(null);
+        setQuoteCards(null);
+        void fetchJobs(true);
+        return;
+      }
       if ((event.key === "token" || event.key === null) && localStorage.getItem("token") !== token) {
         ++fetchIdRef.current;
         setResult(null);
@@ -233,9 +251,9 @@ function JobsPageContent() {
         else router.replace("/login");
       }
     };
-    window.addEventListener("storage", changeSession);
-    return () => window.removeEventListener("storage", changeSession);
-  }, [router]);
+    window.addEventListener("storage", onSharedStorage);
+    return () => window.removeEventListener("storage", onSharedStorage);
+  }, [fetchJobs, router]);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -419,14 +437,23 @@ function JobsPageContent() {
     let active = true;
     setQuoteCardsError(null);
     const selection = visibleRows.map(job => job._id).sort().join(",");
-    void loadQuoteContacts(visibleRows, token)
+    void recentQuoteContacts(visibleRows, token).then(prior => {
+      if (!active || localStorage.getItem("token") !== token) return;
+      if (prior) {
+        recoveredQuoteCards.current = prior.recovered === true;
+        setQuoteCards({ key: quoteCardKey, data: prior.data });
+      }
+      return loadQuoteContacts(visibleRows, token);
+    })
       .then(data => {
-        if (!active || localStorage.getItem("token") !== token) return;
+        if (!data || !active || localStorage.getItem("token") !== token) return;
         refreshedQuoteSelection.current = null;
+        recoveredQuoteCards.current = false;
         setQuoteCards({ key: quoteCardKey, data });
       })
       .catch(err => {
         if (active && localStorage.getItem("token") === token) {
+          recoveredQuoteCards.current = false;
           setQuoteCards(null);
           setQuoteCardsError({ key: quoteCardKey, message: err instanceof Error ? err.message : "Could not load quote cards." });
           if (err instanceof QuoteSelectionChanged && refreshedQuoteSelection.current !== selection) {

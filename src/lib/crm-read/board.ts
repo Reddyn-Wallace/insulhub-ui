@@ -129,7 +129,7 @@ export async function warmBoard(stage: string) {
   const token = localStorage.getItem("token");
   if (!token || !isBoardStage(stage)) return;
   const cached = await recentBoard(stage, token);
-  const rows = cached && Date.now() - cached.checkedAt < crmFreshMs ? cached.data : await loadBoard(stage, token);
+  const rows = cached && !cached.recovered && Date.now() - cached.checkedAt < crmFreshMs ? cached.data : await loadBoard(stage, token);
   if (stage === "QUOTE") {
     const newest = localStorage.getItem(quoteSortPreference) === "newest";
     const open = rows.jobs.filter(job => quoteState(job) === "OPEN")

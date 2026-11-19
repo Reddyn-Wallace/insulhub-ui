@@ -1,4 +1,5 @@
 import { calendarDataRevision, calendarLastWrite, invalidateCalendarData } from "./calendar/cache";
+import { clearCrmBrowserSession } from "./crm-read/session";
 import {isTrackedMutation} from './dead-followups/dates';
 import {
   type BrowserCacheStorage,
@@ -19,8 +20,7 @@ const inFlightQueries = new Map<string, Promise<unknown>>();
 
 function forceLogout(token: string | null) {
   if (typeof window !== "undefined" && localStorage.getItem("token") === token) {
-    localStorage.removeItem("token");
-    localStorage.removeItem("me");
+    clearCrmBrowserSession();
     window.location.href = "/login";
     return true;
   }

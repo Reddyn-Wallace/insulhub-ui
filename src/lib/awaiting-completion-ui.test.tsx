@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import JobsPage from "@/app/jobs/page";
 import JobsLayout from "@/app/jobs/layout";
 const mocks = vi.hoisted(() => ({ replace: vi.fn(), push: vi.fn(), prefetch: vi.fn(), requests: [] as Record<string, unknown>[], params: new URLSearchParams("stage=JOBS") }));
@@ -52,7 +52,7 @@ it("loads only active job stages instead of scanning the entire history", async 
   localStorage.setItem("token", "test");
   render(<JobsPage />);
   await screen.findByText("Pending customer");
-  expect(mocks.requests.length).toBeGreaterThan(0);
+  await waitFor(() => expect(mocks.requests.length).toBeGreaterThan(0));
   expect(mocks.requests.every((request) => Array.isArray(request.stages))).toBe(true);
   expect(mocks.requests).toContainEqual({ stages: ["SCHEDULED", "INSTALLATION", "INVOICE"], skip: 0, limit: 5000 });
 });
