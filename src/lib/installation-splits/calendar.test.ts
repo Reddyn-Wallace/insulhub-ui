@@ -1,12 +1,18 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
-const mocks = vi.hoisted(() => ({ read: vi.fn(), fetch: vi.fn(), auth: vi.fn(), schema: vi.fn() }));
+const mocks = vi.hoisted(() => ({ read: vi.fn(), fetch: vi.fn(), auth: vi.fn(), schema: vi.fn(), shared: vi.fn() }));
 vi.mock("./store", () => ({ readCalendarSplits: mocks.read }));
 vi.mock("@/lib/insulhub-auth", () => ({
   tokenFromRequest: (request: Request) => request.headers.get("x-access-token"),
   requireInsulhubAuth: mocks.auth,
 }));
 vi.mock("@/lib/overlay-db", () => ({ ensureOverlaySchema: mocks.schema }));
+vi.mock("@/lib/calendar/shared-schedule", () => ({
+  sharedScheduleTtlSeconds: 60,
+  readSharedSchedule: mocks.shared,
+  writeSharedSchedule: vi.fn(),
+  forgetSharedSchedule: vi.fn(),
+}));
 import { GET } from "@/app/api/calendar/jobs/route";
 import { initialSplit } from "./projection";
 import { completeVisit } from "./model";
@@ -247,5 +253,25 @@ it("rechecks the source when a recent schedule has expired", async () => {
     expect(mocks.fetch).toHaveBeenCalledTimes(2);
   } finally {
     clock.mockRestore();
+  }
+});
+
+it("can reopen the same schedule on a fresh worker after rechecking CRM access", async () => {
+  vi.stubEnv("VERCEL", "1");
+  try {
+    const calendar = new NextRequest(
+      "http://localhost/api/calendar/jobs?start=2026-11-01&end=2026-11-30&includeUnscheduled=0&read=recent",
+      { headers: { "x-access-token": "empty-worker" } },
+    );
+    const cached = { jobs: [regular], unscheduled: [], checkedAt: Date.now() };
+    mocks.shared.mockResolvedValue(cached);
+    const result = await GET(calendar);
+    expect(result.status).toBe(200);
+    expect(await result.json()).toEqual(cached);
+    expect(result.headers.get("server-timing")).toContain("snapshot_shared;dur=");
+    expect(mocks.auth).toHaveBeenCalledWith(calendar, 0);
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllEnvs();
   }
 });

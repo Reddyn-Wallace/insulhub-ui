@@ -47,6 +47,7 @@
     "src/lib/installation-splits/projection.test.ts",
     "src/lib/installation-splits/calendar.test.ts",
     "src/lib/calendar/cache.test.ts",
+    "src/lib/calendar/shared-schedule.test.ts",
     "scripts/calendar-performance-browser-smoke.cjs",
     "src/lib/installation-splits/sales-report.test.ts",
     "src/lib/installation-splits/store.integration.test.ts",
