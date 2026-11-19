@@ -4,11 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { getSplitRevision } from "@/lib/installation-splits/client";
 import InstallationVisits from "@/components/InstallationVisits";
-import { calendarSource, calendarVisits, replaceCalendarJob } from "@/lib/installation-splits/views";
+import { calendarSource, calendarVisits } from "@/lib/installation-splits/views";
 import type { SavedSplit, VisitLabel } from "@/lib/installation-splits/projection";
 import { useRouter } from "next/navigation";
 import { gql } from "@/lib/graphql";
-import { readBrowserCache, writeBrowserCache } from "@/lib/client-cache";
+import { CalendarCacheInvalidated, calendarCacheScope, calendarDataRevision, createCalendarCache } from "@/lib/calendar/cache";
+import { calendarDateBounds, calendarDay } from "@/lib/calendar/dates";
 import BottomSheet from "@/components/BottomSheet";
 import InstallPlanningForm, { InstallPlanningActions } from "@/components/InstallPlanningForm";
 import { parseInstallMeta } from "@/lib/install-planning";
@@ -138,18 +139,6 @@ function dateKeyLocal(date: Date) {
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
-}
-
-function dateKeyFromIsoNz(iso?: string | null) {
-  if (!iso) return null;
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return null;
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Pacific/Auckland",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(date);
 }
 
 function formatMonth(date: Date) {
@@ -285,10 +274,6 @@ function sameInstallDate(a?: string | null, b?: string | null) {
   return !Number.isNaN(aTime) && !Number.isNaN(bTime) && aTime === bTime;
 }
 
-function sameInstallPlanning(a: InstallPlanningMeta, b: InstallPlanningMeta) {
-  return a.status === b.status && a.scope === b.scope && a.note === b.note;
-}
-
 function timeFromDatetimeLocal(value?: string | null) {
   const local = toDatetimeLocal(value);
   if (!local || !local.includes("T")) return "";
@@ -300,99 +285,81 @@ function mergeDateAndTime(date: Date, time: string) {
   return `${dateKeyLocal(date)}T${safeTime}`;
 }
 
-const CALENDAR_RAW_CACHE_PREFIX = "calendar:install-jobs-window:v3:";
-const CALENDAR_VIEW_CACHE_PREFIX = "calendar:view:v3:";
-const OVERLAY_CACHE_TTL_MS = 60 * 1000;
-
-type CalendarCachePayload = { jobs: CalendarJob[]; ts: number };
-
-let calendarSplitRevision = 0;
-const calendarMemoryCache = new Map<string, CalendarCachePayload>();
-const rawJobsMemoryCache = new Map<string, CalendarCachePayload>();
+const refreshAfterMs = 30_000;
+const jobsCache = createCalendarCache<CalendarJob[]>("jobs");
+const placeholderCache = createCalendarCache<CalendarPlaceholder[]>("placeholders");
+const planningCache = createCalendarCache<Record<string, InstallPlanningMeta>>("planning");
+const noJobs: CalendarJob[] = [];
+const noPlaceholders: CalendarPlaceholder[] = [];
 
 function calendarRangeForMonth(month: Date) {
-  const monthStart = startOfMonth(month);
-  const monthEnd = endOfMonth(month);
-  const calendarStart = startOfWeekMonday(monthStart);
-  const calendarEnd = addDays(startOfWeekMonday(addDays(monthEnd, 1)), 6);
-  const cacheKey = `${dateKeyLocal(calendarStart)}_${dateKeyLocal(calendarEnd)}`;
-  return { calendarStart, calendarEnd, cacheKey };
+  const calendarStart = startOfWeekMonday(month);
+  const calendarEnd = addDays(startOfWeekMonday(endOfMonth(month)), 6);
+  const from = dateKeyLocal(calendarStart);
+  const to = dateKeyLocal(calendarEnd);
+  return { calendarStart, calendarEnd, from, to, key: `${from}_${to}` };
 }
 
-function calendarLoadRangeForMonth(month: Date) {
-  const previous = calendarRangeForMonth(addMonths(month, -1));
-  const next = calendarRangeForMonth(addMonths(month, 1));
-  const cacheKey = `${previous.cacheKey}_${next.cacheKey}`;
-  return { calendarStart: previous.calendarStart, calendarEnd: next.calendarEnd, cacheKey };
+type MonthRange = ReturnType<typeof calendarRangeForMonth>;
+type CalendarRead = "jobs" | "placeholders" | "planning";
+
+function inWindow(key: string, date?: string | null) {
+  const day = calendarDay(date);
+  const [from, to] = key.split("_");
+  return day >= from && day <= to;
 }
 
-function filterJobsForRange(jobs: CalendarJob[], calendarStart: Date, calendarEnd: Date) {
-  const startKey = dateKeyLocal(calendarStart);
-  const endKey = dateKeyLocal(calendarEnd);
-  return jobs.filter((job) => {
-    const key = dateKeyFromIsoNz(job.installation?.installDate);
-    if (!key) return false;
-    return key >= startKey && key <= endKey;
+class CalendarRequestError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+  }
+}
+
+async function readCalendar<T>(path: string, token: string, errorMessage: string): Promise<T> {
+  const response = await fetch(path, {
+    headers: { "x-access-token": token },
+    cache: "no-store",
+    signal: AbortSignal.timeout(14_000),
   });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data) throw new CalendarRequestError(data?.error || errorMessage, response.status);
+  return data as T;
 }
 
-function readSessionPayload(key: string): CalendarCachePayload | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.sessionStorage.getItem(key);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as CalendarJob[] | CalendarCachePayload;
-    if (Array.isArray(parsed)) return { jobs: parsed, ts: 0 };
-    return { jobs: parsed.jobs || [], ts: parsed.ts || 0 };
-  } catch {
-    return null;
-  }
-}
-
-function writeSessionPayload(key: string, payload: CalendarCachePayload) {
-  if (typeof window === "undefined") return;
-  try {
-    window.sessionStorage.setItem(key, JSON.stringify(payload));
-  } catch {
-    // Storage can fail in private mode or when quota is exceeded.
-  }
-}
-
-function clearCalendarSessionCache() {
-  calendarMemoryCache.clear();
-  rawJobsMemoryCache.clear();
-
-  if (typeof window === "undefined") return;
-  try {
-    const keysToRemove: string[] = [];
-    for (let i = 0; i < window.sessionStorage.length; i += 1) {
-      const key = window.sessionStorage.key(i);
-      if (
-        key?.startsWith(CALENDAR_RAW_CACHE_PREFIX) ||
-        key?.startsWith(CALENDAR_VIEW_CACHE_PREFIX) ||
-        key?.startsWith("calendar:") ||
-        key?.startsWith("install-planning:") ||
-        key?.startsWith("calendar-placeholders:")
-      ) {
-        keysToRemove.push(key);
-      }
-    }
-    keysToRemove.forEach((key) => window.sessionStorage.removeItem(key));
-  } catch {
-    // Best-effort cache invalidation only.
-  }
+function loadMonthJobs(scope: string, token: string, range: MonthRange) {
+  return jobsCache.refresh(scope, range.key, async () => {
+    const revision = calendarDataRevision();
+    const splitRevision = getSplitRevision();
+    const params = new URLSearchParams({ start: range.from, end: range.to, includeUnscheduled: "0" });
+    const data = await readCalendar<{ jobs: CalendarJob[] }>(
+      `/api/calendar/jobs?${params}`, token, "Could not load scheduled jobs.",
+    );
+    if (revision !== calendarDataRevision() || splitRevision !== getSplitRevision()) throw new CalendarCacheInvalidated();
+    if (!Array.isArray(data.jobs)) throw Error("The calendar returned an incomplete schedule.");
+    return data.jobs;
+  });
 }
 
 export default function JobsCalendarPage() {
   const router = useRouter();
   const { confirm, dialog } = useAppDialog();
   const [monthCursor, setMonthCursor] = useState(() => startOfMonth(new Date()));
-  const [jobs, setJobs] = useState<CalendarJob[]>([]);
-  const loadSequence = useRef(0);
+  const range = useMemo(() => calendarRangeForMonth(monthCursor), [monthCursor]);
+  const [jobView, setJobView] = useState<{ key: string; rows: CalendarJob[] } | null>(null);
+  const [placeholderView, setPlaceholderView] = useState<{ key: string; rows: CalendarPlaceholder[] } | null>(null);
+  const [issues, setIssues] = useState<Partial<Record<CalendarRead, string>>>({});
+  const hasJobs = jobView?.key === range.key;
+  const jobs = hasJobs ? jobView.rows : noJobs;
+  const placeholders = placeholderView?.key === range.key ? placeholderView.rows : noPlaceholders;
+  const loading = !hasJobs && !issues.jobs;
+  const scopeRef = useRef<string | null>(null);
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const calendarStartedAt = useRef<number | null>(null);
+  const loads = useRef({ jobs: 0, placeholders: 0, planning: 0 });
   const [visitsEditing,setVisitsEditing] = useState(false);
-  const [placeholders, setPlaceholders] = useState<CalendarPlaceholder[]>([]);
   const [installPlanningByJobId, setInstallPlanningByJobId] = useState<Record<string, InstallPlanningMeta>>({});
-  const [loading, setLoading] = useState(true);
+  const [verifiedPlanningKey, setVerifiedPlanningKey] = useState("");
+  const [planningDraft, setPlanningDraft] = useState<{ jobId: string; original: InstallPlanningMeta } | null>(null);
   const [error, setError] = useState("");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [placeholderSheetOpen, setPlaceholderSheetOpen] = useState(false);
@@ -410,9 +377,6 @@ export default function JobsCalendarPage() {
   const [installDate, setInstallDate] = useState("");
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const calendarCache = useRef(calendarMemoryCache);
-  const rawJobsCache = useRef(rawJobsMemoryCache);
-  const visibleJobsCountRef = useRef(0);
   const calendarHeaderRef = useRef<HTMLDivElement | null>(null);
   const todayWeekRef = useRef<HTMLDivElement | null>(null);
   const todayScrollTimeoutRef = useRef<number | null>(null);
@@ -422,121 +386,90 @@ export default function JobsCalendarPage() {
   const todayKey = useMemo(() => dateKeyLocal(todayAnchor), [todayAnchor]);
   const todayWeekStartKey = useMemo(() => dateKeyLocal(startOfWeekMonday(todayAnchor)), [todayAnchor]);
 
-  useEffect(() => {
-    visibleJobsCountRef.current = jobs.length;
-  }, [jobs.length]);
+  const reportIssue = useCallback((source: CalendarRead, message?: string) => {
+    setIssues(previous => previous[source] === message ? previous : { ...previous, [source]: message });
+  }, []);
+
+  const clearScopedCalendar = useCallback(() => {
+    ++loads.current.jobs;
+    ++loads.current.placeholders;
+    ++loads.current.planning;
+    const scope = scopeRef.current;
+    if (scope) {
+      jobsCache.patch(scope, () => undefined);
+      placeholderCache.patch(scope, () => undefined);
+      planningCache.patch(scope, () => undefined);
+    }
+    scopeRef.current = null;
+    setJobView(null);
+    setPlaceholderView(null);
+    setInstallPlanningByJobId({});
+    setVerifiedPlanningKey("");
+    setSheetOpen(false);
+    setSelectedJob(null);
+    setPlaceholderSheetOpen(false);
+    setSelectedPlaceholder(null);
+    setRefreshing(false);
+    setIssues({});
+  }, []);
 
   const load = useCallback(async (force = false) => {
-    setError("");
-    const sequence = ++loadSequence.current;
-    const splitRevision = getSplitRevision();
-    if (calendarSplitRevision !== splitRevision) {
-      calendarCache.current.clear(); rawJobsCache.current.clear();
-      calendarSplitRevision = splitRevision;
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    const sequence = ++loads.current.jobs;
+    const current = () => sequence === loads.current.jobs && localStorage.getItem("token") === token;
+    reportIssue("jobs");
+    if (calendarStartedAt.current === null) {
+      const navigation = performance.getEntriesByType("navigation")[0];
+      const menuClick = performance.getEntriesByName("installation-calendar-navigation", "mark").at(-1);
+      calendarStartedAt.current = menuClick?.startTime ?? (navigation?.name === window.location.href ? 0 : performance.now());
+      performance.clearMarks("installation-calendar-navigation");
     }
-    const { calendarStart, calendarEnd, cacheKey } = calendarRangeForMonth(monthCursor);
-    const loadRange = calendarLoadRangeForMonth(monthCursor);
-    const viewCacheKey = `${CALENDAR_VIEW_CACHE_PREFIX}${cacheKey}`;
-    const rawCacheKey = `${CALENDAR_RAW_CACHE_PREFIX}${loadRange.cacheKey}`;
-    let renderedFromCache = force && visibleJobsCountRef.current > 0;
-
-    const renderFromRaw = (payload: CalendarCachePayload) => {
-      const filtered = filterJobsForRange(payload.jobs, calendarStart, calendarEnd);
-      const viewPayload = { jobs: filtered, ts: payload.ts || Date.now() };
-      calendarCache.current.set(cacheKey, viewPayload);
-      writeSessionPayload(viewCacheKey, viewPayload);
-      setJobs(filtered);
-      setLoading(false);
-      renderedFromCache = true;
-    };
-
+    const scope = await calendarCacheScope(token);
+    if (!current()) return;
+    scopeRef.current = scope;
+    const cached = jobsCache.read(scope, range.key);
+    if (cached) setJobView({ key: range.key, rows: cached.data });
+    if (!force && cached && Date.now() - cached.at < refreshAfterMs) {
+      setRefreshing(false);
+      return;
+    }
+    setRefreshing(true);
     try {
-      if (!force) {
-        const memoryCached = calendarCache.current.get(cacheKey);
-        if (memoryCached) {
-          setJobs(memoryCached.jobs);
-          setLoading(false);
-          renderedFromCache = true;
-
-        }
-
-        const viewCached = readSessionPayload(viewCacheKey);
-        if (viewCached) {
-          calendarCache.current.set(cacheKey, viewCached);
-          setJobs(viewCached.jobs);
-          setLoading(false);
-          renderedFromCache = true;
-
-        }
-
-        const rawCached = rawJobsCache.current.get(loadRange.cacheKey) || readSessionPayload(rawCacheKey);
-        if (rawCached?.jobs.length) {
-          rawJobsCache.current.set(loadRange.cacheKey, rawCached);
-          renderFromRaw(rawCached);
-
-        }
-      }
-
-      if (renderedFromCache || force) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
-
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      if (!token) throw new Error("Unauthorized");
-
-      const params = new URLSearchParams({
-        start: new Date(
-          loadRange.calendarStart.getFullYear(),
-          loadRange.calendarStart.getMonth(),
-          loadRange.calendarStart.getDate(),
-          0,
-          0,
-          0,
-          0
-        ).toISOString(),
-        end: new Date(
-          loadRange.calendarEnd.getFullYear(),
-          loadRange.calendarEnd.getMonth(),
-          loadRange.calendarEnd.getDate(),
-          23,
-          59,
-          59,
-          999
-        ).toISOString(),
-      });
-
-      const res = await fetch(`/api/calendar/jobs?${params.toString()}`, {
-        headers: { "x-access-token": token },
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || "Failed to load installation calendar");
-
-      if (sequence !== loadSequence.current || splitRevision !== getSplitRevision()) return;
-      const rawPayload = { jobs: json.jobs || [], ts: Date.now() };
-      rawJobsCache.current.set(loadRange.cacheKey, rawPayload);
-      writeSessionPayload(rawCacheKey, rawPayload);
-
-      renderFromRaw(rawPayload);
-
-      for (const adjacentMonth of [addMonths(monthCursor, -1), addMonths(monthCursor, 1)]) {
-        const adjacentRange = calendarRangeForMonth(adjacentMonth);
-        const adjacentPayload = {
-          jobs: filterJobsForRange(rawPayload.jobs, adjacentRange.calendarStart, adjacentRange.calendarEnd),
-          ts: rawPayload.ts,
-        };
-        calendarCache.current.set(adjacentRange.cacheKey, adjacentPayload);
-        writeSessionPayload(`${CALENDAR_VIEW_CACHE_PREFIX}${adjacentRange.cacheKey}`, adjacentPayload);
-      }
+      const rows = await loadMonthJobs(scope, token, range);
+      if (current()) setJobView({ key: range.key, rows });
     } catch (err) {
-      if (sequence !== loadSequence.current || splitRevision !== getSplitRevision()) return;
-      const msg = err instanceof Error ? err.message : "Failed to load installation calendar";
-      if (msg !== "Unauthorized") setError(`${msg} — displayed cached totals may be out of date.`);
+      if (!current() || err instanceof CalendarCacheInvalidated) return;
+      if (err instanceof CalendarRequestError && [401, 403].includes(err.status)) {
+        clearScopedCalendar();
+      }
+      reportIssue("jobs", err instanceof Error ? err.message : "Could not load scheduled jobs.");
     } finally {
-      if (sequence === loadSequence.current) { setLoading(false); setRefreshing(false); }
+      if (current()) setRefreshing(false);
     }
-  }, [monthCursor]);
+  }, [clearScopedCalendar, range, reportIssue]);
+
+  const updateJob = (jobId: string, replacement: CalendarJob[]) => {
+    const patch = (key: string, rows: CalendarJob[]) => {
+      const additions = replacement.filter(job => inWindow(key, job.installation?.installDate));
+      if (!additions.length && !rows.some(job => job._id === jobId)) return rows;
+      return [...rows.filter(job => job._id !== jobId), ...additions];
+    };
+    if (scopeRef.current) jobsCache.patch(scopeRef.current, patch);
+    setJobView(view => view ? { ...view, rows: patch(view.key, view.rows) } : view);
+  };
+
+  const updatePlaceholder = (id: string, replacement?: CalendarPlaceholder) => {
+    const patch = (key: string, rows: CalendarPlaceholder[]) => {
+      const remaining = rows.filter(row => row.id !== id);
+      return replacement && inWindow(key, replacement.startsAt) ? [...remaining, replacement] : remaining;
+    };
+    if (scopeRef.current) placeholderCache.patch(scopeRef.current, patch);
+    setPlaceholderView(view => {
+      const current = view?.key === range.key ? view.rows : noPlaceholders;
+      return { key: range.key, rows: patch(range.key, current) };
+    });
+  };
 
   const getInstallPlanning = useCallback((job: CalendarJob): InstallPlanningMeta => {
     return installPlanningByJobId[job._id] || parseInstallMeta(job.notes);
@@ -544,7 +477,7 @@ export default function JobsCalendarPage() {
 
   const saveInstallPlanningMeta = useCallback(async (
     jobId: string,
-    planning: InstallPlanningMeta,
+    planning: Partial<InstallPlanningMeta>,
   ) => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (!token) throw new Error("Missing auth token");
@@ -565,83 +498,168 @@ export default function JobsCalendarPage() {
     const json = await res.json();
     if (!res.ok) throw new Error(json?.error || "Could not save install planning");
     const nextPlanning = toCalendarInstallPlanning(json.planning);
+    if (scopeRef.current) planningCache.patch(scopeRef.current, (ids, data) =>
+      ids.split(",").includes(jobId) ? { ...data, [jobId]: nextPlanning } : data,
+    );
     setInstallPlanningByJobId((prev) => ({ ...prev, [jobId]: nextPlanning }));
     return nextPlanning;
   }, []);
 
-  const loadPlaceholders = useCallback(async () => {
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const loadPlaceholders = useCallback(async (force = false) => {
+    const token = localStorage.getItem("token");
     if (!token) return;
-
-    const { calendarStart, calendarEnd } = calendarRangeForMonth(monthCursor);
-    const params = new URLSearchParams({
-      start: new Date(calendarStart.getFullYear(), calendarStart.getMonth(), calendarStart.getDate(), 0, 0, 0, 0).toISOString(),
-      end: new Date(calendarEnd.getFullYear(), calendarEnd.getMonth(), calendarEnd.getDate(), 23, 59, 59, 999).toISOString(),
-    });
-    const cacheKey = `calendar-placeholders:${params.toString()}`;
-    const cached = readBrowserCache<CalendarPlaceholder[]>(cacheKey, OVERLAY_CACHE_TTL_MS);
-    if (cached) setPlaceholders(cached);
+    const sequence = ++loads.current.placeholders;
+    const current = () => sequence === loads.current.placeholders && localStorage.getItem("token") === token;
+    reportIssue("placeholders");
+    const scope = await calendarCacheScope(token);
+    if (!current()) return;
+    const entry = placeholderCache.read(scope, range.key);
+    if (entry) setPlaceholderView({ key: range.key, rows: entry.data });
+    if (!force && entry && Date.now() - entry.at < refreshAfterMs) return;
 
     try {
-      const res = await fetch(`/api/calendar/placeholders?${params.toString()}`, {
-        headers: { "x-access-token": token },
+      const rows = await placeholderCache.refresh(scope, range.key, async () => {
+        const params = new URLSearchParams(calendarDateBounds(range.from, range.to));
+        const data = await readCalendar<{ placeholders: CalendarPlaceholder[] }>(
+          `/api/calendar/placeholders?${params}`, token, "Could not load placeholders.",
+        );
+        if (!Array.isArray(data.placeholders)) throw Error("The calendar returned incomplete placeholders.");
+        return data.placeholders;
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || "Failed to load placeholders");
-      const nextPlaceholders = json.placeholders || [];
-      setPlaceholders(nextPlaceholders);
-      writeBrowserCache(cacheKey, nextPlaceholders);
+      if (current()) setPlaceholderView({ key: range.key, rows });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load placeholders");
+      if (!current() || err instanceof CalendarCacheInvalidated) return;
+      reportIssue("placeholders", err instanceof Error ? err.message : "Could not load placeholders.");
     }
-  }, [monthCursor]);
+  }, [range, reportIssue]);
 
-  const loadInstallPlanning = useCallback(async (calendarJobs: CalendarJob[]) => {
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-    if (!token || calendarJobs.length === 0) return;
-
-    const params = new URLSearchParams({
-      jobIds: calendarJobs.map((job) => job._id).join(","),
-    });
-    const cacheKey = `install-planning:${params.toString()}`;
-    const cached = readBrowserCache<Record<string, InstallPlanningMeta>>(cacheKey, OVERLAY_CACHE_TTL_MS);
-    if (cached) setInstallPlanningByJobId(cached);
+  const planningKey = useMemo(() => [...new Set(jobs.map(job => job._id))].sort().join(","), [jobs]);
+  const loadInstallPlanning = useCallback(async (force = false) => {
+    const token = localStorage.getItem("token");
+    const sequence = ++loads.current.planning;
+    const current = () => sequence === loads.current.planning && localStorage.getItem("token") === token;
+    reportIssue("planning");
+    if (!token || !planningKey) return;
+    const scope = await calendarCacheScope(token);
+    if (!current()) return;
+    const entry = planningCache.read(scope, planningKey);
+    if (entry) setInstallPlanningByJobId(entry.data);
+    if (!force && entry && Date.now() - entry.at < refreshAfterMs) {
+      setVerifiedPlanningKey(planningKey);
+      return;
+    }
+    setVerifiedPlanningKey("");
 
     try {
-      const res = await fetch(`/api/install-planning?${params.toString()}`, {
-        headers: { "x-access-token": token },
+      const rows = await planningCache.refresh(scope, planningKey, async () => {
+        const ids = planningKey.split(",");
+        const requests = [];
+        for (let index = 0; index < ids.length; index += 75) {
+          const params = new URLSearchParams({ jobIds: ids.slice(index, index + 75).join(",") });
+          requests.push(readCalendar<{ planning: InstallPlanningApiRow[] }>(
+            `/api/install-planning?${params}`, token, "Could not load install planning.",
+          ));
+        }
+        const next: Record<string, InstallPlanningMeta> = {};
+        for (const { planning } of await Promise.all(requests)) {
+          for (const row of planning) {
+            if (row.jobId) next[row.jobId] = toCalendarInstallPlanning(row);
+          }
+        }
+        return next;
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || "Failed to load install planning");
-      const next: Record<string, InstallPlanningMeta> = {};
-      for (const row of json.planning || []) {
-        next[row.jobId] = toCalendarInstallPlanning(row);
+      if (current()) {
+        setInstallPlanningByJobId(rows);
+        setVerifiedPlanningKey(planningKey);
       }
-      setInstallPlanningByJobId(next);
-      writeBrowserCache(cacheKey, next);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load install planning");
+      if (!current() || err instanceof CalendarCacheInvalidated) return;
+      reportIssue("planning", err instanceof Error ? err.message : "Could not load install planning.");
     }
-  }, []);
+  }, [planningKey, reportIssue]);
 
   useEffect(() => {
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-    if (!token) {
+    const sessionToken = localStorage.getItem("token");
+    if (!sessionToken) {
       router.push("/login");
       return;
     }
-    load();
-    loadPlaceholders();
-  }, [load, loadPlaceholders, router]);
+    void load();
+    void loadPlaceholders();
+    const renew = () => {
+      if (document.visibilityState !== "visible") return;
+      void load();
+      void loadPlaceholders();
+    };
+    const sessionChanged = (event: StorageEvent) => {
+      if (event.key !== "token" && event.key !== null) return;
+      const token = localStorage.getItem("token");
+      if (token === sessionToken) return;
+      clearScopedCalendar();
+      if (token) window.location.reload();
+      else router.replace("/login");
+    };
+    window.addEventListener("focus", renew);
+    window.addEventListener("storage", sessionChanged);
+    return () => {
+      window.removeEventListener("focus", renew);
+      window.removeEventListener("storage", sessionChanged);
+      ++loads.current.jobs;
+      ++loads.current.placeholders;
+    };
+  }, [clearScopedCalendar, load, loadPlaceholders, router]);
 
   useEffect(() => {
-    loadInstallPlanning(jobs);
-  }, [jobs, loadInstallPlanning]);
+    void loadInstallPlanning();
+    const renew = () => {
+      if (document.visibilityState === "visible") void loadInstallPlanning();
+    };
+    window.addEventListener("focus", renew);
+    return () => {
+      window.removeEventListener("focus", renew);
+      ++loads.current.planning;
+    };
+  }, [loadInstallPlanning]);
+
+  useEffect(() => {
+    if (!hasJobs || refreshing || issues.jobs) return;
+    const scope = scopeRef.current;
+    const token = localStorage.getItem("token");
+    if (!scope || !token) return;
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      for (const distance of [1, -1]) {
+        if (!active || document.visibilityState !== "visible" || localStorage.getItem("token") !== token) break;
+        const neighbour = calendarRangeForMonth(addMonths(monthCursor, distance));
+        if (!jobsCache.read(scope, neighbour.key)) {
+          await loadMonthJobs(scope, token, neighbour).catch(() => {});
+        }
+      }
+    }, 400);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [hasJobs, issues.jobs, monthCursor, refreshing]);
+
+  useEffect(() => {
+    const grid = gridRef.current;
+    if (hasJobs && grid && calendarStartedAt.current !== null) {
+      grid.dataset.calendarReadyMs = String(Math.round(performance.now() - calendarStartedAt.current));
+    }
+  }, [hasJobs, range.key]);
+
+  const refreshCalendar = () => {
+    setError("");
+    void load(true);
+    void loadPlaceholders(true);
+    void loadInstallPlanning(true);
+  };
 
   const placeholdersByDay = useMemo(() => {
     const map = new Map<string, CalendarPlaceholder[]>();
     for (const placeholder of placeholders) {
-      const key = dateKeyFromIsoNz(placeholder.startsAt);
+      const key = calendarDay(placeholder.startsAt);
       if (!key) continue;
       const arr = map.get(key) || [];
       arr.push(placeholder);
@@ -723,11 +741,8 @@ export default function JobsCalendarPage() {
       );
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Could not save placeholder");
-      setPlaceholders((prev) => {
-        if (!selectedPlaceholder) return [...prev, json.placeholder];
-        return prev.map((placeholder) => placeholder.id === selectedPlaceholder.id ? json.placeholder : placeholder);
-      });
-      clearCalendarSessionCache();
+      updatePlaceholder(json.placeholder.id, json.placeholder);
+      void loadPlaceholders(true);
       closePlaceholderSheet();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save placeholder");
@@ -756,8 +771,8 @@ export default function JobsCalendarPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Could not remove placeholder");
-      setPlaceholders((prev) => prev.filter((placeholder) => placeholder.id !== placeholderId));
-      clearCalendarSessionCache();
+      updatePlaceholder(placeholderId);
+      void loadPlaceholders(true);
       if (selectedPlaceholder?.id === placeholderId) {
         setPlaceholderSheetOpen(false);
         setPlaceholderDate(null);
@@ -770,12 +785,22 @@ export default function JobsCalendarPage() {
     }
   };
 
-  const openJobSheet = (job: CalendarJob) => {
-    const meta = getInstallPlanning(job);
-    setSelectedJob(job);
+  const planningVerified = !!planningKey && verifiedPlanningKey === planningKey && !issues.planning;
+  const canEditPlanning = planningVerified && !!planningDraft && selectedJob?._id === planningDraft.jobId;
+
+  useEffect(() => {
+    if (!selectedJob || !planningVerified || selectedJob._id === planningDraft?.jobId) return;
+    const meta = getInstallPlanning(selectedJob);
     setInstallStatus(meta.status);
     setInstallScope(meta.scope || "");
     setInstallMetaNote(meta.note);
+    setPlanningDraft({ jobId: selectedJob._id, original: meta });
+  }, [getInstallPlanning, planningDraft, planningVerified, selectedJob]);
+
+  const openJobSheet = (job: CalendarJob) => {
+    setError("");
+    setPlanningDraft(null);
+    setSelectedJob(job);
     setInstallDate(toDatetimeLocal(job.installation?.installDate));
     setSheetOpen(true);
   };
@@ -808,7 +833,7 @@ export default function JobsCalendarPage() {
   };
 
   const saveInstallMeta = async () => {
-    if (!selectedJob) return;
+    if (!selectedJob || !canEditPlanning || !planningDraft) return;
     if (!installScope) {
       setError("Select install scope: Internal, External, or both.");
       return;
@@ -822,71 +847,37 @@ export default function JobsCalendarPage() {
         note: installMetaNote,
         scope: installScope,
       };
-      const originalPlanning = getInstallPlanning(selectedJob);
+      const original = planningDraft.original;
+      const changed: Partial<InstallPlanningMeta> = {};
+      if (nextPlanning.status !== original.status) changed.status = nextPlanning.status;
+      if (nextPlanning.scope !== original.scope) changed.scope = nextPlanning.scope;
+      if (nextPlanning.note !== original.note) changed.note = nextPlanning.note;
       const installDateChanged = !selectedJob.installationSplit && !sameInstallDate(selectedJob.installation?.installDate, nextInstallDate);
-      const planningChanged = !sameInstallPlanning(originalPlanning, nextPlanning);
+      const job = selectedJob;
       const requests: Promise<unknown>[] = [];
-      const jobId = selectedJob._id;
-      const previousInstallDate = selectedJob.installation?.installDate || null;
-      const hadOverlayPlanning = Boolean(installPlanningByJobId[jobId]);
-
-      if (planningChanged) {
-        setInstallPlanningByJobId((prev) => ({ ...prev, [jobId]: nextPlanning }));
-        requests.push(saveInstallPlanningMeta(jobId, nextPlanning));
+      if (Object.keys(changed).length) {
+        requests.push(saveInstallPlanningMeta(job._id, installPlanningByJobId[job._id] ? changed : nextPlanning));
       }
       if (installDateChanged) {
-        setJobs((prev) => prev.map((job) => job._id === jobId ? {
-          ...job,
-          installation: {
-            ...job.installation,
-            installDate: nextInstallDate,
-          },
-        } : job));
-        requests.push(
-          gql(UPDATE_INSTALLATION, {
-            input: {
-              _id: jobId,
-              installation: {
-                installDate: nextInstallDate,
-                installNote: selectedJob.installation?.installNote || "",
-                installStatus: selectedJob.installation?.installStatus || "JOB_NOT_STARTED_YET",
-                checkSheetSignedAsComplete: selectedJob.installation?.checkSheetSignedAsComplete ?? false,
-              },
+        requests.push(gql<{ updateJob: CalendarJob }>(UPDATE_INSTALLATION, {
+          input: {
+            _id: job._id,
+            installation: {
+              installDate: nextInstallDate,
+              installNote: job.installation?.installNote || "",
+              installStatus: job.installation?.installStatus || "JOB_NOT_STARTED_YET",
+              checkSheetSignedAsComplete: job.installation?.checkSheetSignedAsComplete ?? false,
             },
-          })
-        );
+          },
+        }, { calendarCacheHandled: true }).then(({ updateJob: saved }) => {
+          updateJob(job._id, [{ ...job, installation: { ...job.installation, ...saved.installation } }]);
+        }));
       }
-
+      const results = await Promise.allSettled(requests);
+      const failed = results.find(result => result.status === "rejected");
+      if (failed?.status === "rejected") throw failed.reason;
       setSheetOpen(false);
       setSelectedJob(null);
-
-      try {
-        if (requests.length > 0) {
-          await Promise.all(requests);
-          calendarCache.current.clear();
-          rawJobsCache.current.clear();
-          clearCalendarSessionCache();
-        }
-      } catch (err) {
-        if (planningChanged) {
-          setInstallPlanningByJobId((prev) => {
-            const next = { ...prev };
-            if (hadOverlayPlanning) next[jobId] = originalPlanning;
-            else delete next[jobId];
-            return next;
-          });
-        }
-        if (installDateChanged) {
-          setJobs((prev) => prev.map((job) => job._id === jobId ? {
-            ...job,
-            installation: {
-              ...job.installation,
-              installDate: previousInstallDate,
-            },
-          } : job));
-        }
-        throw err;
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save install planning details");
     } finally {
@@ -909,17 +900,8 @@ export default function JobsCalendarPage() {
             checkSheetSignedAsComplete: selectedJob.installation?.checkSheetSignedAsComplete ?? false,
           },
         },
-      });
-      setJobs((prev) => prev.map((job) => job._id === selectedJob._id ? {
-        ...job,
-        installation: {
-          ...job.installation,
-          installDate: null,
-        },
-      } : job));
-      calendarCache.current.clear();
-      rawJobsCache.current.clear();
-      clearCalendarSessionCache();
+      }, { calendarCacheHandled: true });
+      updateJob(selectedJob._id, []);
       setInstallDate("");
       setSheetOpen(false);
       setSelectedJob(null);
@@ -933,7 +915,7 @@ export default function JobsCalendarPage() {
   const jobsByDay = useMemo(() => {
     const map = new Map<string, CalendarJob[]>();
     for (const job of jobs) {
-      const key = dateKeyFromIsoNz(job.installation?.installDate);
+      const key = calendarDay(job.installation?.installDate);
       if (!key) continue;
       const arr = map.get(key) || [];
       arr.push(job);
@@ -951,9 +933,7 @@ export default function JobsCalendarPage() {
 
   const weeks = useMemo(() => {
     const monthStart = startOfMonth(monthCursor);
-    const gridStart = startOfWeekMonday(monthStart);
-    const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
-    const lastGridDay = addDays(startOfWeekMonday(monthEnd), 6);
+    const { calendarStart: gridStart, calendarEnd: lastGridDay } = range;
 
     const rows: Array<{
       weekStart: Date;
@@ -1019,7 +999,7 @@ export default function JobsCalendarPage() {
     }
 
     return rows;
-  }, [jobsByDay, monthCursor, placeholdersByDay]);
+  }, [jobsByDay, monthCursor, placeholdersByDay, range]);
 
   const scrollToTodayWeek = useCallback((behavior: ScrollBehavior = "smooth") => {
     const node = todayWeekRef.current;
@@ -1059,6 +1039,7 @@ export default function JobsCalendarPage() {
     const nextTodayMonth = startOfMonth(nextToday);
     shouldScrollToTodayRef.current = true;
     setTodayAnchor(nextToday);
+    if (!sameMonth(monthCursor, nextTodayMonth)) calendarStartedAt.current = performance.now();
     setMonthCursor(nextTodayMonth);
     if (sameMonth(monthCursor, nextTodayMonth)) {
       if (scrollToTodayWeek()) {
@@ -1069,6 +1050,7 @@ export default function JobsCalendarPage() {
 
   const changeMonth = useCallback((amount: number) => {
     shouldScrollToTodayRef.current = false;
+    calendarStartedAt.current = performance.now();
     setMonthCursor((curr) => addMonths(curr, amount));
     scrollToPageTop();
   }, []);
@@ -1084,7 +1066,7 @@ export default function JobsCalendarPage() {
             <p className="text-sm text-gray-500">Accepted, in-progress, invoice, and completed jobs with install dates.</p>
           </div>
           <button
-            onClick={() => load(true)}
+            onClick={refreshCalendar}
             disabled={refreshing}
             className="px-3 py-2 text-xs font-semibold rounded-lg border border-gray-200 bg-white text-gray-700 disabled:opacity-50"
           >
@@ -1121,18 +1103,33 @@ export default function JobsCalendarPage() {
       </div>
 
       <div className="px-4 py-4">
-        {loading ? (
-          <div className="bg-white border border-gray-100 rounded-2xl p-8 flex flex-col items-center justify-center gap-3">
+        {error && !sheetOpen && !placeholderSheetOpen && <p role="alert" className="mb-3 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+        {issues.jobs && (
+          <div role="status" className="mb-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            {hasJobs ? "Scheduled jobs couldn’t refresh. Showing the last loaded schedule." : issues.jobs}
+            <button type="button" onClick={() => void load(true)} className="ml-2 underline">Retry</button>
+          </div>
+        )}
+        {issues.placeholders && (
+          <div role="status" className="mb-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            Placeholders couldn’t refresh. Placeholder entries may be incomplete.
+            <button type="button" onClick={() => void loadPlaceholders(true)} className="ml-2 underline">Retry placeholders</button>
+          </div>
+        )}
+        {issues.planning && (
+          <div role="status" className="mb-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            Install planning couldn’t refresh. Check booking details before making changes.
+            <button type="button" onClick={() => void loadInstallPlanning(true)} className="ml-2 underline">Retry install planning</button>
+          </div>
+        )}
+        {loading && (
+          <div role="status" className="bg-white border border-gray-100 rounded-2xl p-8 flex flex-col items-center justify-center gap-3">
             <div className="h-8 w-8 rounded-full border-2 border-[#e85d04] border-t-transparent animate-spin" />
             <div className="text-sm text-gray-500">Loading calendar</div>
           </div>
-        ) : error ? (
-          <div className="bg-red-50 text-red-700 text-sm px-4 py-3 rounded-xl">
-            {error}
-            <button onClick={() => load(true)} className="ml-2 underline">Retry</button>
-          </div>
-        ) : (
-          <div className="space-y-4 overflow-x-auto pb-4">
+        )}
+        {hasJobs && (
+          <div key={range.key} ref={gridRef} data-calendar-ready={range.key} className="space-y-4 overflow-x-auto pb-4">
             <div className="min-w-[1100px]">
               <div className="grid grid-cols-[repeat(7,minmax(0,1fr))_150px] gap-2 mb-3">
                 {WEEKDAY_LABELS.map((label) => (
@@ -1348,6 +1345,7 @@ export default function JobsCalendarPage() {
               />
             </div>
 
+            {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
             <div className="flex gap-2">
               <button onClick={closePlaceholderSheet} className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl">Cancel</button>
               {selectedPlaceholder && (
@@ -1392,24 +1390,13 @@ export default function JobsCalendarPage() {
             <InstallationVisits key={selectedJob._id} jobId={selectedJob._id}
               initialData={selectedJob.installationSplit !== undefined ? {job:calendarSource(selectedJob),split:selectedJob.installationSplit} : undefined}
               onEditingChange={setVisitsEditing}
+              calendarCacheHandled
               onSaved={(split) => {
-                calendarSplitRevision = getSplitRevision();
-                const source = calendarSource(selectedJob);
-                ++loadSequence.current;
-                const range = calendarRangeForMonth(monthCursor);
-                calendarCache.current.clear(); rawJobsCache.current.clear(); clearCalendarSessionCache();
-                setJobs(prev => {
-                  const updated = filterJobsForRange(replaceCalendarJob(prev,source,split),range.calendarStart,range.calendarEnd);
-                  const payload = {jobs:updated,ts:Date.now()};
-                  calendarCache.current.set(range.cacheKey,payload);
-                  writeSessionPayload(`${CALENDAR_VIEW_CACHE_PREFIX}${range.cacheKey}`,payload);
-                  return updated;
-                });
-                const cards = calendarVisits(source,split);
-                setSelectedJob(cards.find(v=>v.splitVisit?.id===selectedJob.splitVisit?.id) || cards[0]);
-                setLoading(false); setRefreshing(false);
+                const cards = calendarVisits(calendarSource(selectedJob), split);
+                updateJob(selectedJob._id, cards);
+                setSelectedJob(cards.find(card => card.splitVisit?.id === selectedJob.splitVisit?.id) || cards[0]);
               }} />
-            <InstallPlanningForm
+            {canEditPlanning ? <InstallPlanningForm
               hideDate={!!selectedJob.installationSplit}
               installDate={installDate}
               onInstallDateChange={setInstallDate}
@@ -1424,11 +1411,19 @@ export default function JobsCalendarPage() {
               onScopeChange={setInstallScope}
               note={installMetaNote}
               onNoteChange={setInstallMetaNote}
-            />
+            /> : (
+              <div role="status" className="text-sm text-gray-600">
+                {issues.planning || !planningKey ? "Install planning is unavailable." : "Checking install planning…"}
+                {issues.planning && (
+                  <button type="button" onClick={() => void loadInstallPlanning(true)} className="ml-2 underline">Retry</button>
+                )}
+              </div>
+            )}
 
+            {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
             <InstallPlanningActions
               saving={saving}
-              canSave={!visitsEditing && (!!selectedJob.installationSplit || !!installDate) && !!installScope}
+              canSave={canEditPlanning && !visitsEditing && (!!selectedJob.installationSplit || !!installDate) && !!installScope}
               onCancel={closeSheet}
               onSave={saveInstallMeta}
             />

@@ -4,6 +4,7 @@ import InstallationVisits from "@/components/InstallationVisits";
 import type { SavedSplit } from "@/lib/installation-splits/projection";
 import {displayFollowupNotes} from '@/lib/dead-followups/note-display';
 
+import { invalidateCalendarPlanning } from "@/lib/calendar/cache";
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
 import { gql } from "@/lib/graphql";
@@ -607,6 +608,7 @@ export default function JobDetailPage() {
     });
     const json = await res.json();
     if (!res.ok) throw new Error(json?.error || "Could not save install planning");
+    invalidateCalendarPlanning();
     setInstallPlanningMeta(json.planning);
     return json.planning as InstallPlanningMeta;
   }, [id, installPlanningMeta]);

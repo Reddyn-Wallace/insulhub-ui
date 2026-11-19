@@ -11,9 +11,10 @@ function displayDate(date: string | null) {
   return date ? new Date(date + "T00:00:00Z").toLocaleDateString("en-NZ", {day:"numeric",month:"short",year:"numeric",timeZone:"Pacific/Auckland"}) : "Unscheduled";
 }
 export default function InstallationVisits({
-  jobId, initialData, onLoaded, onSaved, onEditingChange,
+  jobId, initialData, onLoaded, onSaved, onEditingChange, calendarCacheHandled,
 }: {
   onEditingChange?: (editing:boolean) => void;
+  calendarCacheHandled?: boolean;
   jobId: string;
   initialData?: Data;
   onLoaded?: (split: SavedSplit | null) => void;
@@ -89,7 +90,7 @@ export default function InstallationVisits({
         action:"edit",version:split?.version ?? 0,visits:rows,reason,
       });
       setData({...data,split:result.split}); setEditing(false);
-      invalidateSplitCaches(); onLoaded?.(result.split); onSaved?.(result.split);
+      invalidateSplitCaches(calendarCacheHandled); onLoaded?.(result.split); onSaved?.(result.split);
     } catch(e) { setError(e instanceof Error ? e.message : "Could not save visits."); }
     finally { setSaving(false); }
   }

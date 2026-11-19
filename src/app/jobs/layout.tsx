@@ -13,7 +13,10 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
   const router = useRouter();
   const navigate = (href: string) => {
     const event = new CustomEvent("gm-report-navigate", { cancelable: true, detail: { href } });
-    if (window.dispatchEvent(event)) router.push(href);
+    if (window.dispatchEvent(event)) {
+      if (href === "/jobs/calendar" && pathname !== href) performance.mark("installation-calendar-navigation");
+      router.push(href);
+    }
   };
   const pathname = usePathname();
   const searchParams = useSearchParams();

@@ -1,3 +1,4 @@
+import { invalidateCalendarData } from "@/lib/calendar/cache";
 import { clearBrowserCachePrefixes } from "@/lib/client-cache";
 import type { SavedSplit } from "./projection";
 export async function splitRequest<T>(url: string, body?: unknown): Promise<T> {
@@ -28,11 +29,12 @@ export async function loadSplits(jobIds: string[]) {
 }
 let splitRevision = 0;
 export function getSplitRevision() { return splitRevision; }
-export function invalidateSplitCaches() {
+export function invalidateSplitCaches(calendarCacheHandled = false) {
   splitRevision++;
+  if (!calendarCacheHandled) invalidateCalendarData();
   clearBrowserCachePrefixes(
     [
-      "calendar:",
+      ...(!calendarCacheHandled ? ["calendar:"] : []),
       "calendar-view:",
       "calendar-raw",
       "gql:",

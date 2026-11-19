@@ -99,7 +99,9 @@ const base =
         if (url.pathname === "/api/installation-splits")
           return send({ splits: split ? { [job._id]: split } : {} });
         if (url.pathname === "/api/calendar/jobs") {
-          calendarRequests++;
+          const start = url.searchParams.get("start") || "";
+          const end = url.searchParams.get("end") || "";
+          if (start <= "2026-11-06" && end >= "2026-11-06") calendarRequests++;
           const projected = calendarVisits(job,split);
           return send({
             jobs: projected.filter((j) => j.installation.installDate),
