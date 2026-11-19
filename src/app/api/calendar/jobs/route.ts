@@ -182,6 +182,7 @@ async function loadRevisitSources(token: string, ids: string[], signal: AbortSig
 
 export async function GET(request: NextRequest) {
   const timings: string[] = [];
+  const speculation = new AbortController();
   const timed = async <T,>(name: string, work: Promise<T>) => {
     const start = performance.now();
     try {
@@ -203,22 +204,40 @@ export async function GET(request: NextRequest) {
 
     const includeUnscheduled = searchParams.get("includeUnscheduled") !== "0";
     const signal = AbortSignal.any([request.signal, AbortSignal.timeout(12000)]);
-    const [sources, splits] = await Promise.all([
-      timed("jobs", jobsInRange(token, calendarDateBounds(start, end), signal)),
-      timed("auth", requireInsulhubAuth(request)).then(async denied => {
-        if (denied) {
-          throw new CalendarReadError(denied.status === 401 ? "Unauthorized" : "Could not verify calendar access", denied.status);
-        }
-        await ensureOverlaySchema();
-        return timed("splits", readCalendarSplits(start, end, includeUnscheduled));
-      }),
-    ]);
-    const missingIds = Object.entries(splits)
-      .filter(([id, split]) => split && !sources.has(id))
-      .map(([id]) => id);
-    if (missingIds.length) {
-      for (const job of await timed("revisits", loadRevisitSources(token, missingIds, signal))) {
-        sources.set(job._id, job);
+    let dateSources: Map<string, CalendarJob> | undefined;
+    const dateLoad = timed("jobs", jobsInRange(token, calendarDateBounds(start, end), signal))
+      .then(sources => {
+        dateSources = sources;
+        return sources;
+      });
+    const splitLoad = timed("auth", requireInsulhubAuth(request)).then(async denied => {
+      if (denied) {
+        throw new CalendarReadError(denied.status === 401 ? "Unauthorized" : "Could not verify calendar access", denied.status);
+      }
+      await ensureOverlaySchema();
+      const splits = await timed("splits", readCalendarSplits(start, end, includeUnscheduled));
+      const sourceIds = Object.entries(splits)
+        .filter(([id, split]) => split && !dateSources?.has(id))
+        .map(([id]) => id);
+
+      // Overlap the two upstream reads when the index arrives first. A date
+      // response that already has every source can skip the speculative work.
+      const pending = sourceIds.length
+        ? timed("revisits", loadRevisitSources(token, sourceIds, AbortSignal.any([signal, speculation.signal])))
+          .then(rows => ({ rows }), (error: unknown) => ({ error }))
+        : null;
+      return { splits, sourceIds, pending };
+    });
+    const [sources, { splits, sourceIds, pending }] = await Promise.all([dateLoad, splitLoad]);
+    const missingIds = sourceIds.filter(id => !sources.has(id));
+    if (pending && missingIds.length) {
+      const result = await pending;
+      if ("error" in result && missingIds.length === sourceIds.length) throw result.error;
+      const revisits = "rows" in result
+        ? result.rows
+        : await timed("retry_revisits", loadRevisitSources(token, missingIds, signal));
+      for (const job of revisits) {
+        if (!sources.has(job._id)) sources.set(job._id, job);
       }
     }
 
@@ -239,5 +258,7 @@ export async function GET(request: NextRequest) {
     const message = timedOut ? "The calendar source took too long to respond" :
       error instanceof Error ? error.message : "Failed to load calendar jobs";
     return NextResponse.json({ error: message }, { status, headers: headers() });
+  } finally {
+    speculation.abort();
   }
 }
