@@ -12,14 +12,14 @@ export function tokenFromRequest(request: NextRequest) {
   return request.headers.get("x-access-token") || "";
 }
 
-export async function requireInsulhubAuth(request: NextRequest) {
+export async function requireInsulhubAuth(request: NextRequest, maxAgeMs = AUTH_CACHE_TTL_MS) {
   const token = tokenFromRequest(request);
   if (!token || token.length > 8192 || /[\r\n]/.test(token)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const cachedAt = authOkCache.get(token);
-  if (cachedAt && Date.now() - cachedAt < AUTH_CACHE_TTL_MS) {
+  if (cachedAt && Date.now() - cachedAt < maxAgeMs) {
     return null;
   }
 

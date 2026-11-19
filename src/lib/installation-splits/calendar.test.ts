@@ -198,44 +198,54 @@ it("retries only a real missing source if an overlapping lookup fails", async ()
   expect((await result.json()).jobs).toHaveLength(2);
 });
 
-it("loads a six-week calendar as three concurrent, gap-free NZ date batches", async () => {
-  const finishes: Array<(response: unknown) => void> = [];
-  mocks.fetch.mockImplementation(() => new Promise(resolve => { finishes.push(resolve); }));
-  const loading = GET(req("start=2026-09-21&end=2026-11-01&includeUnscheduled=0"));
-  try {
-    await vi.waitFor(() => expect(finishes).toHaveLength(4), { timeout: 350 });
-    const expected = [
-      ["2026-09-20T12:00:00.000Z", "2026-10-04T10:59:59.999Z"],
-      ["2026-10-04T11:00:00.000Z", "2026-10-18T10:59:59.999Z"],
-      ["2026-10-18T11:00:00.000Z", "2026-11-01T10:59:59.999Z"],
-    ];
-    for (const [index, [start, end]] of expected.entries()) {
-      expect(queryAt(index).variables).toMatchObject({ installStartDate: start, installEndDate: end });
-    }
-  } finally {
-    const rows = ["2026-09-23", "2026-10-08", "2026-10-21"].map((date, index) => ({
-      ...job, _id: String(index), installation: { installDate: date },
-    }));
-    finishes.forEach((finish, index) => finish(list(index === 3 ? rows : [rows[index]])));
-    await loading;
-  }
-  const result = await loading;
-  expect(result.status).toBe(200);
-  expect((await result.json()).jobs).toHaveLength(3);
+it("uses a recent verified result for the same signed-in user and date window", async () => {
+  const normal = () => new NextRequest(
+    "http://localhost/api/calendar/jobs?start=2026-11-01&end=2026-11-30&includeUnscheduled=0&read=recent",
+    { headers: { "x-access-token": "calendar-snapshot-test" } },
+  );
+  const first = await GET(normal());
+  expect(first.status).toBe(200);
+  const body = await first.json();
+  expect(body.checkedAt).toBeGreaterThan(0);
+  const repeat = await GET(normal());
+  expect(await repeat.json()).toEqual(body);
+  expect(mocks.fetch).toHaveBeenCalledOnce();
+  expect(mocks.auth).toHaveBeenLastCalledWith(expect.any(NextRequest), 0);
+  expect(repeat.headers.get("server-timing")).toContain("snapshot;dur=");
+
+  mocks.auth.mockResolvedValueOnce(new Response("Forbidden", { status: 401 }));
+  expect((await GET(normal())).status).toBe(401);
 });
 
-it("reads the full range when concurrent edits make the detailed batches disagree with the date manifest", async () => {
-  const moved = { ...job, installation: { installDate: "2026-11-14T00:00:00Z" } };
-  mocks.fetch
-    .mockResolvedValueOnce(list([]))
-    .mockResolvedValueOnce(list([regular]))
-    .mockResolvedValueOnce(list([]))
-    .mockResolvedValueOnce(list([regular, moved]))
-    .mockResolvedValueOnce(list([regular, moved]));
-  const result = await GET(req("start=2026-10-26&end=2026-12-06&includeUnscheduled=0"));
-  expect(result.status).toBe(200);
-  expect(queryAt(3).query).not.toContain("installerChecksheet");
-  expect(queryAt(4).query).toContain("installerChecksheet");
-  expect(result.headers.get("server-timing")).toContain("full_range;dur=");
-  expect((await result.json()).jobs).toHaveLength(2);
+it("scopes the recent snapshot to the signed-in token and lets explicit refresh bypass it", async () => {
+  const read = (token: string, mode = "recent") => GET(new NextRequest(
+    `http://localhost/api/calendar/jobs?start=2026-11-01&end=2026-11-30&includeUnscheduled=0&read=${mode}`,
+    { headers: { "x-access-token": token } },
+  ));
+  await read("cache-signer-a");
+  mocks.fetch.mockResolvedValueOnce(list([]));
+  expect((await (await read("cache-signer-b")).json()).jobs).toEqual([]);
+  mocks.fetch.mockResolvedValueOnce(list([]));
+  expect((await (await read("cache-signer-a", "live")).json()).jobs).toEqual([]);
+  expect(mocks.fetch).toHaveBeenCalledTimes(3);
+});
+
+it("rechecks the source when a recent schedule has expired", async () => {
+  const fixed = Date.now();
+  const clock = vi.spyOn(Date, "now").mockReturnValue(fixed);
+  const read = () => GET(new NextRequest(
+    "http://localhost/api/calendar/jobs?start=2026-11-01&end=2026-11-30&includeUnscheduled=0&read=recent",
+    { headers: { "x-access-token": "calendar-expiry-test" } },
+  ));
+  try {
+    await read();
+    clock.mockReturnValue(fixed + 60_001);
+    mocks.fetch.mockResolvedValueOnce(list([]));
+    const body = await (await read()).json();
+    expect(body.jobs).toEqual([]);
+    expect(body.checkedAt).toBe(fixed + 60_001);
+    expect(mocks.fetch).toHaveBeenCalledTimes(2);
+  } finally {
+    clock.mockRestore();
+  }
 });

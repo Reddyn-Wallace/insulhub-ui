@@ -8,7 +8,16 @@ export class CalendarCacheInvalidated extends Error {}
 
 let dataRevision = 0;
 export const calendarDataRevision = () => dataRevision;
-export function invalidateCalendarData() { dataRevision++; }
+const lastWriteKey = "calendar-last-write";
+export function calendarLastWrite() {
+  try { return Number(localStorage.getItem(lastWriteKey)) || 0; }
+  catch { return 0; }
+}
+export function invalidateCalendarData() {
+  dataRevision++;
+  try { localStorage.setItem(lastWriteKey, String(Date.now())); }
+  catch { /* Browser storage unavailable. */ }
+}
 
 export function invalidateCalendarPlanning() {
   invalidateCalendarData();
@@ -29,7 +38,7 @@ export function calendarCacheScope(token: string) {
 
 export function createCalendarCache<T>(name: string) {
   const prefix = (scope: string) => `calendar:${name}:v4:${scope}:`;
-  const pending = new Map<string, Promise<T>>();
+  const pending = new Map<string, { request: Promise<T>; live: boolean }>();
   const fallback = new Map<string, Entry<T>>();
   let fallbackRevision = dataRevision;
 
@@ -75,21 +84,21 @@ export function createCalendarCache<T>(name: string) {
     }
   }
 
-  function refresh(scope: string, key: string, load: () => Promise<T>): Promise<T> {
+  function refresh(scope: string, key: string, load: () => Promise<T>, live = false): Promise<T> {
     const id = prefix(scope) + key;
     const current = pending.get(id);
-    if (current) return current;
+    if (current && (!live || current.live)) return current.request;
 
     const request = load().then(data => {
-      if (pending.get(id) !== request) throw new CalendarCacheInvalidated();
+      if (pending.get(id)?.request !== request) throw new CalendarCacheInvalidated();
       const older = keys(scope).filter(existing => existing !== id);
       for (const key of older.slice(0, Math.max(0, older.length - limit + 1))) remove(key);
       write(id, { data, at: Date.now() });
       return data;
     }).finally(() => {
-      if (pending.get(id) === request) pending.delete(id);
+      if (pending.get(id)?.request === request) pending.delete(id);
     });
-    pending.set(id, request);
+    pending.set(id, { request, live });
     return request;
   }
 

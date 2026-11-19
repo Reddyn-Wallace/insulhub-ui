@@ -1,7 +1,8 @@
+import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { CALENDAR_STAGES, calendarVisits } from "@/lib/installation-splits/views";
 import { readCalendarSplits } from "@/lib/installation-splits/store";
-import { calendarDateBatches, calendarDateBounds, calendarDay } from "@/lib/calendar/dates";
+import { calendarDateBounds, calendarDay } from "@/lib/calendar/dates";
 import { requireInsulhubAuth, tokenFromRequest } from "@/lib/insulhub-auth";
 import { ensureOverlaySchema } from "@/lib/overlay-db";
 
@@ -80,19 +81,44 @@ const CALENDAR_JOB_FIELDS = `
     ceiling { SQM }
   }
 `;
-const calendarJobsQuery = (fields: string) => `
+const CALENDAR_JOBS_QUERY = `
   query CalendarJobs($stages: [JobStage!], $skip: Int, $limit: Int, $installStartDate: DateTimeISO, $installEndDate: DateTimeISO) {
     jobs(stages: $stages, skip: $skip, limit: $limit, installStartDate: $installStartDate, installEndDate: $installEndDate) {
       total
-      results { ${fields} }
+      results { ${CALENDAR_JOB_FIELDS} }
     }
   }
 `;
-const CALENDAR_JOBS_QUERY = calendarJobsQuery(CALENDAR_JOB_FIELDS);
-const CALENDAR_JOB_MANIFEST_QUERY = calendarJobsQuery("_id jobNumber stage archivedAt installation { installDate }");
 const pageSize = 250;
 const sourceBatchSize = 40;
 const stages: ReadonlySet<string> = new Set(CALENDAR_STAGES);
+
+type CalendarResponse = { jobs: CalendarJob[]; unscheduled: CalendarJob[]; checkedAt: number };
+const snapshots = new Map<string, CalendarResponse>();
+const snapshotMaxAge = 60_000;
+const maxSnapshots = 64;
+
+function snapshotScope(token: string) {
+  return `${createHash("sha256").update(token).digest("hex")}:`;
+}
+
+function forgetSchedules(token: string) {
+  const scope = snapshotScope(token);
+  for (const key of snapshots.keys()) {
+    if (key.startsWith(scope)) snapshots.delete(key);
+  }
+}
+
+function rememberSchedule(key: string, snapshot: CalendarResponse) {
+  if ((snapshots.get(key)?.checkedAt ?? 0) > snapshot.checkedAt) return;
+  snapshots.delete(key);
+  snapshots.set(key, snapshot);
+  while (snapshots.size > maxSnapshots) {
+    const oldest = snapshots.keys().next().value;
+    if (oldest !== undefined) snapshots.delete(oldest);
+  }
+}
+
 
 class CalendarReadError extends Error {
   constructor(message: string, readonly status: number) {
@@ -136,13 +162,11 @@ async function graphql<T>(
   return json.data as T;
 }
 
-async function jobsInRange(
-  token: string, bounds: { start: string; end: string }, signal: AbortSignal, query = CALENDAR_JOBS_QUERY,
-) {
+async function jobsInRange(token: string, bounds: { start: string; end: string }, signal: AbortSignal) {
   const jobs = new Map<string, CalendarJob>();
   let total: number | undefined;
   for (let page = 0; page < 100; page++) {
-    const data = await graphql<JobsData>(token, query, {
+    const data = await graphql<JobsData>(token, CALENDAR_JOBS_QUERY, {
       stages: CALENDAR_STAGES,
       skip: jobs.size,
       limit: pageSize,
@@ -186,7 +210,7 @@ async function loadRevisitSources(token: string, ids: string[], signal: AbortSig
 
 export async function GET(request: NextRequest) {
   const timings: string[] = [];
-  const work = new AbortController();
+  const speculation = new AbortController();
   const timed = async <T,>(name: string, work: Promise<T>) => {
     const start = performance.now();
     try {
@@ -195,7 +219,8 @@ export async function GET(request: NextRequest) {
       timings.push(`${name};dur=${(performance.now() - start).toFixed(1)}`);
     }
   };
-  const headers = () => ({ "Cache-Control": "no-store", "Server-Timing": timings.join(", ") });
+  const headers = () => ({ "Cache-Control": "private, no-store", "Server-Timing": timings.join(", ") });
+  const token = tokenFromRequest(request);
   try {
     const { searchParams } = new URL(request.url);
     const start = calendarDay(searchParams.get("start"));
@@ -203,43 +228,39 @@ export async function GET(request: NextRequest) {
     if (!start || !end || start > end) {
       return NextResponse.json({ error: "Valid start and end query params are required" }, { status: 400 });
     }
-    const token = tokenFromRequest(request);
     if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const includeUnscheduled = searchParams.get("includeUnscheduled") !== "0";
-    const signal = AbortSignal.any([request.signal, AbortSignal.timeout(12000), work.signal]);
-    const batches = includeUnscheduled ? [calendarDateBounds(start, end)] : calendarDateBatches(start, end);
-    let dateSources: Map<string, CalendarJob> | undefined;
-    const fullRange = calendarDateBounds(start, end);
-    const dateLoad = timed("jobs", (async () => {
-      if (batches.length === 1) return jobsInRange(token, fullRange, signal);
+    const read = searchParams.get("read");
+    const monthSize = Date.parse(end) - Date.parse(start) <= 41 * 86_400_000;
+    const key = !includeUnscheduled && monthSize && (read === "recent" || read === "live")
+      ? `${snapshotScope(token)}${start}:${end}` : null;
+    const checkedAt = Date.now();
+    const recent = key && read === "recent" ? snapshots.get(key) : undefined;
+    const useRecent = recent && checkedAt - recent.checkedAt < snapshotMaxAge;
+    // Recheck the legacy session on a hit. A live read also asks the jobs API,
+    // whose current permission decision supersedes an older overlay memo.
+    const authorize = timed("auth", useRecent ? requireInsulhubAuth(request, 0) : requireInsulhubAuth(request))
+      .then(denied => {
+        if (denied) {
+          throw new CalendarReadError(denied.status === 401 ? "Unauthorized" : "Could not verify calendar access", denied.status);
+        }
+      });
+    if (useRecent) {
+      await authorize;
+      timings.push("snapshot;dur=0");
+      return NextResponse.json(recent, { headers: headers() });
+    }
+    if (key && recent) snapshots.delete(key);
 
-      const partialJobs = batches.map((bounds, index) =>
-        timed(`days_${index + 1}`, jobsInRange(token, bounds, signal)),
-      );
-      const [parts, manifest] = await Promise.all([
-        Promise.all(partialJobs),
-        timed("manifest", jobsInRange(token, fullRange, signal, CALENDAR_JOB_MANIFEST_QUERY)),
-      ]);
-      const sources = new Map(parts.flatMap(part => [...part]));
-      const matches = sources.size === manifest.size &&
-        parts.reduce((count, part) => count + part.size, 0) === manifest.size &&
-        [...manifest].every(([id, job]) => {
-          const source = sources.get(id);
-          return source && source.installation?.installDate === job.installation?.installDate &&
-            source.stage === job.stage && source.archivedAt === job.archivedAt;
-        });
-      // A job can move between two independently read batches. Fall back to a
-      // single range if the authoritative list disagrees with the batch union.
-      return matches ? sources : timed("full_range", jobsInRange(token, fullRange, signal));
-    })()).then(sources => {
-      dateSources = sources;
-      return sources;
-    });
-    const splitLoad = timed("auth", requireInsulhubAuth(request)).then(async denied => {
-      if (denied) {
-        throw new CalendarReadError(denied.status === 401 ? "Unauthorized" : "Could not verify calendar access", denied.status);
-      }
+    const signal = AbortSignal.any([request.signal, AbortSignal.timeout(12000)]);
+    let dateSources: Map<string, CalendarJob> | undefined;
+    const dateLoad = timed("jobs", jobsInRange(token, calendarDateBounds(start, end), signal))
+      .then(sources => {
+        dateSources = sources;
+        return sources;
+      });
+    const splitLoad = authorize.then(async () => {
       await ensureOverlaySchema();
       const splits = await timed("splits", readCalendarSplits(start, end, includeUnscheduled));
       const sourceIds = Object.entries(splits)
@@ -249,7 +270,7 @@ export async function GET(request: NextRequest) {
       // Overlap the two upstream reads when the index arrives first. A date
       // response that already has every source can skip the speculative work.
       const pending = sourceIds.length
-        ? timed("revisits", loadRevisitSources(token, sourceIds, signal))
+        ? timed("revisits", loadRevisitSources(token, sourceIds, AbortSignal.any([signal, speculation.signal])))
           .then(rows => ({ rows }), (error: unknown) => ({ error }))
         : null;
       return { splits, sourceIds, pending };
@@ -277,14 +298,17 @@ export async function GET(request: NextRequest) {
         if (includeUnscheduled && !day && visit.splitVisit?.state === "planned") unscheduled.push(visit);
       }
     }
-    return NextResponse.json({ jobs, unscheduled }, { headers: headers() });
+    const result = { jobs, unscheduled, checkedAt };
+    if (key) rememberSchedule(key, result);
+    return NextResponse.json(result, { headers: headers() });
   } catch (error) {
     const timedOut = error instanceof Error && error.name === "TimeoutError";
     const status = error instanceof CalendarReadError ? error.status : timedOut ? 504 : 500;
+    if (token && (status === 401 || status === 403)) forgetSchedules(token);
     const message = timedOut ? "The calendar source took too long to respond" :
       error instanceof Error ? error.message : "Failed to load calendar jobs";
     return NextResponse.json({ error: message }, { status, headers: headers() });
   } finally {
-    work.abort();
+    speculation.abort();
   }
 }
