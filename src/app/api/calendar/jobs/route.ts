@@ -309,7 +309,7 @@ export async function GET(request: NextRequest) {
     }
     const result = { jobs, unscheduled, checkedAt };
     if (key && rememberSchedule(key, result)) {
-      await writeSharedSchedule(token, key, snapshotScope(token), result);
+      await timed("snapshot_store", writeSharedSchedule(token, key, snapshotScope(token), result, read === "live"));
     }
     return NextResponse.json(result, { headers: headers() });
   } catch (error) {
