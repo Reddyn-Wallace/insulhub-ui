@@ -251,6 +251,9 @@ function JobsPageContent() {
       if (!current()) return;
       const message = err instanceof Error ? err.message : "Failed to load jobs.";
       if (isCrmReadDenied(err)) {
+        initialQuoteRead.current = false;
+        recoveredBoard.current = false;
+        recoveredQuoteCards.current = false;
         clearCrmReadSnapshots();
         setResult(null);
         setInitialOpenQuotes(null);
@@ -269,6 +272,7 @@ function JobsPageContent() {
     const onSharedStorage = (event: StorageEvent) => {
       if (event.key === calendarLastWriteKey && localStorage.getItem("token") === token &&
           (recoveredBoard.current || recoveredQuoteCards.current || initialQuoteRead.current)) {
+        initialQuoteRead.current = false;
         recoveredBoard.current = false;
         recoveredQuoteCards.current = false;
         setResult(null);
@@ -499,6 +503,8 @@ function JobsPageContent() {
             initialQuoteRead.current = false;
           }
           if (isCrmReadDenied(err)) {
+            ++fetchIdRef.current;
+            recoveredBoard.current = false;
             clearCrmReadSnapshots();
             setResult(null);
             setLoadError({ key: resultKey, message: "Could not access this quote list." });

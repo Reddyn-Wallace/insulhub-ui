@@ -104,6 +104,7 @@ it.each([
 it.each([
   async () => new Response("<p>Access unavailable</p>", { status: 403, headers: { "content-type": "text/html" } }),
   json({ errors: [{ message: "Request failed.", extensions: { code: "FORBIDDEN" } }] }),
+  json({ errors: [{ message: "Request failed.", extensions: { exception: { statusCode: 403 } } }] }),
 ])("preserves explicit read denial even when the message gives no reason", async denied => {
   replies = [denied];
   await expect(gql("query Jobs { jobs { total } }")).rejects.toBeInstanceOf(CrmReadAccessDenied);

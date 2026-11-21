@@ -144,8 +144,9 @@ export async function gql<T>(
           await isSessionInvalid(token) && forceLogout(token)) {
         throw new Error("Unauthorized");
       }
-      if (isQuery && (res.status === 401 || res.status === 403 || json?.errors?.some((error: { extensions?: { code?: string } }) =>
-        ["FORBIDDEN", "UNAUTHENTICATED", "UNAUTHORIZED"].includes(error.extensions?.code || "")))) {
+      if (isQuery && (res.status === 401 || res.status === 403 || json?.errors?.some((error: { extensions?: { code?: string; exception?: { statusCode?: number | string } } }) =>
+        ["FORBIDDEN", "UNAUTHENTICATED", "UNAUTHORIZED"].includes(error.extensions?.code || "") ||
+        [401, 403].includes(Number(error.extensions?.exception?.statusCode))))) {
         throw new CrmReadAccessDenied(displayError(message));
       }
       throw new Error(displayError(message));
