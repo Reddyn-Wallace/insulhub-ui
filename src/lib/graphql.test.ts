@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { gql } from "./graphql";
+import { CrmReadAccessDenied } from "./crm-read/session";
 
 const mutation = "mutation CreateFinalInvoices { createFinalInvoices { _id } }";
 const upstreamError = "Xero API request failed: Unauthorized";
@@ -98,4 +99,14 @@ it.each([
   expect(error.message).toMatch(expected);
   expect(error.message).not.toContain("secret-fixture");
   expectSessionKept();
+});
+
+it.each([
+  async () => new Response("<p>Access unavailable</p>", { status: 403, headers: { "content-type": "text/html" } }),
+  json({ errors: [{ message: "Request failed.", extensions: { code: "FORBIDDEN" } }] }),
+])("preserves explicit read denial even when the message gives no reason", async denied => {
+  replies = [denied];
+  await expect(gql("query Jobs { jobs { total } }")).rejects.toBeInstanceOf(CrmReadAccessDenied);
+  expectSessionKept();
+  expect(requests).toHaveLength(1);
 });

@@ -1,5 +1,5 @@
 import { calendarDataRevision, calendarLastWrite, invalidateCalendarData } from "./calendar/cache";
-import { clearCrmBrowserSession } from "./crm-read/session";
+import { clearCrmBrowserSession, CrmReadAccessDenied } from "./crm-read/session";
 import {isTrackedMutation} from './dead-followups/dates';
 import {
   type BrowserCacheStorage,
@@ -135,14 +135,18 @@ export async function gql<T>(
     });
 
     const json = await res.json().catch(() => {
-      if (res.status === 401) return null;
+      if (res.status === 401 || (isQuery && res.status === 403)) return null;
       throw new Error("The server returned an unreadable response.");
     });
-    if (res.status === 401 || json?.errors?.length) {
-      const message = json?.errors?.[0]?.message || (res.status === 401 ? "Unauthorized" : "Request failed");
+    if (res.status === 401 || (isQuery && res.status === 403) || json?.errors?.length) {
+      const message = json?.errors?.[0]?.message || (res.status === 401 ? "Unauthorized" : res.status === 403 ? "Access denied" : "Request failed");
       if ((res.status === 401 || isUnauthenticatedMessage(message)) &&
           await isSessionInvalid(token) && forceLogout(token)) {
         throw new Error("Unauthorized");
+      }
+      if (isQuery && (res.status === 401 || res.status === 403 || json?.errors?.some((error: { extensions?: { code?: string } }) =>
+        ["FORBIDDEN", "UNAUTHENTICATED", "UNAUTHORIZED"].includes(error.extensions?.code || "")))) {
+        throw new CrmReadAccessDenied(displayError(message));
       }
       throw new Error(displayError(message));
     }

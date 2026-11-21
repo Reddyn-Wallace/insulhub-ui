@@ -152,10 +152,64 @@ it("does not show a pending Open preview after a job changes", async () => {
   await waitFor(() => {
     expect(finishPreview).toBeTypeOf("function");
     expect(finishList).toBeTypeOf("function");
-  });
+  }, { timeout: 2600 });
   localStorage.setItem("calendar-last-write", String(Date.now() + 1));
   finishPreview({ jobs: { total: 1, results: [{ ...numbers[0], client: { contactDetails: { name: "Outdated preview" } } }] } });
   finishList({ jobs: { total: numbers.length, results: numbers } });
   expect(await screen.findByText(/changed while loading/)).toBeTruthy();
   expect(screen.queryByText("Outdated preview")).toBeNull();
+});
+
+it("keeps verified Open cards available after the full list times out and while retrying", async () => {
+  const originalFetch = view.gql.getMockImplementation()!;
+  let rejectFirst!: (reason: Error) => void;
+  let finishRetry!: (data: unknown) => void;
+  let fullReads = 0;
+  view.gql.mockImplementation(async (query: string, variables: Record<string, string>) => {
+    if (query.includes("query QuoteFirstPageCheck")) {
+      return { jobs: { total: 1, results: [{ ...numbers[0], client: { contactDetails: { name: "Customer quote-0" } } }] } };
+    }
+    if (query.includes("query Jobs")) {
+      return new Promise((resolve, reject) => {
+        if (++fullReads === 1) rejectFirst = reject;
+        else finishRetry = resolve;
+      });
+    }
+    return originalFetch(query, variables);
+  });
+  render(<JobsPage />);
+  expect(await screen.findByText("Customer quote-0")).toBeTruthy();
+  await waitFor(() => expect(rejectFirst).toBeTypeOf("function"));
+  rejectFirst(Error("signal timed out"));
+  const retry = await screen.findByRole("button", { name: "Retry" });
+  expect(screen.getByText("Customer quote-0")).toBeTruthy();
+  expect(screen.getByText(/Couldn’t verify the full Open list/)).toBeTruthy();
+
+  fireEvent.click(retry);
+  await waitFor(() => expect(finishRetry).toBeTypeOf("function"));
+  expect(screen.getByText("Customer quote-0")).toBeTruthy();
+  finishRetry({ jobs: { total: numbers.length, results: numbers } });
+  expect(await screen.findByText("Customer quote-1")).toBeTruthy();
+  expect(screen.getByRole("button", { name: /^Open\s*\(2\)/ })).toBeTruthy();
+});
+
+it("removes preview cards after a confirmed denial even if the error message is generic", async () => {
+  const { CrmReadAccessDenied } = await import("./session");
+  const originalFetch = view.gql.getMockImplementation()!;
+  let deny!: (reason: Error) => void;
+  let retryReads = 0;
+  view.gql.mockImplementation(async (query: string, variables: Record<string, string>) => {
+    if (query.includes("query QuoteFirstPageCheck")) {
+      return { jobs: { total: 1, results: [{ ...numbers[0], client: { contactDetails: { name: "Customer quote-0" } } }] } };
+    }
+    if (query.includes("query Jobs")) return new Promise((_, reject) => { if (++retryReads === 1) deny = reject; });
+    return originalFetch(query, variables);
+  });
+  render(<JobsPage />);
+  expect(await screen.findByText("Customer quote-0")).toBeTruthy();
+  await waitFor(() => expect(deny).toBeTypeOf("function"));
+  deny(new CrmReadAccessDenied("Request failed."));
+  fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
+  await waitFor(() => expect(retryReads).toBe(2));
+  expect(screen.queryByText("Customer quote-0")).toBeNull();
 });

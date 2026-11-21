@@ -7,6 +7,7 @@ type SentKind = "quote" | "eba";
 type EmailIndex = Record<SentKind, Record<string, string>>;
 type EmailLog = { _id: string; createdAt?: string; type?: string; subject?: string; to_email?: string };
 type EmailPage = { total: number; results: EmailLog[] };
+type Snapshot = { checkedAt: number; startedAt?: number; data: EmailIndex };
 type Listener = (index: EmailIndex) => void;
 type Scan = { listeners: Set<Listener>; current?: EmailIndex; done: Promise<EmailIndex> };
 const indexFreshMs = 10 * 60_000;
@@ -116,33 +117,44 @@ function validIndex(value: unknown): value is EmailIndex {
     Object.values(map).every(date => typeof date === "string" && Number.isFinite(Date.parse(date))));
 }
 
+async function readHistoryCache(key: string, token: string): Promise<Snapshot | null> {
+  const saved = readBrowserCache<Snapshot>(key, indexDisplayMs);
+  const usable = (item?: Snapshot | null): item is Snapshot => !!item && Number.isFinite(item.checkedAt) &&
+    item.checkedAt <= Date.now() && Date.now() - item.checkedAt <= indexDisplayMs && validIndex(item.data);
+  const candidate = usable(saved) ? saved : await readSharedBrowser<EmailIndex>("sent-history", key, token, indexDisplayMs);
+  return localStorage.getItem("token") === token && usable(candidate) ? candidate : null;
+}
+
+function mergeHistory(complete: Snapshot | null, progress: Snapshot | null) {
+  if (!progress || (complete && (progress.startedAt ?? progress.checkedAt) <= complete.checkedAt)) return complete?.data;
+  const combined: EmailIndex = { quote: {}, eba: {} };
+  for (const kind of ["quote", "eba"] as const) {
+    const earlier = complete?.data[kind] || {};
+    combined[kind] = {
+      ...earlier,
+      ...Object.fromEntries(Object.entries(progress.data[kind]).map(([email, date]) => [email, laterSend(earlier[email], date)!])),
+    };
+  }
+  return combined;
+}
+
+export async function readCachedCrmEmailIndex(token: string) {
+  const key = await indexKey(token);
+  const [complete, progress] = await Promise.all([
+    readHistoryCache(key, token), readHistoryCache(`${key}:progress`, token),
+  ]);
+  return mergeHistory(complete, progress) ?? null;
+}
+
 async function refreshIndex(scan: Scan, token: string) {
   const key = await indexKey(token);
   if (localStorage.getItem("token") !== token) throw Error("Your sign-in changed.");
-  type Snapshot = { checkedAt: number; startedAt?: number; data: EmailIndex };
-  const remembered = readBrowserCache<Snapshot>(key, indexDisplayMs);
-  const snapshotIsUsable = (item?: Snapshot | null): item is Snapshot => !!item && Number.isFinite(item.checkedAt) &&
-    item.checkedAt <= Date.now() && Date.now() - item.checkedAt <= indexDisplayMs && validIndex(item.data);
-  const candidate = snapshotIsUsable(remembered) ? remembered : await readSharedBrowser<EmailIndex>("sent-history", key, token, indexDisplayMs);
-  const cached = snapshotIsUsable(candidate) ? candidate : null;
-  if (cached) {
-    publish(scan, cached.data, token);
-    if (Date.now() - cached.checkedAt < indexFreshMs) return cached.data;
-  }
   const progressKey = `${key}:progress`;
-  const progress = readBrowserCache<Snapshot>(progressKey, indexDisplayMs) ??
-    await readSharedBrowser<EmailIndex>("sent-history", progressKey, token, indexDisplayMs);
-  let previous = cached?.data;
-  if (snapshotIsUsable(progress) && (!cached || (progress.startedAt ?? progress.checkedAt) > cached.checkedAt)) {
-    previous = { quote: {}, eba: {} };
-    for (const kind of ["quote", "eba"] as const) {
-      const earlier = cached?.data[kind] || {};
-      previous[kind] = {
-        ...earlier,
-        ...Object.fromEntries(Object.entries(progress.data[kind]).map(([email, date]) => [email, laterSend(earlier[email], date)!])),
-      };
-    }
+  const [cached, progress] = await Promise.all([readHistoryCache(key, token), readHistoryCache(progressKey, token)]);
+  const previous = mergeHistory(cached, progress);
+  if (previous) {
     publish(scan, previous, token);
+    if (cached && Date.now() - cached.checkedAt < indexFreshMs) return previous;
   }
 
   let savedAt = 0;

@@ -13,9 +13,10 @@ import { searchVisits } from "@/lib/installation-splits/views";
 import { isBoardStage, loadBoard, recentBoard, warmBoard, type BoardJob as Job, type BoardRows, type JobsData } from "@/lib/crm-read/board";
 import { loadSalesDirectory } from "@/lib/crm-read/directory";
 import { calendarDataRevision, calendarLastWrite, calendarLastWriteKey } from "@/lib/calendar/cache";
+import { clearCrmReadSnapshots, isCrmReadDenied } from "@/lib/crm-read/session";
 import { crmFreshMs } from "@/lib/crm-read/client";
 import { boardPageSize as PAGE_SIZE, compareQuoteDate, loadQuoteContacts, quoteContactsKey, readInitialOpenQuotes, QuoteSelectionChanged, quoteState, recentQuoteContacts, type QuoteContacts } from "@/lib/crm-read/quotes";
-import { laterSend, loadCrmEmailIndex, readRecordedSend, sendReceiptPrefix } from "@/lib/crm-read/sent-index";
+import { laterSend, loadCrmEmailIndex, readCachedCrmEmailIndex, readRecordedSend, sendReceiptPrefix } from "@/lib/crm-read/sent-index";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { LEAD_SOURCE_OPTIONS, canonicalLeadSourceLabel, normalizeLeadSourceValue } from "@/lib/lead-sources";
 
@@ -52,7 +53,7 @@ function JobsPageContent() {
   const [searchInput, setSearchInput] = useState(initSearch);
   const [searchMode, setSearchMode] = useState(initSearch.trim().length > 0);
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("oldest");
-  const [initialOpenQuotes, setInitialOpenQuotes] = useState<Job[]>(noJobs);
+  const [initialOpenQuotes, setInitialOpenQuotes] = useState<{ rows: Job[]; writeAt: number; revision: number } | null>(null);
   const [result, setResult] = useState<(BoardRows & { key: string }) | null>(null);
   const resultKey = searchMode ? `search:${search}:${page}` : `stage:${activeStage}`;
   const stageHydrated = result?.key === resultKey;
@@ -199,8 +200,10 @@ function JobsPageContent() {
     const revision = getSplitRevision();
     const current = () => currentFetchId === fetchIdRef.current && localStorage.getItem("token") === token;
     setLoadError(null);
-    setInitialOpenQuotes(noJobs);
-    initialQuoteRead.current = false;
+    if (!force) {
+      setInitialOpenQuotes(null);
+      initialQuoteRead.current = false;
+    }
 
     try {
       if (searchMode) {
@@ -226,9 +229,18 @@ function JobsPageContent() {
         initialQuoteRead.current = true;
         const writeAt = calendarLastWrite();
         const writeRevision = calendarDataRevision();
-        void readInitialOpenQuotes(token).then(rows => {
-          if (current() && calendarLastWrite() === writeAt && calendarDataRevision() === writeRevision) setInitialOpenQuotes(rows);
+        const initial = readInitialOpenQuotes(token).then(rows => {
+          if (current() && calendarLastWrite() === writeAt && calendarDataRevision() === writeRevision) {
+            setInitialOpenQuotes({ rows, writeAt, revision: writeRevision });
+          }
         }).catch(() => {});
+        let timer: number | undefined;
+        // Give the small read a head start without holding up the full queue
+        // when the old CRM is slow to respond.
+        const headStart = new Promise<void>(resolve => { timer = window.setTimeout(resolve, 1800); });
+        await Promise.race([initial, headStart]);
+        window.clearTimeout(timer);
+        if (!current()) return;
       }
       const data = await loadBoard(activeStage, token);
       if (current()) {
@@ -238,7 +250,11 @@ function JobsPageContent() {
     } catch (err) {
       if (!current()) return;
       const message = err instanceof Error ? err.message : "Failed to load jobs.";
-      if (/unauthorized|unauthenticated/i.test(message)) setResult(null);
+      if (isCrmReadDenied(err)) {
+        clearCrmReadSnapshots();
+        setResult(null);
+        setInitialOpenQuotes(null);
+      }
       setLoadError({ key: resultKey, message });
     }
   }, [activeStage, coldQuoteCheck, search, searchMode, searchPage, resultKey, router]);
@@ -256,7 +272,7 @@ function JobsPageContent() {
         recoveredBoard.current = false;
         recoveredQuoteCards.current = false;
         setResult(null);
-        setInitialOpenQuotes(noJobs);
+        setInitialOpenQuotes(null);
         setQuoteCards(null);
         void fetchJobs(true);
         return;
@@ -264,7 +280,7 @@ function JobsPageContent() {
       if ((event.key === "token" || event.key === null) && localStorage.getItem("token") !== token) {
         ++fetchIdRef.current;
         setResult(null);
-        setInitialOpenQuotes(noJobs);
+        setInitialOpenQuotes(null);
         setUsers([]);
         setQuoteSentByEmail({});
         setRecordedQuoteSends({});
@@ -478,6 +494,15 @@ function JobsPageContent() {
         if (active && localStorage.getItem("token") === token) {
           recoveredQuoteCards.current = false;
           setQuoteCards(null);
+          if (isCrmReadDenied(err) || err instanceof QuoteSelectionChanged) {
+            setInitialOpenQuotes(null);
+            initialQuoteRead.current = false;
+          }
+          if (isCrmReadDenied(err)) {
+            clearCrmReadSnapshots();
+            setResult(null);
+            setLoadError({ key: resultKey, message: "Could not access this quote list." });
+          }
           setQuoteCardsError({ key: quoteCardKey, message: err instanceof Error ? err.message : "Could not load quote cards." });
           if (err instanceof QuoteSelectionChanged && refreshedQuoteSelection.current !== selection) {
             refreshedQuoteSelection.current = selection;
@@ -486,14 +511,23 @@ function JobsPageContent() {
         }
       });
     return () => { active = false; };
-  }, [fetchJobs, quoteCardKey, quoteCardsRetry, result, visibleRows]);
+  }, [fetchJobs, quoteCardKey, quoteCardsRetry, result, resultKey, visibleRows]);
 
   const firstOpenCards = useMemo(() =>
-    [...initialOpenQuotes].sort((a, b) => compareQuoteDate(a, b, sortOrder === "newest")).slice(0, PAGE_SIZE),
+    [...(initialOpenQuotes?.rows || noJobs)].sort((a, b) => compareQuoteDate(a, b, sortOrder === "newest")).slice(0, PAGE_SIZE),
   [initialOpenQuotes, sortOrder]);
-  const showOpenPreview = allowOpenPreview && !error && firstOpenCards.length > 0 &&
+  const showOpenPreview = allowOpenPreview && !!initialOpenQuotes &&
+    initialOpenQuotes.writeAt === calendarLastWrite() && initialOpenQuotes.revision === calendarDataRevision() &&
+    firstOpenCards.length > 0 &&
     (!stageHydrated || (quoteCardsLoading && firstOpenCards.length === visibleRows.length &&
       firstOpenCards.every((row, index) => row._id === visibleRows[index]._id && row.updatedAt === visibleRows[index].updatedAt)));
+
+  useEffect(() => {
+    if (stageHydrated && !showOpenPreview && initialQuoteRead.current) {
+      initialQuoteRead.current = false;
+      setInitialOpenQuotes(null);
+    }
+  }, [stageHydrated, showOpenPreview]);
 
   const displayedJobs = useMemo(() => {
     if (showOpenPreview) return firstOpenCards;
@@ -517,9 +551,11 @@ function JobsPageContent() {
         !displayedJobs.some(job => job.stage === "QUOTE" && job.client?.contactDetails?.email)) return;
     const controller = new AbortController();
     const current = () => !controller.signal.aborted && localStorage.getItem("token") === token;
-    void loadCrmEmailIndex(token, index => {
-      if (current()) setQuoteSentByEmail(index.quote);
-    }, controller.signal).catch(() => {});
+    const showHistory = (index: { quote: Record<string, string> } | null) => {
+      if (index && current()) setQuoteSentByEmail(index.quote);
+    };
+    if (stageHydrated || error) void loadCrmEmailIndex(token, showHistory, controller.signal).catch(() => {});
+    else void readCachedCrmEmailIndex(token).then(showHistory).catch(() => {});
     const records = displayedJobs.flatMap(job => {
       const email = job.stage === "QUOTE" && job.client?.contactDetails?.email?.trim().toLowerCase();
       return email ? [{ id: job._id, email }] : [];
@@ -539,7 +575,7 @@ function JobsPageContent() {
     void loadReceipts().catch(() => {});
     window.addEventListener("storage", onReceipt);
     return () => { controller.abort(); window.removeEventListener("storage", onReceipt); };
-  }, [activeStage, displayedJobs, searchMode, showOpenPreview, stageHydrated]);
+  }, [activeStage, displayedJobs, error, searchMode, showOpenPreview, stageHydrated]);
 
   useEffect(() => {
     if (!stageHydrated || quoteCardsLoading || searchMode || viewedStage.current !== null) return;
@@ -784,7 +820,7 @@ function JobsPageContent() {
       <div className={`flex-1 transition-opacity duration-200 ${loading && !showOpenPreview ? "opacity-50 pointer-events-none" : "opacity-100"}`}>
         {error && (
           <div role="status" className="mx-4 mt-2 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            {stageHydrated ? "Couldn’t update this list. Showing the last loaded results." : error}
+            {showOpenPreview ? "Couldn’t verify the full Open list. Showing the quotes already loaded." : stageHydrated ? "Couldn’t update this list. Showing the last loaded results." : error}
             <button onClick={() => void fetchJobs(true)} className="ml-2 underline">Retry</button>
           </div>
         )}
@@ -797,7 +833,7 @@ function JobsPageContent() {
             }} className="ml-2 underline">Retry</button>
           </div>
         )}
-        {showOpenPreview && <p role="status" className="px-4 pb-1 pt-2 text-xs text-gray-600">Checking for more open quotes…</p>}
+        {showOpenPreview && !error && <p role="status" className="px-4 pb-1 pt-2 text-xs text-gray-600">Checking for more open quotes…</p>}
         {(loading || quoteCardsLoading) && !showOpenPreview ? <LoadingSkeleton /> : !showOpenPreview && (!stageHydrated || (quoteError && !contacts)) ? null : paginatedResults.length === 0 ? (
           <div className="px-4 pt-8 text-center text-gray-400 text-sm">
             {searchMode ? `No results for "${searchInput}"` : "No jobs found"}
