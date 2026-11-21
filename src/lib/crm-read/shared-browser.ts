@@ -87,6 +87,7 @@ function pruneEntries(prefix: string, current: string, limit: number) {
 
 export async function persistSharedBrowser<T>(
   kind: string, cacheKey: string, token: string, entry: RecentCrmRead<T>, writeAt: number, writeRevision: number,
+  stillCurrent?: () => boolean,
 ) {
   if (!crypto.subtle) return;
   try {
@@ -97,7 +98,7 @@ export async function persistSharedBrowser<T>(
     const ciphertext = await crypto.subtle.encrypt({
       name: "AES-GCM", iv: nonce, additionalData: encoder.encode(key),
     }, await keyFor(token), plaintext);
-    if (localStorage.getItem("token") !== token ||
+    if (stillCurrent?.() === false || localStorage.getItem("token") !== token ||
         (!isSendEvidence(kind) && (writeAt !== calendarLastWrite() || writeRevision !== calendarDataRevision()))) return;
     if (previousReadAt(key) >= entry.checkedAt) return;
     if (kind === "quote-cards") pruneEntries(prefix, key, maximumQuotePages);

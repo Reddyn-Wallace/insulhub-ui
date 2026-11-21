@@ -63,6 +63,7 @@
     "src/lib/installation-splits/ui.test.tsx",
     "scripts/installation-splits-browser-smoke.cjs",
     "src/lib/dead-followups/queue-cache.test.ts",
+    "src/lib/dead-followups/route.test.ts",
     "src/lib/dead-followups/server.test.ts",
     "src/lib/dead-followups/queue-view.test.ts",
     "src/lib/dead-followups/template-ui.test.tsx",

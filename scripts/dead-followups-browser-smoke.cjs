@@ -12,9 +12,18 @@ if(!/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(base))throw Error('Local prev
       await context.addInitScript(()=>{delete Navigator.prototype.serviceWorker;localStorage.setItem('token','simulation-only');localStorage.setItem('me',JSON.stringify({_id:'tester',firstname:'Test',lastname:'Staff',role:'ADMIN'}));});
       const quote={_id:'111111111111111111111111',jobNumber:123,stage:'QUOTE',lead:{allocatedTo:{firstname:'Sam',lastname:'Taylor'}},notes:'29/01/26 - Marked as Dead: timing did not suit - Staff',quote:{status:'DECLINED',date:'2026-01-01T00:00:00Z',c_total:12500,wall:{SQM:90},ceiling:{SQM:50}},client:{contactDetails:{name:'Alex Example',streetAddress:'12 Test Street',city:'Wellington'}}};
       const items=[{job:quote,eligibility:{state:'review',reason:'Review previous offers before deciding the next approach.'},suggestion:{date:'2026-01-29',provenance:'note',evidence:quote.notes,at:'2026-01-29T10:59:59.999Z'},earliestFirstApproach:'2026-03-29T10:59:59.999Z'},{job:{...quote,_id:'222222222222222222222222',jobNumber:124,notes:'Customer not ready',client:{contactDetails:{name:'Taylor Example',streetAddress:'8 Sample Road'}}},eligibility:{state:'review',reason:'Review previous offers before deciding the next approach.'},suggestion:null,earliestFirstApproach:null}];
+      const queue={checkedAt:'2026-09-29T00:00:00Z',readOnly:true,historyAvailable:false};
+      const cards=items.map(item=>({...item,suggestion:null,job:{
+        ...item.job,notes:undefined,quote:{...item.job.quote,wall:undefined,ceiling:undefined},
+      }}));
       await context.route('**/*',async route=>{
         const url=new URL(route.request().url());
-        if(url.pathname==='/api/dead-followups')return route.fulfill({json:{items,checkedAt:'2026-09-29T00:00:00Z',readOnly:true,historyAvailable:false}});
+        if(url.pathname==='/api/dead-followups'){
+          const id=url.searchParams.get('jobId');
+          return route.fulfill({json:id
+            ?{...queue,items:items.filter(item=>item.job._id===id)}
+            :{...queue,items:cards,detailsDeferred:true}});
+        }
         if(url.pathname==='/graphql')return route.fulfill({json:{data:{me:{_id:'tester'},users:{results:[]},jobs:{results:[],total:0}}}});
         if(url.pathname.startsWith('/api/'))return route.fulfill({json:{}});
         if(url.origin!==base)return route.abort();
@@ -37,9 +46,29 @@ if(!/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(base))throw Error('Local prev
       await page.screenshot({path:`/tmp/dead-followups-${width}.png`,fullPage:true});
       if(width<768)await page.getByRole('button',{name:'Back to follow-ups'}).click();
       await page.getByRole('button',{name:/Taylor Example/}).click();
+      await expect(page.getByRole('button',{name:'Send Offer',exact:true})).toBeDisabled();
       await expect(page.getByRole('heading',{name:'Dead entry date unknown'})).toHaveCount(0);
+      const savedPrefix='jobs-cache:shared-v1:follow-up-queue:';
+      await page.waitForFunction(prefix=>Object.keys(localStorage).some(key=>key.startsWith(prefix)),savedPrefix);
+      const plaintext=await page.evaluate(prefix=>Object.entries(localStorage).some(([key,value])=>key.startsWith(prefix)&&value.includes('Alex Example')),savedPrefix);
+      if(plaintext)throw Error('Saved queue exposed customer names in browser storage');
+      const reopen=await context.newPage();
+      let continueRefresh;
+      const refreshGate=new Promise(resolve=>{continueRefresh=resolve;});
+      await reopen.route('**/api/dead-followups?view=queue',async route=>{
+        await refreshGate;
+        await route.fallback();
+      });
+      try{
+        await reopen.goto(`${base}/jobs/follow-ups?stage=QUOTE`);
+        await expect(reopen.getByText('Updating quotes…')).toBeVisible();
+        await reopen.getByRole('button',{name:/Alex Example/}).click();
+        await expect(reopen.getByRole('button',{name:'Send Offer',exact:true})).toHaveCount(0);
+      }finally{continueRefresh();}
+      await expect(reopen.getByText(/90 m²/)).toBeVisible();
+      await expect(reopen.getByRole('button',{name:'Send Offer',exact:true})).toBeDisabled();
       if(errors.length)throw Error(errors.join('\n'));
-      console.log(`PASS ${width}px: queue/detail navigation, evidence labels, no send controls, no overflow or page errors`);
+      console.log(`PASS ${width}px: queue/detail navigation, encrypted reopens, actions wait for fresh data, no overflow or page errors`);
       await context.close();
     }
   }finally{await browser.close();}

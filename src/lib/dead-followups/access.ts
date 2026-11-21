@@ -1,12 +1,20 @@
 import {attachDeadDate} from './date-repository';
 import 'server-only';
 import {ControlError} from './controls';
-import {validQuote} from './server';
+import {assertQuoteAccess,validQuote} from './server';
 export async function readControlJob(token:string,id:string,withDate=true){
+  return readJob(token,id,withDate,false);
+}
+export async function readFollowupDetail(token:string,id:string){
+  return readJob(token,id,false,true);
+}
+async function readJob(token:string,id:string,withDate:boolean,includeScope:boolean){
   if(!/^[a-f\d]{24}$/i.test(id))throw new ControlError('Quote not found.',404);
-  const response=await fetch('https://api.insulhub.nz/graphql',{method:'POST',cache:'no-store',redirect:'error',signal:AbortSignal.timeout(8000),headers:{'content-type':'application/json','x-access-token':token},body:JSON.stringify({query:`query FollowupAccess($_id:ObjectId!){me{_id firstname lastname role} job(_id:$_id){_id jobNumber stage updatedAt archivedAt notes client{contactDetails{name email phoneMobile phoneSecondary streetAddress suburb city postCode}} lead{leadStatus callbackDate quoteBookingDate allocatedTo{firstname lastname}} installation{installDate} quote{status date quoteNumber c_total extras{name price}}}}`,variables:{_id:id}})});
+  const response=await fetch('https://api.insulhub.nz/graphql',{method:'POST',cache:'no-store',redirect:'error',signal:AbortSignal.timeout(8000),headers:{'content-type':'application/json','x-access-token':token},body:JSON.stringify({query:`query FollowupAccess($_id:ObjectId!){me{_id firstname lastname role} job(_id:$_id){_id jobNumber stage updatedAt archivedAt notes client{contactDetails{name email phoneMobile phoneSecondary streetAddress suburb city postCode}} lead{leadStatus callbackDate quoteBookingDate allocatedTo{firstname lastname}} installation{installDate} quote{status date quoteNumber c_total extras{name price} ${includeScope ? 'quoteNote wall { SQM } ceiling { SQM }' : ''}}}}`,variables:{_id:id}})});
+  assertQuoteAccess(response.status);
   if(!response.ok)throw new ControlError('Could not verify current quote access.',503);
   const json=await response.json();
+  assertQuoteAccess(response.status,json.errors);
   if(json.errors?.length)throw new ControlError('Could not verify current quote access.',503);
   if(!json.data?.me?._id)throw new ControlError('Sign in again.',401);
   const job=json.data.job;
