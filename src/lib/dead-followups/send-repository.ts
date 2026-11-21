@@ -7,10 +7,12 @@ import {prepareSend,type SendAttempt,type SendSnapshot} from './sending';
 import type {ControlState,DeadQuote} from './types';
 let pool:Pool|undefined;
 export function sendsRepository(){if(!process.env.DATABASE_URL)return null;pool??=new Pool({connectionString:process.env.DATABASE_URL,max:3,connectionTimeoutMillis:5000,statement_timeout:10000});return new SendRepository(pool);}
+export const READ_SEND_SUMMARIES_SQL='SELECT insulhub_job_id,status,note_status FROM dead_quote_followup_attempts WHERE insulhub_job_id=ANY($1::text[])';
+export type SendSummary={insulhub_job_id:string;status:string;note_status:string};
 function attempt(row:Record<string,unknown>):SendAttempt{return {...row.snapshot as SendSnapshot,...(row.verification?{verification:row.verification as Verification}:{}),id:String(row.id),jobId:String(row.insulhub_job_id),actorId:String(row.actor_id),actorName:String(row.actor_name),status:row.status as SendAttempt['status'],sentAt:row.sent_at?new Date(String(row.sent_at)).toISOString():null,createdAt:new Date(String(row.created_at)).toISOString(),noteStatus:row.note_status as SendAttempt['noteStatus'],failureReason:String(row.failure_reason)};}
 export class SendRepository{
  constructor(private readonly pool:Pool){}
- async summaries(ids:string[]){if(!ids.length)return [];const r=await this.pool.query('SELECT insulhub_job_id,status,note_status FROM dead_quote_followup_attempts WHERE insulhub_job_id=ANY($1::text[])',[ids]);return r.rows as {insulhub_job_id:string;status:string;note_status:string}[];}
+ async summaries(ids:string[]){if(!ids.length)return [];const r=await this.pool.query<SendSummary>(READ_SEND_SUMMARIES_SQL,[ids]);return r.rows;}
  async list(jobId:string){const r=await this.pool.query(`SELECT a.*, CASE WHEN v.attempt_id IS NULL THEN NULL ELSE jsonb_build_object('actorId',v.actor_id,'actorName',v.actor_name,'evidence',v.evidence,'verifiedAt',v.verified_at) END AS verification FROM dead_quote_followup_attempts a LEFT JOIN dead_quote_followup_verifications v ON v.attempt_id=a.id WHERE a.insulhub_job_id=$1 ORDER BY a.created_at DESC`,[jobId]);return r.rows.map(attempt);}
  async claim(job:DeadQuote,input:unknown,actor:{id:string;name:string}){
   const v=input as {requestId?:string;revision?:number};const c=await this.pool.connect();

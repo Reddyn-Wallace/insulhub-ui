@@ -16,7 +16,7 @@ const CARD_FIELDS = `
   client { contactDetails { name streetAddress } }
 `;
 const indexQuery = `query DeadQuoteIndex($skip: Int, $limit: Int) {
-  jobs(stages: [QUOTE], skip: $skip, limit: $limit) { total results { ${INDEX_FIELDS} } }
+  jobs(stages: [QUOTE], skip: $skip, limit: $limit, showArchived: false) { total results { ${INDEX_FIELDS} } }
 }`;
 const fullQuery = `query DeadQuoteReview($skip: Int, $limit: Int) {
   jobs(stages: [QUOTE], skip: $skip, limit: $limit) {

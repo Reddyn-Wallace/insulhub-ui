@@ -6,6 +6,33 @@ import type {DeadQuote} from './types';
 let pool:Pool|undefined;
 export function dateRepository(){if(!process.env.DATABASE_URL)return null;pool??=new Pool({connectionString:process.env.DATABASE_URL,max:3,connectionTimeoutMillis:5000,statement_timeout:10000});return new DateRepository(pool);}
 export function datesEnabled(){return process.env.DEAD_QUOTE_DATE_CAPTURE_ENABLED==='true'||process.env.DEAD_QUOTE_FOLLOWUPS_ENABLED==='true';}
+export const BATCH_DEAD_DATE_BASELINE_SQL=`WITH source AS (
+  SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(id text,entry jsonb,version text)
+), inserted AS (
+  INSERT INTO dead_quote_dates(insulhub_job_id,entry)
+  SELECT id,entry FROM source
+  WHERE NOT EXISTS (SELECT 1 FROM dead_quote_dates WHERE insulhub_job_id=source.id)
+  ORDER BY id
+  ON CONFLICT DO NOTHING RETURNING insulhub_job_id,entry
+)
+INSERT INTO dead_quote_date_events(insulhub_job_id,kind,entry,actor_id,actor_name,after_version)
+SELECT i.insulhub_job_id,'assumed',i.entry,'system','Agreed historical rule',s.version
+FROM inserted i JOIN source s ON s.id=i.insulhub_job_id
+WHERE i.entry IS NOT NULL AND i.entry<>'null'::jsonb`;
+export const BATCH_DEAD_DATE_READ_SQL=`SELECT insulhub_job_id,entry,
+  pending IS NOT NULL AND pending<>'null'::jsonb AS pending
+  FROM dead_quote_dates WHERE insulhub_job_id=ANY($1::text[])`;
+type DateRow={insulhub_job_id:string;entry:DeadEntry|null;pending:unknown};
+export function queueDateAssumptions(jobs:DeadQuote[],now:string){
+ return jobs.map(job=>({id:job._id,entry:assumedEntry(job,now),version:job.updatedAt||null}));
+}
+export function applyQueueDeadDates(jobs:DeadQuote[],rows:DateRow[],now:string){
+ const records=new Map(rows.map(row=>[row.insulhub_job_id,row]));
+ return jobs.map(job=>{
+  const row=records.get(job._id);
+  return {...job,deadEntry:row?row.entry:assumedEntry(job,now),deadDateUncertain:Boolean(row?.pending)};
+ });
+}
 type Actor={id:string;name:string};
 export class DateRepository{
  constructor(private readonly pool:Pool){}
@@ -17,16 +44,12 @@ export class DateRepository{
  }
  async attachMany(jobs:DeadQuote[],persist:boolean):Promise<DeadQuote[]>{
   if(!jobs.length)return [];
+  const now=new Date().toISOString();
   if(persist){
-   const rows=jobs.map(job=>({id:job._id,entry:assumedEntry(job,new Date().toISOString()),version:job.updatedAt||null}));
-   await this.pool.query(`WITH source AS (SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(id text,entry jsonb,version text)),
-    inserted AS (INSERT INTO dead_quote_dates(insulhub_job_id,entry) SELECT id,entry FROM source ON CONFLICT DO NOTHING RETURNING insulhub_job_id,entry)
-    INSERT INTO dead_quote_date_events(insulhub_job_id,kind,entry,actor_id,actor_name,after_version)
-    SELECT i.insulhub_job_id,'assumed',i.entry,'system','Agreed historical rule',s.version FROM inserted i JOIN source s ON s.id=i.insulhub_job_id WHERE i.entry IS NOT NULL AND i.entry<>'null'::jsonb`,[JSON.stringify(rows)]);
+   await this.pool.query(BATCH_DEAD_DATE_BASELINE_SQL,[JSON.stringify(queueDateAssumptions(jobs,now))]);
   }
-  const r=await this.pool.query('SELECT insulhub_job_id,entry,pending FROM dead_quote_dates WHERE insulhub_job_id=ANY($1::text[])',[jobs.map(j=>j._id)]);
-  const records=new Map(r.rows.map(row=>[row.insulhub_job_id,row]));
-  return jobs.map(job=>{const row=records.get(job._id);return {...job,deadEntry:row?row.entry:assumedEntry(job,new Date().toISOString()),deadDateUncertain:Boolean(row?.pending)};});
+  const r=await this.pool.query<DateRow>(BATCH_DEAD_DATE_READ_SQL,[jobs.map(j=>j._id)]);
+  return applyQueueDeadDates(jobs,r.rows,now);
  }
  async reconcile(id:string,read:()=>Promise<DeadQuote>){
   return this.locked(id,async c=>{

@@ -7,7 +7,7 @@ type OverlayRows = Record<string, unknown>[];
 let cachedSql: OverlaySql | null = null;
 let schemaPromise: Promise<void> | null = null;
 
-function getOverlaySql() {
+export function getOverlaySql() {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
     throw new Error("DATABASE_URL is required for overlay storage");
