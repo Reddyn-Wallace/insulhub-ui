@@ -32,11 +32,14 @@ test('uploaded source must match the committed tree, including deleted and extra
  }finally{rmSync(dir,{recursive:true,force:true});}
 });
 
-test('platform-normalised Vercel config retains the guarded build command',async()=>{
+test('platform-normalised Vercel config retains the guarded build and Follow-ups region',async()=>{
  const {checkVercelConfig}=await import('./guard.mjs');
  const dir=mkdtempSync(join(tmpdir(),'crm-vercel-config-'));
  try{
-  writeFileSync(join(dir,'vercel.json'),JSON.stringify({buildCommand:'node scripts/vercel-build.mjs'}));checkVercelConfig(dir);
+  const buildCommand='node scripts/vercel-build.mjs';
+  const functions={'src/app/api/dead-followups/route.ts':{regions:['sin1']}};
+  writeFileSync(join(dir,'vercel.json'),JSON.stringify({buildCommand,functions}));checkVercelConfig(dir);
+  writeFileSync(join(dir,'vercel.json'),JSON.stringify({buildCommand}));assert.throws(()=>checkVercelConfig(dir),/Follow-ups region/);
   writeFileSync(join(dir,'vercel.json'),JSON.stringify({buildCommand:'npm run build'}));assert.throws(()=>checkVercelConfig(dir),/guarded build/);
  }finally{rmSync(dir,{recursive:true,force:true});}
 });

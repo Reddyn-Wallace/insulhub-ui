@@ -1,3 +1,8 @@
 {
-  "buildCommand": "node scripts/vercel-build.mjs"
+  "buildCommand": "node scripts/vercel-build.mjs",
+  "functions": {
+    "src/app/api/dead-followups/route.ts": {
+      "regions": ["sin1"]
+    }
+  }
 }
