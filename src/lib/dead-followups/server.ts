@@ -58,6 +58,7 @@ export function validQuote(value: unknown): value is DeadQuote {
   return true;
 }
 const SCAN_ERROR = 'The full quote list could not be verified. Refresh and try again.';
+const INDEX_PAGE_SIZE = 2500;
 
 export function assertQuoteAccess(status: number, errors?: unknown) {
   if(status===401)throw new ControlError('Sign in again to view quotes.',401);
@@ -85,13 +86,21 @@ export async function loadDeadQuoteQueue(token: string, checkedAt = new Date().t
   const quoteCounts={OPEN:0,CALLBACK:0,DEAD:0,ALL:0};
   const seen = new Set<string>();
   const signal = AbortSignal.timeout(40000);
+  let limit=indexOnly ? INDEX_PAGE_SIZE : 250;
   try {
-    async function page(skip:number){
-      const response=await fetch('https://api.insulhub.nz/graphql',{method:'POST',cache:'no-store',redirect:'error',signal,headers:{'content-type':'application/json','x-access-token':token},body:JSON.stringify({query:indexOnly ? indexQuery : fullQuery,variables:{skip,limit:indexOnly ? 500 : 250}})});
+    async function page(skip:number):Promise<{total:number;results:unknown[]}>{
+      const response=await fetch('https://api.insulhub.nz/graphql',{method:'POST',cache:'no-store',redirect:'error',signal,headers:{'content-type':'application/json','x-access-token':token},body:JSON.stringify({query:indexOnly ? indexQuery : fullQuery,variables:{skip,limit}})});
       assertQuoteAccess(response.status);
-      if(!response.ok)throw Error(SCAN_ERROR);
-      const json=await response.json();const value=json.data?.jobs;
-      assertQuoteAccess(response.status,json.errors);
+      const canReduceLimit=skip===0&&limit===INDEX_PAGE_SIZE;
+      const rejectedRequest=canReduceLimit&&[400,422].includes(response.status);
+      if(!response.ok&&!rejectedRequest)throw Error(SCAN_ERROR);
+      const json=rejectedRequest ? null : await response.json();
+      assertQuoteAccess(response.status,json?.errors);
+      if(canReduceLimit&&(rejectedRequest||json?.errors?.some((error:{message?:string})=>/\blimit\b/i.test(error?.message||'')))){
+        limit=500;
+        return page(0);
+      }
+      const value=json.data?.jobs;
       if(json.errors?.length||!Number.isInteger(value?.total)||value.total<0||value.total>10000||!Array.isArray(value.results))throw Error(SCAN_ERROR);
       return value as {total:number;results:unknown[]};
     }

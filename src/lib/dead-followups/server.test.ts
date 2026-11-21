@@ -34,6 +34,21 @@ it('rejects upstream HTTP failure',async()=>{
   vi.stubGlobal('fetch',vi.fn(async()=>new Response('',{status:503})));
   await expect(loadDeadQuoteQueue('token')).rejects.toThrow('The full quote list');
 });
+it.each([
+  () => new Response('',{status:400}),
+  () => Response.json({errors:[{message:'Limit must not exceed 500.'}]}),
+])('retries the advertised index with a smaller limit when the upstream rejects the larger page',async rejected=>{
+  const limits:number[]=[];
+  vi.stubGlobal('fetch',vi.fn(async(_url,init)=>{
+    const {variables}=JSON.parse(init.body);
+    limits.push(variables.limit);
+    if(variables.limit===2500)return rejected();
+    return Response.json({data:{jobs:{total:2,results:[{...quote,_id:String(variables.skip)}]}}});
+  }));
+  const result=await loadDeadQuoteQueue('token','2026-11-21T00:00:00Z',true);
+  expect(limits).toEqual([2500,500,500]);
+  expect(result.items).toHaveLength(2);
+});
 it.each([{quote:{},lead:{}},{quote:{status:'DECLINED'},lead:[]},{quote:{status:12}},{quote:{status:'DECLINED'},notes:42}])('rejects malformed status-bearing data instead of silently excluding it: %j',async(fields)=>{
   vi.stubGlobal('fetch',vi.fn(async()=>Response.json({data:{jobs:{total:1,results:[{...quote,...fields}]}}})));
   await expect(loadDeadQuoteQueue('token')).rejects.toThrow('The full quote list');

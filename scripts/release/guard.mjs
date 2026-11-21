@@ -68,8 +68,10 @@ export async function checkProductionFiles(root=process.cwd(),env=process.env,ge
 }
 
 // Vercel normalises this file before invoking the build. Validate the effective
-// command separately; application and build-script bytes still must match Git.
+// settings separately; application and build-script bytes still must match Git.
 export function checkVercelConfig(root){
  const config=JSON.parse(readFileSync(resolve(root,'vercel.json'),'utf8'));
  if(config.buildCommand!=='node scripts/vercel-build.mjs')throw Error('Vercel configuration must retain the guarded build command.');
+ const regions=config.functions?.['src/app/api/dead-followups/route.ts']?.regions;
+ if(!Array.isArray(regions)||regions.length!==1||regions[0]!=='sin1')throw Error('Vercel configuration must retain the Follow-ups region.');
 }

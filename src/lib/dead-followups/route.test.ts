@@ -57,13 +57,15 @@ it('preserves upstream GraphQL access refusal when loading cards',async()=>{
 
 it('skips all card reads when recent notes make an old quote ineligible',async()=>{
   vi.mocked(fetch).mockImplementation(async(_url,init)=>{
-    const {query}=JSON.parse(String(init?.body));
+    const {query,variables}=JSON.parse(String(init?.body));
     expect(query).toContain('notes');
     expect(query).not.toMatch(/allocatedTo|quoteNote|extras|contactDetails/);
+    expect(variables).toMatchObject({skip:0,limit:2500});
     return jobs({...job,notes:'18/11/26 - customer called'});
   });
   const response=await read('?view=queue');
   expect(response.status).toBe(200);
+  expect(response.headers.get('server-timing')).toMatch(/auth;dur=.*index;dur=.*history;dur=/);
   expect(await response.json()).toMatchObject({items:[],quoteCounts:{DEAD:1},detailsDeferred:true});
   expect(fetch).toHaveBeenCalledTimes(1);
 });
