@@ -14,6 +14,7 @@ type GqlOptions = {
   storage?: BrowserCacheStorage;
   calendarCacheHandled?: boolean;
   token?: string;
+  timeoutMs?: number;
 };
 
 const inFlightQueries = new Map<string, Promise<unknown>>();
@@ -119,7 +120,7 @@ export async function gql<T>(
   }
 
   const requestKey = isQuery
-    ? `${token || ""}:${calendarDataRevision()}:${calendarLastWrite()}:${query}:${stableStringify(variables || {})}`
+    ? `${token || ""}:${calendarDataRevision()}:${calendarLastWrite()}:${options.timeoutMs ?? ""}:${query}:${stableStringify(variables || {})}`
     : "";
 
   const run = async () => {
@@ -130,6 +131,7 @@ export async function gql<T>(
         ...(token ? { "x-access-token": token } : {}),
       },
       body: JSON.stringify({ query, variables }),
+      ...(options.timeoutMs ? { signal: AbortSignal.timeout(options.timeoutMs) } : {}),
     });
 
     const json = await res.json().catch(() => {

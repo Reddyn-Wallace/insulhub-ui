@@ -56,17 +56,19 @@ async function readContacts(rows: QuoteVersion[], token: string) {
 export const recentQuoteContacts = (rows: QuoteVersion[], token: string) =>
   recentCrmRead<QuoteContacts>("quote-cards", quoteContactsKey(rows), token);
 
+export async function readQuoteContacts(rows: QuoteVersion[], token: string) {
+  if (!rows.length) return {};
+  const sorted = [...rows].sort((a, b) => a._id.localeCompare(b._id));
+  const first = readContacts(sorted.slice(0, 20), token);
+  if (sorted.length <= 20) return first;
+  const [left, right] = await Promise.all([first, readContacts(sorted.slice(20), token)]);
+  return { ...left, ...right };
+}
+
 export async function loadQuoteContacts(rows: QuoteVersion[], token: string) {
   if (!rows.length) return {};
   const key = quoteContactsKey(rows);
-  const sorted = [...rows].sort((a, b) => a._id.localeCompare(b._id));
   const cached = await recentCrmRead<QuoteContacts>("quote-cards", key, token, crmFreshMs);
   if (cached && !cached.recovered) return cached.data;
-  const { data } = await loadCrmRead("quote-cards", key, token, async () => {
-    const first = readContacts(sorted.slice(0, 20), token);
-    if (sorted.length <= 20) return first;
-    const [left, right] = await Promise.all([first, readContacts(sorted.slice(20), token)]);
-    return { ...left, ...right };
-  });
-  return data;
+  return (await loadCrmRead("quote-cards", key, token, () => readQuoteContacts(rows, token))).data;
 }

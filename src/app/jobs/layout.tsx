@@ -37,6 +37,7 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
   const isFollowupView = pathname.startsWith("/jobs/follow-ups") || pathname.endsWith("/follow-up-history");
   const requestedStage = isFollowupView ? "QUOTE" : searchParams.get("stage") || returnToStage || "LEAD";
   const stage = requestedStage === "AWAITING_COMPLETION" ? "JOBS" : requestedStage;
+  const isQuoteReadCheck = pathname === "/jobs" && stage === "QUOTE" && searchParams.get("quoteReadCheck") === "1";
   const isCalendarView = pathname === "/jobs/calendar";
   const isReportsView = pathname.startsWith("/jobs/reports");
   const isSettingsView = pathname.startsWith("/jobs/settings");
@@ -84,21 +85,22 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
   }, [router]);
 
   useEffect(() => {
+    if (isQuoteReadCheck) return;
     // Begin after the main screen has had a chance to load; failures stay quiet here.
     const timer = window.setTimeout(() => {
       if (localStorage.getItem("token")) void loadFinanceOverview().catch(() => undefined);
     }, 1500);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [isQuoteReadCheck]);
 
   useEffect(() => {
-    if (pathname !== "/jobs" || warmedCalendar.current) return;
+    if (pathname !== "/jobs" || warmedCalendar.current || isQuoteReadCheck) return;
     const timer = window.setTimeout(() => {
       warmedCalendar.current = true;
       void warmCurrentCalendar().catch(() => {});
     }, 1000);
     return () => window.clearTimeout(timer);
-  }, [pathname]);
+  }, [isQuoteReadCheck, pathname]);
 
   const handleLogout = () => {
     clearFinanceOverview();
@@ -111,6 +113,7 @@ function JobsNav({ headerRef }: { headerRef: React.RefObject<HTMLDivElement | nu
   const goStage = (next: string) => {
     setIsMenuOpen(false);
     const params = new URLSearchParams(searchParams.toString());
+    params.delete("quoteReadCheck");
     params.set("stage", next);
 
     if (next === "QUOTE") {
