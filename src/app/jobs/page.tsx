@@ -501,7 +501,9 @@ function JobsPageContent() {
       const entries = await Promise.all(records.map(async ({ id, email }) => [
         `${id}:${email}`, await readRecordedSend("quote", id, email, token),
       ] as const));
-      if (current()) setRecordedQuoteSends(Object.fromEntries(entries.filter((entry): entry is readonly [string, string] => !!entry[1])));
+      const confirmed: Record<string, string> = {};
+      for (const [key, sentAt] of entries) if (sentAt) confirmed[key] = sentAt;
+      if (current()) setRecordedQuoteSends(confirmed);
     }
     function onReceipt(event: StorageEvent) {
       if (event.key?.startsWith(sendReceiptPrefix)) void loadReceipts().catch(() => {});
