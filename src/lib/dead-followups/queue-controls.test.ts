@@ -2,10 +2,12 @@ vi.mock('./date-repository',()=>({attachDeadDates:async(jobs:unknown)=>jobs}));
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 vi.mock('./repository',()=>({controlsRepository:vi.fn(),emptyRecord:()=>({revision:0,state:emptyControls(),updatedAt:null,actorName:''})}));
 vi.mock('./send-repository',()=>({sendsRepository:vi.fn(()=>null)}));
+vi.mock('./queue-history',()=>({readBatchedQueueHistory:vi.fn(async()=>null)}));
 import {sendsRepository} from './send-repository';
 import {controlsRepository} from './repository';
 import {emptyControls} from './controls';
 import {decorateQueue} from './queue-controls';
+import {readBatchedQueueHistory} from './queue-history';
 import type {QueueResponse} from './types';
 const queue:QueueResponse={items:[{job:{_id:'a',stage:'QUOTE',updatedAt:'v1',quote:{date:'2026-01-01',status:'DECLINED'}},eligibility:{state:'review',reason:'Unknown'},suggestion:null,earliestFirstApproach:null}],checkedAt:'2026-09-30T00:00:00Z',readOnly:true,historyAvailable:false};
 const state={...emptyControls(),deadDate:'2026-01-01T00:00:00Z',dateEvidence:'Dated notes',reviewedVersion:'v1'};
@@ -36,4 +38,15 @@ it('pending sends are attention items even while sending is switched off',async(
  vi.mocked(controlsRepository).mockReturnValue({list:async()=>({a:{revision:1,state,actorName:'Staff',updatedAt:null}})} as never);
  vi.mocked(sendsRepository).mockReturnValue({summaries:async()=>[{insulhub_job_id:'a',status:'unknown',note_status:'pending'}]} as never);
  const result=await decorateQueue(queue);expect(result.items[0].eligibility.state).toBe('attention');expect(result.items[0].sendAvailable).toBe(true);expect(result.items[0].sendEnabled).toBe(false);
+});
+
+it('uses the batched snapshot for eligibility without reading storage again',async()=>{
+ const job={...queue.items[0].job,deadEntry:null,deadDateUncertain:true};
+ vi.mocked(readBatchedQueueHistory).mockResolvedValueOnce({
+  jobs:[job],records:{a:{revision:1,state,actorName:'Staff',updatedAt:null}},
+  attempts:[{insulhub_job_id:'a',status:'sending',note_status:'pending'}],
+ });
+ const result=await decorateQueue(queue);
+ expect(result.items[0]).toMatchObject({job,eligibility:{state:'attention'},sendAvailable:true});
+ expect(controlsRepository).not.toHaveBeenCalled();
 });

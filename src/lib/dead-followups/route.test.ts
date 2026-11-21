@@ -4,6 +4,7 @@ import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 vi.mock('@/lib/insulhub-auth',()=>({requireInsulhubAuth:vi.fn(),tokenFromRequest:()=> 'token'}));
 vi.mock('./date-repository',()=>({attachDeadDates:vi.fn(async jobs=>jobs),attachDeadDate:vi.fn()}));
 vi.mock('./repository',()=>({controlsRepository:()=>null}));
+vi.mock('./queue-history',()=>({readBatchedQueueHistory:async()=>null}));
 
 import {requireInsulhubAuth} from '@/lib/insulhub-auth';
 import {attachDeadDates} from './date-repository';
@@ -59,6 +60,7 @@ it('skips all card reads when recent notes make an old quote ineligible',async()
   vi.mocked(fetch).mockImplementation(async(_url,init)=>{
     const {query,variables}=JSON.parse(String(init?.body));
     expect(query).toContain('notes');
+    expect(query).toContain('showArchived: false');
     expect(query).not.toMatch(/allocatedTo|quoteNote|extras|contactDetails/);
     expect(variables).toMatchObject({skip:0,limit:2500});
     return jobs({...job,notes:'18/11/26 - customer called'});

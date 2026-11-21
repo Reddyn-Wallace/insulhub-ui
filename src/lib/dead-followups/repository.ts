@@ -9,6 +9,10 @@ export function controlsRepository(): ControlRepository | null {
   return new ControlRepository(pool);
 }
 export function emptyRecord(): ControlRecord {return {revision:0,state:emptyControls(),updatedAt:null,actorName:''};}
+export const READ_CONTROLS_SQL='SELECT insulhub_job_id,revision,state,actor_name,updated_at FROM dead_quote_followup_controls WHERE insulhub_job_id=ANY($1::text[])';
+export function controlRecords(rows:Record<string,unknown>[]):Record<string,ControlRecord>{
+  return Object.fromEntries(rows.map(row=>[String(row.insulhub_job_id),record(row)]));
+}
 function record(row: Record<string,unknown>): ControlRecord {
   return {revision:Number(row.revision),state:row.state as ControlState,actorName:String(row.actor_name),updatedAt:new Date(String(row.updated_at)).toISOString()};
 }
@@ -16,8 +20,8 @@ export class ControlRepository {
   constructor(private readonly pool: Pool) {}
   async list(ids: string[]): Promise<Record<string,ControlRecord>> {
     if (!ids.length) return {};
-    const result=await this.pool.query('SELECT * FROM dead_quote_followup_controls WHERE insulhub_job_id=ANY($1::text[])',[ids]);
-    return Object.fromEntries(result.rows.map(row=>[row.insulhub_job_id,record(row)]));
+    const result=await this.pool.query(READ_CONTROLS_SQL,[ids]);
+    return controlRecords(result.rows);
   }
   async events(jobId: string): Promise<ControlEvent[]> {
     const result=await this.pool.query('SELECT * FROM dead_quote_followup_events WHERE insulhub_job_id=$1 ORDER BY revision DESC LIMIT 50',[jobId]);

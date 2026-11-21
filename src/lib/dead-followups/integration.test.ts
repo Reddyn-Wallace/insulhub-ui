@@ -8,6 +8,8 @@ import {renderTemplate} from './templates';
 import {dispatchAttempt,reconcileAttempt,appendOfferNote} from './send-service';
 import {controlHistory} from './controls';
 import {evaluateFollowup,addNzMonths} from './rules';
+import {BATCH_DEAD_DATE_BASELINE_SQL,queueDateAssumptions} from './date-repository';
+import {READ_QUEUE_HISTORY_SQL} from './queue-history';
 import {checkReadiness} from '../../../scripts/lib/dead-followups-readiness.mjs';
 const url=process.env.DEAD_FOLLOWUPS_TEST_DATABASE_URL;
 describe.skipIf(!url)('full local follow-up lifecycle',()=>{
@@ -23,6 +25,13 @@ describe.skipIf(!url)('full local follow-up lifecycle',()=>{
   const settings=await new TemplateRepository(pool).read();const message=renderTemplate(settings.templates.find(t=>t.channel==='sms'&&t.approach===1)!,{discountCents:50000,name:'Alex',quoteNumber:123});
   const input={requestId:'eeeeeeee-eeee-4eee-eeee-eeeeeeeeeeee',revision:review.revision,jobVersion:job.updatedAt,channel:'sms',senderId:'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb',destination:'0211234567',...message};
   const claim=await sends.claim(job,input,actor);let dispatches=0;let dispatchError='';
+  await pool.query(BATCH_DEAD_DATE_BASELINE_SQL,[JSON.stringify(queueDateAssumptions([job],new Date().toISOString()))]);
+  const history=async()=>(await pool.query(READ_QUEUE_HISTORY_SQL,[[job._id]])).rows[0];
+  expect(await history()).toMatchObject({
+   dates:[{insulhub_job_id:job._id,entry:{source:'quote_plus_30'},pending:false}],
+   attempts:[{insulhub_job_id:job._id,status:'sending'}],
+   controls:[{insulhub_job_id:job._id,state:{offers:[]}}],
+  });
   const deliver=async()=>{dispatches++;await pool.query("INSERT INTO job_sms_messages(id,insulhub_job_id,sender_id,sender_label,sender_value,actor_id,actor_name,destination,body,request_hash,status,provider_message_id) VALUES($1,$2,$3,'Work phone','0210000000','staff','Staff Member',$4,$5,'test','sent',$6)",[claim.attempt.id,job._id,input.senderId,claim.attempt.destination,message.body,claim.attempt.id]);throw Error('Response lost after sending');};
   await dispatchAttempt(claim.claimed,async()=>{try{await deliver();}catch(e){dispatchError=(e as Error).message;throw e;}});expect(dispatchError).toBe('Response lost after sending');const repeated=await sends.claim(job,input,actor);await dispatchAttempt(repeated.claimed,deliver);expect(dispatches).toBe(1);
   const result=await reconcileAttempt(claim.attempt,()=>sends.messageOutcome(claim.attempt));const sent=await sends.setOutcome(claim.attempt.id,result.status,result.failureReason);
@@ -30,6 +39,10 @@ describe.skipIf(!url)('full local follow-up lifecycle',()=>{
   const deps={read:async()=>notes,write:async(value:string)=>{writes++;notes=value;throw Error('Lost note reply');}};
   await expect(appendOfferNote(sent,deps)).rejects.toThrow('Lost note reply');await appendOfferNote(sent,deps);await sends.noteSaved(sent.id);expect(writes).toBe(1);expect(notes).toContain('Existing customer notes');expect(notes).toContain('NZD $500.00');expect(dispatches).toBe(1);
   const saved=(await controls.list([job._id]))[job._id];expect(saved.state.offers).toHaveLength(1);expect(saved.state.offers[0].discountCents).toBe(50000);
+  expect(await history()).toMatchObject({
+   attempts:[{insulhub_job_id:job._id,status:'sent',note_status:'saved'}],
+   controls:[{insulhub_job_id:job._id,state:{offers:[{discountCents:50000}]}}],
+  });
   const due=addNzMonths(sent.sentAt!,4);expect(evaluateFollowup(job,controlHistory(saved.state,job),sent.sentAt!).state).toBe('waiting');expect(evaluateFollowup(job,controlHistory(saved.state,job),due)).toMatchObject({state:'due',approach:2,previousDiscountCents:50000});
   expect((await sends.list(job._id))[0].noteStatus).toBe('saved');
  });
