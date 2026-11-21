@@ -10,7 +10,7 @@ import { useRouter, useParams, useSearchParams } from "next/navigation";
 import { gql } from "@/lib/graphql";
 import { loadJobDetail, recentJobDetail } from "@/lib/crm-read/detail";
 import { loadSalesDirectory } from "@/lib/crm-read/directory";
-import { loadCrmEmailIndex, readRecordedEba, rememberRecordedEba } from "@/lib/crm-read/sent-index";
+import { laterSend, loadCrmEmailIndex, readRecordedSend, rememberRecordedSend } from "@/lib/crm-read/sent-index";
 import { JOB_DETAIL_QUERY } from "@/lib/queries";
 import { completionPackBlocker, canCompleteJob, type ManualInvoiceConfirmation } from "@/lib/job-completion";
 import {
@@ -777,18 +777,21 @@ export default function JobDetailPage() {
     setEbaSentAt(null);
     const token = localStorage.getItem("token");
     if (!token || !sentEmail || (!wantsQuoteSent && !wantsEbaSent)) return;
-    let active = true;
-    function showEba(sentAt?: string | null) {
-      if (!active || !sentAt || localStorage.getItem("token") !== token) return;
-      setEbaSentAt(previous => previous && Date.parse(previous) > Date.parse(sentAt) ? previous : sentAt);
-    }
-    if (wantsEbaSent) void readRecordedEba(id, sentEmail, token).then(showEba).catch(() => {});
-    const timer = window.setTimeout(() => void loadCrmEmailIndex(token).then(index => {
-      if (!active || localStorage.getItem("token") !== token) return;
-      if (wantsQuoteSent) setQuoteSentAt(index.quote[sentEmail] || null);
+    const controller = new AbortController();
+    const current = () => !controller.signal.aborted && localStorage.getItem("token") === token;
+    const showQuote = (sentAt?: string | null) => {
+      if (current() && sentAt) setQuoteSentAt(previous => laterSend(previous, sentAt) || null);
+    };
+    const showEba = (sentAt?: string | null) => {
+      if (current() && sentAt) setEbaSentAt(previous => laterSend(previous, sentAt) || null);
+    };
+    if (wantsQuoteSent) void readRecordedSend("quote", id, sentEmail, token).then(showQuote).catch(() => {});
+    if (wantsEbaSent) void readRecordedSend("eba", id, sentEmail, token).then(showEba).catch(() => {});
+    void loadCrmEmailIndex(token, index => {
+      if (wantsQuoteSent) showQuote(index.quote[sentEmail]);
       if (wantsEbaSent) showEba(index.eba[sentEmail]);
-    }).catch(() => {}), 400);
-    return () => { active = false; window.clearTimeout(timer); };
+    }, controller.signal).catch(() => {});
+    return () => controller.abort();
   }, [id, sentEmail, wantsEbaSent, wantsQuoteSent]);
 
   useEffect(() => {
@@ -1713,11 +1716,14 @@ export default function JobDetailPage() {
       return;
     }
     const token = getToken();
-    await run(() => gql(SEND_EBA, { jobId: id }), () => {
+    await run(async () => {
+      const result = await gql<{ sendEBAEmail?: unknown }>(SEND_EBA, { jobId: id });
+      if (!result?.sendEBAEmail) throw Error("The CRM did not confirm the EBA send.");
+    }, () => {
       const sentAt = new Date().toISOString();
       setEbaSentAt(sentAt);
       const email = job.client?.contactDetails?.email?.trim().toLowerCase();
-      if (email && token) void rememberRecordedEba(id, email, token, sentAt).catch(() => {});
+      if (email && token) void rememberRecordedSend("eba", id, email, token, sentAt).catch(() => {});
       const msg = { type: "success" as const, text: "EBA email sent." };
       setNotice(msg);
       setToast(msg);
@@ -2002,12 +2008,21 @@ export default function JobDetailPage() {
       return;
     }
 
-    await run(() => gql(UPDATE_JOB_QUOTE, {
-      input: sendInput,
-      emailQuoteToCustomer: true,
-      quotePDFEmailBodyTemplate: template,
-    }), () => {
-      setQuoteSentAt(new Date().toISOString());
+    const token = getToken();
+    const email = job?.client?.contactDetails?.email?.trim().toLowerCase();
+    await run(async () => {
+      const result = await gql<{ updateJob?: { _id?: string } }>(UPDATE_JOB_QUOTE, {
+        input: sendInput,
+        emailQuoteToCustomer: true,
+        quotePDFEmailBodyTemplate: template,
+      });
+      if (result?.updateJob?._id !== id) throw Error("The CRM did not confirm the quote send.");
+      if (token && localStorage.getItem("token") === token) {
+        const sentAt = new Date().toISOString();
+        setQuoteSentAt(sentAt);
+        if (email) await rememberRecordedSend("quote", id, email, token, sentAt).catch(() => {});
+      }
+    }, () => {
       const msg = { type: "success" as const, text: "Quote sent to customer." };
       setNotice(msg);
       setToast(msg);

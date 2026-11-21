@@ -5,6 +5,8 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const maximumBytes = 1_000_000;
 const maximumQuotePages = 8;
+const maximumSendReceipts = 32;
+const isSendEvidence = (kind: string) => kind === "sent-history" || kind === "sent-receipt";
 let encryption: { token: string; key: Promise<CryptoKey> } | undefined;
 
 export const sharesAcrossTabs = (kind: string) => kind === "board" || kind === "quote-cards";
@@ -26,7 +28,8 @@ async function storageKey(kind: string, cacheKey: string, token: string) {
     calendarCacheScope(token),
     crypto.subtle.digest("SHA-256", encoder.encode(cacheKey)),
   ]);
-  const prefix = `jobs-cache:shared-v1:${kind}:${scope}:`;
+  const namespace = isSendEvidence(kind) ? "crm-sent-cache" : "jobs-cache";
+  const prefix = `${namespace}:shared-v1:${kind}:${scope}:`;
   return { key: prefix + encode(new Uint8Array(hash)), prefix };
 }
 
@@ -50,12 +53,13 @@ export async function readSharedBrowser<T>(kind: string, cacheKey: string, token
     if (!raw || raw.length > maximumBytes * 1.4) return null;
     const envelope = JSON.parse(raw) as EncryptedSnapshot;
     if (!Number.isFinite(envelope.checkedAt) || envelope.checkedAt > Date.now() ||
-        Date.now() - envelope.checkedAt > maxAge || envelope.checkedAt < calendarLastWrite()) return null;
+        Date.now() - envelope.checkedAt > maxAge || (!isSendEvidence(kind) && envelope.checkedAt < calendarLastWrite())) return null;
     const decrypted = await crypto.subtle.decrypt({
       name: "AES-GCM", iv: decode(envelope.nonce), additionalData: encoder.encode(key),
     }, await keyFor(token), decode(envelope.ciphertext));
     const entry = JSON.parse(decoder.decode(decrypted)) as RecentCrmRead<T>;
-    if (localStorage.getItem("token") !== token || entry.checkedAt !== envelope.checkedAt || entry.writeAt !== calendarLastWrite()) return null;
+    if (localStorage.getItem("token") !== token || entry.checkedAt !== envelope.checkedAt ||
+        (!isSendEvidence(kind) && entry.writeAt !== calendarLastWrite())) return null;
     return entry;
   } catch {
     return null;
@@ -70,7 +74,7 @@ function previousReadAt(key: string) {
   catch { return 0; }
 }
 
-function pruneQuotePages(prefix: string, current: string) {
+function pruneEntries(prefix: string, current: string, limit: number) {
   const entries = [];
   for (let index = 0; index < localStorage.length; index++) {
     const key = localStorage.key(index);
@@ -78,7 +82,7 @@ function pruneQuotePages(prefix: string, current: string) {
     entries.push({ key, at: previousReadAt(key) });
   }
   entries.sort((a, b) => b.at - a.at);
-  for (const { key } of entries.slice(maximumQuotePages - 1)) localStorage.removeItem(key);
+  for (const { key } of entries.slice(limit - 1)) localStorage.removeItem(key);
 }
 
 export async function persistSharedBrowser<T>(
@@ -93,9 +97,11 @@ export async function persistSharedBrowser<T>(
     const ciphertext = await crypto.subtle.encrypt({
       name: "AES-GCM", iv: nonce, additionalData: encoder.encode(key),
     }, await keyFor(token), plaintext);
-    if (localStorage.getItem("token") !== token || writeAt !== calendarLastWrite() || writeRevision !== calendarDataRevision()) return;
+    if (localStorage.getItem("token") !== token ||
+        (!isSendEvidence(kind) && (writeAt !== calendarLastWrite() || writeRevision !== calendarDataRevision()))) return;
     if (previousReadAt(key) >= entry.checkedAt) return;
-    if (kind === "quote-cards") pruneQuotePages(prefix, key);
+    if (kind === "quote-cards") pruneEntries(prefix, key, maximumQuotePages);
+    if (kind === "sent-receipt") pruneEntries(prefix, key, maximumSendReceipts);
     localStorage.setItem(key, JSON.stringify({
       checkedAt: entry.checkedAt,
       nonce: encode(nonce),

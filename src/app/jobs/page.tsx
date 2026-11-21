@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
+import dynamic from "next/dynamic";
 import { gql } from "@/lib/graphql";
 import { JOBS_QUERY } from "@/lib/queries";
 import StageTabs from "@/components/StageTabs";
@@ -14,7 +15,7 @@ import { loadSalesDirectory } from "@/lib/crm-read/directory";
 import { calendarLastWriteKey } from "@/lib/calendar/cache";
 import { crmFreshMs } from "@/lib/crm-read/client";
 import { boardPageSize as PAGE_SIZE, compareQuoteDate, loadQuoteContacts, quoteContactsKey, QuoteSelectionChanged, quoteState, recentQuoteContacts, type QuoteContacts } from "@/lib/crm-read/quotes";
-import { loadCrmEmailIndex } from "@/lib/crm-read/sent-index";
+import { laterSend, loadCrmEmailIndex, readRecordedSend, sendReceiptPrefix } from "@/lib/crm-read/sent-index";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { LEAD_SOURCE_OPTIONS, canonicalLeadSourceLabel, normalizeLeadSourceValue } from "@/lib/lead-sources";
 
@@ -63,6 +64,7 @@ function JobsPageContent() {
   const [quoteCards, setQuoteCards] = useState<{ key: string; data: QuoteContacts } | null>(null);
   const [quoteCardsError, setQuoteCardsError] = useState<{ key: string; message: string } | null>(null);
   const [quoteCardsRetry, setQuoteCardsRetry] = useState(0);
+  const [recordedQuoteSends, setRecordedQuoteSends] = useState<Record<string, string>>({});
   const [quoteSentByEmail, setQuoteSentByEmail] = useState<Record<string, string>>({});
   const [loadError, setLoadError] = useState<{ key: string; message: string } | null>(null);
   const error = loadError?.key === resultKey ? loadError.message : "";
@@ -245,6 +247,7 @@ function JobsPageContent() {
         setResult(null);
         setUsers([]);
         setQuoteSentByEmail({});
+        setRecordedQuoteSends({});
         setQuoteCards(null);
         viewedStage.current = null;
         if (localStorage.getItem("token")) window.location.reload();
@@ -476,19 +479,38 @@ function JobsPageContent() {
 
   const paginatedResults = useMemo(() => displayedJobs.map(job => {
     const email = job.client?.contactDetails?.email?.trim().toLowerCase();
-    const sentAt = email ? quoteSentByEmail[email] : undefined;
+    const sentAt = email ? laterSend(quoteSentByEmail[email], recordedQuoteSends[`${job._id}:${email}`]) : undefined;
     return sentAt ? { ...job, quoteLastSentAt: sentAt } : job;
-  }), [displayedJobs, quoteSentByEmail]);
+  }), [displayedJobs, quoteSentByEmail, recordedQuoteSends]);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (!stageHydrated || !token || (!searchMode && activeStage !== "QUOTE") ||
         !displayedJobs.some(job => job.stage === "QUOTE" && job.client?.contactDetails?.email)) return;
-    let active = true;
-    const timer = window.setTimeout(() => void loadCrmEmailIndex(token)
-      .then(data => { if (active) setQuoteSentByEmail(data.quote); })
-      .catch(() => {}), 400);
-    return () => { active = false; window.clearTimeout(timer); };
+    const controller = new AbortController();
+    const current = () => !controller.signal.aborted && localStorage.getItem("token") === token;
+    void loadCrmEmailIndex(token, index => {
+      if (current()) setQuoteSentByEmail(index.quote);
+    }, controller.signal).catch(() => {});
+    const records = displayedJobs.flatMap(job => {
+      const email = job.stage === "QUOTE" && job.client?.contactDetails?.email?.trim().toLowerCase();
+      return email ? [{ id: job._id, email }] : [];
+    });
+    async function loadReceipts() {
+      if (!token) return;
+      const entries = await Promise.all(records.map(async ({ id, email }) => [
+        `${id}:${email}`, await readRecordedSend("quote", id, email, token),
+      ] as const));
+      const confirmed: Record<string, string> = {};
+      for (const [key, sentAt] of entries) if (sentAt) confirmed[key] = sentAt;
+      if (current()) setRecordedQuoteSends(confirmed);
+    }
+    function onReceipt(event: StorageEvent) {
+      if (event.key?.startsWith(sendReceiptPrefix)) void loadReceipts().catch(() => {});
+    }
+    void loadReceipts().catch(() => {});
+    window.addEventListener("storage", onReceipt);
+    return () => { controller.abort(); window.removeEventListener("storage", onReceipt); };
   }, [activeStage, displayedJobs, searchMode, stageHydrated]);
 
   useEffect(() => {
@@ -765,10 +787,18 @@ function JobsPageContent() {
   );
 }
 
+const QuoteFirstPageCheck = dynamic(() => import("@/components/QuoteFirstPageCheck"));
+
+function JobsScreen() {
+  const params = useSearchParams();
+  if (params.get("quoteReadCheck") === "1" && params.get("stage") === "QUOTE") return <QuoteFirstPageCheck />;
+  return <JobsPageContent />;
+}
+
 export default function JobsPage() {
   return (
     <Suspense fallback={<LoadingSkeleton />}>
-      <JobsPageContent />
+      <JobsScreen />
     </Suspense>
   );
 }

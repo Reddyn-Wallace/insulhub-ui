@@ -62,7 +62,7 @@ const revisitFields = `${salesFields}
 export const isBoardStage = (stage: string) =>
   ["LEAD", "QUOTE", "JOBS", "COMPLETED", ...activeStages].includes(stage);
 
-async function readAll(stage: string, token: string) {
+export async function readBoardSource(stage: string, token: string) {
   const stages = stage === "JOBS" ? activeStages : [stage];
   const query = stage === "QUOTE" ? quoteIndexQuery : stage === "LEAD" ? salesQuery : JOBS_QUERY;
   const jobs = new Map<string, BoardJob>();
@@ -114,12 +114,12 @@ export async function loadBoard(stage: string, token: string) {
   const revision = getSplitRevision();
   return (await loadCrmRead("board", stage === "QUOTE" ? "quote-index" : stage, token, async () => {
     if (stage === "JOBS") {
-      const [rows, splits] = await Promise.all([readAll(stage, token), loadPendingSplits(token)]);
+      const [rows, splits] = await Promise.all([readBoardSource(stage, token), loadPendingSplits(token)]);
       const result = await addRevisits(rows, splits, token);
       if (revision !== getSplitRevision()) throw Error("Visits changed while loading. Please retry.");
       return result;
     }
-    const rows = await readAll(stage, token);
+    const rows = await readBoardSource(stage, token);
     const jobs = rows.jobs.filter(job => !job.archivedAt);
     return { jobs, total: stage === "COMPLETED" ? jobs.length : rows.total };
   }, revision)).data;

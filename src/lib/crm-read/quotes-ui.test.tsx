@@ -87,3 +87,26 @@ it("refreshes the list if a quote moves before its contact is read", async () =>
   expect(screen.queryByText("Customer quote-0")).toBeNull();
   expect(reads).toBe(2);
 });
+
+it("shows a sent badge as soon as the customer's send is found", async () => {
+  const originalFetch = view.gql.getMockImplementation()!;
+  const email = "customer@example.test";
+  let releaseHistory!: (data: unknown) => void;
+  view.gql.mockImplementation(async (query: string, variables: Record<string, string | number>) => {
+    if (query.includes("query EmailLogs")) {
+      if (variables.skip === 0) {
+        return { listEmailLogs: { total: 2, results: [{ to_email: email, type: "quote", createdAt: "2026-11-20T02:00:00Z" }] } };
+      }
+      return new Promise(resolve => { releaseHistory = resolve; });
+    }
+    const data = await originalFetch(query, variables);
+    if (query.includes("query QuoteCardDetails")) data.card0.client.contactDetails.email = email;
+    return data;
+  });
+
+  render(<JobsPage />);
+  expect(await screen.findByText("Customer quote-0")).toBeTruthy();
+  expect(await screen.findByText(/^Sent at /)).toBeTruthy();
+  expect(releaseHistory).toBeTypeOf("function");
+  releaseHistory({ listEmailLogs: { total: 2, results: [{ type: "unrelated", createdAt: "2026-11-01" }] } });
+});
