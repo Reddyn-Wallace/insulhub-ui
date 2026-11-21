@@ -1,20 +1,6 @@
-import { gql } from "@/lib/graphql";
 import { readBoardSource, type BoardJob, type JobsData } from "./board";
-import { boardPageSize, compareQuoteDate, quoteState, readQuoteContacts } from "./quotes";
+import { boardPageSize, compareQuoteDate, quoteState, readQuoteContacts, readOpenQuoteCandidate } from "./quotes";
 
-const query = `
-  query QuoteFirstPageCheck($lead: LeadStatus, $quote: QuoteStatus, $limit: Int!) {
-    jobs(stages: [QUOTE], limit: $limit, leadStatus: $lead, quoteStatus: $quote, showArchived: false) {
-      total
-      results {
-        _id jobNumber stage archivedAt updatedAt
-        lead { leadStatus allocatedTo { _id firstname lastname } callbackDate }
-        quote { quoteNumber status date deferralDate c_total }
-        client { contactDetails { name email phoneMobile streetAddress suburb city } }
-      }
-    }
-  }
-`;
 
 const variants = [
   { name: "New lead + unset quote", lead: "NEW", quote: "UNSET" },
@@ -77,11 +63,7 @@ export async function checkQuoteFirstPage(token: string, newest: boolean, signal
     signal.throwIfAborted();
     if (localStorage.getItem("token") !== token) throw Error("Your sign-in changed.");
     const t = performance.now();
-    const { jobs } = await gql<JobsData>(query, {
-      ...("lead" in variant ? { lead: variant.lead } : {}),
-      ...("quote" in variant ? { quote: variant.quote } : {}),
-      limit: boardPageSize + 1,
-    }, { token, timeoutMs: 10000 });
+    const jobs = await readOpenQuoteCandidate(token, variant);
     if (localStorage.getItem("token") !== token) throw Error("Your sign-in changed.");
     return {
       match: matchesQuoteFirstPage(jobs, displayed, newest),

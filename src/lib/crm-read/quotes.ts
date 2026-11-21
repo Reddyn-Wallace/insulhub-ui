@@ -1,5 +1,5 @@
 import { gql } from "@/lib/graphql";
-import type { BoardJob } from "./board";
+import type { BoardJob, JobsData } from "./board";
 import { crmFreshMs, loadCrmRead, recentCrmRead } from "./client";
 
 export const boardPageSize = 40;
@@ -30,6 +30,38 @@ export function compareQuoteDate(a: BoardJob, b: BoardJob, newest: boolean) {
   if (!b.quote?.date) return 1;
   const difference = Date.parse(a.quote.date) - Date.parse(b.quote.date);
   return newest ? -difference : difference;
+}
+
+const openQuoteCandidateQuery = `
+  query QuoteFirstPageCheck($lead: LeadStatus, $quote: QuoteStatus, $limit: Int!) {
+    jobs(stages: [QUOTE], limit: $limit, leadStatus: $lead, quoteStatus: $quote, showArchived: false) {
+      total
+      results {
+        _id jobNumber stage archivedAt updatedAt
+        lead { leadStatus allocatedTo { _id firstname lastname } callbackDate }
+        quote { quoteNumber status date deferralDate c_total }
+        client { contactDetails { name email phoneMobile streetAddress suburb city } }
+      }
+    }
+  }
+`;
+
+
+export async function readOpenQuoteCandidate(token: string, filter: { lead?: "NEW"; quote?: "UNSET" }) {
+  const { jobs } = await gql<JobsData>(openQuoteCandidateQuery, {
+    lead: filter.lead,
+    quote: filter.quote,
+    limit: boardPageSize + 1,
+  }, { token, timeoutMs: 10000 });
+  return jobs;
+}
+
+export async function readInitialOpenQuotes(token: string) {
+  const page = await readOpenQuoteCandidate(token, { lead: "NEW", quote: "UNSET" });
+  if (!Array.isArray(page?.results) || page.total !== page.results.length || page.total > boardPageSize + 1) return [];
+  const eligible = page.results.filter(job => job?.stage === "QUOTE" && !job.archivedAt && quoteState(job) === "OPEN");
+  if (eligible.some(job => !job._id || !job.updatedAt) || new Set(eligible.map(job => job._id)).size !== eligible.length) return [];
+  return eligible;
 }
 
 async function readContacts(rows: QuoteVersion[], token: string) {

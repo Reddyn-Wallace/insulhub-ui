@@ -44,11 +44,11 @@ it("does not reuse a detail read that started before a mutation", async () => {
 
 it("shares one paginated email history scan and preserves the latest send of each type", async () => {
   const recipient = "example@example.test";
-  const quote = (createdAt: string) => ({ subject: "Insulation quote", to_email: recipient, createdAt });
+  const quote = (createdAt: string) => ({ _id: createdAt, subject: "Insulation quote", to_email: recipient, createdAt });
   mock.mockResolvedValueOnce({ listEmailLogs: { total: 3, results: [quote("2026-11-01")] } })
     .mockResolvedValueOnce({ listEmailLogs: { total: 3, results: [
       quote("2026-11-05"),
-      { subject: "Existing building assessment", to_email: recipient, createdAt: "2026-11-04" },
+      { _id: "eba-1", subject: "Existing building assessment", to_email: recipient, createdAt: "2026-11-04" },
     ] } });
   const results = await Promise.all([loadCrmEmailIndex("staff"), loadCrmEmailIndex("staff")]);
   expect(results[0]).toEqual(results[1]);

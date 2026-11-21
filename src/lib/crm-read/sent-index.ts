@@ -5,14 +5,14 @@ import { persistSharedBrowser, readSharedBrowser } from "./shared-browser";
 
 type SentKind = "quote" | "eba";
 type EmailIndex = Record<SentKind, Record<string, string>>;
-type EmailLog = { createdAt?: string; type?: string; subject?: string; to_email?: string };
+type EmailLog = { _id: string; createdAt?: string; type?: string; subject?: string; to_email?: string };
 type EmailPage = { total: number; results: EmailLog[] };
 type Listener = (index: EmailIndex) => void;
 type Scan = { listeners: Set<Listener>; current?: EmailIndex; done: Promise<EmailIndex> };
 const indexFreshMs = 10 * 60_000;
 const indexDisplayMs = 60 * 60_000;
-const firstPageSize = 150;
-const pageSize = 500;
+const firstPageSize = 500;
+const pageSize = 1500;
 const scans = new Map<string, Scan>();
 export const sendReceiptPrefix = "crm-sent-cache:shared-v1:sent-receipt:";
 
@@ -33,7 +33,7 @@ function publish(scan: Scan, index: EmailIndex, token: string) {
 async function emailPage(token: string, skip: number, limit: number) {
   if (localStorage.getItem("token") !== token) throw Error("Your sign-in changed.");
   const data = await gql<{ listEmailLogs?: EmailPage }>(
-    `query EmailLogs($skip:Int,$limit:Int){listEmailLogs(skip:$skip,limit:$limit){total results{createdAt type subject to_email}}}`,
+    `query EmailLogs($skip:Int,$limit:Int){listEmailLogs(skip:$skip,limit:$limit){total results{_id createdAt type subject to_email}}}`,
     { skip, limit },
     { token, timeoutMs: 12000 },
   );
@@ -45,7 +45,8 @@ async function emailPage(token: string, skip: number, limit: number) {
   return page;
 }
 
-async function scanEmailHistory(token: string, scan: Scan, previous?: EmailIndex) {
+async function scanEmailHistory(token: string, onProgress: Listener, previous?: EmailIndex) {
+  const seen = new Set<string>();
   const index: EmailIndex = { quote: Object.create(null), eba: Object.create(null) };
   const found: EmailIndex = {
     quote: Object.assign(Object.create(null), previous?.quote),
@@ -55,6 +56,8 @@ async function scanEmailHistory(token: string, scan: Scan, previous?: EmailIndex
   function consume(rows: EmailLog[]) {
     let changed = false;
     for (const row of rows) {
+      if (!row || typeof row._id !== "string" || !row._id || seen.has(row._id)) throw Error("Email history changed while loading.");
+      seen.add(row._id);
       const recipient = row.to_email?.trim().toLowerCase();
       if (!recipient || !row.createdAt || !Number.isFinite(Date.parse(row.createdAt))) continue;
       const subject = row.subject?.toLowerCase() || "";
@@ -71,14 +74,20 @@ async function scanEmailHistory(token: string, scan: Scan, previous?: EmailIndex
         }
       }
     }
-    if (changed) publish(scan, { quote: { ...found.quote }, eba: { ...found.eba } }, token);
+    if (changed) onProgress({ quote: { ...found.quote }, eba: { ...found.eba } });
   }
 
   const first = await emailPage(token, 0, firstPageSize);
   consume(first.results);
   async function readRange(start: number, end: number) {
+    let limitCap = pageSize;
     for (let skip = start; skip < end;) {
-      const page = await emailPage(token, skip, Math.min(pageSize, end - skip));
+      const limit = Math.min(limitCap, end - skip);
+      const page = await emailPage(token, skip, limit).catch(error => {
+        if (limit <= 500 || localStorage.getItem("token") !== token) throw error;
+        limitCap = 500;
+        return emailPage(token, skip, limitCap);
+      });
       consume(page.results);
       if (page.total !== first.total) throw Error("Email history changed while loading.");
       skip += page.results.length;
@@ -87,8 +96,10 @@ async function scanEmailHistory(token: string, scan: Scan, previous?: EmailIndex
 
   // Check both ends of a large history promptly. Its API exposes no sort or
   // recipient filter, so a partial scan only supplies positive send evidence.
-  const split = first.total > pageSize * 2 ? first.total - pageSize : first.total;
-  const ranges = await Promise.allSettled([readRange(first.results.length, split), readRange(split, first.total)]);
+  const tail = first.total > pageSize * 2 ? first.total - pageSize : first.total;
+  const head = first.results.length;
+  const middle = tail - head > pageSize * 2 ? head + Math.ceil((tail - head) / 2) : tail;
+  const ranges = await Promise.allSettled([readRange(head, middle), readRange(middle, tail), readRange(tail, first.total)]);
   for (const range of ranges) if (range.status === "rejected") throw range.reason;
   return index;
 }
@@ -108,7 +119,7 @@ function validIndex(value: unknown): value is EmailIndex {
 async function refreshIndex(scan: Scan, token: string) {
   const key = await indexKey(token);
   if (localStorage.getItem("token") !== token) throw Error("Your sign-in changed.");
-  type Snapshot = { checkedAt: number; data: EmailIndex };
+  type Snapshot = { checkedAt: number; startedAt?: number; data: EmailIndex };
   const remembered = readBrowserCache<Snapshot>(key, indexDisplayMs);
   const snapshotIsUsable = (item?: Snapshot | null): item is Snapshot => !!item && Number.isFinite(item.checkedAt) &&
     item.checkedAt <= Date.now() && Date.now() - item.checkedAt <= indexDisplayMs && validIndex(item.data);
@@ -118,8 +129,33 @@ async function refreshIndex(scan: Scan, token: string) {
     publish(scan, cached.data, token);
     if (Date.now() - cached.checkedAt < indexFreshMs) return cached.data;
   }
+  const progressKey = `${key}:progress`;
+  const progress = readBrowserCache<Snapshot>(progressKey, indexDisplayMs) ??
+    await readSharedBrowser<EmailIndex>("sent-history", progressKey, token, indexDisplayMs);
+  let previous = cached?.data;
+  if (snapshotIsUsable(progress) && (!cached || (progress.startedAt ?? progress.checkedAt) > cached.checkedAt)) {
+    previous = { quote: {}, eba: {} };
+    for (const kind of ["quote", "eba"] as const) {
+      const earlier = cached?.data[kind] || {};
+      previous[kind] = {
+        ...earlier,
+        ...Object.fromEntries(Object.entries(progress.data[kind]).map(([email, date]) => [email, laterSend(earlier[email], date)!])),
+      };
+    }
+    publish(scan, previous, token);
+  }
+
+  let savedAt = 0;
   const checkedAt = Date.now();
-  const data = await scanEmailHistory(token, scan, cached?.data);
+  const data = await scanEmailHistory(token, index => {
+    publish(scan, index, token);
+    const now = Date.now();
+    if (now - savedAt < 2000) return;
+    savedAt = now;
+    const snapshot = { checkedAt: now, startedAt: checkedAt, data: index };
+    writeBrowserCache(progressKey, snapshot);
+    void persistSharedBrowser("sent-history", progressKey, token, snapshot, 0, 0);
+  }, previous);
   publish(scan, data, token);
   const snapshot = { checkedAt, data };
   writeBrowserCache(key, snapshot);

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const view = vi.hoisted(() => ({
   params: new URLSearchParams("stage=QUOTE&subTab=OPEN"),
@@ -95,7 +95,7 @@ it("shows a sent badge as soon as the customer's send is found", async () => {
   view.gql.mockImplementation(async (query: string, variables: Record<string, string | number>) => {
     if (query.includes("query EmailLogs")) {
       if (variables.skip === 0) {
-        return { listEmailLogs: { total: 2, results: [{ to_email: email, type: "quote", createdAt: "2026-11-20T02:00:00Z" }] } };
+        return { listEmailLogs: { total: 2, results: [{ _id: "quote-log", to_email: email, type: "quote", createdAt: "2026-11-20T02:00:00Z" }] } };
       }
       return new Promise(resolve => { releaseHistory = resolve; });
     }
@@ -108,5 +108,54 @@ it("shows a sent badge as soon as the customer's send is found", async () => {
   expect(await screen.findByText("Customer quote-0")).toBeTruthy();
   expect(await screen.findByText(/^Sent at /)).toBeTruthy();
   expect(releaseHistory).toBeTypeOf("function");
-  releaseHistory({ listEmailLogs: { total: 2, results: [{ type: "unrelated", createdAt: "2026-11-01" }] } });
+  releaseHistory({ listEmailLogs: { total: 2, results: [{ _id: "other-log", type: "unrelated", createdAt: "2026-11-01" }] } });
+});
+
+it("shows verified Open cards during the full scan and reconciles any missing cards", async () => {
+  const originalFetch = view.gql.getMockImplementation()!;
+  let finishBoard!: (data: unknown) => void;
+  view.gql.mockImplementation(async (query: string, variables: Record<string, string>) => {
+    if (query.includes("query QuoteFirstPageCheck")) {
+      return { jobs: { total: 1, results: [{ ...numbers[0], client: { contactDetails: { name: "Customer quote-0" } } }] } };
+    }
+    if (query.includes("query Jobs")) return new Promise(resolve => { finishBoard = resolve; });
+    return originalFetch(query, variables);
+  });
+  render(<JobsPage />);
+  expect(await screen.findByText("Customer quote-0")).toBeTruthy();
+  expect(screen.getByText("Checking for more open quotes…")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /^Open\s*\(1\)/ })).toBeNull();
+
+  finishBoard({ jobs: { total: numbers.length, results: numbers } });
+  expect(await screen.findByText("Customer quote-1")).toBeTruthy();
+  expect(screen.getByRole("button", { name: /^Open\s*\(2\)/ })).toBeTruthy();
+  expect(screen.queryByText("Checking for more open quotes…")).toBeNull();
+});
+
+it("keeps filtered Opens on the full stage path", async () => {
+  view.params.append("salesperson", "staff-1");
+  render(<JobsPage />);
+  expect(await screen.findByText("Customer quote-1")).toBeTruthy();
+  expect(view.gql.mock.calls.some(([query]) => query.includes("query QuoteFirstPageCheck"))).toBe(false);
+});
+
+it("does not show a pending Open preview after a job changes", async () => {
+  const originalFetch = view.gql.getMockImplementation()!;
+  let finishPreview!: (data: unknown) => void;
+  let finishList!: (data: unknown) => void;
+  view.gql.mockImplementation(async (query: string, variables: Record<string, string>) => {
+    if (query.includes("query QuoteFirstPageCheck")) return new Promise(resolve => { finishPreview = resolve; });
+    if (query.includes("query Jobs")) return new Promise(resolve => { finishList = resolve; });
+    return originalFetch(query, variables);
+  });
+  render(<JobsPage />);
+  await waitFor(() => {
+    expect(finishPreview).toBeTypeOf("function");
+    expect(finishList).toBeTypeOf("function");
+  });
+  localStorage.setItem("calendar-last-write", String(Date.now() + 1));
+  finishPreview({ jobs: { total: 1, results: [{ ...numbers[0], client: { contactDetails: { name: "Outdated preview" } } }] } });
+  finishList({ jobs: { total: numbers.length, results: numbers } });
+  expect(await screen.findByText(/changed while loading/)).toBeTruthy();
+  expect(screen.queryByText("Outdated preview")).toBeNull();
 });

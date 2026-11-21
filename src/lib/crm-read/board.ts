@@ -67,8 +67,10 @@ export async function readBoardSource(stage: string, token: string) {
   const query = stage === "QUOTE" ? quoteIndexQuery : stage === "LEAD" ? salesQuery : JOBS_QUERY;
   const jobs = new Map<string, BoardJob>();
   let total: number | undefined;
+  const deadline = stage === "QUOTE" ? performance.now() + 20_000 : 0;
   for (let page = 0; page < 100; page++) {
-    const result: JobsData = await gql(query, { stages, skip: jobs.size, limit: page === 0 ? 5000 : 1000 }, { token });
+    const timeoutMs = deadline ? Math.max(1, Math.ceil(deadline - performance.now())) : undefined;
+    const result: JobsData = await gql(query, { stages, skip: jobs.size, limit: page === 0 ? 5000 : 1000 }, { token, timeoutMs });
     const next = result?.jobs;
     if (!next || !Array.isArray(next.results) || !Number.isSafeInteger(next.total) || next.total < 0) break;
     total ??= next.total;
