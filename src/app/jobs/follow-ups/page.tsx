@@ -3,7 +3,8 @@ import Link from 'next/link';
 import {useRouter} from 'next/navigation';
 import StageTabs from '@/components/StageTabs';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {cachedQueue,fetchQueue,invalidateQueue} from '@/lib/dead-followups/queue-cache';
+import {calendarLastWriteKey,invalidateCalendarData} from '@/lib/calendar/cache';
+import {cachedQueue,fetchQueue,followupSnapshotPrefix,invalidateQueue,restoreQueue} from '@/lib/dead-followups/queue-cache';
 import {needsFollowup,sortQueueItems,waitingLabel} from '@/lib/dead-followups/queue-view';
 import {quoteDiscounts} from '@/lib/dead-followups/discounts';
 import {displayFollowupNotes} from '@/lib/dead-followups/note-display';
@@ -22,7 +23,8 @@ function age(value: string | null | undefined, now: string) {
   const days = Math.floor((Date.parse(now)-Date.parse(value))/86400000);
   return days < 0 ? 'Check future date' : `${days} days`;
 }
-function Detail({item,checkedAt,onBack,onDone,onAccessLost,readOnly}:{item:QueueItem;checkedAt:string;onBack:()=>void;onDone:(notice:string)=>void;onAccessLost:()=>void;readOnly:boolean}) {
+type DetailProps={item:QueueItem;checkedAt:string;onBack:()=>void;onDone:(notice:string)=>void;onAccessLost:()=>void;readOnly:boolean};
+function Detail({item,checkedAt,onBack,onDone,onAccessLost,readOnly}:DetailProps) {
   const {job}=item;
   const existingDiscount=quoteDiscounts(job.quote);
   return <section aria-label="Selected quote" className="min-w-0 space-y-5">
@@ -48,6 +50,42 @@ function Detail({item,checkedAt,onBack,onDone,onAccessLost,readOnly}:{item:Queue
 
   </section>;
 }
+function DeferredDetail({item,ready,onRefresh,...props}:DetailProps&{ready:boolean;onRefresh:()=>void}){
+  const id=item.job._id;
+  const [detail,setDetail]=useState<QueueResponse|null>(null);
+  const [error,setError]=useState('');
+  const {onAccessLost}=props;
+  useEffect(()=>{
+    if(!ready)return;
+    const request=new AbortController();
+    const token=localStorage.getItem('token')||'';
+    async function verify(){
+      try{
+        const response=await fetch(`/api/dead-followups?jobId=${encodeURIComponent(id)}`,{
+          headers:{'x-access-token':token},cache:'no-store',signal:request.signal,
+        });
+        if(request.signal.aborted||(localStorage.getItem('token')||'')!==token)return;
+        if(response.status===401||response.status===403){onAccessLost();return;}
+        if(response.status===409||response.status===404)throw Error('This quote is no longer in the current queue.');
+        if(!response.ok)throw Error('Could not verify the latest quote details.');
+        const payload:QueueResponse=await response.json();
+        if(payload.items?.length!==1||payload.items[0]?.job._id!==id||
+          typeof payload.readOnly!=='boolean'||!payload.checkedAt||
+          !needsFollowup(payload.items[0],payload.checkedAt))throw Error('Could not verify the latest quote details.');
+        if(!request.signal.aborted&&(localStorage.getItem('token')||'')===token)setDetail(payload);
+      }catch(cause){
+        if(!request.signal.aborted)setError(cause instanceof Error?cause.message:'Could not load quote details.');
+      }
+    }
+    void verify();
+    return ()=>request.abort();
+  },[id,ready,onAccessLost]);
+  if(ready&&detail)return <Detail {...props} checkedAt={detail.checkedAt} item={detail.items[0]} readOnly={props.readOnly||detail.readOnly}/>;
+  return <section aria-label="Selected quote" className="rounded-2xl border border-slate-200 bg-white p-5">
+    <button type="button" onClick={props.onBack} className="min-h-11 text-sm font-semibold text-[#1a3a4a] md:hidden">← Back to follow-ups</button>
+    {error?<p role="alert" className="text-sm text-amber-900">{error} <button onClick={onRefresh} className="min-h-11 font-semibold underline">Refresh queue</button></p>:<p role="status" className="text-sm text-slate-500">Checking quote details and offer history…</p>}
+  </section>;
+}
 export default function DeadFollowupsPage() {
   const router=useRouter();
   const [data,setData]=useState<QueueResponse|null>(null);
@@ -63,24 +101,54 @@ export default function DeadFollowupsPage() {
     setLoading(true);setError('');
     const token=localStorage.getItem('token')||'';
     if(force)invalidateQueue(token);
-    const cached=cachedQueue(token,true);if(cached)setData(cached);
+    const cached=cachedQueue(token,true);
+    if(cached)setData(cached);
+    let finished=false;
+    if(!cached&&!force)void restoreQueue(token).then(saved=>{
+      if(saved&&!finished&&!request.signal.aborted&&localStorage.getItem('token')===token)setData(saved);
+    });
     try {
       const payload=await fetchQueue(token);
-      if(!request.signal.aborted){setData(payload);setGeneration(value=>value+1);setSelected(current=>payload.items.some((item:QueueItem)=>item.job._id===current&&needsFollowup(item,payload.checkedAt))?current:null);}
+      if(!request.signal.aborted&&(localStorage.getItem('token')||'')===token){setData(payload);setGeneration(value=>value+1);setSelected(current=>payload.items.some((item:QueueItem)=>item.job._id===current&&needsFollowup(item,payload.checkedAt))?current:null);}
     }catch(cause){if(!request.signal.aborted){if(cause&&typeof cause==='object'&&'status' in cause&&[401,403].includes(Number(cause.status))){setData(null);setSelected(null);}setError(cause instanceof Error?cause.message:'Could not load quotes.');}}
-    finally{if(!request.signal.aborted)setLoading(false);}
+    finally{finished=true;if(!request.signal.aborted)setLoading(false);}
   },[]);
-  useEffect(()=>{void load();return()=>controller.current?.abort();},[load]);
+  useEffect(()=>{
+    void load();
+    function onStorage(event:StorageEvent){
+      const snapshotRemoved=event.key?.startsWith(followupSnapshotPrefix)&&event.newValue===null;
+      if(event.key!=='token'&&event.key!==calendarLastWriteKey&&event.key!==null&&!snapshotRemoved)return;
+      setData(null);setSelected(null);
+      void load(snapshotRemoved);
+    }
+    window.addEventListener('storage',onStorage);
+    return ()=>{
+      controller.current?.abort();
+      window.removeEventListener('storage',onStorage);
+    };
+  },[load]);
+  const onDone=useCallback((message:string)=>{
+    setNotice(message);setSelected(null);setData(null);
+    invalidateCalendarData();
+    invalidateQueue(localStorage.getItem('token')||'');
+    window.scrollTo(0,0);void load();
+  },[load]);
+  const onAccessLost=useCallback(()=>{
+    invalidateQueue(localStorage.getItem('token')||'',true);
+    controller.current?.abort();
+    setData(null);setSelected(null);setLoading(false);setError('Sign in again to view quotes.');
+  },[]);
   const available=useMemo(()=>(data?.items||[]).filter(row=>needsFollowup(row,data!.checkedAt)),[data]);
   const sorted=useMemo(()=>sortQueueItems(available),[available]);
   const rows=useMemo(()=>sorted.map(row=>({row,waiting:waitingLabel(row,data!.checkedAt),discounted:quoteDiscounts(row.job.quote).items.length>0,salesperson:[row.job.lead?.allocatedTo?.firstname,row.job.lead?.allocatedTo?.lastname].filter(Boolean).join(' ')||'Unassigned'})),[sorted,data]);
   const items=rows.filter(({row})=>[row.job.client?.contactDetails?.name,row.job.client?.contactDetails?.streetAddress,row.job.jobNumber].join(' ').toLowerCase().includes(search.trim().toLowerCase()));
   const item=data?.items.find(item=>item.job._id===selected);
+  const detailProps=item&&data?{item,checkedAt:data.checkedAt,onBack:()=>setSelected(null),onDone,onAccessLost,readOnly:data.readOnly||loading||Boolean(error)}:null;
   return <><StageTabs activeStage="QUOTE" subTab="FOLLOW_UPS" counts={data?.quoteCounts} followupCount={data?available.length:null} onSubTabChange={tab=>router.push(`/jobs?stage=QUOTE&subTab=${tab}`)}/><main className="min-h-screen bg-[#f5f7f8] px-4 py-6 sm:px-6 lg:px-8">
     <div className="mx-auto max-w-7xl">
       <div className="mt-5 flex items-start justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#e85d04]">Quotes</p><h1 className="mt-1 text-3xl font-bold tracking-tight text-[#1a3a4a]">Follow-ups</h1><p className="mt-2 text-sm text-slate-600">Review the quote. Understand the history. Plan the next conversation.</p></div></div>
       {data?.preview && <div className="my-5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-950"><span>Interactive preview · Sample quotes · Sends are simulated</span><button type="button" className="min-h-11 font-semibold underline" onClick={async()=>{await fetch('/api/preview/reset',{method:'POST'});invalidateQueue(localStorage.getItem('token')||'');setNotice('');setSelected(null);void load();}}>Reset sample data</button></div>}
-      {data?.readOnly && <p className="my-5 text-sm text-slate-500">Changes are disabled in this view.</p>}
+      {data?.readOnly && !loading && !error && <p className="my-5 text-sm text-slate-500">Changes are disabled in this view.</p>}
       {notice && <p role="status" className="my-4 rounded-xl bg-teal-50 p-4 text-sm text-teal-900">{notice}</p>}
       {error && <div role="alert" className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{error} {data && 'Showing the last loaded quotes; they may be out of date.'} <button onClick={()=>void load(true)} className="min-h-11 px-2 font-semibold underline">Retry</button></div>}
       {loading && data && <p role="status" className="mb-3 text-xs text-slate-500">Updating quotes…</p>}
@@ -91,7 +159,10 @@ export default function DeadFollowupsPage() {
             <div className="border-b border-slate-100 p-3"><label htmlFor="followup-search" className="sr-only">Search Dead quotes</label><input id="followup-search" type="search" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Search customer, address or quote…" className="min-h-11 w-full rounded-xl bg-slate-50 px-3 text-sm outline-none focus:ring-2 focus:ring-orange-400"/></div>
             {!items.length?<p className="p-8 text-center text-sm text-slate-500">{search?'No quotes match your search.':'No quotes need following up right now.'}</p>:<ul className="divide-y divide-slate-100">{items.map(({row,waiting,discounted,salesperson})=><li key={row.job._id}><button type="button" aria-pressed={selected===row.job._id} onClick={()=>setSelected(row.job._id)} className={`w-full border-l-[3px] p-4 text-left transition-colors focus-visible:outline-2 focus-visible:outline-orange-400 ${selected===row.job._id?'border-[#e85d04] bg-orange-50/50':'border-transparent hover:bg-slate-50'}`}><div className="flex items-start justify-between gap-3"><span className="font-semibold text-[#1a3a4a]">{row.job.client?.contactDetails?.name || 'Unnamed customer'}</span><span className="shrink-0 text-xs text-slate-400">#{row.job.jobNumber}</span></div>{discounted&&<span className="mt-2 inline-block rounded-md bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-900">Already discounted</span>}<p className="mt-1 truncate text-xs text-slate-500">{row.job.client?.contactDetails?.streetAddress || 'Address not recorded'}</p><div className="mt-2 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 text-xs"><span className="font-semibold text-slate-700">{money(row.job.quote?.c_total)}</span><span className="text-right text-slate-500"><span className="sr-only">Quote date: </span>{date(row.job.quote?.date)}</span><span title={salesperson} className="truncate text-slate-500"><span className="sr-only">Assigned salesperson: </span>{salesperson}</span><span className="text-right text-slate-500">{(row.controls?.state.offers.length||0)===0?'First follow-up':'Second follow-up'}</span></div>{waiting&&<p className="mt-1 text-xs font-semibold text-slate-600">{waiting}</p>}{row.notePending&&<p className="mt-1 text-xs font-medium text-amber-800">Job note pending</p>}</button></li>)}</ul>}
           </section>
-          {item?<Detail key={`${item.job._id}:${generation}`} item={item} checkedAt={data.checkedAt} onBack={()=>setSelected(null)} onDone={message=>{setNotice(message);setSelected(null);invalidateQueue(localStorage.getItem('token')||'');window.scrollTo(0,0);void load();}} onAccessLost={()=>{invalidateQueue(localStorage.getItem('token')||'');setData(null);setSelected(null);setError('Sign in again to view quotes.');}} readOnly={data.readOnly || loading || Boolean(error)}/>:<div className="hidden rounded-2xl border border-dashed border-slate-300 p-12 text-center md:block"><h2 className="font-semibold text-[#1a3a4a]">Select a quote to review</h2><p className="mt-2 text-sm leading-relaxed text-slate-500">View its scope, price, notes and possible Dead date here.</p></div>}
+          {detailProps?(data.detailsDeferred
+            ?<DeferredDetail key={`${detailProps.item.job._id}:${generation}`} {...detailProps} ready={!loading&&!error} onRefresh={()=>void load(true)}/>
+            :<Detail key={`${detailProps.item.job._id}:${generation}`} {...detailProps}/>)
+            :<div className="hidden rounded-2xl border border-dashed border-slate-300 p-12 text-center md:block"><h2 className="font-semibold text-[#1a3a4a]">Select a quote to review</h2><p className="mt-2 text-sm leading-relaxed text-slate-500">View its scope, price, notes and possible Dead date here.</p></div>}
         </div></>}
     </div>
   </main></>;

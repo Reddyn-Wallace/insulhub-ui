@@ -3,7 +3,10 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import DeadFollowupsPage from '@/app/jobs/follow-ups/page';
 import StageTabs from '@/components/StageTabs';
+import {readSharedBrowser} from '@/lib/crm-read/shared-browser';
+import {emptyControls} from './controls';
 vi.mock('next/navigation',()=>({useRouter:()=>({push:vi.fn()})}));
+vi.mock('@/lib/crm-read/shared-browser',()=>({readSharedBrowser:vi.fn(async()=>null),persistSharedBrowser:vi.fn(async()=>{})}));
 const payload={items:[{job:{_id:'quote1',jobNumber:123,stage:'QUOTE',notes:'29/01/26 - Marked as Dead - Staff',quote:{status:'DECLINED',date:'2026-01-01T00:00:00Z',c_total:12500,wall:{SQM:90},ceiling:{SQM:50}},client:{contactDetails:{name:'Alex Example',streetAddress:'12 Test Street'}}},eligibility:{state:'review',reason:'Review previous offers before deciding the next approach.'},suggestion:{date:'2026-01-29',provenance:'note',evidence:'29/01/26 - Marked as Dead - Staff',at:'2026-01-29T10:59:59.999Z'},earliestFirstApproach:'2026-03-29T10:59:59.999Z'}],checkedAt:'2026-09-29T00:00:00Z',readOnly:true,historyAvailable:false};
 let tokenSequence=0;
 beforeEach(()=>{
@@ -11,7 +14,7 @@ beforeEach(()=>{
   vi.stubGlobal('localStorage',{getItem:()=> token});
   vi.stubGlobal('fetch',vi.fn(async()=>Response.json(payload)));
 });
-afterEach(()=>{cleanup();vi.unstubAllGlobals();});
+afterEach(()=>{cleanup();vi.unstubAllGlobals();vi.mocked(readSharedBrowser).mockClear();});
 it('shows scope and price without the removed explanation panels',async()=>{
   render(<DeadFollowupsPage/>);
   fireEvent.click(await screen.findByRole('button',{name:/Alex Example/}));
@@ -100,4 +103,55 @@ it('displays a stale queue on return but keeps actions disabled until refreshing
  await waitFor(()=>expect(screen.queryByText('Updating quotes…')).toBeNull());
  expect(screen.getByRole('button',{name:'Skip for now'}).matches(':disabled')).toBe(false);
  }finally{now.mockRestore();}
+});
+
+const deferredPayload={...payload,detailsDeferred:true as const,items:payload.items.map(row=>({
+ ...row,suggestion:null,job:{...row.job,notes:undefined,quote:{...row.job.quote,wall:undefined,ceiling:undefined}},
+}))};
+
+it('paints a saved queue while refreshing and waits for selected quote details and history before showing actions',async()=>{
+ let finishQueue!:(response:Response)=>void;
+ let finishDetail!:(response:Response)=>void;
+ vi.mocked(readSharedBrowser).mockResolvedValueOnce({checkedAt:Date.now(),data:deferredPayload});
+ vi.mocked(fetch)
+  .mockImplementationOnce(()=>new Promise(resolve=>{finishQueue=resolve;}))
+  .mockImplementationOnce(()=>new Promise(resolve=>{finishDetail=resolve;}));
+
+ render(<DeadFollowupsPage/>);
+ fireEvent.click(await screen.findByRole('button',{name:/Alex Example/}));
+ expect(screen.getByText('Updating quotes…')).toBeTruthy();
+ expect(screen.queryByRole('button',{name:'Send Offer'})).toBeNull();
+ expect(fetch).toHaveBeenCalledTimes(1);
+
+ finishQueue(Response.json({...deferredPayload,readOnly:false}));
+ await waitFor(()=>expect(fetch).toHaveBeenCalledWith('/api/dead-followups?jobId=quote1',expect.anything()));
+ expect(screen.queryByRole('button',{name:'Skip for now'})).toBeNull();
+ expect(screen.queryByText(/90 m²/)).toBeNull();
+
+ const verified={...payload.items[0],controls:{revision:1,state:emptyControls(),actorName:'Staff',updatedAt:null}};
+ finishDetail(Response.json({...payload,readOnly:false,items:[verified]}));
+ expect(await screen.findByText(/90 m²/)).toBeTruthy();
+ expect(screen.getByRole('button',{name:'Skip for now'}).matches(':disabled')).toBe(false);
+ expect(screen.getByRole('button',{name:'Send Offer'}).matches(':disabled')).toBe(true);
+});
+
+it('removes a recovered queue when a fresh request refuses access',async()=>{
+ let finish!:(response:Response)=>void;
+ vi.mocked(readSharedBrowser).mockResolvedValueOnce({checkedAt:Date.now(),data:deferredPayload});
+ vi.mocked(fetch).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+
+ render(<DeadFollowupsPage/>);
+ await screen.findByRole('button',{name:/Alex Example/});
+ finish(new Response('',{status:403}));
+ await screen.findByRole('alert');
+ expect(screen.queryByRole('button',{name:/Alex Example/})).toBeNull();
+});
+
+it('leaves actions unavailable if a quote is no longer due when selected',async()=>{
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json(deferredPayload)).mockResolvedValueOnce(new Response('',{status:409}));
+ render(<DeadFollowupsPage/>);
+ fireEvent.click(await screen.findByRole('button',{name:/Alex Example/}));
+ expect((await screen.findByRole('alert')).textContent).toContain('This quote is no longer in the current queue.');
+ expect(screen.queryByRole('button',{name:'Send Offer'})).toBeNull();
+ expect(screen.getByRole('button',{name:'Refresh queue'})).toBeTruthy();
 });

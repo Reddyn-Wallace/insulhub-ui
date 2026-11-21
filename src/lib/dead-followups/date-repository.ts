@@ -86,7 +86,7 @@ export async function attachDeadDate(job:DeadQuote):Promise<DeadQuote>{
  try{return await repo.attach(job,datesEnabled());}catch(e){if(!datesEnabled()&&(e as {code?:string}).code==='42P01')return {...job,deadEntry:assumedEntry(job,new Date().toISOString())};throw e;}
 }
 
-export async function attachDeadDates(jobs:DeadQuote[]):Promise<DeadQuote[]>{
+export async function attachDeadDates(jobs:DeadQuote[],persist=datesEnabled()):Promise<DeadQuote[]>{
  const repo=dateRepository();if(!repo){if(datesEnabled())throw new ControlError('Dead-date storage needs setup.',503);return jobs.map(job=>({...job,deadEntry:assumedEntry(job,new Date().toISOString())}));}
- try{return await repo.attachMany(jobs,datesEnabled());}catch(e){if(!datesEnabled()&&(e as {code?:string}).code==='42P01')return jobs;throw e;}
+ try{return await repo.attachMany(jobs,persist);}catch(e){if(!datesEnabled()&&(e as {code?:string}).code==='42P01')return jobs;throw e;}
 }

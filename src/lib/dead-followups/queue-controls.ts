@@ -5,12 +5,12 @@ import {controlHistory} from './controls';
 import {sendsRepository} from './send-repository';
 import {evaluateFollowup} from './rules';
 import type {QueueResponse} from './types';
-export async function decorateQueue(queue:QueueResponse):Promise<QueueResponse>{
+export async function decorateQueue(queue:QueueResponse,persistDates?:boolean):Promise<QueueResponse>{
   const ids=queue.items.map(item=>item.job._id);
   const repo=controlsRepository();const sends=repo?sendsRepository():null;
   // These independent reads used to run serially. All results are checked before publishing a queue.
   const [dates,saved,attempts]=await Promise.allSettled([
-    attachDeadDates(queue.items.map(item=>item.job)),
+    attachDeadDates(queue.items.map(item=>item.job),persistDates),
     repo?repo.list(ids):Promise.resolve(null),
     sends?sends.summaries(ids):Promise.resolve(null),
   ]);
