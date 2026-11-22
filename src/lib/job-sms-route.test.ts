@@ -21,6 +21,7 @@ beforeEach(() => {
     const text = strings.join("?");
     if (text.includes("SELECT * FROM job_sms_messages")) return rows;
     if (text.includes("SELECT key,value FROM overlay_settings")) return [{ key: "job_sms_enabled", value: String(available) }];
+    if (text.includes("SELECT provider_config FROM communication_senders")) return [{ provider_config: {} }];
     if (text.includes("SELECT * FROM communication_senders")) return [{ owner_user_id: "staff", label: "Business", sender_value: "021", provider_config: {} }];
     if (text.includes("INSERT INTO job_sms_messages")) {
       if (rows.length) return [];
@@ -78,5 +79,23 @@ it.each(["another-person", null])("blocks sending from a connection owned by %s"
     return parts.join("").includes("SELECT * FROM communication_senders") ? result.map((row: Record<string,unknown>) => ({ ...row, owner_user_id: owner })) : result;
   });
   expect((await POST(request(input), context)).status).toBe(400);
+  expect(mocks.deliver).not.toHaveBeenCalled();
+});
+
+it("returns an unchanged SMS status without writing or sending again", async () => {
+  rows = [{ id: input.id, insulhub_job_id: job, status: "sent", failure_reason: "", created_at: new Date().toISOString() }];
+  mocks.check.mockResolvedValue({ status: "sent", failureReason: "" });
+  const response = await POST(request({ id: input.id, action: "check" }), context);
+  expect(await response.json()).toMatchObject({ message: { id: input.id, status: "sent" } });
+  expect(mocks.check).toHaveBeenCalledTimes(1);
+  expect(mocks.sql.mock.calls.some(([parts]) => parts.join("").includes("UPDATE job_sms_messages"))).toBe(false);
+  expect(mocks.deliver).not.toHaveBeenCalled();
+});
+
+it("records changes reported by a manual check of an old message", async () => {
+  rows = [{ id: input.id, insulhub_job_id: job, status: "sent", failure_reason: "", created_at: "2026-01-01T00:00:00Z" }];
+  mocks.check.mockResolvedValue({ status: "delivered", failureReason: "" });
+  const response = await POST(request({ id: input.id, action: "check" }), context);
+  expect(await response.json()).toMatchObject({ message: { id: input.id, status: "delivered" } });
   expect(mocks.deliver).not.toHaveBeenCalled();
 });

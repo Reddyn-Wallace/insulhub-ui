@@ -38,8 +38,12 @@ export async function POST(request: NextRequest, context: Context) {
       const senders = await overlaySql`SELECT provider_config FROM communication_senders WHERE id=${row.sender_id} AND provider='smsgate'`;
       if (!senders[0]) return NextResponse.json({ error: "Sender is no longer available. Check the sending device." }, { status: 409 });
       const outcome = await checkJobSms(String(row.provider_message_id), senders[0].provider_config as Record<string, string>);
-      if (outcome.status !== "unknown") await overlaySql`UPDATE job_sms_messages SET status=${outcome.status}, failure_reason=${outcome.failureReason}, updated_at=now() WHERE id=${input.id}
-        AND status <> 'failed' AND (status IN ('sending','unknown','accepted') OR ${outcome.status} IN ('delivered','failed') OR (status='sent' AND ${outcome.status}='sent'))`;
+      const changed = outcome.status !== row.status || outcome.failureReason !== (row.failure_reason ?? "");
+      if (outcome.status !== "unknown" && changed) {
+        await overlaySql`UPDATE job_sms_messages SET status=${outcome.status}, failure_reason=${outcome.failureReason}, updated_at=now() WHERE id=${input.id}
+          AND status <> 'failed' AND (status IN ('sending','unknown','accepted') OR ${outcome.status} IN ('delivered','failed') OR (status='sent' AND ${outcome.status}='sent'))
+          AND (status IS DISTINCT FROM ${outcome.status} OR COALESCE(failure_reason, '') IS DISTINCT FROM ${outcome.failureReason})`;
+      }
     } else {
       let message;
       try { message = validateSmsInput(input); } catch (error) { return NextResponse.json({ error: (error as Error).message }, { status: 400 }); }

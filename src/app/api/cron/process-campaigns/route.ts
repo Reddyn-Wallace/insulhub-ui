@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   loadCampaignQueueState,
-  loadDueCampaignIds,
+  loadCampaignSchedule,
   processCampaignQueue,
 } from "@/lib/campaign-queue";
 
@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const campaignIds = await loadDueCampaignIds(10);
+    const { dueIds: campaignIds, ...initialQueue } = await loadCampaignSchedule(10);
     const results = [];
     for (const id of campaignIds) {
       try {
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
         });
       }
     }
-    const queue = await loadCampaignQueueState();
+    const queue = campaignIds.length ? await loadCampaignQueueState() : initialQueue;
 
     return NextResponse.json({
       ok: true,

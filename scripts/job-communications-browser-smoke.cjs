@@ -42,7 +42,14 @@ const assert = require('node:assert/strict');
   await section.screenshot({path:`/tmp/insulhub-job-communications-latest-${width}.png`});
   await section.getByRole('button',{name:'Show all communications'}).click();
   await expect(section.getByRole('list',{name:'CRM-sent messages'}).getByRole('listitem')).toHaveCount(3);
-  await expect(section.getByRole('status').filter({hasText:'Delivered'})).toBeVisible();assert.ok(checks>0);
+  await expect(section.getByRole('status').filter({hasText:'Pending'})).toBeVisible();
+  await section.getByRole('button',{name:/we’ll arrive/i}).click();
+  const checkDelivery=section.getByRole('button',{name:'Check delivery status',exact:true});
+  await expect(checkDelivery).toBeVisible();
+  assert.equal(checks,0,'An old SMS should not be checked automatically');
+  await checkDelivery.click();
+  await expect(section.getByRole('status').filter({hasText:'Delivered'})).toBeVisible();
+  assert.equal(checks,1);
   await expect(section.getByText(/Messages sent from the CRM/)).toHaveCount(0);
   await expect(section.getByRole('button',{name:/^All /})).toHaveCount(0);
   for (const [trigger,title,heading,scheme] of [['💬 Text','No SMS account connected','Choose Text Template','sms:'],['✉️ Email','No email account connected','Choose Email Template','mailto:']]) {
@@ -91,7 +98,7 @@ const assert = require('node:assert/strict');
   await expect(page.getByRole('heading',{name:'Communication Settings',exact:true})).toBeVisible();
   await expect(page.getByRole('checkbox',{name:'Enable CRM SMS and email',exact:true})).toHaveCount(0);
   await expect(page.getByRole('checkbox',{name:'Test only with my account',exact:true})).toHaveCount(0);
-  assert.deepEqual(errors,[]);console.log(`${width}px: saved history, original signature, compact history/search, automatic SMS status, primary CRM actions, legacy app choices and universal availability and removed rollout controls passed; no sends`);
+  assert.deepEqual(errors,[]);console.log(`${width}px: saved history, original signature, compact history/search, manual checks for old SMS delivery status, primary CRM actions, legacy app choices and universal availability and removed rollout controls passed; no sends`);
   await context.close();
  }} finally {await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

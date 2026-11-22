@@ -18,7 +18,7 @@ import {
   UPDATE_JOB_QUOTE, ARCHIVE_JOB, UPDATE_CLIENT, SEND_EBA, ADD_FILES, REMOVE_FILE,
 } from "@/lib/mutations";
 import JobSmsComposer, { type JobSmsMessage } from "@/components/JobSmsComposer";
-import { useJobSmsStatus } from "@/lib/use-job-sms-status";
+import { checkSavedJobSms, useJobSmsStatus, type SmsStatusUpdate } from "@/lib/use-job-sms-status";
 import JobCommunications from "@/components/JobCommunications";
 import JobEmailComposer from "@/components/JobEmailComposer";
 import { type JobEmailMessage } from "@/lib/job-email";
@@ -806,10 +806,17 @@ export default function JobDetailPage() {
     if (!contactTemplates.length) loadContactTemplates();
   }
 
-  useJobSmsStatus(id, campaignCommunications.filter(item => item.source === "crm_sms"), update => {
+  function applySmsStatus(update: SmsStatusUpdate) {
     communicationUpdates.current.set(update.id, ++communicationRevision.current);
     setCampaignCommunications(current => current.map(item => item.id === update.id ? { ...item, status: update.status as CampaignCommunication["status"], failureReason: update.failureReason || "" } : item));
-  });
+  }
+
+  useJobSmsStatus(id, campaignCommunications.filter(item => item.source === "crm_sms"), applySmsStatus);
+
+  async function checkSmsStatus(messageId: string) {
+    const update = await checkSavedJobSms(id, messageId);
+    if (communicationJobId.current === id) applySmsStatus(update);
+  }
 
   function recordCrmCommunication(channel: "email" | "sms", message?: JobEmailMessage | JobSmsMessage) {
     if (!message) { void loadCampaignCommunications(); return; }
@@ -2471,7 +2478,7 @@ export default function JobDetailPage() {
           {(phone || c?.email) && <button type="button" onClick={() => openSheet("legacyComms")} className="rounded-xl border border-gray-200 px-3 py-3 text-sm font-semibold text-gray-600">Legacy Comms</button>}
         </div>
 
-        <JobCommunications key={id} messages={campaignCommunications} loading={loadingCampaignCommunications} error={communicationHistoryError} onRetry={() => void loadCampaignCommunications()} />
+        <JobCommunications key={id} messages={campaignCommunications} loading={loadingCampaignCommunications} error={communicationHistoryError} onRetry={() => void loadCampaignCommunications()} onCheckSms={checkSmsStatus} />
 
         {activeDetailTab === "job" ? (
           <>

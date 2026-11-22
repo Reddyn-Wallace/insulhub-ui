@@ -211,28 +211,32 @@ export default function CampaignBuilderPage() {
   const [communicationSettings, setCommunicationSettings] = useState<CommunicationSettings>(DEFAULT_COMMUNICATION_SETTINGS);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
-  const loadCampaign = useCallback(async () => {
+  const loadCampaign = useCallback(async (backgroundSignal?: AbortSignal) => {
     const token = getToken();
     if (!token) {
       router.replace("/login");
       return;
     }
 
-    setLoading(true);
-    setMessage(null);
+    if (!backgroundSignal) {
+      setLoading(true);
+      setMessage(null);
+    }
     try {
       const res = await fetch(`/api/campaigns/${campaignId}`, {
         headers: { "x-access-token": token },
+        signal: backgroundSignal,
       });
       const json = await res.json();
+      if (backgroundSignal?.aborted || getToken() !== token) return;
       if (!res.ok) throw new Error(json?.error || "Failed to load campaign");
       setCampaign(json.campaign);
-      setSelectedSenderId(json.campaign?.senderId || "");
+      if (!backgroundSignal) setSelectedSenderId(json.campaign?.senderId || "");
       setRecipients(json.recipients || []);
     } catch (err) {
-      setMessage({ type: "error", text: err instanceof Error ? err.message : "Failed to load campaign" });
+      if (!backgroundSignal) setMessage({ type: "error", text: err instanceof Error ? err.message : "Failed to load campaign" });
     } finally {
-      setLoading(false);
+      if (!backgroundSignal) setLoading(false);
     }
   }, [campaignId, router]);
 
@@ -538,11 +542,23 @@ export default function CampaignBuilderPage() {
 
   useEffect(() => {
     if (!isQueued && !(campaign?.status === "halted" && pendingRecipientCount > 0)) return;
-    const timer = window.setInterval(() => {
-      processQueue(false);
-    }, 5000);
-    return () => window.clearInterval(timer);
-  }, [isQueued, campaign?.status, pendingRecipientCount, processQueue]);
+    const controller = new AbortController();
+    let refreshing = false;
+    // A short poll can keep Neon awake between every scheduled send.
+    const timer = window.setInterval(async () => {
+      if (refreshing || document.hidden || navigator.onLine === false) return;
+      refreshing = true;
+      try {
+        await loadCampaign(controller.signal);
+      } finally {
+        refreshing = false;
+      }
+    }, 6 * 60_000);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, [campaign, isQueued, loadCampaign, pendingRecipientCount]);
 
   if (loading && !campaign) {
     return (
@@ -631,11 +647,18 @@ export default function CampaignBuilderPage() {
                     <>
                       <button
                         type="button"
-                        onClick={() => processQueue(true)}
+                        onClick={() => void loadCampaign()}
                         className="rounded-lg bg-[#1a3a4a] px-3 py-2 text-sm font-semibold text-white"
                       >
-                        {ownsCampaignSender ? "Process Due" : "Refresh"}
+                        Refresh
                       </button>
+                      {ownsCampaignSender && <button
+                        type="button"
+                        onClick={() => void processQueue(true)}
+                        className="rounded-lg border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-700"
+                      >
+                        Process Due
+                      </button>}
                       <button
                         type="button"
                         onClick={haltCampaign}

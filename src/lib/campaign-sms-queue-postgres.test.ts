@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 const db = vi.hoisted(() => ({ query: vi.fn() }));
 vi.mock('@/lib/overlay-db', () => ({ ensureOverlaySchema: vi.fn(), overlaySql: (parts: TemplateStringsArray, ...values: unknown[]) => db.query(parts.reduce((sql, part, i) => sql + (i ? `$${i}` : '') + part, ''), values) }));
 vi.mock('@/lib/communication-settings', async original => ({ ...await original<typeof import('./communication-settings')>(), loadCommunicationSettings: vi.fn().mockResolvedValue({ campaignSendWindowEnabled: false, campaignSmsPerMinute: 30, campaignEmailDailyLimit: 100 }) }));
-import { processCampaignQueue, loadCampaignQueueState, loadDueCampaignIds } from './campaign-queue';
+import { processCampaignQueue, loadCampaignQueueState, loadCampaignSchedule } from './campaign-queue';
 import { loadCommunicationSettings } from './communication-settings';
 describe.skipIf(!process.env.CAMPAIGN_SMS_TEST_DATABASE_URL)('SMS campaign queue in PostgreSQL', () => {
   let pool: Pool;
@@ -63,7 +63,7 @@ describe.skipIf(!process.env.CAMPAIGN_SMS_TEST_DATABASE_URL)('SMS campaign queue
     vi.stubGlobal('fetch',accept());await processCampaignQueue(campaignId);
     const ref=(await recipient()).provider_message_id;
     await pool.query("UPDATE campaigns SET status='halted'");await due();
-    expect(await loadDueCampaignIds()).toContain(campaignId);
+    expect((await loadCampaignSchedule(10)).dueIds).toContain(campaignId);
     vi.stubGlobal('fetch',vi.fn().mockResolvedValue(Response.json({id:ref,state:'Sent'})));
     await processCampaignQueue(campaignId);
     expect((await recipient()).status).toBe('sent');
@@ -90,4 +90,22 @@ describe.skipIf(!process.env.CAMPAIGN_SMS_TEST_DATABASE_URL)('SMS campaign queue
     await processCampaignQueue(campaignId);
     expect(await recipient()).toMatchObject({status:'failed',failure_reason:'Expired',sent_at:null});
   });
+  it('sleeps until tomorrow’s NZ sending window when the email sender has used its daily allowance', async () => {
+    const emailCampaign=randomUUID(), otherCampaign=randomUUID();
+    vi.mocked(loadCommunicationSettings).mockResolvedValue({
+      campaignSendWindowEnabled:true,campaignSendWindowStartTime:'08:30',campaignSendWindowEndTime:'17:30',
+      campaignSmsPerMinute:30,campaignEmailDailyLimit:1,
+    });
+    await pool.query("INSERT INTO campaigns VALUES ($1,'sending','email',$2,'owner',NULL,now()), ($3,'sent','email',$2,'owner',NULL,now())",[emailCampaign,senderId,otherCampaign]);
+    await pool.query("INSERT INTO campaign_recipients (id,campaign_id,selected,status,scheduled_at,sent_at) VALUES ($1,$2,true,'pending',now()-interval '1 minute',null), ($3,$4,true,'sent',null,now())",[randomUUID(),emailCampaign,randomUUID(),otherCampaign]);
+    expect((await loadCampaignSchedule(10)).dueIds).toEqual([campaignId]);
+    await pool.query("UPDATE campaign_recipients SET status='sent' WHERE campaign_id=$1",[campaignId]);
+    const {rows:[expected]}=await pool.query(`SELECT (((now() AT TIME ZONE 'Pacific/Auckland')::date + 1 + time '08:30') AT TIME ZONE 'Pacific/Auckland') AS next`);
+    const schedule=await loadCampaignQueueState();
+    expect(schedule).toEqual({pendingCount:1,nextRunAt:expected.next.toISOString()});
+    const saved=await pool.query("SELECT scheduled_at < now() AS still_due FROM campaign_recipients WHERE campaign_id=$1",[emailCampaign]);
+    expect(saved.rows).toEqual([{still_due:true}]);
+    expect((await loadCampaignSchedule(10)).dueIds).toEqual([]);
+  });
+
 });
