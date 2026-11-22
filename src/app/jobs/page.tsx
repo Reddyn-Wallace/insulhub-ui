@@ -13,7 +13,7 @@ import { searchVisits } from "@/lib/installation-splits/views";
 import { isBoardStage, loadBoard, recentBoard, warmBoard, type BoardJob as Job, type BoardRows, type JobsData } from "@/lib/crm-read/board";
 import { loadSalesDirectory } from "@/lib/crm-read/directory";
 import { calendarDataRevision, calendarLastWrite, calendarLastWriteKey } from "@/lib/calendar/cache";
-import { clearCrmReadSnapshots, isCrmReadDenied } from "@/lib/crm-read/session";
+import { clearCrmReadSnapshots, isCrmReadDenied, isCrmReadTransient } from "@/lib/crm-read/session";
 import { crmFreshMs } from "@/lib/crm-read/client";
 import { boardPageSize as PAGE_SIZE, compareQuoteDate, loadQuoteContacts, quoteContactsKey, readInitialOpenQuotes, QuoteSelectionChanged, quoteState, recentQuoteContacts, type QuoteContacts } from "@/lib/crm-read/quotes";
 import { laterSend, loadCrmEmailIndex, readCachedCrmEmailIndex, readRecordedSend, sendReceiptPrefix } from "@/lib/crm-read/sent-index";
@@ -65,7 +65,7 @@ function JobsPageContent() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [leadSourceMenuOpen, setLeadSourceMenuOpen] = useState(false);
   const [quoteCards, setQuoteCards] = useState<{ key: string; data: QuoteContacts } | null>(null);
-  const [quoteCardsError, setQuoteCardsError] = useState<{ key: string; message: string } | null>(null);
+  const [quoteCardsError, setQuoteCardsError] = useState<{ key: string; message: string; refreshBoard: boolean; keepPreview: boolean } | null>(null);
   const [quoteCardsRetry, setQuoteCardsRetry] = useState(0);
   const [recordedQuoteSends, setRecordedQuoteSends] = useState<Record<string, string>>({});
   const [quoteSentByEmail, setQuoteSentByEmail] = useState<Record<string, string>>({});
@@ -464,7 +464,8 @@ function JobsPageContent() {
   ), [page, searchMode, sortedJobs]);
   const quoteCardKey = !searchMode && activeStage === "QUOTE" ? quoteContactsKey(visibleRows) : "";
   const contacts = quoteCardKey && quoteCards?.key === quoteCardKey ? quoteCards.data : null;
-  const quoteError = quoteCardsError?.key === quoteCardKey ? quoteCardsError.message : "";
+  const quoteFailure = quoteCardsError?.key === quoteCardKey ? quoteCardsError : null;
+  const quoteError = quoteFailure?.message ?? "";
   const quoteCardsLoading = Boolean(quoteCardKey && !contacts && !quoteError);
 
   useEffect(() => {
@@ -503,7 +504,12 @@ function JobsPageContent() {
             setResult(null);
             setLoadError({ key: resultKey, message: "Could not access this quote list." });
           }
-          setQuoteCardsError({ key: quoteCardKey, message: err instanceof Error ? err.message : "Could not load quote cards." });
+          setQuoteCardsError({
+            key: quoteCardKey,
+            message: err instanceof Error && !isCrmReadTransient(err) ? err.message : "Couldn’t load all quote details.",
+            refreshBoard: err instanceof QuoteSelectionChanged,
+            keepPreview: isCrmReadTransient(err),
+          });
           if (err instanceof QuoteSelectionChanged && refreshedQuoteSelection.current !== selection) {
             refreshedQuoteSelection.current = selection;
             void fetchJobs(true);
@@ -516,11 +522,17 @@ function JobsPageContent() {
   const firstOpenCards = useMemo(() =>
     [...(initialOpenQuotes?.rows || noJobs)].sort((a, b) => compareQuoteDate(a, b, sortOrder === "newest")).slice(0, PAGE_SIZE),
   [initialOpenQuotes, sortOrder]);
+  const previewCards = useMemo(() => {
+    if (!stageHydrated) return firstOpenCards;
+    const previewById = new Map(firstOpenCards.map(row => [row._id, row]));
+    return visibleRows.flatMap(row => {
+      const preview = previewById.get(row._id);
+      return preview && preview.updatedAt === row.updatedAt ? [preview] : [];
+    });
+  }, [firstOpenCards, stageHydrated, visibleRows]);
   const showOpenPreview = allowOpenPreview && !!initialOpenQuotes &&
     initialOpenQuotes.writeAt === calendarLastWrite() && initialOpenQuotes.revision === calendarDataRevision() &&
-    firstOpenCards.length > 0 &&
-    (!stageHydrated || (quoteCardsLoading && firstOpenCards.length === visibleRows.length &&
-      firstOpenCards.every((row, index) => row._id === visibleRows[index]._id && row.updatedAt === visibleRows[index].updatedAt)));
+    previewCards.length > 0 && !contacts && (!quoteFailure || quoteFailure.keepPreview);
 
   useEffect(() => {
     if (stageHydrated && !showOpenPreview && initialQuoteRead.current) {
@@ -530,14 +542,17 @@ function JobsPageContent() {
   }, [stageHydrated, showOpenPreview]);
 
   const displayedJobs = useMemo(() => {
-    if (showOpenPreview) return firstOpenCards;
+    if (showOpenPreview) return previewCards;
     if (!quoteCardKey) return visibleRows;
     if (!contacts) return noJobs;
     return visibleRows.flatMap(job => {
       const detail = contacts[job._id];
-      return detail ? [{ ...job, client: detail.client, lead: { ...job.lead, allocatedTo: detail.lead?.allocatedTo } }] : [];
+      return detail ? [{
+        ...job, client: detail.client, lead: { ...job.lead, allocatedTo: detail.lead?.allocatedTo },
+        quote: detail.quote ? { ...job.quote, ...detail.quote } : job.quote,
+      }] : [];
     });
-  }, [contacts, firstOpenCards, quoteCardKey, showOpenPreview, visibleRows]);
+  }, [contacts, previewCards, quoteCardKey, showOpenPreview, visibleRows]);
 
   const paginatedResults = useMemo(() => displayedJobs.map(job => {
     const email = job.client?.contactDetails?.email?.trim().toLowerCase();
@@ -826,14 +841,16 @@ function JobsPageContent() {
         )}
         {quoteError && !error && (
           <div role="status" className="mx-4 mt-2 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            {quoteError}
+            {quoteError} {showOpenPreview && "Showing the quotes already loaded."}
             <button onClick={() => {
-              void fetchJobs(true);
+              if (quoteFailure?.refreshBoard) void fetchJobs(true);
               setQuoteCardsRetry(value => value + 1);
             }} className="ml-2 underline">Retry</button>
           </div>
         )}
-        {showOpenPreview && !error && <p role="status" className="px-4 pb-1 pt-2 text-xs text-gray-600">Checking for more open quotes…</p>}
+        {showOpenPreview && !error && !quoteError && <p role="status" className="px-4 pb-1 pt-2 text-xs text-gray-600">
+          {stageHydrated ? "Loading remaining quote details…" : "Checking for more open quotes…"}
+        </p>}
         {(loading || quoteCardsLoading) && !showOpenPreview ? <LoadingSkeleton /> : !showOpenPreview && (!stageHydrated || (quoteError && !contacts)) ? null : paginatedResults.length === 0 ? (
           <div className="px-4 pt-8 text-center text-gray-400 text-sm">
             {searchMode ? `No results for "${searchInput}"` : "No jobs found"}
