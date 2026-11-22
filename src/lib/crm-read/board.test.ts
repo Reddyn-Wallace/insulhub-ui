@@ -5,7 +5,8 @@ vi.mock("@/lib/graphql", () => ({ gql: mocks.gql }));
 vi.mock("@/lib/installation-splits/client", () => ({
   loadPendingSplits: mocks.pending, getSplitRevision: () => mocks.revision,
 }));
-import { loadBoard, recentBoard } from "./board";
+import { loadBoard, readBoardSource, recentBoard } from "./board";
+import { CrmReadAccessDenied } from "./session";
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -70,5 +71,50 @@ it("reads quote status for the full stage without loading every customer's conta
   mocks.gql.mockResolvedValue({ jobs: { total: 1, results: [{ ...card, stage: "QUOTE" }] } });
   expect((await loadBoard("QUOTE", "staff")).total).toBe(1);
   expect(mocks.gql.mock.calls[0][0]).not.toContain("contactDetails");
+  expect(mocks.gql.mock.calls[0][0]).not.toContain("allocatedTo");
   expect(mocks.gql.mock.calls[0][0]).toContain("callbackDate");
+  expect(mocks.gql.mock.calls[0][1].limit).toBe(250);
+});
+
+it("retries a timed-out quote page without starting the complete scan again", async () => {
+  const rows = ["first", "second", "third"].map(_id => ({ ...card, stage: "QUOTE", _id }));
+  const offsets: number[] = [];
+  let finishSecond!: (value: unknown) => void;
+  mocks.gql.mockImplementation(async (_query, { skip, limit }) => {
+    offsets.push(skip);
+    expect(limit).toBe(250);
+    if (skip === 1) {
+      if (offsets.filter(offset => offset === 1).length === 1) throw new DOMException("Timed out", "TimeoutError");
+      return new Promise(resolve => { finishSecond = resolve; });
+    }
+    return { jobs: { total: 3, results: [rows[skip]] } };
+  });
+  const pending = readBoardSource("QUOTE", "staff");
+  const outcome = pending.catch(error => error);
+  await vi.waitFor(() => expect(finishSecond).toBeTypeOf("function"));
+  expect(offsets).toContain(2);
+  finishSecond({ jobs: { total: 3, results: [rows[1]] } });
+  expect(await outcome).toEqual({ jobs: rows, total: 3 });
+  expect(offsets.filter(offset => offset === 0)).toHaveLength(1);
+});
+
+it("keeps filter-ready quote snapshots separate from the smaller unfiltered read", async () => {
+  mocks.gql.mockResolvedValue({ jobs: { total: 1, results: [{ ...card, stage: "QUOTE" }] } });
+  await loadBoard("QUOTE", "staff");
+  expect(await recentBoard("QUOTE", "staff", true)).toBeNull();
+  await loadBoard("QUOTE", "staff", true);
+  expect(mocks.gql.mock.calls[0][0]).not.toContain("allocatedTo");
+  expect(mocks.gql.mock.calls[1][0]).toContain("allocatedTo { _id }");
+});
+
+it("does not publish a partial view when another page reports a confirmed access refusal", async () => {
+  const denial = new CrmReadAccessDenied("Request failed.");
+  mocks.gql.mockImplementation(async (_query, { skip }) => {
+    if (skip === 0) return { jobs: { total: 3, results: [{ ...card, stage: "QUOTE" }] } };
+    if (skip === 1) throw Error("The CRM did not return a usable response.");
+    throw denial;
+  });
+  await expect(loadBoard("QUOTE", "staff")).rejects.toBe(denial);
+  expect(mocks.gql).toHaveBeenCalledTimes(3);
+  expect(await recentBoard("QUOTE", "staff")).toBeNull();
 });

@@ -2,6 +2,12 @@ import { invalidateCalendarData } from "@/lib/calendar/cache";
 import { clearBrowserCachePrefixes } from "@/lib/client-cache";
 
 export class CrmReadAccessDenied extends Error {}
+export class CrmReadUnavailable extends Error {}
+
+export function isCrmReadTransient(error: unknown) {
+  const name = (error as { name?: string } | null)?.name;
+  return error instanceof CrmReadUnavailable || name === "TimeoutError" || name === "AbortError" || name === "TypeError";
+}
 
 export function isCrmReadDenied(error: unknown) {
   return error instanceof CrmReadAccessDenied ||

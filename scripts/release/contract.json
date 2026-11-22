@@ -48,6 +48,7 @@
     "src/lib/installation-splits/calendar.test.ts",
     "src/lib/calendar/cache.test.ts",
     "src/lib/crm-read/board.test.ts",
+    "src/lib/graphql.test.ts",
     "src/lib/crm-read/detail.test.ts",
     "src/lib/crm-read/quotes-ui.test.tsx",
     "src/lib/crm-read/reopens.test.ts",

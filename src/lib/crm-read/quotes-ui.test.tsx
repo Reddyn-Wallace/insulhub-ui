@@ -137,6 +137,20 @@ it("keeps filtered Opens on the full stage path", async () => {
   render(<JobsPage />);
   expect(await screen.findByText("Customer quote-1")).toBeTruthy();
   expect(view.gql.mock.calls.some(([query]) => query.includes("query QuoteFirstPageCheck"))).toBe(false);
+  expect(view.gql.mock.calls.find(([query]) => query.includes("query Jobs"))?.[0]).toContain("allocatedTo { _id }");
+});
+
+it("starts verifying the complete list even while the first Open preview is waiting", async () => {
+  const originalFetch = view.gql.getMockImplementation()!;
+  view.gql.mockImplementation(async (query, variables) => {
+    if (query.includes("query QuoteFirstPageCheck")) return new Promise(() => {});
+    return originalFetch(query, variables);
+  });
+  render(<JobsPage />);
+  await waitFor(() => {
+    expect(view.gql.mock.calls.some(([query]) => query.includes("query Jobs"))).toBe(true);
+  }, { timeout: 600 });
+  expect(await screen.findByText("Customer quote-1")).toBeTruthy();
 });
 
 it("does not show a pending Open preview after a job changes", async () => {

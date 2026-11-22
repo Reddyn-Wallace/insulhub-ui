@@ -40,7 +40,7 @@
     "test:release": "node --test scripts/release/guard.test.mjs",
     "release:check": "node scripts/release/ci.mjs",
     "release:check-build": "node scripts/release/check-build.mjs",
-    "test:crm-reads": "vitest run src/lib/crm-read src/lib/job-lead-source-filter.test.tsx src/lib/job-eba-access.test.tsx",
+    "test:crm-reads": "vitest run src/lib/crm-read src/lib/graphql.test.ts src/lib/job-lead-source-filter.test.tsx src/lib/job-eba-access.test.tsx",
     "test:calendar": "vitest run src/lib/calendar",
     "test:calendar:browser": "node scripts/calendar-performance-browser-smoke.cjs",
     "test:installation-splits": "vitest run src/lib/installation-splits",
