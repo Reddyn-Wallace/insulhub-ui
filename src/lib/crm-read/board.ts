@@ -47,7 +47,7 @@ const quoteIndexQuery = (includeSalespeople: boolean) => `
     jobs(stages: $stages, skip: $skip, limit: $limit, showArchived: false) { total results {
       _id jobNumber stage updatedAt archivedAt
       lead { leadStatus leadSource callbackDate ${includeSalespeople ? "allocatedTo { _id }" : ""} }
-      quote { quoteNumber date status deferralDate c_total }
+      quote { date status deferralDate }
     } }
   }
 `;
@@ -64,6 +64,7 @@ export const isBoardStage = (stage: string) =>
   ["LEAD", "QUOTE", "JOBS", "COMPLETED", ...activeStages].includes(stage);
 
 const quoteIndexPageSize = 250;
+const leanQuoteIndexPageSize = 1500;
 const quoteIndexRequestMs = 7000;
 const quoteIndexError = "Quote results changed while loading. Please retry.";
 
@@ -72,6 +73,7 @@ async function readQuoteIndex(token: string, includeSalespeople: boolean): Promi
   const query = quoteIndexQuery(includeSalespeople);
   const seen = new Set<string>();
   const pages = new Map<number, BoardJob[]>();
+  let limit = includeSalespeople ? quoteIndexPageSize : leanQuoteIndexPageSize;
   let stopped = false;
 
   async function readPage(skip: number, retry = true): Promise<JobsData["jobs"]> {
@@ -80,7 +82,7 @@ async function readQuoteIndex(token: string, includeSalespeople: boolean): Promi
     if (localStorage.getItem("token") !== token) throw Error("Your sign-in changed. Please try again.");
     let response: JobsData;
     try {
-      response = await gql(query, { stages: ["QUOTE"], skip, limit: quoteIndexPageSize }, {
+      response = await gql(query, { stages: ["QUOTE"], skip, limit }, {
         token, timeoutMs: Math.min(timeLeft, quoteIndexRequestMs),
       });
     } catch (error) {
@@ -95,27 +97,33 @@ async function readQuoteIndex(token: string, includeSalespeople: boolean): Promi
   }
 
   try {
-    const first = await readPage(0);
+    const first = await readPage(0, includeSalespeople).catch(error => {
+      const refusedLimit = error instanceof Error && /\blimit\b/i.test(error.message);
+      if (includeSalespeople || isCrmReadDenied(error) || (!isCrmReadTransient(error) && !refusedLimit)) throw error;
+      limit = quoteIndexPageSize;
+      return readPage(0);
+    });
     const total = first.total;
     const size = first.results.length;
     if (size > total || (total && !size)) throw Error(quoteIndexError);
-    function collect(page: JobsData["jobs"], offset: number) {
-      if (page.total !== total || page.results.length !== Math.min(size, total - offset)) throw Error(quoteIndexError);
+    function collect(page: JobsData["jobs"], offset: number, requested: number) {
+      if (page.total !== total || page.results.length !== Math.min(requested, total - offset)) throw Error(quoteIndexError);
       for (const job of page.results) {
         if (!job?._id || seen.has(job._id)) throw Error(quoteIndexError);
         seen.add(job._id);
       }
       pages.set(offset, page.results);
     }
-    collect(first, 0);
+    collect(first, 0, size);
     let next = size;
-    const workers = size ? Math.min(4, Math.ceil((total - size) / size)) : 0;
+    limit = Math.min(size, quoteIndexPageSize);
+    const workers = limit ? Math.min(4, Math.ceil((total - size) / limit)) : 0;
     const outcomes = await Promise.allSettled(Array.from({ length: workers }, async () => {
       try {
         while (!stopped && next < total) {
           const offset = next;
-          next += size;
-          collect(await readPage(offset), offset);
+          next += limit;
+          collect(await readPage(offset), offset, limit);
         }
       } catch (error) {
         stopped = true;

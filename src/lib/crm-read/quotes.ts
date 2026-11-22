@@ -1,12 +1,14 @@
 import { gql } from "@/lib/graphql";
 import type { BoardJob, JobsData } from "./board";
 import { crmFreshMs, loadCrmRead, recentCrmRead } from "./client";
+import { calendarDataRevision, calendarLastWrite } from "@/lib/calendar/cache";
+import { isCrmReadDenied, isCrmReadTransient } from "./session";
 
 export const boardPageSize = 40;
 export const quoteSortPreference = "jobs-sort-order:QUOTE";
-export type QuoteContacts = Record<string, Pick<BoardJob, "client" | "lead">>;
+export type QuoteContacts = Record<string, Pick<BoardJob, "client" | "lead" | "quote">>;
 type QuoteVersion = Pick<BoardJob, "_id" | "updatedAt">;
-type VisibleQuote = QuoteVersion & Pick<BoardJob, "stage" | "archivedAt" | "client" | "lead">;
+type VisibleQuote = QuoteVersion & Pick<BoardJob, "stage" | "archivedAt" | "client" | "lead" | "quote">;
 
 export class QuoteSelectionChanged extends Error {
   constructor() {
@@ -15,7 +17,7 @@ export class QuoteSelectionChanged extends Error {
 }
 
 export function quoteContactsKey(rows: QuoteVersion[]) {
-  return rows.map(row => `${row._id}:${row.updatedAt}`).sort().join(",");
+  return rows.length ? `v2:${rows.map(row => `${row._id}:${row.updatedAt}`).sort().join(",")}` : "";
 }
 
 export function quoteState(job: BoardJob) {
@@ -70,18 +72,25 @@ async function readContacts(rows: QuoteVersion[], token: string) {
   const fields = ids.map((_, index) => `card${index}: job(_id: $quote${index}) {
     _id stage archivedAt updatedAt
     lead { allocatedTo { _id firstname lastname } }
+    quote { quoteNumber c_total }
     client { contactDetails { name email phoneMobile streetAddress suburb city } }
   }`).join("\n");
-  const cards = await gql<Record<string, VisibleQuote | null>>(
-    `query QuoteCardDetails(${declarations}) { ${fields} }`,
-    Object.fromEntries(ids.map((id, index) => [`quote${index}`, id])),
-    { token },
-  );
+  const query = `query QuoteCardDetails(${declarations}) { ${fields} }`;
+  const variables = Object.fromEntries(ids.map((id, index) => [`quote${index}`, id]));
+  const writeAt = calendarLastWrite();
+  const revision = calendarDataRevision();
+  const read = () => gql<Record<string, VisibleQuote | null>>(query, variables, { token, timeoutMs: 6500 });
+  const cards = await read().catch(error => {
+    if (isCrmReadDenied(error) || !isCrmReadTransient(error) || localStorage.getItem("token") !== token ||
+      writeAt !== calendarLastWrite() || revision !== calendarDataRevision()) throw error;
+    return read();
+  });
   return Object.fromEntries(rows.map((row, index) => {
     const card = cards?.[`card${index}`];
-    if (card === undefined || (card && card._id !== row._id)) throw Error("Could not verify quote details. Please retry.");
-    if (!card || card.stage !== "QUOTE" || card.archivedAt || card.updatedAt !== row.updatedAt) throw new QuoteSelectionChanged();
-    return [row._id, { client: card.client, lead: card.lead }];
+    if (!card || card._id !== row._id || card.stage !== "QUOTE" || card.archivedAt || card.updatedAt !== row.updatedAt) {
+      throw new QuoteSelectionChanged();
+    }
+    return [row._id, { client: card.client, lead: card.lead, quote: card.quote }];
   }));
 }
 
@@ -91,10 +100,21 @@ export const recentQuoteContacts = (rows: QuoteVersion[], token: string) =>
 export async function readQuoteContacts(rows: QuoteVersion[], token: string) {
   if (!rows.length) return {};
   const sorted = [...rows].sort((a, b) => a._id.localeCompare(b._id));
-  const first = readContacts(sorted.slice(0, 20), token);
-  if (sorted.length <= 20) return first;
-  const [left, right] = await Promise.all([first, readContacts(sorted.slice(20), token)]);
-  return { ...left, ...right };
+  if (sorted.length <= 20) return readContacts(sorted, token);
+  let deny!: (error: unknown) => void;
+  const denied = new Promise<never>((_, reject) => { deny = reject; });
+  const readPart = (part: QuoteVersion[]) => readContacts(part, token).catch(error => {
+    if (isCrmReadDenied(error)) deny(error);
+    throw error;
+  });
+  const [left, right] = await Promise.race([
+    Promise.allSettled([readPart(sorted.slice(0, 20)), readPart(sorted.slice(20))]),
+    denied,
+  ]);
+  if (left.status === "fulfilled" && right.status === "fulfilled") return { ...left.value, ...right.value };
+  const failures = [left, right].filter(result => result.status === "rejected");
+  const failure = failures.find(result => result.reason instanceof QuoteSelectionChanged) ?? failures[0];
+  throw failure.reason;
 }
 
 export async function loadQuoteContacts(rows: QuoteVersion[], token: string) {

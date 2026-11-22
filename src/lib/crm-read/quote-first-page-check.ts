@@ -56,7 +56,8 @@ export async function checkQuoteFirstPage(token: string, newest: boolean, signal
   const contactDetails = await readQuoteContacts(expected.slice(0, boardPageSize), token);
   const displayed = expected.map(row => {
     const details = contactDetails[row._id];
-    return details ? { ...row, client: details.client, lead: { ...row.lead, allocatedTo: details.lead?.allocatedTo } } : row;
+    return details ? { ...row, client: details.client, lead: { ...row.lead, allocatedTo: details.lead?.allocatedTo },
+      quote: details.quote ? { ...row.quote, ...details.quote } : row.quote } : row;
   });
   const baselineMs = Math.round(performance.now() - started);
   async function check(variant: typeof variants[number]): Promise<Outcome> {

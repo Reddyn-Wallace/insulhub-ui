@@ -72,8 +72,9 @@ it("reads quote status for the full stage without loading every customer's conta
   expect((await loadBoard("QUOTE", "staff")).total).toBe(1);
   expect(mocks.gql.mock.calls[0][0]).not.toContain("contactDetails");
   expect(mocks.gql.mock.calls[0][0]).not.toContain("allocatedTo");
+  expect(mocks.gql.mock.calls[0][0]).not.toContain("c_total");
   expect(mocks.gql.mock.calls[0][0]).toContain("callbackDate");
-  expect(mocks.gql.mock.calls[0][1].limit).toBe(250);
+  expect(mocks.gql.mock.calls[0][1].limit).toBe(1500);
 });
 
 it("retries a timed-out quote page without starting the complete scan again", async () => {
@@ -81,8 +82,9 @@ it("retries a timed-out quote page without starting the complete scan again", as
   const offsets: number[] = [];
   let finishSecond!: (value: unknown) => void;
   mocks.gql.mockImplementation(async (_query, { skip, limit }) => {
+    if (limit === 1500) throw new DOMException("Timed out", "TimeoutError");
     offsets.push(skip);
-    expect(limit).toBe(250);
+    expect(limit).toBe(skip === 0 ? 250 : 1);
     if (skip === 1) {
       if (offsets.filter(offset => offset === 1).length === 1) throw new DOMException("Timed out", "TimeoutError");
       return new Promise(resolve => { finishSecond = resolve; });
@@ -96,6 +98,16 @@ it("retries a timed-out quote page without starting the complete scan again", as
   finishSecond({ jobs: { total: 3, results: [rows[1]] } });
   expect(await outcome).toEqual({ jobs: rows, total: 3 });
   expect(offsets.filter(offset => offset === 0)).toHaveLength(1);
+});
+
+it("uses bounded offsets if the first lean read is incomplete", async () => {
+  const rows = Array.from({ length: 302 }, (_, i) => ({ ...card, _id: String(i), stage: "QUOTE" }));
+  mocks.gql.mockImplementation(async (_query, { skip, limit }) => {
+    expect(limit).toBe(skip === 0 ? 1500 : 250);
+    return { jobs: { total: rows.length, results: rows.slice(skip, skip + (skip === 0 ? 301 : limit)) } };
+  });
+  expect(await readBoardSource("QUOTE", "staff")).toEqual({ jobs: rows, total: rows.length });
+  expect(mocks.gql.mock.calls.map(([, { skip }]) => skip)).toEqual([0, 301]);
 });
 
 it("keeps filter-ready quote snapshots separate from the smaller unfiltered read", async () => {
