@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { gql } from "./graphql";
-import { CrmReadAccessDenied } from "./crm-read/session";
+import { CrmReadAccessDenied, isCrmReadTransient } from "./crm-read/session";
 
 const mutation = "mutation CreateFinalInvoices { createFinalInvoices { _id } }";
 const upstreamError = "Xero API request failed: Unauthorized";
@@ -105,9 +105,25 @@ it.each([
   async () => new Response("<p>Access unavailable</p>", { status: 403, headers: { "content-type": "text/html" } }),
   json({ errors: [{ message: "Request failed.", extensions: { code: "FORBIDDEN" } }] }),
   json({ errors: [{ message: "Request failed.", extensions: { exception: { statusCode: 403 } } }] }),
+  json({ errors: [{ message: "Request failed.", extensions: { code: "FORBIDDEN" } }] }, 503),
 ])("preserves explicit read denial even when the message gives no reason", async denied => {
   replies = [denied];
   await expect(gql("query Jobs { jobs { total } }")).rejects.toBeInstanceOf(CrmReadAccessDenied);
   expectSessionKept();
   expect(requests).toHaveLength(1);
+});
+
+it.each([429, 502, 503, 504])("preserves retryable CRM read failures (HTTP %s)", async status => {
+  replies = [async () => new Response("The CRM is temporarily unavailable", { status })];
+  const error = await gql("query Jobs { jobs { total } }").catch(cause => cause);
+  expect(isCrmReadTransient(error)).toBe(true);
+  expect(requests).toHaveLength(1);
+});
+
+it("preserves a timeout while reading a successful response body", async () => {
+  const timeout = new DOMException("Timed out", "TimeoutError");
+  const response = Response.json({});
+  vi.spyOn(response, "json").mockRejectedValue(timeout);
+  replies = [async () => response];
+  await expect(gql("query Jobs { jobs { total } }")).rejects.toBe(timeout);
 });

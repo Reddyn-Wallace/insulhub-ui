@@ -1,5 +1,5 @@
 import { calendarDataRevision, calendarLastWrite, invalidateCalendarData } from "./calendar/cache";
-import { clearCrmBrowserSession, CrmReadAccessDenied } from "./crm-read/session";
+import { clearCrmBrowserSession, CrmReadAccessDenied, CrmReadUnavailable, isCrmReadTransient } from "./crm-read/session";
 import {isTrackedMutation} from './dead-followups/dates';
 import {
   type BrowserCacheStorage,
@@ -134,8 +134,11 @@ export async function gql<T>(
       ...(options.timeoutMs ? { signal: AbortSignal.timeout(options.timeoutMs) } : {}),
     });
 
-    const json = await res.json().catch(() => {
-      if (res.status === 401 || (isQuery && res.status === 403)) return null;
+    const retryableStatus = isQuery && [429, 502, 503, 504].includes(res.status);
+    const failed = (message: string) => retryableStatus ? new CrmReadUnavailable(message) : new Error(message);
+    const json = await res.json().catch(error => {
+      if (res.status === 401 || (isQuery && res.status === 403) || retryableStatus) return null;
+      if (isQuery && isCrmReadTransient(error)) throw error;
       throw new Error("The server returned an unreadable response.");
     });
     if (res.status === 401 || (isQuery && res.status === 403) || json?.errors?.length) {
@@ -149,10 +152,10 @@ export async function gql<T>(
         [401, 403].includes(Number(error.extensions?.exception?.statusCode))))) {
         throw new CrmReadAccessDenied(displayError(message));
       }
-      throw new Error(displayError(message));
+      throw failed(displayError(message));
     }
 
-    if (!res.ok) throw new Error(json.error || "Request failed. Refresh before retrying.");
+    if (!res.ok) throw failed(json?.error || "Request failed. Refresh before retrying.");
     const data = json.data as T;
     if (cacheKey) writeBrowserCache(cacheKey, data, options.storage);
     if (!isQuery) invalidateDataCachesAfterMutation(options.calendarCacheHandled === true);

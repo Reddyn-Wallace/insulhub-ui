@@ -53,13 +53,14 @@ function JobsPageContent() {
   const [searchInput, setSearchInput] = useState(initSearch);
   const [searchMode, setSearchMode] = useState(initSearch.trim().length > 0);
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("oldest");
+  const [salespersonFilters, setSalespersonFilters] = useState<string[]>(initSalespersonFilters);
   const [initialOpenQuotes, setInitialOpenQuotes] = useState<{ rows: Job[]; writeAt: number; revision: number } | null>(null);
   const [result, setResult] = useState<(BoardRows & { key: string }) | null>(null);
-  const resultKey = searchMode ? `search:${search}:${page}` : `stage:${activeStage}`;
+  const needsQuoteSalespeople = !searchMode && activeStage === "QUOTE" && salespersonFilters.length > 0;
+  const resultKey = searchMode ? `search:${search}:${page}` : `stage:${activeStage}${needsQuoteSalespeople ? ":with-salespeople" : ""}`;
   const stageHydrated = result?.key === resultKey;
   const jobs = stageHydrated ? result.jobs : noJobs;
   const [users, setUsers] = useState<User[]>([]);
-  const [salespersonFilters, setSalespersonFilters] = useState<string[]>(initSalespersonFilters);
   const [leadSourceFilters, setLeadSourceFilters] = useState<string[]>(initLeadSourceFilters);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [leadSourceMenuOpen, setLeadSourceMenuOpen] = useState(false);
@@ -218,7 +219,7 @@ function JobsPageContent() {
       }
 
       if (!isBoardStage(activeStage)) throw Error("This job stage is unavailable.");
-      const cached = coldQuoteCheck ? null : await recentBoard(activeStage, token);
+      const cached = coldQuoteCheck ? null : await recentBoard(activeStage, token, needsQuoteSalespeople);
       if (!current()) return;
       if (cached && !force) {
         recoveredBoard.current = cached.recovered === true;
@@ -229,20 +230,13 @@ function JobsPageContent() {
         initialQuoteRead.current = true;
         const writeAt = calendarLastWrite();
         const writeRevision = calendarDataRevision();
-        const initial = readInitialOpenQuotes(token).then(rows => {
-          if (current() && calendarLastWrite() === writeAt && calendarDataRevision() === writeRevision) {
+        void readInitialOpenQuotes(token).then(rows => {
+          if (current() && initialQuoteRead.current && calendarLastWrite() === writeAt && calendarDataRevision() === writeRevision) {
             setInitialOpenQuotes({ rows, writeAt, revision: writeRevision });
           }
         }).catch(() => {});
-        let timer: number | undefined;
-        // Give the small read a head start without holding up the full queue
-        // when the old CRM is slow to respond.
-        const headStart = new Promise<void>(resolve => { timer = window.setTimeout(resolve, 1800); });
-        await Promise.race([initial, headStart]);
-        window.clearTimeout(timer);
-        if (!current()) return;
       }
-      const data = await loadBoard(activeStage, token);
+      const data = await loadBoard(activeStage, token, needsQuoteSalespeople);
       if (current()) {
         recoveredBoard.current = false;
         setResult({ key: resultKey, ...data });
@@ -260,7 +254,7 @@ function JobsPageContent() {
       }
       setLoadError({ key: resultKey, message });
     }
-  }, [activeStage, coldQuoteCheck, search, searchMode, searchPage, resultKey, router]);
+  }, [activeStage, coldQuoteCheck, needsQuoteSalespeople, search, searchMode, searchPage, resultKey, router]);
 
   useEffect(() => {
     void fetchJobs();
