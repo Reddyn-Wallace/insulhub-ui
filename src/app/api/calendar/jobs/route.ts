@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { CALENDAR_STAGES, calendarVisits } from "@/lib/installation-splits/views";
+import { reconcilePastRevisits } from "@/lib/installation-splits/reconcile";
 import { readCalendarSplits } from "@/lib/installation-splits/store";
 import { calendarDateBounds, calendarDay } from "@/lib/calendar/dates";
 import { requireInsulhubAuth, tokenFromRequest } from "@/lib/insulhub-auth";
@@ -299,9 +300,12 @@ export async function GET(request: NextRequest) {
 
     const jobs = [];
     const unscheduled = [];
+    const now = new Date(checkedAt);
     for (const job of sources.values()) {
       if (job.archivedAt || !stages.has(job.stage) || splits[job._id] === null) continue;
-      for (const visit of calendarVisits(job, splits[job._id] ?? null)) {
+      const stored = splits[job._id];
+      const split = stored ? await reconcilePastRevisits(stored, job, now) : null;
+      for (const visit of calendarVisits(job, split)) {
         const day = calendarDay(visit.installation?.installDate);
         if (day && day >= start && day <= end) jobs.push(visit);
         if (includeUnscheduled && !day && visit.splitVisit?.state === "planned") unscheduled.push(visit);

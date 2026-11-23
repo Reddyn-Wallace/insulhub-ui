@@ -1,4 +1,5 @@
 import "server-only";
+import { reconcileKnownSplits } from "@/lib/installation-splits/reconcile";
 import { readSplits } from "@/lib/installation-splits/store";
 import { projectVisits } from "@/lib/installation-splits/projection";
 
@@ -319,7 +320,8 @@ async function buildReport(token: string, fromDate: string, toDate: string): Pro
     })
     .sort((a, b) => toNzDateKey(a.acceptedAt).localeCompare(toNzDateKey(b.acceptedAt)));
 
-  const splits=await readSplits(allJobs.map(job=>job._id));
+  const storedSplits = await readSplits(allJobs.map(job => job._id));
+  const splits = await reconcileKnownSplits(storedSplits, allJobs);
   const visitJobs: ReportJob[]=allJobs.flatMap(job=>splits[job._id] ? projectVisits(job,splits[job._id]) : [job]);
   const installs = visitJobs
     .filter((job) => {
