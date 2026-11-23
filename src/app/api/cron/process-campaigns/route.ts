@@ -13,7 +13,10 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const { dueIds: campaignIds, ...initialQueue } = await loadCampaignSchedule(10);
+    // Older Workers can overwrite an activation received during this request.
+    // Keep their existing retry cadence until the safer alarm handling is live.
+    const canDeferOvernight = request.headers.get("x-campaign-scheduler-capabilities") === "preserve-earlier-alarm";
+    const { dueIds: campaignIds, ...initialQueue } = await loadCampaignSchedule(10, canDeferOvernight);
     const results = [];
     for (const id of campaignIds) {
       try {
@@ -31,7 +34,7 @@ export async function GET(request: NextRequest) {
         });
       }
     }
-    const queue = campaignIds.length ? await loadCampaignQueueState() : initialQueue;
+    const queue = campaignIds.length ? await loadCampaignQueueState(canDeferOvernight) : initialQueue;
 
     return NextResponse.json({
       ok: true,

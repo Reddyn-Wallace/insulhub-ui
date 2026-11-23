@@ -45,3 +45,24 @@ it("limits automatic checks to the first 15 minutes and honours backoff on focus
   await act(() => vi.advanceTimersByTimeAsync(60000));
   expect(fetcher).toHaveBeenCalledTimes(1);
 });
+
+it("shares an in-flight automatic check with a manual check for the same SMS", async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal("localStorage", { getItem: () => "test" });
+  let finish!: (response: Response) => void;
+  const fetcher = vi.fn(() => new Promise<Response>(resolve => { finish = resolve; }));
+  vi.stubGlobal("fetch", fetcher);
+  const update = vi.fn();
+  const { result } = renderHook(() => useJobSmsStatus("job", [
+    { id: "recent", status: "sent", sentAt: new Date().toISOString() },
+  ], update));
+  await act(() => vi.advanceTimersByTimeAsync(1000));
+  const manual = result.current.checkStatus("recent");
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  const delivered = { id: "recent", status: "delivered" };
+  await act(async () => {
+    finish(Response.json({ message: delivered }));
+    expect(await manual).toEqual(delivered);
+  });
+  expect(update).toHaveBeenCalledWith(delivered);
+});

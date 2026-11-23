@@ -2,6 +2,7 @@ import { processCampaignSms } from "@/lib/campaign-sms-queue";
 import { CAMPAIGN_HALTED_REASON, CAMPAIGN_CONNECTION_HALTED_REASON } from "@/lib/campaign-resume";
 import {
   communicationSendWindowError,
+  DEFAULT_COMMUNICATION_SETTINGS,
   loadCommunicationSettings,
   nextAllowedSendAt,
 } from "@/lib/communication-settings";
@@ -317,8 +318,8 @@ export async function processCampaignQueue(id: string, actorUserId?: string): Pr
   };
 }
 
-export async function loadCampaignSchedule(limit = 0) {
-  const settings = await loadCommunicationSettings();
+export async function loadCampaignSchedule(limit = 0, respectDailyCap = true) {
+  const settings = respectDailyCap ? await loadCommunicationSettings() : DEFAULT_COMMUNICATION_SETTINGS;
   const nextDayStart = settings.campaignSendWindowEnabled ? settings.campaignSendWindowStartTime : "00:00";
   // Use the same per-sender NZ-day cap as delivery, without changing recipient schedules.
   const [schedule] = await overlaySql`
@@ -337,7 +338,7 @@ export async function loadCampaignSchedule(limit = 0) {
       FROM campaigns c
       JOIN campaign_recipients cr ON cr.campaign_id = c.id
       CROSS JOIN local_day
-      WHERE c.channel = 'email'
+      WHERE ${respectDailyCap} AND c.channel = 'email'
         AND c.sender_id IN (SELECT sender_id FROM queued WHERE channel = 'email')
         AND cr.status = 'sent'
         AND cr.sent_at >= (local_day.today::timestamp AT TIME ZONE 'Pacific/Auckland')
@@ -365,7 +366,7 @@ export async function loadCampaignSchedule(limit = 0) {
   };
 }
 
-export async function loadCampaignQueueState() {
-  const { pendingCount, nextRunAt } = await loadCampaignSchedule();
+export async function loadCampaignQueueState(respectDailyCap = true) {
+  const { pendingCount, nextRunAt } = await loadCampaignSchedule(0, respectDailyCap);
   return { pendingCount, nextRunAt };
 }

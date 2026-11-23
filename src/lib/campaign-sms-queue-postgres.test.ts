@@ -106,6 +106,7 @@ describe.skipIf(!process.env.CAMPAIGN_SMS_TEST_DATABASE_URL)('SMS campaign queue
     const saved=await pool.query("SELECT scheduled_at < now() AS still_due FROM campaign_recipients WHERE campaign_id=$1",[emailCampaign]);
     expect(saved.rows).toEqual([{still_due:true}]);
     expect((await loadCampaignSchedule(10)).dueIds).toEqual([]);
+    expect((await loadCampaignSchedule(10, false)).dueIds).toEqual([emailCampaign]);
   });
 
 });

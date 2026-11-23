@@ -1,12 +1,12 @@
 "use client";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 export type SmsStatusUpdate = { id: string; status: string; failureReason?: string | null };
 type RecordedSms = SmsStatusUpdate & { sentAt?: string | null };
 const AUTO_CHECK_WINDOW_MS = 15 * 60_000;
 export const smsNeedsStatusCheck = (status: string) => ["sending", "accepted", "sent", "unknown"].includes(status);
 
-export async function checkSavedJobSms(jobId: string, id: string, signal?: AbortSignal): Promise<SmsStatusUpdate> {
+async function checkSavedJobSms(jobId: string, id: string, signal?: AbortSignal): Promise<SmsStatusUpdate> {
   const response = await fetch(`/api/jobs/${jobId}/sms`, {
     method: "POST", signal,
     headers: { "content-type": "application/json", "x-access-token": localStorage.getItem("token") || "" },
@@ -21,6 +21,17 @@ export async function checkSavedJobSms(jobId: string, id: string, signal?: Abort
 export function useJobSmsStatus(jobId: string, messages: RecordedSms[], onUpdate: (message: SmsStatusUpdate) => void) {
   const latest = useRef({ messages, onUpdate });
   latest.current = { messages, onUpdate };
+  const inFlight = useRef(new Map<string, Promise<SmsStatusUpdate>>());
+  const checkStatus = useCallback((id: string, signal?: AbortSignal) => {
+    const key = `${jobId}:${id}`;
+    const existing = inFlight.current.get(key);
+    if (existing) return existing;
+    const request = checkSavedJobSms(jobId, id, signal).finally(() => {
+      inFlight.current.delete(key);
+    });
+    inFlight.current.set(key, request);
+    return request;
+  }, [jobId]);
   useEffect(() => {
     let stopped = false;
     let running = false;
@@ -38,7 +49,7 @@ export function useJobSmsStatus(jobId: string, messages: RecordedSms[], onUpdate
           if (previous && previous.next > Date.now()) continue;
           const count = (previous?.count || 0) + 1;
           try {
-            const update = await checkSavedJobSms(jobId, message.id, controller.signal);
+            const update = await checkStatus(message.id, controller.signal);
             if (!stopped && (update.status !== message.status || (update.failureReason || "") !== (message.failureReason || ""))) {
               latest.current.onUpdate(update);
             }
@@ -56,5 +67,6 @@ export function useJobSmsStatus(jobId: string, messages: RecordedSms[], onUpdate
       document.removeEventListener("visibilitychange", resume);
       window.removeEventListener("online", resume);
     };
-  }, [jobId]);
+  }, [checkStatus]);
+  return { checkStatus };
 }

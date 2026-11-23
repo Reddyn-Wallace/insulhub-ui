@@ -18,7 +18,7 @@ import {
   UPDATE_JOB_QUOTE, ARCHIVE_JOB, UPDATE_CLIENT, SEND_EBA, ADD_FILES, REMOVE_FILE,
 } from "@/lib/mutations";
 import JobSmsComposer, { type JobSmsMessage } from "@/components/JobSmsComposer";
-import { checkSavedJobSms, useJobSmsStatus, type SmsStatusUpdate } from "@/lib/use-job-sms-status";
+import { useJobSmsStatus, type SmsStatusUpdate } from "@/lib/use-job-sms-status";
 import JobCommunications from "@/components/JobCommunications";
 import JobEmailComposer from "@/components/JobEmailComposer";
 import { type JobEmailMessage } from "@/lib/job-email";
@@ -811,10 +811,10 @@ export default function JobDetailPage() {
     setCampaignCommunications(current => current.map(item => item.id === update.id ? { ...item, status: update.status as CampaignCommunication["status"], failureReason: update.failureReason || "" } : item));
   }
 
-  useJobSmsStatus(id, campaignCommunications.filter(item => item.source === "crm_sms"), applySmsStatus);
+  const { checkStatus } = useJobSmsStatus(id, campaignCommunications.filter(item => item.source === "crm_sms"), applySmsStatus);
 
   async function checkSmsStatus(messageId: string) {
-    const update = await checkSavedJobSms(id, messageId);
+    const update = await checkStatus(messageId);
     if (communicationJobId.current === id) applySmsStatus(update);
   }
 

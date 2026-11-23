@@ -1,7 +1,9 @@
 import { env, exports } from "cloudflare:workers";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
-const scheduler = () => env.CAMPAIGN_QUEUE_SCHEDULER.getByName("insulhub");
+let testInstance = 0;
+beforeEach(() => { testInstance++; });
+const scheduler = () => env.CAMPAIGN_QUEUE_SCHEDULER.getByName(`scheduler-test-${testInstance}`);
 
 describe("campaign queue scheduler", () => {
   it("rejects unauthenticated activation", async () => {
@@ -25,7 +27,6 @@ describe("campaign queue scheduler", () => {
   });
 
   it("stops scheduling when the backend reports an empty queue", async () => {
-    await scheduler().activate(new Date(Date.now() + 10 * 60_000).toISOString());
     const status = await scheduler().applyQueueState({
       pendingCount: 0,
       nextRunAt: null,
@@ -52,4 +53,19 @@ describe("campaign queue scheduler", () => {
     expect(status.scheduled).toBe(true);
     expect(Date.parse(status.alarmAt)).toBeGreaterThanOrEqual(before + 15 * 60_000);
   });
+  it.each([
+    { pendingCount: 0, nextRunAt: null },
+    { pendingCount: 1, nextRunAt: "tomorrow" },
+    { pendingCount: 1, nextRunAt: "tomorrow", hadErrors: true },
+  ])("preserves an activation that arrived while an alarm was checking the queue", async queue => {
+    const earlier = new Date(Date.now() + 2 * 60_000).toISOString();
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60_000).toISOString();
+    await scheduler().activate(earlier);
+    const status = await scheduler().applyQueueState({
+      ...queue,
+      nextRunAt: queue.nextRunAt && tomorrow,
+    });
+    expect(status.alarmAt).toBe(earlier);
+  });
+
 });

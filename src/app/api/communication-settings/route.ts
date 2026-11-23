@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { loadCampaignQueueState } from "@/lib/campaign-queue";
+import { activateCampaignScheduler } from "@/lib/campaign-scheduler";
 import { requireInsulhubAuth } from "@/lib/insulhub-auth";
 import {
   loadCommunicationSettings,
@@ -33,6 +35,15 @@ export async function PATCH(request: NextRequest) {
     }
 
     const settings = await saveCommunicationSettings(normalized);
+    const warning = "Settings saved. The campaign schedule could not be refreshed. Use Process Due on an active campaign to try again.";
+    try {
+      const { pendingCount, nextRunAt } = await loadCampaignQueueState();
+      if (pendingCount > 0 && !(await activateCampaignScheduler(nextRunAt)).activated) {
+        return NextResponse.json({ settings, schedulerWarning: warning });
+      }
+    } catch {
+      return NextResponse.json({ settings, schedulerWarning: warning });
+    }
     return NextResponse.json({ settings });
   } catch (error) {
     return NextResponse.json(
