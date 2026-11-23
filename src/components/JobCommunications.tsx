@@ -1,6 +1,7 @@
 "use client";
 import { useId, useState } from "react";
 import EmailPreview from "./EmailPreview";
+import { smsNeedsStatusCheck } from "@/lib/use-job-sms-status";
 
 export type JobCommunicationRecord = {
   id: string; source: string; channel: string; status: string;
@@ -28,8 +29,24 @@ function ChannelIcon({ channel }: { channel: string }) {
     {channel === "email" ? <><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m4 7 8 6 8-6"/></> : <><path d="M21 11a8 8 0 0 1-8 8H6l-3 3V11a9 9 0 0 1 18 0Z"/><path d="M7 9h10M7 13h6"/></>}
   </svg>;
 }
-function MessageCard({ message }: { message: JobCommunicationRecord }) {
+function MessageCard({ message, onCheckSms }: { message: JobCommunicationRecord; onCheckSms?: (id: string) => Promise<void> }) {
   const [open, setOpen] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [checkResult, setCheckResult] = useState<{ failed: boolean; text: string }>();
+  const canCheckSms = onCheckSms && message.source === "crm_sms" && smsNeedsStatusCheck(message.status);
+  async function checkSms() {
+    if (!onCheckSms || checking) return;
+    setChecking(true);
+    setCheckResult(undefined);
+    try {
+      await onCheckSms(message.id);
+      setCheckResult({ failed: false, text: "Delivery status checked." });
+    } catch {
+      setCheckResult({ failed: true, text: "Could not check delivery status. Try again." });
+    } finally {
+      setChecking(false);
+    }
+  }
   const panelId = useId();
   const title = message.channel === "email" ? message.renderedSubject || message.templateTitle || "Email" : message.renderedBody || "SMS";
   const manual = message.source === "job";
@@ -63,13 +80,17 @@ function MessageCard({ message }: { message: JobCommunicationRecord }) {
       {message.source === "campaign" && !message.senderValue && <p className="mt-3 text-xs text-slate-500">Sending {message.channel === "email" ? "address" : "number"} wasn’t saved for this campaign.</p>}
       {message.failureReason && <p className="mt-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{message.failureReason}</p>}
       {message.channel === "email" && !manual && <p className="mt-3 text-xs text-slate-500">Delivery and read receipts are not tracked.</p>}
-      {message.source === "crm_sms" && message.status === "accepted" && <p className="mt-3 text-xs text-slate-500">Waiting for the phone to send. Status updates automatically while this job is open.</p>}
+      {message.source === "crm_sms" && message.status === "accepted" && <p className="mt-3 text-xs text-slate-500">Waiting for the phone to send.</p>}
+      {canCheckSms && <button type="button" disabled={checking} onClick={() => void checkSms()} className="mt-3 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-[#1a3a4a] disabled:opacity-50">
+        {checking ? "Checking delivery status…" : "Check delivery status"}
+      </button>}
+      {checkResult && <p role={checkResult.failed ? "alert" : "status"} className="mt-2 text-xs text-slate-600">{checkResult.text}</p>}
       {message.status === "unknown" && <p className="mt-3 text-xs text-slate-500">The send could not be confirmed. Check the sending account before sending another message.</p>}
     </div>}
   </li>;
 }
-export default function JobCommunications({ messages, loading = false, error = "", onRetry }: {
-  messages: JobCommunicationRecord[]; loading?: boolean; error?: string; onRetry?: () => void;
+export default function JobCommunications({ messages, loading = false, error = "", onRetry, onCheckSms }: {
+  messages: JobCommunicationRecord[]; loading?: boolean; error?: string; onRetry?: () => void; onCheckSms?: (id: string) => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [search, setSearch] = useState("");
@@ -92,7 +113,7 @@ export default function JobCommunications({ messages, loading = false, error = "
       {expanded && <><label htmlFor={searchId} className="sr-only">Search communications</label>
       <input id={searchId} type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search messages…" className="w-full min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400"/></>}
       {loading && !messages.length ? <p className="py-8 text-center text-sm text-slate-500">Loading communications…</p>
-        : visible.length ? <ul aria-label="CRM-sent messages" className="space-y-3">{visible.map(message => <MessageCard key={message.id} message={message}/>)}</ul>
+        : visible.length ? <ul aria-label="CRM-sent messages" className="space-y-3">{visible.map(message => <MessageCard key={message.id} message={message} onCheckSms={onCheckSms}/>)}</ul>
         : !error && <p className="py-8 text-center text-sm text-slate-500">{sent.length ? "No messages match your search." : "No CRM messages recorded yet."}</p>}
       {expanded && manual.length > 0 && <details className="rounded-xl border border-slate-200 bg-white p-3 text-sm"><summary className="cursor-pointer font-medium text-slate-600">Opened in another app · {manual.length}</summary><p className="my-3 text-xs text-slate-500">These records show a draft was opened in your email or SMS app. They do not confirm it was sent.</p><ul aria-label="Manual app history" className="space-y-2">{manual.map(message => <MessageCard key={message.id} message={message}/>)}</ul></details>}
       {(sent.length > 1 || messages.some(message => message.source === "job")) && <button type="button" aria-expanded={expanded} aria-controls={listId} onClick={() => setExpanded(!expanded)} className="w-full rounded-lg py-2 text-sm font-semibold text-[#1a3a4a]">{expanded ? "Show latest only" : "Show all communications"}</button>}

@@ -63,4 +63,18 @@ describe.skipIf(!url)('durable UI date history',()=>{
   expect((await pool.query("SELECT * FROM dead_quote_date_events WHERE insulhub_job_id=ANY($1::text[])",[input.map(j=>j._id)])).rows).toHaveLength(2);
  });
 
+ it('does not attempt to insert an existing date when opening a quote',async()=>{
+  const job={...dead,_id:'bbbbbbbbbbbbbbbbbbbbbbbb'};
+  const first=await repo.attach(job,true);
+  await pool.query(`CREATE FUNCTION reject_date_insert() RETURNS trigger AS $$
+   BEGIN RAISE EXCEPTION 'Unexpected duplicate date insert'; END; $$ LANGUAGE plpgsql;
+   CREATE TRIGGER reject_date_insert BEFORE INSERT ON dead_quote_dates FOR EACH ROW EXECUTE FUNCTION reject_date_insert()`);
+  try {
+   expect(await repo.attach(job,true)).toEqual(first);
+   expect(await repo.attachMany([job],true)).toEqual([first]);
+  } finally {
+   await pool.query('DROP TRIGGER reject_date_insert ON dead_quote_dates; DROP FUNCTION reject_date_insert()');
+  }
+ });
+
 });

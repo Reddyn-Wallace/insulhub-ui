@@ -320,7 +320,9 @@ export default function SettingsPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Failed to save communication settings");
       setCommunicationSettings(json.settings);
-      setToast({ type: "success", text: "Communication delivery settings saved." });
+      setToast(json.schedulerWarning
+        ? { type: "error", text: json.schedulerWarning }
+        : { type: "success", text: "Communication delivery settings saved." });
     } catch (err) {
       setToast({ type: "error", text: err instanceof Error ? err.message : "Failed to save communication settings" });
     } finally {

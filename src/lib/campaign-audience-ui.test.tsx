@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 const router = vi.hoisted(() => ({ replace: vi.fn(), push: vi.fn() }));
 vi.mock('next/navigation', () => ({ useParams: () => ({ id: 'campaign' }), useRouter: () => router }));
 vi.mock('@/lib/graphql', () => ({ gql: vi.fn(async () => ({ users: { results: [] }, jobs: { results: [
@@ -12,7 +12,7 @@ import NewCampaign from '@/app/jobs/campaigns/new/page';
 import CampaignPage from '@/app/jobs/campaigns/[id]/page';
 import Audience from '@/app/jobs/campaigns/[id]/audience/page';
 import AudienceBuilder from '@/app/jobs/campaigns/[id]/audience-builder/page';
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 const campaign = { id: 'campaign', name: 'October campaign', channel: 'email', status: 'sent', recipientCount: 1 };
 const recipient = { id: 'recipient', jobId: 'job', jobNumber: 1, contactName: 'Alice', destination: 'alice@example.com', address: 'Auckland', salespersonName: '', jobStage: 'LEAD', status: 'sent' };
 function setup() { vi.stubGlobal('localStorage', { getItem: () => 'token' }); }
@@ -80,4 +80,29 @@ it('blocks filtering if a selected campaign’s history fails to load', async ()
   await screen.findByRole('alert');
   expect((screen.getByRole('button', { name: 'Apply Filters' }) as HTMLButtonElement).disabled).toBe(true);
   expect((screen.getByRole('button', { name: 'Add Selected to Audience' }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+it('refreshes delivery records without automatically processing a running campaign', async () => {
+  setup(); vi.useFakeTimers();
+  let status = 'sending';
+  const fetcher = vi.fn(async (_url: string, _init?: RequestInit) => Response.json({
+    campaign: { ...campaign, status, senderId: 'sender' },
+    recipients: [{ ...recipient, status: status === 'sending' ? 'pending' : 'sent' }],
+    senders: [{ id: 'sender', isActive: true }],
+  }));
+  vi.stubGlobal('fetch', fetcher);
+  render(<CampaignPage />);
+  await act(() => vi.advanceTimersByTimeAsync(0));
+  expect(screen.getByRole('heading', { name: 'Delivery Records' })).toBeTruthy();
+  const campaignRequests = () => fetcher.mock.calls.filter(([url]) => url.startsWith('/api/campaigns/campaign'));
+  await act(() => vi.advanceTimersByTimeAsync(5 * 60_000));
+  expect(campaignRequests()).toHaveLength(1);
+  status = 'sent';
+  await act(() => vi.advanceTimersByTimeAsync(60_000));
+  expect(campaignRequests().map(([url, init]) => [url, init?.method ?? 'GET'])).toEqual([
+    ['/api/campaigns/campaign', 'GET'], ['/api/campaigns/campaign', 'GET'],
+  ]);
+  expect(screen.getByText('1 sent, 0 pending, 0 failed, 0 skipped.')).toBeTruthy();
+  await act(() => vi.advanceTimersByTimeAsync(6 * 60_000));
+  expect(campaignRequests()).toHaveLength(2);
 });

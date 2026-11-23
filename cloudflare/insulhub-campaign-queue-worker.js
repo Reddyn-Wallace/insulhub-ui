@@ -36,6 +36,7 @@ async function processCampaignQueue(env) {
     headers: {
       authorization: `Bearer ${env.CRON_SECRET}`,
       "user-agent": "insulhub-campaign-queue-worker",
+      "x-campaign-scheduler-capabilities": "preserve-earlier-alarm",
     },
   });
   const body = await response.text();
@@ -53,15 +54,18 @@ async function processCampaignQueue(env) {
 
 export class CampaignQueueScheduler extends DurableObject {
   async activate(runAt) {
-    const requestedAt = validRunAt(runAt);
+    return this.ctx.blockConcurrencyWhile(async () => {
+      await this.ctx.storage.put("initialized", true);
+      await this.setEarlierAlarm(Math.max(Date.now(), validRunAt(runAt)));
+      return this.status();
+    });
+  }
+
+  async setEarlierAlarm(requestedAt) {
     const currentAlarm = await this.ctx.storage.getAlarm();
-    await this.ctx.storage.put("initialized", true);
-
     if (currentAlarm === null || requestedAt < currentAlarm) {
-      await this.ctx.storage.setAlarm(Math.max(Date.now(), requestedAt));
+      await this.ctx.storage.setAlarm(requestedAt);
     }
-
-    return this.status();
   }
 
   async ensureInitialized() {
@@ -83,23 +87,20 @@ export class CampaignQueueScheduler extends DurableObject {
   }
 
   async applyQueueState(queue) {
-    if (Number(queue?.pendingCount || 0) === 0 || !queue?.nextRunAt) {
-      await this.ctx.storage.deleteAlarm();
-      await this.ctx.storage.delete(FAILURE_COUNT_KEY);
+    // During an alarm, getAlarm returns only a replacement scheduled since it
+    // started. Keep an earlier activation that arrived during the HTTP request.
+    return this.ctx.blockConcurrencyWhile(async () => {
+      if (Number(queue?.pendingCount || 0) === 0 || !queue?.nextRunAt) {
+        await this.ctx.storage.delete(FAILURE_COUNT_KEY);
+      } else if (queue.hadErrors) {
+        await this.scheduleFailureRetry();
+      } else {
+        await this.ctx.storage.delete(FAILURE_COUNT_KEY);
+        const requestedAt = validRunAt(queue.nextRunAt);
+        await this.setEarlierAlarm(Math.max(requestedAt, Date.now() + MINIMUM_RETRY_DELAY_MS));
+      }
       return this.status();
-    }
-
-    if (queue.hadErrors) {
-      await this.scheduleFailureRetry();
-      return this.status();
-    }
-
-    await this.ctx.storage.delete(FAILURE_COUNT_KEY);
-    const requestedAt = validRunAt(queue.nextRunAt);
-    await this.ctx.storage.setAlarm(
-      Math.max(requestedAt, Date.now() + MINIMUM_RETRY_DELAY_MS)
-    );
-    return this.status();
+    });
   }
 
   async scheduleFailureRetry() {
@@ -112,7 +113,7 @@ export class CampaignQueueScheduler extends DurableObject {
       INITIAL_ERROR_RETRY_DELAY_MS * (2 ** Math.min(previousFailures, 8))
     );
     await this.ctx.storage.put(FAILURE_COUNT_KEY, failureCount);
-    await this.ctx.storage.setAlarm(Date.now() + retryDelay);
+    await this.setEarlierAlarm(Date.now() + retryDelay);
   }
 
   async alarm() {
@@ -127,7 +128,7 @@ export class CampaignQueueScheduler extends DurableObject {
       }));
       // Retry temporary Vercel, Neon, or provider outages without keeping the
       // database awake continuously.
-      await this.scheduleFailureRetry();
+      await this.ctx.blockConcurrencyWhile(() => this.scheduleFailureRetry());
     }
   }
 }
