@@ -4,9 +4,15 @@ import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 const mocks = vi.hoisted(() => ({ request: vi.fn(), invalidate: vi.fn() }));
 vi.mock("./client", () => ({ splitRequest: mocks.request, invalidateSplitCaches: mocks.invalidate }));
+vi.mock("next/navigation", () => ({
+ useRouter: () => ({}),
+ useSearchParams: () => new URLSearchParams("stage=JOBS"),
+}));
 import InstallationVisits from "@/components/InstallationVisits";
+import JobCard from "@/components/JobCard";
 import { initialSplit } from "./projection";
-import { completeVisit } from "./model";
+import { completeVisit, editVisits } from "./model";
+import { queueVisits } from "./views";
 const source = {_id:"aaaaaaaaaaaaaaaaaaaaaaaa",quote:{c_total:10000,wall:{SQM:200,c_bagCount:30}},installation:{installDate:"2026-11-06T00:00:00Z"}};
 const split = {...initialSplit(source),...completeVisit(initialSplit(source),"initial",60,"2026-11-10"),version:1};
 beforeEach(()=>vi.resetAllMocks());
@@ -82,4 +88,24 @@ it("automatically uses 100 percent when removing the other visit",async()=>{
  fireEvent.click(screen.getByRole("button",{name:"Save visits"}));
  await screen.findByText("Visit 1 · 7 Nov 2026");
  expect(mocks.request.mock.calls[0][1].visits).toEqual(saved.visits);
+});
+
+it("shows normal scheduling on the Jobs card after collapsing a split to one visit", () => {
+ const job = { ...source, jobNumber: 123, stage: "INSTALLATION", updatedAt: "2026-11-06" };
+ const returnVisit = { ...split.visits[1], date: null };
+ const pendingSplit = { ...split, visits: [split.visits[0], returnVisit] };
+ const [revisit] = queueVisits([job], { [job._id]: pendingSplit });
+ const { rerender } = render(<JobCard job={revisit} />);
+
+ expect(screen.getByText("Revisit needs scheduling")).toBeTruthy();
+ expect(screen.getByText(/^Revisit · 40% remaining/)).toBeTruthy();
+ expect(screen.getByRole("link").firstElementChild?.className).toContain("border-l-blue-500");
+
+ const collapsed = editVisits(pendingSplit, [{ ...returnVisit, percent: 100 }]);
+ const [singleVisit] = queueVisits([job], { [job._id]: { ...pendingSplit, ...collapsed } });
+ rerender(<JobCard job={singleVisit} />);
+
+ expect(screen.getByText("Install date missing")).toBeTruthy();
+ expect(screen.queryByText(/Revisit/)).toBeNull();
+ expect(screen.getByRole("link").firstElementChild?.className).toContain("border-l-red-500");
 });
