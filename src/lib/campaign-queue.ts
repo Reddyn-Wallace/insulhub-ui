@@ -2,6 +2,7 @@ import { processCampaignSms } from "@/lib/campaign-sms-queue";
 import { CAMPAIGN_HALTED_REASON, CAMPAIGN_CONNECTION_HALTED_REASON } from "@/lib/campaign-resume";
 import {
   communicationSendWindowError,
+  DEFAULT_COMMUNICATION_SETTINGS,
   loadCommunicationSettings,
   nextAllowedSendAt,
 } from "@/lib/communication-settings";
@@ -317,38 +318,55 @@ export async function processCampaignQueue(id: string, actorUserId?: string): Pr
   };
 }
 
-export async function loadDueCampaignIds(limit = 10) {
-  await ensureOverlaySchema();
-  const rows = await overlaySql`
-    SELECT DISTINCT c.id
-    FROM campaigns c
-    JOIN campaign_recipients cr ON cr.campaign_id = c.id
-    WHERE (c.status IN ('pending', 'sending') OR (c.status = 'halted' AND c.channel = 'sms' AND COALESCE(cr.provider_message_id, '') <> ''))
-      AND cr.selected = true
-      AND cr.status = 'pending'
-      AND COALESCE(cr.scheduled_at, now()) <= now()
-    ORDER BY c.id
-    LIMIT ${limit}
+export async function loadCampaignSchedule(limit = 0, respectDailyCap = true) {
+  const settings = respectDailyCap ? await loadCommunicationSettings() : DEFAULT_COMMUNICATION_SETTINGS;
+  const nextDayStart = settings.campaignSendWindowEnabled ? settings.campaignSendWindowStartTime : "00:00";
+  // Use the same per-sender NZ-day cap as delivery, without changing recipient schedules.
+  const [schedule] = await overlaySql`
+    WITH local_day AS (
+      SELECT (now() AT TIME ZONE 'Pacific/Auckland')::date AS today
+    ), queued AS (
+      SELECT c.id, c.channel, c.sender_id,
+        COUNT(*)::int AS pending_count, MIN(COALESCE(cr.scheduled_at, now())) AS next_run_at
+      FROM campaigns c
+      JOIN campaign_recipients cr ON cr.campaign_id = c.id
+      WHERE (c.status IN ('pending', 'sending') OR (c.status = 'halted' AND c.channel = 'sms' AND COALESCE(cr.provider_message_id, '') <> ''))
+        AND cr.selected = true AND cr.status = 'pending'
+      GROUP BY c.id
+    ), capped_senders AS (
+      SELECT c.sender_id
+      FROM campaigns c
+      JOIN campaign_recipients cr ON cr.campaign_id = c.id
+      CROSS JOIN local_day
+      WHERE ${respectDailyCap} AND c.channel = 'email'
+        AND c.sender_id IN (SELECT sender_id FROM queued WHERE channel = 'email')
+        AND cr.status = 'sent'
+        AND cr.sent_at >= (local_day.today::timestamp AT TIME ZONE 'Pacific/Auckland')
+      GROUP BY c.sender_id
+      HAVING COUNT(*) >= ${settings.campaignEmailDailyLimit}
+    ), effective AS (
+      SELECT queued.id, pending_count,
+        CASE WHEN capped_senders.sender_id IS NULL THEN next_run_at
+          ELSE GREATEST(next_run_at, ((local_day.today + 1 + ${nextDayStart}::time) AT TIME ZONE 'Pacific/Auckland'))
+        END AS next_run_at
+      FROM queued
+      CROSS JOIN local_day
+      LEFT JOIN capped_senders ON queued.channel = 'email' AND capped_senders.sender_id = queued.sender_id
+    )
+    SELECT COALESCE(SUM(pending_count), 0)::int AS pending_count,
+      MIN(next_run_at) AS next_run_at,
+      ARRAY(SELECT id FROM effective WHERE next_run_at <= now() ORDER BY id LIMIT ${limit}) AS due_ids
+    FROM effective
   `;
-  return rows.map((row) => stringValue(row.id)).filter(Boolean);
+  const nextRunAt = schedule?.next_run_at;
+  return {
+    pendingCount: Number(schedule?.pending_count || 0),
+    nextRunAt: nextRunAt ? new Date(String(nextRunAt)).toISOString() : null,
+    dueIds: Array.isArray(schedule?.due_ids) ? schedule.due_ids.map(stringValue).filter(Boolean) : [],
+  };
 }
 
-export async function loadCampaignQueueState() {
-  await ensureOverlaySchema();
-  const rows = await overlaySql`
-    SELECT
-      COUNT(*)::int AS pending_count,
-      MIN(COALESCE(cr.scheduled_at, now())) AS next_run_at
-    FROM campaigns c
-    JOIN campaign_recipients cr ON cr.campaign_id = c.id
-    WHERE (c.status IN ('pending', 'sending') OR (c.status = 'halted' AND c.channel = 'sms' AND COALESCE(cr.provider_message_id, '') <> ''))
-      AND cr.selected = true
-      AND cr.status = 'pending'
-  `;
-
-  const nextRunAt = rows[0]?.next_run_at;
-  return {
-    pendingCount: Number(rows[0]?.pending_count || 0),
-    nextRunAt: nextRunAt ? new Date(String(nextRunAt)).toISOString() : null,
-  };
+export async function loadCampaignQueueState(respectDailyCap = true) {
+  const { pendingCount, nextRunAt } = await loadCampaignSchedule(0, respectDailyCap);
+  return { pendingCount, nextRunAt };
 }

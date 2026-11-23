@@ -61,14 +61,15 @@ export class DateRepository{
   });
  }
  async attach(job:DeadQuote,persist:boolean):Promise<DeadQuote>{
-  if(persist&&job.stage==='QUOTE')return this.locked(job._id,async c=>{
-   await this.baseline(c,job);return this.read(c,job);
+  if(!persist||job.stage!=='QUOTE')return (await this.attachMany([job],false))[0];
+  return this.locked(job._id,async c=>{
+   const now=new Date().toISOString();
+   const existing=await c.query<DateRow>(BATCH_DEAD_DATE_READ_SQL,[[job._id]]);
+   if(existing.rows.length)return applyQueueDeadDates([job],existing.rows,now)[0];
+   await this.baseline(c,job);
+   const initialized=await c.query<DateRow>(BATCH_DEAD_DATE_READ_SQL,[[job._id]]);
+   return applyQueueDeadDates([job],initialized.rows,now)[0];
   });
-  const c=await this.pool.connect();try{return await this.read(c,job);}finally{c.release();}
- }
- private async read(c:PoolClient,job:DeadQuote):Promise<DeadQuote>{
-  const r=await c.query('SELECT entry,pending FROM dead_quote_dates WHERE insulhub_job_id=$1',[job._id]);
-  return {...job,deadEntry:r.rows[0]?r.rows[0].entry:assumedEntry(job,new Date().toISOString()),deadDateUncertain:Boolean(r.rows[0]?.pending)};
  }
  private async baseline(c:PoolClient,job:DeadQuote){
   const entry=assumedEntry(job,new Date().toISOString());

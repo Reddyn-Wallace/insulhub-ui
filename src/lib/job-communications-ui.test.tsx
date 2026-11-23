@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import JobCommunications from '@/components/JobCommunications';
 const records = [
@@ -69,4 +69,14 @@ it('shows an empty history without a redundant expansion control',()=>{
  render(<JobCommunications messages={[]} />);
  expect(screen.getByText('No CRM messages recorded yet.')).toBeTruthy();
  expect(screen.queryByRole('button',{name:'Show all communications'})).toBeNull();
+});
+
+it('checks an old SMS only when asked from its expanded history', async () => {
+ const check=vi.fn().mockResolvedValue(undefined);
+ render(<JobCommunications messages={[records[1]]} onCheckSms={check} />);
+ expect(check).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:/We will arrive/}));
+ fireEvent.click(screen.getByRole('button',{name:'Check delivery status'}));
+ expect(check).toHaveBeenCalledExactlyOnceWith('sms');
+ expect(await screen.findByText('Delivery status checked.')).toBeTruthy();
 });
