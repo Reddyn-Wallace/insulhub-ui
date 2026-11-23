@@ -61,6 +61,7 @@
     "src/lib/installation-splits/sales-report.test.ts",
     "src/lib/installation-splits/store.integration.test.ts",
     "src/lib/installation-splits/routes.test.ts",
+    "src/lib/installation-splits/reconcile.test.ts",
     "src/lib/installation-splits/ui.test.tsx",
     "scripts/installation-splits-browser-smoke.cjs",
     "src/lib/dead-followups/queue-cache.test.ts",

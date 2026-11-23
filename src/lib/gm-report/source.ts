@@ -5,6 +5,7 @@ import {
   type InstallBookingStatus,
 } from "@/lib/install-planning";
 import { CALENDAR_STAGES } from "@/lib/installation-splits/views";
+import { reconcileKnownSplits } from "@/lib/installation-splits/reconcile";
 import { readSplits } from "@/lib/installation-splits/store";
 import { sourceQuery } from "./access";
 import { buildSnapshot, isSaleCandidate, ReportError } from "./model";
@@ -105,7 +106,7 @@ export async function loadSnapshot(
     (job) => !job.archivedAt && CALENDAR_STAGES.includes(job.stage || ""),
   );
   const [splits, ph, planning] = await Promise.all([
-    readSplits(jobs.map((j) => j._id)),
+    readSplits(jobs.map((j) => j._id)).then(splits => reconcileKnownSplits(splits, installJobs)),
     overlaySql`SELECT id,starts_at,ends_at,title,note FROM calendar_placeholders WHERE resolved_at IS NULL`,
     overlaySql`SELECT insulhub_job_id, status FROM job_install_planning WHERE insulhub_job_id = ANY(${installJobs.map((job) => job._id)}::text[])`,
   ]);

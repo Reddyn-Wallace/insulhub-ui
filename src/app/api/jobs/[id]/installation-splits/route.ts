@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireInsulhubAuth, tokenFromRequest } from "@/lib/insulhub-auth";
 import { readSplits, SplitError } from "@/lib/installation-splits/store";
+import { reconcilePastRevisits } from "@/lib/installation-splits/reconcile";
 import { changeSplit, loadSplitSource } from "@/lib/installation-splits/server";
 type Context = { params: Promise<{ id: string }> };
 function errorResponse(error: unknown) {
@@ -21,7 +22,8 @@ export async function GET(request: NextRequest, context: Context) {
     const { id } = await context.params;
     if (!/^[a-f\d]{24}$/i.test(id)) throw new SplitError("Invalid job ID.");
     const { job } = await loadSplitSource(tokenFromRequest(request), id);
-    const split = (await readSplits([id]))[id] || null;
+    const stored = (await readSplits([id]))[id];
+    const split = stored ? await reconcilePastRevisits(stored, job) : null;
     return NextResponse.json(
       { split, job },
       { headers: { "Cache-Control": "no-store" } },

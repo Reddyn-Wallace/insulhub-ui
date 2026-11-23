@@ -255,3 +255,89 @@ it("lists pending overlays for the queue without fetching completed-job history"
  expect((await list(req({pending:true}))).status).toBe(401);
  expect(mocks.pending).toHaveBeenCalledTimes(1);
 });
+
+function splitWithReturnVisits() {
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Pacific/Auckland" });
+  return {
+    ...initialSplit(source),
+    version: 4,
+    visits: [
+      { id: "initial", date: "2020-01-01", percent: 50, state: "completed" as const },
+      { id: "past", date: "2020-01-02", percent: 20, state: "planned" as const },
+      { id: "past-again", date: "2020-01-03", percent: 10, state: "planned" as const },
+      { id: "today", date: today, percent: 5, state: "planned" as const },
+      { id: "future", date: "2099-11-13", percent: 5, state: "planned" as const },
+      { id: "unscheduled", date: null, percent: 10, state: "planned" as const },
+    ],
+  };
+}
+
+it.each(["INSTALLED_AS_QUOTED", "INSTALLED_WITH_VARIATIONS_FROM_QUOTE"])(
+  "records past returns once when the job detail verifies %s",
+  async (installStatus) => {
+    const stored = splitWithReturnVisits();
+    mocks.read.mockResolvedValue({ [id]: stored });
+    mocks.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: {
+          me: { _id: "actor" },
+          job: { ...source, installation: { ...source.installation, installStatus } },
+        },
+      }),
+    });
+    mocks.save.mockImplementation(async (next, version) => {
+      const saved = { ...next, version: version + 1 };
+      mocks.read.mockResolvedValue({ [id]: saved });
+      return saved;
+    });
+    const response = await GET(new NextRequest("http://localhost"), context);
+    expect(response.status).toBe(200);
+    const { split } = await response.json();
+    expect(split.version).toBe(5);
+    expect(split.visits).toEqual(stored.visits.map(visit =>
+      visit.id === "past" || visit.id === "past-again" ? { ...visit, state: "completed" } : visit,
+    ));
+    expect(mocks.save).toHaveBeenCalledWith(expect.anything(), 4, "system", {
+      action: "complete-past-revisits",
+      installStatus,
+      dateBasis: "scheduled",
+      visitIds: ["past", "past-again"],
+    });
+    expect((await GET(new NextRequest("http://localhost"), context)).status).toBe(200);
+    expect(mocks.save).toHaveBeenCalledTimes(1);
+  },
+);
+
+it("keeps past revisits planned for an unfinished installation with completed paperwork", async () => {
+  const stored = splitWithReturnVisits();
+  mocks.read.mockResolvedValue({ [id]: stored });
+  mocks.fetch.mockResolvedValue({
+    ok: true,
+    json: async () => ({ data: {
+      me: { _id: "actor" },
+      job: { ...source, stage: "COMPLETED", installerChecksheet: { complete: true } },
+    } }),
+  });
+  const response = await GET(new NextRequest("http://localhost"), context);
+  expect((await response.json()).split).toEqual(stored);
+  expect(mocks.save).not.toHaveBeenCalled();
+});
+
+it("drops a fully reconciled revisit from Jobs while retaining it for reports and search", async () => {
+  const { visits, ...split } = splitWithReturnVisits();
+  const stored = { ...split, visits: [{ ...visits[0], percent: 80 }, visits[1]] };
+  mocks.pending.mockResolvedValue({ [id]: stored });
+  mocks.read.mockResolvedValue({ [id]: stored });
+  mocks.fetch.mockResolvedValue({
+    ok: true,
+    json: async () => ({ data: {
+      parent0: { _id: id, stage: "COMPLETED", installation: { installStatus: "INSTALLED_AS_QUOTED" } },
+    } }),
+  });
+  const queue = await list(req({ pending: true }));
+  expect(queue.status).toBe(200);
+  expect((await queue.json()).splits).toEqual({});
+  const report = await list(req({ jobIds: [id] }));
+  expect((await report.json()).splits[id].visits[1].state).toBe("completed");
+});
