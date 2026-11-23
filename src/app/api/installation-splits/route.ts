@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireInsulhubAuth } from "@/lib/insulhub-auth";
+import { requireInsulhubAuth, tokenFromRequest } from "@/lib/insulhub-auth";
 import { readPendingSplits, readSplits } from "@/lib/installation-splits/store";
+import { reconcileListedSplits } from "@/lib/installation-splits/reconcile";
 // Same staff-only access as the existing calendar and usage-report job list.
 export async function POST(request: NextRequest) {
   const denied = await requireInsulhubAuth(request);
@@ -16,8 +17,15 @@ export async function POST(request: NextRequest) {
   )
     return NextResponse.json({ error: "Invalid job IDs." }, { status: 400 });
   try {
+    const stored = body.pending === true ? await readPendingSplits() : await readSplits(body.jobIds);
+    const reconciled = await reconcileListedSplits(stored, tokenFromRequest(request));
+    const splits = body.pending === true
+      ? Object.fromEntries(Object.entries(reconciled).filter(([, split]) =>
+        split.visits.some(visit => visit.state === "planned"),
+      ))
+      : reconciled;
     return NextResponse.json(
-      { splits: body.pending === true ? await readPendingSplits() : await readSplits(body.jobIds) },
+      { splits },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch {
