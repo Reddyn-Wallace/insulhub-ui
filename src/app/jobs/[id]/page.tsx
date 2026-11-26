@@ -1346,7 +1346,7 @@ export default function JobDetailPage() {
       ...existing,
       quoteNote: q.quoteNote,
       quoteResultNote: q.quoteResultNote,
-      extras: (q.extras || []).filter((e) => e.name || e.price).map((e) => ({
+      extras: (q.extras || []).filter((e) => e.price !== "-" && (e.name || e.price)).map((e) => ({
         name: e.name,
         price: parseFloat(e.price || "0") || 0,
       })),
@@ -2976,10 +2976,10 @@ export default function JobDetailPage() {
                 <InfoRow label="Deposit" value={job.quote?.depositPercentage ? `${job.quote.depositPercentage}% — ${fmtCurrency(job.quote.c_deposit)}` : null} />
                 {quoteExtras.length > 0 && (
                   <div className="mt-3 pt-3 border-t border-gray-100">
-                    <p className="text-xs font-bold text-gray-400 uppercase mb-2">Extra Charges</p>
+                    <p className="text-xs font-bold text-gray-400 uppercase mb-2">Charges and discounts</p>
                     {quoteExtras.map((extra, index) => (
                       <div key={`${extra.name || "extra"}-${index}`} className="flex items-center justify-between gap-3 py-2 border-b border-gray-50 last:border-0">
-                        <span className="text-sm text-gray-800">{extra.name?.trim() || "Extra charge"}</span>
+                        <span className="text-sm text-gray-800">{extra.name?.trim() || ((extra.price ?? 0) < 0 ? "Discount" : "Extra charge")}</span>
                         <span className="text-sm font-medium text-gray-800">
                           {extra.price !== null && extra.price !== undefined ? fmtCurrency(extra.price) : "-"}
                         </span>
@@ -3651,22 +3651,48 @@ export default function JobDetailPage() {
 
           {/* Extras */}
           <div className="border border-gray-200 rounded-xl p-3">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-semibold text-gray-700">Extra Charges</span>
-              <button type="button" onClick={() => setQuoteForm((f) => ({ ...f, extras: [...f.extras, { name: "", price: "" }] }))} className="text-xs text-[#e85d04] font-medium">+ Add</button>
-            </div>
-            {(quoteForm.extras || []).length === 0 ? (
-              <p className="text-xs text-gray-400">No extra charges added</p>
-            ) : (quoteForm.extras || []).map((ex, i) => (
-              <div key={i} className="grid grid-cols-12 gap-2 mb-2">
-                <input type="text" value={ex.name} onChange={(e) => setQuoteForm((f) => ({ ...f, extras: f.extras.map((x, idx) => idx === i ? { ...x, name: e.target.value } : x) }))}
-                  placeholder="Extra name" className="col-span-7 border border-gray-200 rounded-lg px-2 py-2 text-sm" />
-                <input type="number" value={ex.price} onChange={(e) => setQuoteForm((f) => ({ ...f, extras: f.extras.map((x, idx) => idx === i ? { ...x, price: e.target.value } : x) }))}
-                  placeholder="0" className="col-span-4 border border-gray-200 rounded-lg px-2 py-2 text-sm" />
-                <button type="button" onClick={() => setQuoteForm((f) => ({ ...f, extras: f.extras.filter((_, idx) => idx !== i) }))}
-                  className="col-span-1 text-red-500 text-xs">✕</button>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3">
+              <div>
+                <p className="text-sm font-semibold text-gray-700">Charges and discounts</p>
+                <p className="text-xs text-gray-500">Amounts exclude GST</p>
               </div>
-            ))}
+              <div className="flex flex-wrap gap-x-3">
+                <button type="button" onClick={() => setQuoteForm((f) => ({ ...f, extras: [...f.extras, { name: "", price: "" }] }))}
+                  className="min-h-11 text-sm font-medium text-[#e85d04]">+ Add charge</button>
+                <button type="button" onClick={() => setQuoteForm((f) => ({ ...f, extras: [...f.extras, { name: "Discount", price: "-" }] }))}
+                  className="min-h-11 text-sm font-medium text-[#e85d04]">+ Add discount</button>
+              </div>
+            </div>
+            {quoteForm.extras.length === 0 && <p className="text-xs text-gray-400">No charges or discounts added</p>}
+            {quoteForm.extras.map((extra, index) => {
+              // Keep the sign in form state even when the discount has no amount yet.
+              const isDiscount = extra.price.startsWith("-");
+              const kind = isDiscount ? "Discount" : "Charge";
+              return (
+                <div key={index} className="mb-2 grid grid-cols-[minmax(0,1fr)_minmax(0,0.7fr)_2.75rem] gap-2">
+                  <input type="text" value={extra.name} aria-label={`${kind} name`}
+                    onChange={(event) => {
+                      const name = event.target.value;
+                      setQuoteForm((f) => ({ ...f, extras: f.extras.map((item, i) => i === index ? { ...item, name } : item) }));
+                    }}
+                    placeholder={`${kind} name`} className="min-w-0 rounded-lg border border-gray-200 px-2 py-2 text-sm" />
+                  <div className="relative">
+                    {isDiscount && <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-2 flex items-center text-sm text-gray-500">−</span>}
+                    <input type="number" inputMode="decimal" step="any" aria-label={`${kind} amount excluding GST`}
+                      value={isDiscount ? extra.price.slice(1) : extra.price}
+                      onChange={(event) => {
+                        const amount = event.target.value;
+                        const price = isDiscount ? `-${amount.replace(/^-/, "")}` : amount;
+                        setQuoteForm((f) => ({ ...f, extras: f.extras.map((item, i) => i === index ? { ...item, price } : item) }));
+                      }}
+                      placeholder="0" className={`h-full w-full rounded-lg border border-gray-200 py-2 pr-2 text-sm ${isDiscount ? "pl-6" : "pl-2"}`} />
+                  </div>
+                  <button type="button" aria-label={`Remove ${extra.name.trim() || kind.toLowerCase()}`}
+                    onClick={() => setQuoteForm((f) => ({ ...f, extras: f.extras.filter((_, i) => i !== index) }))}
+                    className="min-h-11 text-xs text-red-500">✕</button>
+                </div>
+              );
+            })}
           </div>
 
           <div className="grid grid-cols-2 gap-3 text-sm">
