@@ -69,6 +69,7 @@ it("uses the same lead read for subtabs, sorting and pagination", async () => {
   expect(await screen.findByText("Lead example 1")).toBeTruthy();
   expect(screen.queryByText("Lead example 0")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: /^Next/ }));
+  view.rerender(<JobsPage />);
   expect(await screen.findByText("Lead example 41")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: /^Sort/ }));
   expect(vi.mocked(gql).mock.calls.filter(([query]) => query.includes("query Jobs"))).toHaveLength(1);

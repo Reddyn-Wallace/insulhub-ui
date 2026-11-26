@@ -294,3 +294,66 @@ it("removes preview cards after a confirmed denial even if the error message is 
   await waitFor(() => expect(retryReads).toBe(2));
   expect(screen.queryByText("Customer quote-0")).toBeNull();
 });
+
+it("applies ranges before pagination and restores the same filtered page from a job link", async () => {
+  view.params.set("subTab", "ALL");
+  const originalFetch = view.gql.getMockImplementation()!;
+  const quotes = numbers.slice(0, 85).map((job, index) => ({
+    ...job,
+    quote: {
+      date: index === 0 ? "2026-11-11" : "2026-11-12",
+      c_total: index % 2 ? 2000 : 1000,
+    },
+  }));
+  view.gql.mockImplementation(async (query, variables) => {
+    if (query.includes("query Jobs")) {
+      expect(query).toContain("c_total");
+      return { jobs: { total: quotes.length, results: quotes } };
+    }
+    return originalFetch(query, variables);
+  });
+  vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+
+  const page = render(<JobsPage />);
+  await screen.findByText("Page 1 / 3");
+  fireEvent.click(screen.getByRole("button", { name: /Next/ }));
+  page.rerender(<JobsPage />);
+  expect(await screen.findByText("Page 2 / 3")).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
+  fireEvent.change(screen.getByLabelText("Quote date from"), { target: { value: "2026-11-12" } });
+  fireEvent.change(screen.getByLabelText("Maximum value (NZD)"), { target: { value: "1000" } });
+  fireEvent.click(screen.getByRole("button", { name: "Apply ranges" }));
+  page.rerender(<JobsPage />);
+  expect(await screen.findByText("Page 1 / 2")).toBeTruthy();
+  expect(await screen.findByText("Customer quote-2")).toBeTruthy();
+  expect(screen.queryByText("Customer quote-0")).toBeNull();
+  expect(screen.queryByText("Customer quote-1")).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: /Next/ }));
+  page.rerender(<JobsPage />);
+  const customer = await screen.findByText("Customer quote-82");
+  const jobUrl = new URL(customer.closest("a")!.href);
+  const returnUrl = new URL(jobUrl.searchParams.get("returnTo")!, window.location.origin);
+  expect(Object.fromEntries(returnUrl.searchParams)).toEqual({
+    stage: "QUOTE", subTab: "ALL", quoteDateFrom: "2026-11-12", quoteValueMax: "1000", page: "2",
+  });
+
+  page.unmount();
+  view.params = returnUrl.searchParams;
+  const returnedPage = render(<JobsPage />);
+  expect(await screen.findByText("Customer quote-82")).toBeTruthy();
+  expect(screen.getByText("Page 2 / 2")).toBeTruthy();
+
+  returnedPage.unmount();
+  view.params = new URLSearchParams("stage=QUOTE&subTab=ALL");
+  const newVisit = render(<JobsPage />);
+  expect(await screen.findByText("Customer quote-2")).toBeTruthy();
+  expect(screen.getByText("Page 1 / 2")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
+  newVisit.rerender(<JobsPage />);
+  expect(await screen.findByText("Customer quote-0")).toBeTruthy();
+  expect(screen.getByText("Page 1 / 3")).toBeTruthy();
+
+  vi.mocked(window.scrollTo).mockRestore();
+});

@@ -47,7 +47,7 @@ const quoteIndexQuery = (includeSalespeople: boolean) => `
     jobs(stages: $stages, skip: $skip, limit: $limit, showArchived: false) { total results {
       _id jobNumber stage updatedAt archivedAt
       lead { leadStatus leadSource callbackDate ${includeSalespeople ? "allocatedTo { _id }" : ""} }
-      quote { date status deferralDate }
+      quote { date status deferralDate c_total }
     } }
   }
 `;
@@ -189,7 +189,7 @@ async function addRevisits(rows: BoardRows, splits: Record<string, SavedSplit>, 
 
 function boardKey(stage: string, includeQuoteSalespeople: boolean) {
   if (stage !== "QUOTE") return stage;
-  return includeQuoteSalespeople ? "quote-index:with-salespeople" : "quote-index";
+  return includeQuoteSalespeople ? "quote-index:v2:with-salespeople" : "quote-index:v2";
 }
 
 export const recentBoard = (stage: string, token: string, includeQuoteSalespeople = false) =>

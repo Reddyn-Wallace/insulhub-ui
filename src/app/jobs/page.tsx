@@ -8,6 +8,7 @@ import { gql } from "@/lib/graphql";
 import { JOBS_QUERY } from "@/lib/queries";
 import StageTabs from "@/components/StageTabs";
 import JobCard from "@/components/JobCard";
+import QuoteRangeFilters from "@/components/QuoteRangeFilters";
 import { getSplitRevision, loadSplits } from "@/lib/installation-splits/client";
 import { searchVisits } from "@/lib/installation-splits/views";
 import { isBoardStage, loadBoard, recentBoard, warmBoard, type BoardJob as Job, type BoardRows, type JobsData } from "@/lib/crm-read/board";
@@ -17,6 +18,7 @@ import { clearCrmReadSnapshots, isCrmReadDenied, isCrmReadTransient } from "@/li
 import { crmFreshMs } from "@/lib/crm-read/client";
 import { boardPageSize as PAGE_SIZE, compareQuoteDate, loadQuoteContacts, quoteContactsKey, readInitialOpenQuotes, QuoteSelectionChanged, quoteState, recentQuoteContacts, type QuoteContacts } from "@/lib/crm-read/quotes";
 import { laterSend, loadCrmEmailIndex, readCachedCrmEmailIndex, readRecordedSend, sendReceiptPrefix } from "@/lib/crm-read/sent-index";
+import { emptyQuoteRanges, matchesQuoteRanges, quoteRangeFields, quoteRangeStorageKey, readQuoteRanges, writeQuoteRanges, type QuoteRanges } from "@/lib/crm-read/quote-ranges";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { LEAD_SOURCE_OPTIONS, canonicalLeadSourceLabel, normalizeLeadSourceValue } from "@/lib/lead-sources";
 
@@ -48,16 +50,31 @@ function JobsPageContent() {
 
   const activeStage = initStage;
   const [subTab, setSubTab] = useState(initSubTab);
-  const [page, setPage] = useState(0);
+  const pageParam = searchParams.get("page") ?? "";
+  const pageNumber = Number(pageParam);
+  const requestedPage = /^\d+$/.test(pageParam) && Number.isSafeInteger(pageNumber) && pageNumber >= 1 ? pageNumber - 1 : 0;
+  const [savedQuoteRanges, setSavedQuoteRanges] = useState(emptyQuoteRanges);
+  useEffect(() => {
+    try {
+      setSavedQuoteRanges(readQuoteRanges(new URLSearchParams(localStorage.getItem(quoteRangeStorageKey) ?? "")));
+    } catch {}
+  }, []);
+
+  const quoteRanges = useMemo(() =>
+    quoteRangeFields.some(({ key }) => searchParams.has(key)) ? readQuoteRanges(searchParams) : savedQuoteRanges,
+  [searchParams, savedQuoteRanges]);
   const [search, setSearch] = useState(initSearch);
   const [searchInput, setSearchInput] = useState(initSearch);
   const [searchMode, setSearchMode] = useState(initSearch.trim().length > 0);
+  const showQuoteRanges = activeStage === "QUOTE" && !searchMode;
+  const hasQuoteDates = showQuoteRanges && Boolean(quoteRanges.quoteDateFrom || quoteRanges.quoteDateTo);
+  const hasQuoteValues = showQuoteRanges && Boolean(quoteRanges.quoteValueMin || quoteRanges.quoteValueMax);
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("oldest");
   const [salespersonFilters, setSalespersonFilters] = useState<string[]>(initSalespersonFilters);
   const [initialOpenQuotes, setInitialOpenQuotes] = useState<{ rows: Job[]; writeAt: number; revision: number } | null>(null);
   const [result, setResult] = useState<(BoardRows & { key: string }) | null>(null);
   const needsQuoteSalespeople = !searchMode && activeStage === "QUOTE" && salespersonFilters.length > 0;
-  const resultKey = searchMode ? `search:${search}:${page}` : `stage:${activeStage}${needsQuoteSalespeople ? ":with-salespeople" : ""}`;
+  const resultKey = searchMode ? `search:${search}:${requestedPage}` : `stage:${activeStage}${needsQuoteSalespeople ? ":with-salespeople" : ""}`;
   const stageHydrated = result?.key === resultKey;
   const jobs = stageHydrated ? result.jobs : noJobs;
   const [users, setUsers] = useState<User[]>([]);
@@ -108,6 +125,8 @@ function JobsPageContent() {
     subTab?: string;
     salespersonFilters?: string[];
     leadSourceFilters?: string[];
+    quoteRanges?: QuoteRanges;
+    page?: number;
   }) {
     const params = new URLSearchParams(searchParams.toString());
     const stage = next.stage ?? activeStage;
@@ -134,6 +153,10 @@ function JobsPageContent() {
       params.append("leadSource", source);
     }
 
+    if (stage === "QUOTE") writeQuoteRanges(params, next.quoteRanges ?? quoteRanges);
+    if (next.page) params.set("page", String(next.page + 1));
+    else params.delete("page");
+
     return `/jobs?${params.toString()}`;
   }
 
@@ -142,7 +165,6 @@ function JobsPageContent() {
     setSearchInput(initSearch);
     setSearch(initSearch);
     setSearchMode(initSearch.trim().length > 0);
-    setPage(0);
   }, [initSearch]);
 
   useEffect(() => () => {
@@ -155,7 +177,6 @@ function JobsPageContent() {
     setSubTab(initSubTab);
     setSalespersonFilters(initSalespersonFilters);
     setLeadSourceFilters(initLeadSourceFilters);
-    setPage(0);
   }, [initStage, initSubTab, initSalespersonFilters, initLeadSourceFilters]);
 
   useEffect(() => {
@@ -189,11 +210,11 @@ function JobsPageContent() {
 
   const allowOpenPreview = activeStage === "QUOTE" && initSubTab === "OPEN" && subTab === "OPEN" &&
     !searchMode && !initSearch.trim() && salespersonFilters.length === 0 && leadSourceFilters.length === 0 &&
-    initSalespersonFilters.length === 0 && initLeadSourceFilters.length === 0 && page === 0;
+    initSalespersonFilters.length === 0 && initLeadSourceFilters.length === 0 && !hasQuoteDates && !hasQuoteValues && requestedPage === 0;
   const openPreviewAllowed = useRef(allowOpenPreview);
   openPreviewAllowed.current = allowOpenPreview;
   const coldQuoteCheck = searchParams.get("quoteReadCheck") === "cold" && activeStage === "QUOTE";
-  const searchPage = searchMode ? page : 0;
+  const searchPage = searchMode ? requestedPage : 0;
   const fetchJobs = useCallback(async (force = false) => {
     const token = localStorage.getItem("token");
     if (!token) { router.push("/login"); return; }
@@ -310,7 +331,6 @@ function JobsPageContent() {
       const isSearchMode = val.trim().length > 0;
       setSearch(val);
       setSearchMode(isSearchMode);
-      setPage(0);
       router.replace(buildJobsUrl({ search: val }), { scroll: false });
     }, 400);
   }
@@ -321,26 +341,41 @@ function JobsPageContent() {
     setSearchInput("");
     setSearch("");
     setSearchMode(false);
-    setPage(0);
   }
 
   function updateSalespersonFilters(next: string[]) {
     setSalespersonFilters(next);
-    setPage(0);
     router.replace(buildJobsUrl({ salespersonFilters: next }));
   }
 
   function updateLeadSourceFilters(next: string[]) {
     setLeadSourceFilters(next);
-    setPage(0);
     router.replace(buildJobsUrl({ leadSourceFilters: next }));
+  }
+
+  function saveQuoteRanges(ranges: QuoteRanges) {
+    setSavedQuoteRanges(ranges);
+    try {
+      const params = new URLSearchParams();
+      writeQuoteRanges(params, ranges);
+      localStorage.setItem(quoteRangeStorageKey, params.toString());
+    } catch {}
+  }
+
+  function applyQuoteRanges(ranges: QuoteRanges) {
+    saveQuoteRanges(ranges);
+    router.replace(buildJobsUrl({ quoteRanges: ranges }), { scroll: false });
   }
 
   function clearAllFilters() {
     setSalespersonFilters([]);
     setLeadSourceFilters([]);
-    setPage(0);
-    router.replace(buildJobsUrl({ salespersonFilters: [], leadSourceFilters: [] }));
+    if (showQuoteRanges) saveQuoteRanges(emptyQuoteRanges);
+    router.replace(buildJobsUrl({
+      salespersonFilters: [],
+      leadSourceFilters: [],
+      quoteRanges: showQuoteRanges ? emptyQuoteRanges : undefined,
+    }));
   }
 
 
@@ -371,7 +406,7 @@ function JobsPageContent() {
       ? selectedLeadSourceLabels.join(", ")
       : `${selectedLeadSourceLabels.slice(0, 2).join(", ")} +${selectedLeadSourceLabels.length - 2}`;
   const leadSourceSelectedCountLabel = selectedLeadSourceLabels.length === 0 ? "All sources" : `${selectedLeadSourceLabels.length} selected`;
-  const activeFilterCount = salespersonFilters.length + leadSourceFilters.length;
+  const activeFilterCount = salespersonFilters.length + leadSourceFilters.length + Number(hasQuoteDates) + Number(hasQuoteValues);
 
   // Client-side sub-tab filter
   const filtered = useMemo(() => jobs.filter((job) => {
@@ -380,6 +415,7 @@ function JobsPageContent() {
       const jobLeadSources = (job.lead?.leadSource || []).map(normalizeLeadSourceValue).filter(Boolean);
       if (!jobLeadSources.some((source) => leadSourceFilters.includes(source))) return false;
     }
+    if ((hasQuoteDates || hasQuoteValues) && !matchesQuoteRanges(job, quoteRanges)) return false;
     if (!searchMode && subTab !== "ALL" && (activeStage === "LEAD" || activeStage === "QUOTE")) {
       if (activeStage === "QUOTE") return quoteState(job) === subTab;
       if (subTab === "QUOTE_BOOKED") return isQuoteBooked(job);
@@ -389,7 +425,7 @@ function JobsPageContent() {
       return subTab === status;
     }
     return true;
-  }), [activeStage, jobs, leadSourceFilters, salespersonFilters, searchMode, subTab]);
+  }), [activeStage, hasQuoteDates, hasQuoteValues, jobs, leadSourceFilters, quoteRanges, salespersonFilters, searchMode, subTab]);
 
   const sortedJobs = useMemo(() => {
     const leadSortTs = (job: Job) => new Date(job.createdAt || job.updatedAt).getTime();
@@ -445,18 +481,9 @@ function JobsPageContent() {
 
   const showSubTabs = !searchMode && (activeStage === "LEAD" || activeStage === "QUOTE");
 
-  // If current page has no rows after filtering/pagination, jump back to page 1.
-  useEffect(() => {
-    if (!searchMode && !loading && !error && page > 0 && sortedJobs.length > 0 && page * PAGE_SIZE >= sortedJobs.length) {
-      setPage(0);
-      return;
-    }
-    if (!searchMode && !loading && !error && page > 0 && jobs.length > 0 && sortedJobs.length === 0) {
-      setPage(0);
-    }
-  }, [loading, error, page, jobs.length, sortedJobs.length, searchMode]);
-
-  useEffect(() => { setPage(0); }, [subTab, salespersonFilters, leadSourceFilters]);
+  const rowCount = searchMode && stageHydrated ? result.total : sortedJobs.length;
+  const totalPages = Math.max(1, Math.ceil(rowCount / PAGE_SIZE));
+  const page = searchMode ? requestedPage : Math.min(requestedPage, totalPages - 1);
 
   // Client-side paginate after filtering/sorting.
   const visibleRows = useMemo(() => (
@@ -604,9 +631,12 @@ function JobsPageContent() {
     return () => window.clearTimeout(timer);
   }, [activeStage, quoteCardsLoading, searchMode, stageHydrated]);
 
-  const rowCount = searchMode && stageHydrated ? result.total : sortedJobs.length;
-  const totalPages = Math.max(1, Math.ceil(rowCount / PAGE_SIZE));
   const currentPage = page + 1;
+
+  function goToPage(nextPage: number) {
+    router.replace(buildJobsUrl({ page: nextPage }), { scroll: false });
+    window.scrollTo(0, 0);
+  }
 
   function toggleMultiSelectValue(values: string[], value: string) {
     return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
@@ -620,7 +650,6 @@ function JobsPageContent() {
         subTab={subTab}
         onSubTabChange={(tab) => {
           setSubTab(tab);
-          setPage(0);
           router.replace(buildJobsUrl({ subTab: tab }));
         }}
         counts={showSubTabs && stageHydrated ? counts : undefined}
@@ -677,6 +706,12 @@ function JobsPageContent() {
                 Lead source: {selectedLeadSourceLabel}
               </span>
             )}
+            {hasQuoteDates && (
+              <span className="rounded-full bg-orange-50 px-2 py-1 text-[11px] font-medium text-[#e85d04]">Quote date</span>
+            )}
+            {hasQuoteValues && (
+              <span className="rounded-full bg-orange-50 px-2 py-1 text-[11px] font-medium text-[#e85d04]">Quote value</span>
+            )}
             <button
               type="button"
               onClick={clearAllFilters}
@@ -691,7 +726,6 @@ function JobsPageContent() {
             <div className="flex items-center justify-between gap-2">
               <div>
                 <p className="text-xs font-semibold text-gray-800">Filter jobs</p>
-                <p className="text-[11px] text-gray-400">Choose one or more salespeople and lead source options.</p>
               </div>
               {activeFilterCount > 0 && (
                 <button
@@ -785,6 +819,9 @@ function JobsPageContent() {
                 )}
               </div>
             </div>
+            {showQuoteRanges && (
+              <QuoteRangeFilters key={JSON.stringify(quoteRanges)} ranges={quoteRanges} onApply={applyQuoteRanges} />
+            )}
           </div>
         )}
       </div>
@@ -794,14 +831,14 @@ function JobsPageContent() {
         <div className="px-4 pb-2 pt-1 flex items-center justify-between">
           <div className="flex items-center gap-1">
             <button
-              onClick={() => { setPage(0); window.scrollTo(0, 0); }}
+              onClick={() => goToPage(0)}
               disabled={page === 0}
               className="px-2.5 py-1.5 bg-white border border-gray-200 rounded-lg text-xs text-gray-700 disabled:opacity-40 font-medium"
             >
               « First
             </button>
             <button
-              onClick={() => { setPage((p) => Math.max(0, p - 1)); window.scrollTo(0, 0); }}
+              onClick={() => goToPage(page - 1)}
               disabled={page === 0}
               className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs text-gray-700 disabled:opacity-40 font-medium"
             >
@@ -814,14 +851,14 @@ function JobsPageContent() {
           </div>
           <div className="flex items-center gap-1">
             <button
-              onClick={() => { setPage((p) => Math.min(totalPages - 1, p + 1)); window.scrollTo(0, 0); }}
+              onClick={() => goToPage(page + 1)}
               disabled={page >= totalPages - 1}
               className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs text-gray-700 disabled:opacity-40 font-medium"
             >
               Next →
             </button>
             <button
-              onClick={() => { setPage(totalPages - 1); window.scrollTo(0, 0); }}
+              onClick={() => goToPage(totalPages - 1)}
               disabled={page >= totalPages - 1}
               className="px-2.5 py-1.5 bg-white border border-gray-200 rounded-lg text-xs text-gray-700 disabled:opacity-40 font-medium"
             >

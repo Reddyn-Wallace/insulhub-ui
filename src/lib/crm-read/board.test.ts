@@ -67,12 +67,12 @@ it("includes planned work from a completed parent and retains the frozen allocat
   })]);
 });
 
-it("reads quote status for the full stage without loading every customer's contact", async () => {
+it("reads quote status and value for the full stage without loading every customer's contact", async () => {
   mocks.gql.mockResolvedValue({ jobs: { total: 1, results: [{ ...card, stage: "QUOTE" }] } });
   expect((await loadBoard("QUOTE", "staff")).total).toBe(1);
   expect(mocks.gql.mock.calls[0][0]).not.toContain("contactDetails");
   expect(mocks.gql.mock.calls[0][0]).not.toContain("allocatedTo");
-  expect(mocks.gql.mock.calls[0][0]).not.toContain("c_total");
+  expect(mocks.gql.mock.calls[0][0]).toContain("c_total");
   expect(mocks.gql.mock.calls[0][0]).toContain("callbackDate");
   expect(mocks.gql.mock.calls[0][1].limit).toBe(1500);
 });
