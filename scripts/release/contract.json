@@ -53,6 +53,7 @@
     "src/lib/graphql.test.ts",
     "src/lib/crm-read/detail.test.ts",
     "src/lib/crm-read/quotes-ui.test.tsx",
+    "src/lib/crm-read/quote-ranges.test.ts",
     "src/lib/crm-read/reopens.test.ts",
     "src/lib/crm-read/sent-index.test.ts",
     "src/lib/crm-read/quote-first-page-check.test.ts",
