@@ -86,18 +86,24 @@ it('shows likely opens and the last detected time and lets staff refresh the his
   render(<JobCommunications messages={[{
     ...records[0], openTracking: { likelyCount: 2, lastLikelyAt: '2026-11-26T21:30:00Z', ambiguousSeen: true },
   }]} onRetry={refresh} />);
-  expect(screen.getByText('Likely opened')).toBeTruthy();
+  expect(screen.getByText('Opened', { exact: true })).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Refresh communications' }));
   expect(refresh).toHaveBeenCalledOnce();
   fireEvent.click(screen.getByRole('button', { name: /Booking confirmation/ }));
-  expect(screen.getByText(/2 recorded · Last detected.*27 Nov 2026/)).toBeTruthy();
+  expect(screen.getByText('2', { selector: 'dd' })).toBeTruthy();
+  expect(screen.getByText(/27 Nov 2026.*NZ time/)).toBeTruthy();
 });
 
-it.each([
-  [null, 'Tracking unavailable'],
-  [{ likelyCount: 0, lastLikelyAt: null, ambiguousSeen: false }, 'No open detected'],
-  [{ likelyCount: 0, lastLikelyAt: null, ambiguousSeen: true }, 'Automated or unclear'],
-] as const)('distinguishes %j as %s', (openTracking, label) => {
-  render(<JobCommunications messages={[{ ...records[0], openTracking }]} />);
-  expect(screen.getByText(label)).toBeTruthy();
+it.each([false, true])('shows Likely unopened with ambiguous activity set to %s', ambiguousSeen => {
+  render(<JobCommunications messages={[{ ...records[0], openTracking: { likelyCount: 0, lastLikelyAt: null, ambiguousSeen } }]} />);
+  expect(screen.getByText('Likely unopened')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: /Booking confirmation/ }));
+  expect(screen.getByText('0', { selector: 'dd' })).toBeTruthy();
+});
+
+it('keeps untracked older email out of the two open states', () => {
+  render(<JobCommunications messages={[records[0]]} />);
+  expect(screen.queryByText('Likely unopened')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: /Booking confirmation/ }));
+  expect(screen.getByText('Unavailable for this email')).toBeTruthy();
 });

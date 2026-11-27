@@ -35,8 +35,8 @@ it("shows unique opens, supports both sorts and filters, and reloads tracking th
   vi.stubGlobal("fetch", fetcher);
 
   render(<CampaignPage />);
-  expect(await screen.findByRole("heading", { name: "2 likely opens of 4 tracked sends" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Likely opened (2)" }));
+  expect(await screen.findByRole("heading", { name: "2 of 4 tracked recipients opened · 4 opens recorded" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Opened (2)" }));
   const table = screen.getByRole("table");
   const arohaRow = within(table).getByRole("row", { name: /Aroha/ });
   expect(within(arohaRow).getByRole("link", { name: "Aroha" }).getAttribute("href")).toBe("/jobs/aroha-job");
@@ -47,23 +47,27 @@ it("shows unique opens, supports both sorts and filters, and reloads tracking th
   expect(within(table).getAllByRole("row")[1].textContent).toContain("Aroha");
   fireEvent.click(screen.getByRole("button", { name: "Repeat opens (1)" }));
   expect(within(table).queryByText("Blake")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Tracking unavailable (1)" }));
-  expect(within(table).getByText("Dani")).toBeTruthy();
+  fireEvent.click(within(arohaRow).getByRole("button", { name: "View" }));
+  expect(screen.getByText(/3 opens recorded · Last detected/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  fireEvent.click(screen.getByRole("button", { name: "Likely unopened (2)" }));
+  expect(within(table).getByText("Charlie")).toBeTruthy();
+  expect(within(table).getByText("Eli")).toBeTruthy();
+  expect(within(table).queryByText("Dani")).toBeNull();
 
   latestOpen = recent;
   fireEvent.click(screen.getByRole("button", { name: "Refresh opens" }));
-  expect(await screen.findByRole("heading", { name: "3 likely opens of 5 tracked sends" })).toBeTruthy();
-  expect(within(table).getByText("No recipients match this filter.")).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "3 of 5 tracked recipients opened · 5 opens recorded" })).toBeTruthy();
+  expect(within(table).queryByText("Dani")).toBeNull();
 });
 
-it("offers tracking as an opt-in on Gmail campaign confirmation", async () => {
+it("queues a Gmail campaign without a tracking switch or opt-in flag", async () => {
   vi.stubGlobal("localStorage", { getItem: () => "token" });
   const fetcher = vi.fn(async (url: string, init?: RequestInit) => ({
     ok: true,
     json: async () => url.includes("communication-senders") ? { senders: [gmailSender] } :
       url.includes("communication-settings") ? {} : {
         campaign: { ...campaign, status: init?.method === "PATCH" ? "sent" : "draft" },
-        emailOpenTrackingAvailable: true,
         recipients: [{ id: "1", status: init?.method === "PATCH" ? "sent" : "pending", contactName: "Aroha", destination: "aroha@example.com" }],
       },
   }));
@@ -73,11 +77,44 @@ it("offers tracking as an opt-in on Gmail campaign confirmation", async () => {
   const confirm = await screen.findByRole("button", { name: "Confirm Campaign" });
   await waitFor(() => expect((confirm as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(confirm);
-  const tracking = await screen.findByRole<HTMLInputElement>("checkbox", { name: "Track email opens" });
-  expect(tracking.checked).toBe(false);
-  fireEvent.click(tracking);
+  expect(screen.queryByRole("checkbox", { name: "Track email opens" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Queue Campaign" }));
   await screen.findByRole("heading", { name: "Delivery Records" });
   const patch = fetcher.mock.calls.find(([, init]) => init?.method === "PATCH");
-  expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ sendCampaign: true, trackEmailOpens: true });
+  expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ sendCampaign: true });
+});
+
+it("automatically saves the selected sender, gates confirmation while saving, and restores the saved sender on failure", async () => {
+  vi.stubGlobal("localStorage", { getItem: () => "token" });
+  const another = { ...gmailSender, id: "another", label: "Office Gmail", senderValue: "office@example.com" };
+  const draft = { ...campaign, status: "draft" };
+  let finishSave: (response: Response) => void = () => {};
+  const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.includes("communication-senders")) return Response.json({ senders: [gmailSender, another] });
+    if (url.includes("communication-settings")) return Response.json({});
+    if (init?.method === "PATCH") return new Promise<Response>(resolve => { finishSave = resolve; });
+    return Response.json({ campaign: draft, recipients: [{ id: "1", status: "pending", destination: "lead@example.com" }] });
+  });
+  vi.stubGlobal("fetch", fetcher);
+  render(<CampaignPage />);
+  const sender = await screen.findByRole<HTMLSelectElement>("combobox", { name: "Campaign sender" });
+  const confirm = screen.getByRole<HTMLButtonElement>("button", { name: "Confirm Campaign" });
+  await waitFor(() => expect(confirm.disabled).toBe(false));
+
+  fireEvent.change(sender, { target: { value: "another" } });
+  expect(screen.queryByRole("button", { name: "Save Sender" })).toBeNull();
+  expect(confirm.disabled).toBe(true);
+  expect(sender.disabled).toBe(true);
+  expect(JSON.parse(String(fetcher.mock.calls.find(([, init]) => init?.method === "PATCH")?.[1]?.body))).toEqual({ senderId: "another" });
+  finishSave(Response.json({ error: "Sender could not be saved" }, { status: 503 }));
+  await screen.findByText("Sender could not be saved");
+  expect(sender.value).toBe(gmailSender.id);
+
+  fireEvent.change(sender, { target: { value: "another" } });
+  finishSave(Response.json({ campaign: { ...draft, senderId: another.id, senderLabel: another.label } }));
+  await screen.findByText("Saved sender: Office Gmail");
+  expect(sender.value).toBe(another.id);
+  expect(confirm.disabled).toBe(false);
+  fireEvent.click(confirm);
+  expect(screen.getAllByText("Office Gmail").length).toBeGreaterThan(0);
 });

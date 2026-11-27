@@ -30,7 +30,6 @@ type CommunicationSender = {
   senderValue: string;
   isDefault: boolean;
   isActive: boolean;
-  provider?: string;
 };
 
 type CommunicationSettings = {
@@ -202,17 +201,14 @@ export default function CampaignBuilderPage() {
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [recipients, setRecipients] = useState<SavedRecipient[]>([]);
   const [senders, setSenders] = useState<CommunicationSender[]>([]);
-  const [selectedSenderId, setSelectedSenderId] = useState("");
   const [loading, setLoading] = useState(true);
   const [sendersLoading, setSendersLoading] = useState(false);
-  const [savingSender, setSavingSender] = useState(false);
+  const [savingSenderId, setSavingSenderId] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [retrySelection, setRetrySelection] = useState<string[]>([]);
   const [resuming, setResuming] = useState(false);
   const [sending, setSending] = useState(false);
-  const [emailOpenTrackingAvailable, setEmailOpenTrackingAvailable] = useState(false);
-  const [trackEmailOpens, setTrackEmailOpens] = useState(false);
   const [openFilter, setOpenFilter] = useState<CampaignOpenFilter>("all");
   const [openSort, setOpenSort] = useState<CampaignOpenSort | null>(null);
   const [viewingRecipient, setViewingRecipient] = useState<SavedRecipient | null>(null);
@@ -239,8 +235,6 @@ export default function CampaignBuilderPage() {
       if (backgroundSignal?.aborted || getToken() !== token) return;
       if (!res.ok) throw new Error(json?.error || "Failed to load campaign");
       setCampaign(json.campaign);
-      if (!backgroundSignal) setSelectedSenderId(json.campaign?.senderId || "");
-      setEmailOpenTrackingAvailable(json.emailOpenTrackingAvailable === true);
       setRecipients(json.recipients || []);
     } catch (err) {
       if (!backgroundSignal) setMessage({ type: "error", text: err instanceof Error ? err.message : "Failed to load campaign" });
@@ -306,23 +300,17 @@ export default function CampaignBuilderPage() {
       : 0
   ), [campaign, duplicateKeys, recipients]);
 
-  const selectedSender = useMemo(() => (
-    senders.find((sender) => sender.id === selectedSenderId) || null
-  ), [selectedSenderId, senders]);
-
   const audienceReady = recipients.length > 0 && duplicateRecipientCount === 0;
-  const senderHasUnsavedChange = Boolean(selectedSenderId) && selectedSenderId !== (campaign?.senderId || "");
-  const senderReady = Boolean(selectedSender && campaign?.senderId && campaign?.senderLabel && !senderHasUnsavedChange);
+  const senderReady = !savingSenderId && Boolean(campaign?.senderLabel && senders.some(sender => sender.id === campaign.senderId));
   const messageReady = Boolean(campaign?.messageBody?.trim()) && (campaign?.channel === "sms" || Boolean(campaign?.messageSubject?.trim()));
   const canConfirm = audienceReady && senderReady && messageReady;
   const isQueued = campaign?.status === "pending" || campaign?.status === "sending";
   const isTerminal = campaign?.status === "sent" || campaign?.status === "failed" || campaign?.status === "halted";
   const isSetupLocked = Boolean(isQueued || isTerminal);
   const deliveryRecipients = isSetupLocked ? recipients : recipients.filter((recipient) => recipient.status !== "pending");
-  const canTrackEmailOpens = emailOpenTrackingAvailable && selectedSender?.provider === "gmail";
   const showOpenTracking = campaign?.channel === "email";
   const openCounts = summarizeCampaignOpens(deliveryRecipients);
-  const deliveryOpenSort = openSort ?? (openFilter === "likely" || openFilter === "repeat" ? "recent" : "recipient");
+  const deliveryOpenSort = openSort ?? (openFilter === "opened" || openFilter === "repeat" ? "recent" : "recipient");
   const visibleDeliveryRecipients = showOpenTracking
     ? selectCampaignOpenRecipients(deliveryRecipients, openFilter, deliveryOpenSort)
     : deliveryRecipients;
@@ -337,15 +325,15 @@ export default function CampaignBuilderPage() {
     ? estimateDelivery(campaign.channel, recipients.length, communicationSettings)
     : null;
 
-  async function saveSender() {
-    if (!campaign || !selectedSender) return;
+  async function saveSender(senderId: string) {
+    if (!campaign || campaign.status !== "draft" || savingSenderId || !senderId || senderId === campaign.senderId) return;
     const token = getToken();
     if (!token) {
       router.replace("/login");
       return;
     }
 
-    setSavingSender(true);
+    setSavingSenderId(senderId);
     setMessage(null);
     try {
       const res = await fetch(`/api/campaigns/${campaign.id}`, {
@@ -354,19 +342,15 @@ export default function CampaignBuilderPage() {
           "Content-Type": "application/json",
           "x-access-token": token,
         },
-        body: JSON.stringify({
-          senderId: selectedSender.id,
-          senderLabel: senderDisplayLabel(selectedSender),
-        }),
+        body: JSON.stringify({ senderId }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Failed to save sender");
       setCampaign(json.campaign);
-      setMessage({ type: "success", text: "Sender saved." });
     } catch (err) {
       setMessage({ type: "error", text: err instanceof Error ? err.message : "Failed to save sender" });
     } finally {
-      setSavingSender(false);
+      setSavingSenderId(null);
     }
   }
 
@@ -387,7 +371,7 @@ export default function CampaignBuilderPage() {
           "Content-Type": "application/json",
           "x-access-token": token,
         },
-        body: JSON.stringify({ sendCampaign: true, ...(canTrackEmailOpens && trackEmailOpens ? { trackEmailOpens: true } : {}) }),
+        body: JSON.stringify({ sendCampaign: true }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Failed to send campaign");
@@ -723,7 +707,7 @@ export default function CampaignBuilderPage() {
                 <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <h3 className="text-sm font-semibold">{openCounts.likely} likely opens <span className="font-normal text-gray-600">of {openCounts.tracked} tracked sends</span></h3>
+                      <h3 className="text-sm font-semibold">{openCounts.opened} of {openCounts.tracked} tracked recipients opened <span className="font-normal text-gray-600">· {openCounts.totalOpens} opens recorded</span></h3>
                       <p className="mt-1 text-xs text-gray-600">Opens are estimated from image loads. Blocked images and caching can hide activity.</p>
                     </div>
                     <button type="button" onClick={() => void loadCampaign()} disabled={loading}
@@ -733,7 +717,7 @@ export default function CampaignBuilderPage() {
                   </div>
                   <div className="mt-3 flex flex-wrap items-end justify-between gap-2">
                     <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by opens">
-                      {(["all", "likely", "repeat", "ambiguous", "undetected", "unavailable"] as const).map(filter => (
+                      {(["all", "opened", "repeat", "unopened"] as const).map(filter => (
                         <button key={filter} type="button" aria-pressed={openFilter === filter} onClick={() => setOpenFilter(filter)}
                           className={`rounded-lg px-3 py-2 text-xs font-semibold ring-1 ${openFilter === filter ? "bg-[#1a3a4a] text-white ring-[#1a3a4a]" : "bg-white text-gray-700 ring-gray-300"}`}>
                           {campaignOpenFilters[filter]}{filter !== "all" && ` (${openCounts[filter]})`}
@@ -810,10 +794,8 @@ export default function CampaignBuilderPage() {
                             </td>
                             {showOpenTracking && <td className="px-3 py-2 text-gray-600">
                               {openStatus ? campaignOpenLabels[openStatus] : "—"}
-                              {openStatus === "likely" && recipient.openTracking && (
-                                <div className="mt-1 whitespace-nowrap text-xs">
-                                  {recipient.openTracking.likelyCount} recorded · {fmtDateTime(recipient.openTracking.lastLikelyAt)}
-                                </div>
+                              {openStatus && recipient.openTracking && (
+                                <div className="mt-1 whitespace-nowrap text-xs">{recipient.openTracking.likelyCount} recorded</div>
                               )}
                             </td>}
                             <td className="px-3 py-2 text-right">
@@ -885,12 +867,10 @@ export default function CampaignBuilderPage() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h2 className="text-sm font-semibold text-gray-900">1. Sender</h2>
-                    <p className="mt-1 text-sm text-gray-700">
-                      {senderReady
+                    <p className="mt-1 text-sm text-gray-700" aria-live="polite">
+                      {savingSenderId ? "Saving sender…" : senderReady
                         ? `Saved sender: ${campaign.senderLabel}`
-                        : senderHasUnsavedChange
-                          ? "Sender change is not saved yet. Click Save Sender before continuing."
-                          : `Select and save a ${campaign.channel === "sms" ? "SMS" : "email"} sender.`}
+                        : `Select a ${campaign.channel === "sms" ? "SMS" : "email"} sender.`}
                     </p>
                     {sendersLoading && <p className="mt-2 text-sm font-semibold text-gray-500">Loading senders...</p>}
                     {!sendersLoading && senders.length === 0 && <p className="mt-2 text-sm font-semibold text-rose-700">No active sender is available for this channel.</p>}
@@ -901,26 +881,19 @@ export default function CampaignBuilderPage() {
                 </div>
                 <div className="mt-4 flex flex-wrap gap-3">
                   <select
-                    value={selectedSenderId}
-                    onChange={(event) => setSelectedSenderId(event.target.value)}
-                    disabled={sendersLoading || senders.length === 0}
+                    aria-label="Campaign sender"
+                    value={savingSenderId ?? campaign.senderId ?? ""}
+                    onChange={(event) => void saveSender(event.target.value)}
+                    disabled={Boolean(savingSenderId) || sendersLoading || senders.length === 0}
                     className="min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 disabled:bg-gray-100 sm:max-w-md"
                   >
-                    <option value="">Select sender</option>
+                    <option value="" disabled>Select sender</option>
                     {senders.map((sender) => (
                       <option key={sender.id} value={sender.id}>
                         {senderDisplayLabel(sender)}
                       </option>
                     ))}
                   </select>
-                  <button
-                    type="button"
-                    onClick={saveSender}
-                    disabled={!selectedSender || savingSender || !senderHasUnsavedChange}
-                    className="rounded-lg bg-[#1a3a4a] px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300"
-                  >
-                    {savingSender ? "Saving..." : senderReady ? "Sender Saved" : "Save Sender"}
-                  </button>
                 </div>
               </section>
 
@@ -1000,17 +973,6 @@ export default function CampaignBuilderPage() {
                 <span className="text-gray-500">Sender</span>
                 <span className="text-right font-semibold text-gray-900">{campaign.senderLabel}</span>
               </div>
-              {canTrackEmailOpens && (
-                <label className="flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-                  <input type="checkbox" checked={trackEmailOpens} onChange={event => setTrackEmailOpens(event.target.checked)}
-                    disabled={sending} className="mt-1" aria-labelledby="campaign-open-tracking-label"
-                    aria-describedby="campaign-open-tracking-description" />
-                  <span>
-                    <span id="campaign-open-tracking-label" className="font-semibold text-gray-900">Track email opens</span>
-                    <span id="campaign-open-tracking-description" className="block text-xs text-gray-600">Use image loads to estimate which recipients opened this campaign.</span>
-                  </span>
-                </label>
-              )}
               {deliveryEstimate && (
                 <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
                   <div className="flex justify-between gap-4">
@@ -1070,6 +1032,17 @@ export default function CampaignBuilderPage() {
                 <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
                   <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Subject</div>
                   <div className="mt-1 font-semibold text-gray-900">{viewingRecipient.renderedSubject || "(No subject)"}</div>
+                </div>
+              )}
+              {campaign.channel === "email" && viewingRecipient.status === "sent" && (
+                <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Open tracking</div>
+                  {viewingRecipient.openTracking ? (
+                    <p className="mt-1 text-gray-900">
+                      {viewingRecipient.openTracking.likelyCount} opens recorded
+                      {viewingRecipient.openTracking.lastLikelyAt && ` · Last detected ${fmtDateTime(viewingRecipient.openTracking.lastLikelyAt)}`}
+                    </p>
+                  ) : <p className="mt-1 text-gray-600">Unavailable for this email</p>}
                 </div>
               )}
               <div className="rounded-lg border border-gray-200 bg-white px-3 py-3">

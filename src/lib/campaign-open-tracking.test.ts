@@ -70,7 +70,10 @@ it("returns the same non-cacheable pixel for every token and records only valid 
   expect(query).toHaveBeenCalledTimes(1);
   expect(query.mock.calls[0][1]).toBe(token);
   expect(query.mock.calls[0][0].join("")).toContain("interval '1 minute'");
-  expect(response.headers.get("Cache-Control")).toContain("no-store");
+  expect(response.headers.get("Cache-Control")).toBe("private, no-cache, no-store, max-age=0");
+  expect(response.headers.get("Pragma")).toBe("no-cache");
+  expect(response.headers.get("Expires")).toBe("-1");
+  expect(HEAD().headers.get("Cache-Control")).toBe(response.headers.get("Cache-Control"));
   expect(Buffer.from(await response.arrayBuffer())).toEqual(Buffer.from(await invalid.arrayBuffer()));
 });
 
@@ -82,11 +85,11 @@ it("counts unique sent recipients and filters and sorts them by likely activity"
   const legacy = { id: "legacy", status: "sent" };
   const failed = { ...legacy, status: "failed" };
   const rows = [unclear, undetected, legacy, failed, older, recent];
-  expect(summarizeCampaignOpens(rows)).toEqual({ tracked: 4, likely: 2, ambiguous: 1, undetected: 1, unavailable: 1, repeat: 1 });
-  expect(selectCampaignOpenRecipients(rows, "likely", "recent")).toEqual([recent, older]);
-  expect(selectCampaignOpenRecipients(rows, "likely", "count")).toEqual([older, recent]);
+  expect(summarizeCampaignOpens(rows)).toEqual({ tracked: 4, opened: 2, unopened: 2, repeat: 1, totalOpens: 4 });
+  expect(selectCampaignOpenRecipients(rows, "opened", "recent")).toEqual([recent, older]);
+  expect(selectCampaignOpenRecipients(rows, "opened", "count")).toEqual([older, recent]);
   expect(selectCampaignOpenRecipients(rows, "repeat", "recent")).toEqual([older]);
-  expect(selectCampaignOpenRecipients(rows, "unavailable", "recipient")).toEqual([legacy]);
+  expect(selectCampaignOpenRecipients(rows, "unopened", "recipient")).toEqual([unclear, undetected]);
   expect(campaignOpenStatus(failed)).toBeNull();
   const token = randomUUID();
   expect(serializeCampaignOpenTracking({ status: "sent", open_tracking_token: token })).toEqual(undetected.openTracking);

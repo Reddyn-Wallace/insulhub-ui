@@ -29,7 +29,9 @@ export function trackedEmailHtml(body: string, pixel: URL) {
 const pixel = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
 const pixelHeaders = {
   "Content-Type": "image/gif",
-  "Cache-Control": "private, no-store, max-age=0",
+  "Cache-Control": "private, no-cache, no-store, max-age=0",
+  Pragma: "no-cache",
+  Expires: "-1",
   "X-Content-Type-Options": "nosniff",
   "X-Robots-Tag": "noindex, nofollow",
 };

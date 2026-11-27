@@ -77,8 +77,14 @@ function MessageCard({ message, onCheckSms }: { message: JobCommunicationRecord;
         {!manual && <><dt className="text-slate-500">From</dt><dd className="break-words text-slate-800">{message.senderName || message.senderLabel || "Not recorded"}{message.senderValue && <span className="block text-slate-500">{message.senderValue}</span>}</dd>
           <dt className="text-slate-500">Staff member</dt><dd className="text-slate-800">{message.actorName || "Not recorded"}</dd></>}
         <dt className="text-slate-500">Recorded</dt><dd className="text-slate-800">{dateLabel(message.sentAt)} NZ time</dd>
-        {openStatus === "likely" && message.openTracking && <>
-          <dt className="text-slate-500">Likely opens</dt><dd className="text-slate-800">{message.openTracking.likelyCount} recorded · Last detected {dateLabel(message.openTracking.lastLikelyAt)} NZ time</dd>
+        {openStatus && message.openTracking && <>
+          <dt className="text-slate-500">Opens recorded</dt><dd className="text-slate-800">{message.openTracking.likelyCount}</dd>
+          {message.openTracking.lastLikelyAt && <>
+            <dt className="text-slate-500">Last detected</dt><dd className="text-slate-800">{dateLabel(message.openTracking.lastLikelyAt)} NZ time</dd>
+          </>}
+        </>}
+        {message.source === "crm_email" && message.status === "sent" && !message.openTracking && <>
+          <dt className="text-slate-500">Open tracking</dt><dd className="text-slate-800">Unavailable for this email</dd>
         </>}
       </dl>
       {message.channel === "email" && message.renderedHtml

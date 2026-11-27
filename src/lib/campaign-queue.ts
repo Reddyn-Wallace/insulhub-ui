@@ -262,7 +262,18 @@ export async function processCampaignQueue(id: string, actorUserId?: string): Pr
   let processedCount = 0;
   for (const row of dueRows) {
     const body = stringValue(row.rendered_body);
-    const trackingToken = sender.provider === "gmail" ? stringValue(row.open_tracking_token) : "";
+    let trackingToken = sender.provider === "gmail" ? stringValue(row.open_tracking_token) : "";
+    if (!trackingToken && sender.provider === "gmail" && trackingOrigin) {
+      // Campaigns queued before tracking became automatic may still have unsent recipients.
+      const [tracked] = await overlaySql`
+        UPDATE campaign_recipients
+        SET open_tracking_token = COALESCE(open_tracking_token, gen_random_uuid())
+        WHERE id = ${stringValue(row.id)} AND campaign_id = ${id} AND selected = true AND status = 'pending'
+        RETURNING open_tracking_token
+      `;
+      if (!tracked) continue;
+      trackingToken = stringValue(tracked.open_tracking_token);
+    }
     if (trackingToken && !trackingOrigin) throw new Error("The public tracking URL is unavailable for this campaign.");
     const trustedHtml = trackingToken && trackingOrigin ? campaignTrackedEmailHtml(body, trackingOrigin, trackingToken) : undefined;
     const result = await deliverCommunication({

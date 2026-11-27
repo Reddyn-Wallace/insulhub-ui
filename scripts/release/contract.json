@@ -90,6 +90,7 @@
     "src/lib/campaign-resume-route.test.ts",
     "src/lib/campaign-open-tracking.test.ts",
     "src/lib/campaign-open-tracking-ui.test.tsx",
+    "src/lib/campaign-sender-ownership.test.ts",
     "src/lib/campaign-open-tracking-postgres.test.ts",
     "src/lib/campaign-audience-ui.test.tsx",
     "src/lib/campaign-lead-source-filter.test.tsx",
