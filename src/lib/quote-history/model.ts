@@ -15,7 +15,7 @@ export type QuoteHistory = {
 const money = new Intl.NumberFormat("en-NZ", { style: "currency", currency: "NZD" });
 export function quoteMoney(value: number) { return money.format(value); }
 type Format = "money" | "area" | "rate" | "percent" | "depth" | "thickness" | "rvalue" | "date" | "status";
-const fields: [string, string, Format?][] = [
+export const fields: [string, string, Format?][] = [
   ["quoteNumber", "Quote number"], ["date", "Quote date", "date"],
   ["wall.SQM", "Wall area", "area"], ["wall.SQMPrice", "Wall rate", "rate"],
   ["wall.cavityDepthMeters", "Wall cavity depth", "depth"], ["wall.c_RValue", "Wall R-value", "rvalue"],
@@ -89,7 +89,7 @@ export function snapshotQuote(job: unknown): QuoteSnapshot | null {
   return snapshot;
 }
 
-function formatValue(value: FieldValue, unit?: Format): string {
+export function formatValue(value: FieldValue, unit?: Format): string {
   if (value === null) return "—";
   if (Array.isArray(value)) return (value as string[]).join(", ") || "—";
   if (typeof value === "boolean") return value ? "Yes" : "No";

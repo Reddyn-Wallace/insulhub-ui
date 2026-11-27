@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
   id: "69ea7a15a5185b0a06d7615e",
   router: { push: vi.fn() },
   save: vi.fn(),
+  acceptedScenario: false,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -17,7 +18,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/lib/graphql", () => {
-  let job = {
+  const originalJob = {
     _id: state.id,
     jobNumber: 123,
     stage: "QUOTE",
@@ -31,19 +32,36 @@ vi.mock("@/lib/graphql", () => {
     },
   };
 
+  let savedJob = originalJob;
   return {
-    gql: async (query: string, variables?: { input: { quote: typeof job.quote } }) => {
+    gql: async (query: string, variables?: { input: { quote: typeof originalJob.quote; stage: string } }) => {
       if (query.includes("mutation UpdateJobQuote") && variables) {
-        state.save(variables.input.quote);
-        job = { ...job, quote: variables.input.quote };
-        return { updateJob: job };
+        state.save(variables.input.quote, variables.input.stage);
+        savedJob = { ...originalJob, stage: variables.input.stage, quote: variables.input.quote };
+        return { updateJob: savedJob };
       }
-      return { job, users: { results: [] } };
+      if (state.acceptedScenario && !state.save.mock.calls.length) {
+        return {
+          job: {
+            ...originalJob,
+            stage: "SCHEDULED",
+            quote: {
+              ...originalJob.quote, status: "ACCEPTED", c_total: 5612, c_deposit: 0, depositPercentage: 25,
+              wall: { SQM: 61, SQMPrice: 80 },
+              ceiling: { SQM: null, c_thickness: 0, c_bagCount: 0 },
+              extras: [],
+            },
+          },
+          users: { results: [] },
+        };
+      }
+      return { job: state.save.mock.calls.length ? savedJob : originalJob, users: { results: [] } };
     },
   };
 });
 
 beforeEach(() => {
+  state.acceptedScenario = false;
   vi.stubGlobal("localStorage", { getItem: (key: string) => key === "token" ? "test" : null });
   vi.stubGlobal("fetch", vi.fn(async () => Response.json({ results: [], templates: [], senders: [] })));
 });
@@ -109,4 +127,30 @@ it("adds and edits quote discounts using decimal amounts without a minus key", a
   const savedQuote = screen.getByRole("heading", { name: "Quote" });
   fireEvent.click(within(savedQuote.parentElement!).getByRole("button", { name: "Edit" }));
   expect(discountAmounts().map((input) => Number((input as HTMLInputElement).value))).toEqual([75, 120.5]);
+});
+
+
+it("keeps an accepted quote in its stage with its saved zero deposit and untouched ceiling when adding a discount", async () => {
+  state.acceptedScenario = true;
+  render(<JobPage />);
+  fireEvent.click(await screen.findByRole("button", { name: "Quote Info" }));
+  const quoteHeading = await screen.findByRole("heading", { name: "Quote" });
+  fireEvent.click(within(quoteHeading.parentElement!).getByRole("button", { name: "Edit" }));
+  fireEvent.click(screen.getByRole("button", { name: /Add discount/ }));
+  fireEvent.change(screen.getByRole("spinbutton", { name: "Discount amount excluding GST" }), {
+    target: { value: "10" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save Quote" }));
+
+  await waitFor(() => expect(state.save).toHaveBeenCalledOnce());
+  const [saved, stage] = state.save.mock.calls[0];
+  expect(stage).toBe("SCHEDULED");
+  expect(saved).toMatchObject({
+    status: "ACCEPTED",
+    c_deposit: 0,
+    depositPercentage: 25,
+    ceiling: { SQM: null, c_thickness: 0, c_bagCount: 0 },
+    extras: [{ name: "Discount", price: -10 }],
+  });
+  expect(saved.c_total).toBeCloseTo(5600.5);
 });

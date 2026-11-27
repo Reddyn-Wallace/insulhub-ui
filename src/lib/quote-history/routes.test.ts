@@ -76,7 +76,7 @@ describe.skipIf(!url)("quote history through the CRM routes and PostgreSQL", () 
     }
     await db.query(readFileSync("scripts/dead-followups-schema.sql", "utf8"));
     await db.query(readFileSync("scripts/dead-followups-date-schema.sql", "utf8"));
-    await db.query("TRUNCATE crm_quote_history_events, crm_quote_history_state, dead_quote_date_events, dead_quote_dates");
+    await db.query("TRUNCATE crm_quote_version_snapshots, crm_quote_history_events, crm_quote_history_state, dead_quote_date_events, dead_quote_dates");
     vi.stubEnv("DATABASE_URL", testUrl.href);
     vi.stubEnv("QUOTE_HISTORY_ENABLED", "true");
     vi.stubEnv("DEAD_QUOTE_FOLLOWUPS_ENABLED", "false");
@@ -119,6 +119,24 @@ describe.skipIf(!url)("quote history through the CRM routes and PostgreSQL", () 
     expect(result.events.slice(0, 2)).toMatchObject([{ kind: "send", revision: 2 }, { kind: "send", revision: 2 }]);
     expect(result.changedSinceSend).toBe(false);
 
+    const version = async (revision: number | "latest") => {
+      const response = await history(makeRequest(`${path}/quote-history?version=${revision}`), context());
+      expect(response.status).toBe(200);
+      return response.json();
+    };
+    expect(await version("latest")).toMatchObject({
+      revision: 2, latest: 2, actor: "Andrew", reconstructed: false,
+      values: { fields: { c_total: "$7,590.00", "wall.SQM": "92 m²" }, extras: [{ label: "Discount", amount: "-$300.00" }] },
+    });
+    expect(await version(1)).toMatchObject({ revision: 1, reconstructed: false, values: { fields: { c_total: "$6,900.00" } } });
+
+    // Simulate revisions from before snapshots were introduced.
+    await db.query("DELETE FROM crm_quote_version_snapshots WHERE job_id=$1", [id]);
+    expect(await version(1)).toMatchObject({
+      revision: 1, reconstructed: true,
+      values: { fields: { c_total: "$6,900.00", "wall.SQM": "80 m²" }, extras: [] },
+    });
+
     persistPdf = false;
     const exportDraft = { ...job, quote: { ...job.quote, c_total: 7700 } };
     const generated = await pdf(makeRequest(`${path}/quote-pdf`, exportDraft), context());
@@ -130,6 +148,9 @@ describe.skipIf(!url)("quote history through the CRM routes and PostgreSQL", () 
     result = await read();
     expect(result.events[0]).toMatchObject({ kind: "pdf", revision: 3, actor: "Andrew", total: 7700 });
     expect(result.changedSinceSend).toBe(true);
+    expect(await version(2)).toMatchObject({
+      revision: 2, latest: 3, reconstructed: false, values: { fields: { c_total: "$7,590.00" } },
+    });
 
     for (const query of [ADD_FILES, REMOVE_FILE]) {
       const response = await mutate(makeRequest("/api/jobs/mutate", {
