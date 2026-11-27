@@ -1,6 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import {
+  campaignOpenFilters, campaignOpenLabels, campaignOpenStatus, selectCampaignOpenRecipients, summarizeCampaignOpens,
+  type CampaignOpenFilter, type CampaignOpenRecipient, type CampaignOpenSort,
+} from "@/lib/campaign-open-tracking";
 import { canResumeCampaignRecipient, canRetryCampaignRecipient } from "@/lib/campaign-resume";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -26,6 +30,7 @@ type CommunicationSender = {
   senderValue: string;
   isDefault: boolean;
   isActive: boolean;
+  provider?: string;
 };
 
 type CommunicationSettings = {
@@ -36,10 +41,9 @@ type CommunicationSettings = {
   campaignEmailDailyLimit: number;
 };
 
-type SavedRecipient = {
+type SavedRecipient = CampaignOpenRecipient & {
   id: string;
   jobId: string;
-  jobNumber: number;
   contactName: string;
   destination: string;
   status: "pending" | "sent" | "failed" | "skipped";
@@ -207,6 +211,10 @@ export default function CampaignBuilderPage() {
   const [retrySelection, setRetrySelection] = useState<string[]>([]);
   const [resuming, setResuming] = useState(false);
   const [sending, setSending] = useState(false);
+  const [emailOpenTrackingAvailable, setEmailOpenTrackingAvailable] = useState(false);
+  const [trackEmailOpens, setTrackEmailOpens] = useState(false);
+  const [openFilter, setOpenFilter] = useState<CampaignOpenFilter>("all");
+  const [openSort, setOpenSort] = useState<CampaignOpenSort | null>(null);
   const [viewingRecipient, setViewingRecipient] = useState<SavedRecipient | null>(null);
   const [communicationSettings, setCommunicationSettings] = useState<CommunicationSettings>(DEFAULT_COMMUNICATION_SETTINGS);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -232,6 +240,7 @@ export default function CampaignBuilderPage() {
       if (!res.ok) throw new Error(json?.error || "Failed to load campaign");
       setCampaign(json.campaign);
       if (!backgroundSignal) setSelectedSenderId(json.campaign?.senderId || "");
+      setEmailOpenTrackingAvailable(json.emailOpenTrackingAvailable === true);
       setRecipients(json.recipients || []);
     } catch (err) {
       if (!backgroundSignal) setMessage({ type: "error", text: err instanceof Error ? err.message : "Failed to load campaign" });
@@ -310,6 +319,13 @@ export default function CampaignBuilderPage() {
   const isTerminal = campaign?.status === "sent" || campaign?.status === "failed" || campaign?.status === "halted";
   const isSetupLocked = Boolean(isQueued || isTerminal);
   const deliveryRecipients = isSetupLocked ? recipients : recipients.filter((recipient) => recipient.status !== "pending");
+  const canTrackEmailOpens = emailOpenTrackingAvailable && selectedSender?.provider === "gmail";
+  const showOpenTracking = campaign?.channel === "email";
+  const openCounts = summarizeCampaignOpens(deliveryRecipients);
+  const deliveryOpenSort = openSort ?? (openFilter === "likely" || openFilter === "repeat" ? "recent" : "recipient");
+  const visibleDeliveryRecipients = showOpenTracking
+    ? selectCampaignOpenRecipients(deliveryRecipients, openFilter, deliveryOpenSort)
+    : deliveryRecipients;
   const retryableRecipients = recipients.filter(canRetryCampaignRecipient);
   const selectedRetryIds = retryableRecipients.filter(row => retrySelection.includes(row.id)).map(row => row.id);
   const resumableRecipientCount = recipients.filter(canResumeCampaignRecipient).length;
@@ -371,7 +387,7 @@ export default function CampaignBuilderPage() {
           "Content-Type": "application/json",
           "x-access-token": token,
         },
-        body: JSON.stringify({ sendCampaign: true }),
+        body: JSON.stringify({ sendCampaign: true, ...(canTrackEmailOpens && trackEmailOpens ? { trackEmailOpens: true } : {}) }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Failed to send campaign");
@@ -703,6 +719,39 @@ export default function CampaignBuilderPage() {
                   )}
                 </div>
               </div>
+              {showOpenTracking && (
+                <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-sm font-semibold">{openCounts.likely} likely opens <span className="font-normal text-gray-600">of {openCounts.tracked} tracked sends</span></h3>
+                      <p className="mt-1 text-xs text-gray-600">Opens are estimated from image loads. Blocked images and caching can hide activity.</p>
+                    </div>
+                    <button type="button" onClick={() => void loadCampaign()} disabled={loading}
+                      className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-semibold disabled:opacity-50">
+                      {loading ? "Refreshing…" : "Refresh opens"}
+                    </button>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-end justify-between gap-2">
+                    <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by opens">
+                      {(["all", "likely", "repeat", "ambiguous", "undetected", "unavailable"] as const).map(filter => (
+                        <button key={filter} type="button" aria-pressed={openFilter === filter} onClick={() => setOpenFilter(filter)}
+                          className={`rounded-lg px-3 py-2 text-xs font-semibold ring-1 ${openFilter === filter ? "bg-[#1a3a4a] text-white ring-[#1a3a4a]" : "bg-white text-gray-700 ring-gray-300"}`}>
+                          {campaignOpenFilters[filter]}{filter !== "all" && ` (${openCounts[filter]})`}
+                        </button>
+                      ))}
+                    </div>
+                    <label className="flex items-center gap-2 text-xs font-semibold text-gray-700">
+                      Sort by
+                      <select value={deliveryOpenSort} onChange={event => setOpenSort(event.target.value as CampaignOpenSort)}
+                        className="rounded-lg border border-gray-300 bg-white px-2 py-2 text-sm">
+                        <option value="recipient">Recipient</option>
+                        <option value="recent">Most recent likely open</option>
+                        <option value="count">Most recorded opens</option>
+                      </select>
+                    </label>
+                  </div>
+                </div>
+              )}
               <div className="mt-4 overflow-hidden rounded-lg border border-gray-200">
                 <div className="max-h-[420px] overflow-auto">
                   <table className="min-w-full divide-y divide-gray-200 text-sm">
@@ -710,75 +759,87 @@ export default function CampaignBuilderPage() {
                       <tr>
                         {retryableRecipients.length > 0 && <th className="px-3 py-2">
                           <input type="checkbox" aria-label="Select all failed recipients"
-                            disabled={retrying || resuming || !ownsCampaignSender}
+                            disabled={retrying || resuming || !ownsCampaignSender || (showOpenTracking && openFilter !== "all")}
                             checked={selectedRetryIds.length === retryableRecipients.length}
                             onChange={event => setRetrySelection(event.target.checked ? retryableRecipients.map(row => row.id) : [])} />
                         </th>}
                         <th className="px-3 py-2">Recipient</th>
-                        <th className="px-3 py-2">Job</th>
                         <th className="px-3 py-2">Status</th>
                         <th className="px-3 py-2">Timing</th>
+                        {showOpenTracking && <th className="px-3 py-2">Opens</th>}
                         <th className="px-3 py-2 text-right">Message</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 bg-white">
-                      {deliveryRecipients.map((recipient) => (
-                        <tr key={recipient.id}>
-                          {retryableRecipients.length > 0 && <td className="px-3 py-2">
-                            {canRetryCampaignRecipient(recipient) && <input type="checkbox"
-                              aria-label={`Select ${recipient.contactName || recipient.destination} for retry`}
-                              disabled={retrying || resuming || !ownsCampaignSender}
-                              checked={selectedRetryIds.includes(recipient.id)}
-                              onChange={event => setRetrySelection(current => event.target.checked
-                                ? [...current, recipient.id] : current.filter(id => id !== recipient.id))} />}
-                          </td>}
-                          <td className="px-3 py-2">
-                            <div className="font-semibold text-gray-900">{recipient.contactName || "Unknown"}</div>
-                            <div className="text-xs text-gray-500">{recipient.destination}</div>
-                          </td>
-                          <td className="px-3 py-2">
-                            <Link href={`/jobs/${recipient.jobId}`} className="font-semibold text-[#c2410c]">
-                              #{recipient.jobNumber || recipient.jobId}
-                            </Link>
-                          </td>
-                          <td className="px-3 py-2">
-                            <span className={`rounded-full px-2 py-1 text-xs font-semibold ${
-                              recipient.status === "sent"
-                                ? "bg-emerald-50 text-emerald-700"
-                                : recipient.status === "failed"
-                                  ? "bg-rose-50 text-rose-700"
-                                  : recipient.status === "skipped"
-                                    ? "bg-gray-100 text-gray-700"
-                                    : "bg-amber-50 text-amber-700"
-                            }`}>
-                              {recipient.status === "pending" && recipient.providerMessageId ? "Awaiting phone confirmation" : recipient.status}
-                            </span>
-                            {(recipient.status === "failed" || recipient.status === "pending") && recipient.failureReason && (
-                              <p className="mt-1 max-w-xs text-xs text-rose-700">{recipient.failureReason}</p>
-                            )}
-                          </td>
-                          <td className="px-3 py-2 text-gray-600">
-                            {recipient.status === "pending" ? fmtDateTime(recipient.scheduledAt) : fmtDateTime(recipient.sentAt)}
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            {canRetryCampaignRecipient(recipient) && (
-                              <button type="button" aria-label={`Retry ${recipient.contactName || recipient.destination}`}
+                      {visibleDeliveryRecipients.map((recipient) => {
+                        const openStatus = campaignOpenStatus(recipient);
+                        return (
+                          <tr key={recipient.id}>
+                            {retryableRecipients.length > 0 && <td className="px-3 py-2">
+                              {canRetryCampaignRecipient(recipient) && <input type="checkbox"
+                                aria-label={`Select ${recipient.contactName || recipient.destination} for retry`}
                                 disabled={retrying || resuming || !ownsCampaignSender}
-                                onClick={() => retryFailedRecipients([recipient.id])}
-                                className="mr-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 disabled:opacity-50">
-                                Retry
+                                checked={selectedRetryIds.includes(recipient.id)}
+                                onChange={event => setRetrySelection(current => event.target.checked
+                                  ? [...current, recipient.id] : current.filter(id => id !== recipient.id))} />}
+                            </td>}
+                            <td className="px-3 py-2">
+                              <Link href={`/jobs/${recipient.jobId}`} className="font-semibold text-[#c2410c] underline underline-offset-2">
+                                {recipient.contactName || "Unknown"}
+                              </Link>
+                              <div className="text-xs text-gray-500">{recipient.destination}</div>
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className={`rounded-full px-2 py-1 text-xs font-semibold ${
+                                recipient.status === "sent"
+                                  ? "bg-emerald-50 text-emerald-700"
+                                  : recipient.status === "failed"
+                                    ? "bg-rose-50 text-rose-700"
+                                    : recipient.status === "skipped"
+                                      ? "bg-gray-100 text-gray-700"
+                                      : "bg-amber-50 text-amber-700"
+                              }`}>
+                                {recipient.status === "pending" && recipient.providerMessageId ? "Awaiting phone confirmation" : recipient.status}
+                              </span>
+                              {(recipient.status === "failed" || recipient.status === "pending") && recipient.failureReason && (
+                                <p className="mt-1 max-w-xs text-xs text-rose-700">{recipient.failureReason}</p>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-gray-600">
+                              {recipient.status === "pending" ? fmtDateTime(recipient.scheduledAt) : fmtDateTime(recipient.sentAt)}
+                            </td>
+                            {showOpenTracking && <td className="px-3 py-2 text-gray-600">
+                              {openStatus ? campaignOpenLabels[openStatus] : "—"}
+                              {openStatus === "likely" && recipient.openTracking && (
+                                <div className="mt-1 whitespace-nowrap text-xs">
+                                  {recipient.openTracking.likelyCount} recorded · {fmtDateTime(recipient.openTracking.lastLikelyAt)}
+                                </div>
+                              )}
+                            </td>}
+                            <td className="px-3 py-2 text-right">
+                              {canRetryCampaignRecipient(recipient) && (
+                                <button type="button" aria-label={`Retry ${recipient.contactName || recipient.destination}`}
+                                  disabled={retrying || resuming || !ownsCampaignSender}
+                                  onClick={() => retryFailedRecipients([recipient.id])}
+                                  className="mr-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 disabled:opacity-50">
+                                  Retry
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setViewingRecipient(recipient)}
+                                className="rounded-lg bg-gray-100 px-3 py-2 text-xs font-semibold text-gray-700"
+                              >
+                                View
                               </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => setViewingRecipient(recipient)}
-                              className="rounded-lg bg-gray-100 px-3 py-2 text-xs font-semibold text-gray-700"
-                            >
-                              View
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {visibleDeliveryRecipients.length === 0 && (
+                        <tr><td colSpan={4 + Number(showOpenTracking) + Number(retryableRecipients.length > 0)}
+                          className="px-4 py-5 text-center text-gray-600">No recipients match this filter.</td></tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -939,6 +1000,17 @@ export default function CampaignBuilderPage() {
                 <span className="text-gray-500">Sender</span>
                 <span className="text-right font-semibold text-gray-900">{campaign.senderLabel}</span>
               </div>
+              {canTrackEmailOpens && (
+                <label className="flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                  <input type="checkbox" checked={trackEmailOpens} onChange={event => setTrackEmailOpens(event.target.checked)}
+                    disabled={sending} className="mt-1" aria-labelledby="campaign-open-tracking-label"
+                    aria-describedby="campaign-open-tracking-description" />
+                  <span>
+                    <span id="campaign-open-tracking-label" className="font-semibold text-gray-900">Track email opens</span>
+                    <span id="campaign-open-tracking-description" className="block text-xs text-gray-600">Use image loads to estimate which recipients opened this campaign.</span>
+                  </span>
+                </label>
+              )}
               {deliveryEstimate && (
                 <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
                   <div className="flex justify-between gap-4">

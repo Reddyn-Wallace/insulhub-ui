@@ -1,3 +1,5 @@
+import { campaignOpenTrackingOrigin, campaignTrackedEmailHtml } from "@/lib/campaign-open-tracking-server";
+import { serializeCampaignOpenTracking } from "@/lib/campaign-open-tracking";
 import { processCampaignSms } from "@/lib/campaign-sms-queue";
 import { CAMPAIGN_HALTED_REASON, CAMPAIGN_CONNECTION_HALTED_REASON } from "@/lib/campaign-resume";
 import {
@@ -68,6 +70,7 @@ export function toQueuedRecipient(row: Record<string, unknown>) {
     sentAt: row.sent_at,
     providerMessageId: stringValue(row.provider_message_id),
     failureReason: stringValue(row.failure_reason),
+    openTracking: serializeCampaignOpenTracking(row),
   };
 }
 
@@ -255,8 +258,13 @@ export async function processCampaignQueue(id: string, actorUserId?: string): Pr
     WHERE id = ${id} AND status = 'pending'
   `;
 
+  const trackingOrigin = campaignOpenTrackingOrigin();
   let processedCount = 0;
   for (const row of dueRows) {
+    const body = stringValue(row.rendered_body);
+    const trackingToken = sender.provider === "gmail" ? stringValue(row.open_tracking_token) : "";
+    if (trackingToken && !trackingOrigin) throw new Error("The public tracking URL is unavailable for this campaign.");
+    const trustedHtml = trackingToken && trackingOrigin ? campaignTrackedEmailHtml(body, trackingOrigin, trackingToken) : undefined;
     const result = await deliverCommunication({
       channel: stringValue(campaign.channel) === "sms" ? "sms" : "email",
       provider: sender.provider,
@@ -265,7 +273,8 @@ export async function processCampaignQueue(id: string, actorUserId?: string): Pr
       fromName: stringValue(sender.label),
       to: stringValue(row.destination),
       subject: stringValue(row.rendered_subject),
-      body: stringValue(row.rendered_body),
+      body,
+      ...(trustedHtml ? { trustedHtml } : {}),
       providerConfig: sender.provider_config || {},
       accessToken: stringValue(sender.provider_access_token),
       refreshToken: stringValue(sender.provider_refresh_token),

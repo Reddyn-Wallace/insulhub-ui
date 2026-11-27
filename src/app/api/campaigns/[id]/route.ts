@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { campaignOpenTrackingOrigin, campaignTrackedEmailHtml } from "@/lib/campaign-open-tracking-server";
+import { serializeCampaignOpenTracking } from "@/lib/campaign-open-tracking";
 import { buildCampaignExclusionIndex, isExcludedFromCampaign, validExcludedCampaignIds } from "@/lib/campaign-exclusions";
 import { loadCampaignExclusions, UnknownExclusionCampaignError } from "@/lib/campaign-exclusion-data";
 import { NextRequest, NextResponse } from "next/server";
@@ -43,6 +46,7 @@ type AudienceInput = {
   testDestination?: string | null;
   testRecipientId?: string | null;
   sendCampaign?: boolean;
+  trackEmailOpens?: boolean;
   sendStub?: boolean;
   haltCampaign?: boolean;
   resumeCampaign?: boolean;
@@ -119,6 +123,7 @@ function toRecipient(row: Record<string, unknown>) {
     sentAt: row.sent_at,
     providerMessageId: stringValue(row.provider_message_id),
     failureReason: stringValue(row.failure_reason),
+    openTracking: serializeCampaignOpenTracking(row),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -230,7 +235,8 @@ export async function GET(
     return NextResponse.json({
       campaign: toCampaign(campaign),
       recipients: recipientRows.map(toRecipient),
-    });
+      emailOpenTrackingAvailable: campaign.channel === "email" && !!campaignOpenTrackingOrigin(),
+    }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to load campaign" },
@@ -346,6 +352,8 @@ export async function PATCH(
         ), requeued AS (
           UPDATE campaign_recipients cr
           SET status = 'pending', failure_reason = '',
+              open_tracking_token = CASE WHEN cr.open_tracking_token IS NOT NULL THEN gen_random_uuid() END,
+              likely_open_count = 0, last_likely_open_at = NULL, ambiguous_open_seen = false,
               scheduled_at = incoming.scheduled_at, updated_at = now()
           FROM incoming, resumed
           WHERE cr.campaign_id = resumed.id AND cr.id = incoming.id
@@ -432,6 +440,11 @@ export async function PATCH(
       if (sender.provider !== "stub" && stringValue(sender.connection_status) !== "connected") {
         return NextResponse.json({ error: "Test and connect the selected sender before sending this campaign" }, { status: 400 });
       }
+      const trackEmailOpens = input.trackEmailOpens === true;
+      const trackingOrigin = trackEmailOpens ? campaignOpenTrackingOrigin() : null;
+      if (trackEmailOpens && (channel !== "email" || sender.provider !== "gmail" || !trackingOrigin)) {
+        return NextResponse.json({ error: "Open tracking requires a Gmail sender and a public tracking URL." }, { status: 400 });
+      }
       const communicationSettings = await loadCommunicationSettings();
 
       const recipientRows = await overlaySql`
@@ -455,7 +468,16 @@ export async function PATCH(
       for (const [index, row] of recipientRows.entries()) {
         const renderedSubject = renderMergeFields(subject, row);
         const renderedBody = renderMergeFields(body, row);
+        const trackingToken = trackingOrigin ? randomUUID() : null;
+        if (trackingOrigin && trackingToken) {
+          try {
+            campaignTrackedEmailHtml(renderedBody, trackingOrigin, trackingToken);
+          } catch {
+            return NextResponse.json({ error: "A personalised message is too long or contains invalid text for open tracking." }, { status: 400 });
+          }
+        }
         snapshots.push({
+          open_tracking_token: trackingToken,
           id: stringValue(row.id),
           status: "pending",
           rendered_subject: renderedSubject,
@@ -464,7 +486,7 @@ export async function PATCH(
         });
       }
 
-      await overlaySql`
+      const campaignRows = await overlaySql`
         WITH incoming AS (
           SELECT *
           FROM jsonb_to_recordset(${JSON.stringify(snapshots)}::jsonb) AS x(
@@ -472,29 +494,31 @@ export async function PATCH(
             status text,
             rendered_subject text,
             rendered_body text,
+            open_tracking_token uuid,
             scheduled_at timestamptz
           )
+        ), queued AS (
+          UPDATE campaigns
+          SET status = 'pending', send_authorized_user_id = ${me._id},
+              sent_by = ${[me.firstname, me.lastname].filter(Boolean).join(' ') || me._id},
+              sent_at = NULL, updated_at = now()
+          WHERE id = ${id} AND status = 'draft'
+          RETURNING *
+        ), prepared AS (
+          UPDATE campaign_recipients cr
+          SET status = incoming.status, rendered_subject = incoming.rendered_subject,
+              rendered_body = incoming.rendered_body, provider_message_id = '',
+              open_tracking_token = incoming.open_tracking_token,
+              likely_open_count = 0, last_likely_open_at = NULL, ambiguous_open_seen = false,
+              scheduled_at = incoming.scheduled_at, sent_at = NULL, failure_reason = '', updated_at = now()
+          FROM incoming, queued
+          WHERE cr.campaign_id = queued.id AND cr.id = incoming.id
         )
-        UPDATE campaign_recipients cr
-        SET
-          status = incoming.status,
-          rendered_subject = incoming.rendered_subject,
-          rendered_body = incoming.rendered_body,
-          provider_message_id = '',
-          scheduled_at = incoming.scheduled_at,
-          sent_at = NULL,
-          failure_reason = '',
-          updated_at = now()
-        FROM incoming
-        WHERE cr.campaign_id = ${id} AND cr.id = incoming.id
+        SELECT * FROM queued
       `;
-
-      const campaignRows = await overlaySql`
-        UPDATE campaigns
-        SET status = 'pending', send_authorized_user_id = ${me._id}, sent_by = ${[me.firstname, me.lastname].filter(Boolean).join(' ') || me._id}, sent_at = NULL, updated_at = now()
-        WHERE id = ${id}
-        RETURNING *
-      `;
+      if (!campaignRows.length) {
+        return NextResponse.json({ error: "Campaign status changed. Refresh before trying again." }, { status: 409 });
+      }
 
       const processResult = await processCampaignQueue(id, me._id);
       const updatedRecipients = await loadQueuedRecipients(id);
