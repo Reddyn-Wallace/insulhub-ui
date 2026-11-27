@@ -170,7 +170,7 @@ export class QuoteHistoryRepository {
     return this.locked(id, async client => {
       const before = await read();
       const stored = await this.state(client, id);
-      if (stored.pending_at) throw new ControlError("The previous quote update could not be confirmed. Open Quote history and refresh it before trying again.", 409);
+      if (stored.pending_at) throw new ControlError("The previous quote update could not be confirmed. Wait a minute and reload this job before trying again.", 409);
       const state = await this.observe(client, id, stored, before.snapshot);
       // Record intent before calling InsulHub. A timeout must never replay the external request.
       const pending = await client.query<{ pending_at: Date }>(

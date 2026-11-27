@@ -2988,88 +2988,93 @@ export default function JobDetailPage() {
 
         {/* Quote details */}
         {isQuoteInfoStage ? (
-          <Section
-            title="Quote"
-            action={
-              <div className="flex items-center gap-3">
-                <button onClick={() => setQuoteExpanded((v) => !v)} className="text-xs text-gray-500 font-medium">
-                  {quoteExpanded ? "Collapse" : "Expand"}
-                </button>
-                <EditBtn onClick={openQuoteSheet} />
-              </div>
-            }
-          >
-            {job.quote?.c_total != null && (
-              <div className="text-3xl font-bold text-green-600 mb-2">{fmtCurrency(job.quote.c_total)}</div>
-            )}
-            <div className="flex gap-2 mb-3 flex-wrap">
-              {job.quote?.quoteNumber && <span className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded font-medium">#{job.quote.quoteNumber}</span>}
-              {job.quote?.date && <span className="text-xs text-gray-400">{fmt(job.quote.date)}</span>}
-            </div>
+          <QuoteHistory key={id} jobId={id} refreshKey={`${job.updatedAt}:${quoteHistoryRefresh}`} legacySentAt={quoteSentAt}>
+            {(historyTrigger, historyContent) => (
+              <Section
+                title="Quote"
+                action={
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => setQuoteExpanded((v) => !v)} className="text-xs text-gray-500 font-medium">
+                      {quoteExpanded ? "Collapse" : "Expand"}
+                    </button>
+                    {historyTrigger}
+                    <EditBtn onClick={openQuoteSheet} />
+                  </div>
+                }
+              >
+                {job.quote?.c_total != null && (
+                  <div className="text-3xl font-bold text-green-600 mb-2">{fmtCurrency(job.quote.c_total)}</div>
+                )}
+                <div className="flex gap-2 mb-3 flex-wrap">
+                  {job.quote?.quoteNumber && <span className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded font-medium">#{job.quote.quoteNumber}</span>}
+                  {job.quote?.date && <span className="text-xs text-gray-400">{fmt(job.quote.date)}</span>}
+                </div>
 
-            <QuoteHistory key={id} jobId={id} refreshKey={`${job.updatedAt}:${quoteHistoryRefresh}`} legacySentAt={quoteSentAt} />
+                {historyContent}
 
-            {quoteExpanded && (
-              <>
-                <InfoRow label="Consent Fee" value={job.quote?.consentFee !== null && job.quote?.consentFee !== undefined ? fmtCurrency(job.quote.consentFee) : null} />
-                <InfoRow label="Deposit" value={job.quote?.depositPercentage ? `${job.quote.depositPercentage}% — ${fmtCurrency(job.quote.c_deposit)}` : null} />
-                {quoteExtras.length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-gray-100">
-                    <p className="text-xs font-bold text-gray-400 uppercase mb-2">Charges and discounts</p>
-                    {quoteExtras.map((extra, index) => (
-                      <div key={`${extra.name || "extra"}-${index}`} className="flex items-center justify-between gap-3 py-2 border-b border-gray-50 last:border-0">
-                        <span className="text-sm text-gray-800">{extra.name?.trim() || ((extra.price ?? 0) < 0 ? "Discount" : "Extra charge")}</span>
-                        <span className="text-sm font-medium text-gray-800">
-                          {extra.price !== null && extra.price !== undefined ? fmtCurrency(extra.price) : "-"}
-                        </span>
+                {quoteExpanded && (
+                  <>
+                    <InfoRow label="Consent Fee" value={job.quote?.consentFee !== null && job.quote?.consentFee !== undefined ? fmtCurrency(job.quote.consentFee) : null} />
+                    <InfoRow label="Deposit" value={job.quote?.depositPercentage ? `${job.quote.depositPercentage}% — ${fmtCurrency(job.quote.c_deposit)}` : null} />
+                    {quoteExtras.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-gray-100">
+                        <p className="text-xs font-bold text-gray-400 uppercase mb-2">Charges and discounts</p>
+                        {quoteExtras.map((extra, index) => (
+                          <div key={`${extra.name || "extra"}-${index}`} className="flex items-center justify-between gap-3 py-2 border-b border-gray-50 last:border-0">
+                            <span className="text-sm text-gray-800">{extra.name?.trim() || ((extra.price ?? 0) < 0 ? "Discount" : "Extra charge")}</span>
+                            <span className="text-sm font-medium text-gray-800">
+                              {extra.price !== null && extra.price !== undefined ? fmtCurrency(extra.price) : "-"}
+                            </span>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                )}
-                {job.quote?.quoteNote && (
-                  <div className="mt-2 pt-2 border-t border-gray-50">
-                    <span className="text-xs text-gray-400 uppercase tracking-wide font-medium">Comments</span>
-                    <p className="text-sm text-gray-700 mt-1">{job.quote.quoteNote}</p>
-                  </div>
+                    )}
+                    {job.quote?.quoteNote && (
+                      <div className="mt-2 pt-2 border-t border-gray-50">
+                        <span className="text-xs text-gray-400 uppercase tracking-wide font-medium">Comments</span>
+                        <p className="text-sm text-gray-700 mt-1">{job.quote.quoteNote}</p>
+                      </div>
+                    )}
+
+                    {hasWall && (
+                      <div className="mt-3 pt-3 border-t border-gray-100">
+                        <p className="text-xs font-bold text-gray-400 uppercase mb-2">Wall Insulation</p>
+                        <InfoRow label="SQM" value={job.quote?.wall?.SQM ? `${job.quote.wall.SQM} m²` : null} />
+                        <InfoRow label="Price / m²" value={job.quote?.wall?.SQMPrice ? fmtCurrency(job.quote.wall.SQMPrice) : null} />
+                        <InfoRow label="R-Value" value={job.quote?.wall?.c_RValue ? `R${job.quote.wall.c_RValue}` : null} />
+                        <InfoRow label="Bags" value={job.quote?.wall?.c_bagCount ? `${job.quote.wall.c_bagCount} bags` : null} />
+                      </div>
+                    )}
+                    {hasCeiling && (
+                      <div className="mt-3 pt-3 border-t border-gray-100">
+                        <p className="text-xs font-bold text-gray-400 uppercase mb-2">Ceiling Insulation</p>
+                        <InfoRow label="SQM" value={job.quote?.ceiling?.SQM ? `${job.quote.ceiling.SQM} m²` : null} />
+                        <InfoRow label="Price / m²" value={job.quote?.ceiling?.SQMPrice ? fmtCurrency(job.quote.ceiling.SQMPrice) : null} />
+                        <InfoRow label="R-Value" value={job.quote?.ceiling?.RValue ? `R${job.quote.ceiling.RValue}` : null} />
+                        <InfoRow label="Bags" value={job.quote?.ceiling?.c_bagCount ? `${job.quote.ceiling.c_bagCount} bags` : null} />
+                      </div>
+                    )}
+                  </>
                 )}
 
-                {hasWall && (
-                  <div className="mt-3 pt-3 border-t border-gray-100">
-                    <p className="text-xs font-bold text-gray-400 uppercase mb-2">Wall Insulation</p>
-                    <InfoRow label="SQM" value={job.quote?.wall?.SQM ? `${job.quote.wall.SQM} m²` : null} />
-                    <InfoRow label="Price / m²" value={job.quote?.wall?.SQMPrice ? fmtCurrency(job.quote.wall.SQMPrice) : null} />
-                    <InfoRow label="R-Value" value={job.quote?.wall?.c_RValue ? `R${job.quote.wall.c_RValue}` : null} />
-                    <InfoRow label="Bags" value={job.quote?.wall?.c_bagCount ? `${job.quote.wall.c_bagCount} bags` : null} />
-                  </div>
-                )}
-                {hasCeiling && (
-                  <div className="mt-3 pt-3 border-t border-gray-100">
-                    <p className="text-xs font-bold text-gray-400 uppercase mb-2">Ceiling Insulation</p>
-                    <InfoRow label="SQM" value={job.quote?.ceiling?.SQM ? `${job.quote.ceiling.SQM} m²` : null} />
-                    <InfoRow label="Price / m²" value={job.quote?.ceiling?.SQMPrice ? fmtCurrency(job.quote.ceiling.SQMPrice) : null} />
-                    <InfoRow label="R-Value" value={job.quote?.ceiling?.RValue ? `R${job.quote.ceiling.RValue}` : null} />
-                    <InfoRow label="Bags" value={job.quote?.ceiling?.c_bagCount ? `${job.quote.ceiling.c_bagCount} bags` : null} />
-                  </div>
-                )}
-              </>
+                {/* Quote actions */}
+                <div className="flex gap-2 mt-4 flex-wrap">
+                  {job.stage === "QUOTE" && (
+                    <button onClick={markAccepted} disabled={saving}
+                      className="flex-1 bg-green-600 text-white text-sm font-semibold py-2.5 rounded-xl disabled:opacity-50">
+                      ✓ Mark Accepted
+                    </button>
+                  )}
+                  <button onClick={openSendQuoteSheet} disabled={saving}
+                    className="flex-1 bg-indigo-600 text-white text-sm font-semibold py-2.5 rounded-xl disabled:opacity-50">
+                    ✉️ Send Quote
+                  </button>
+                  <button onClick={downloadQuotePDF} disabled={openingQuotePdf || saving} className="flex-1 bg-gray-900 text-white text-sm font-semibold py-2.5 rounded-xl disabled:opacity-50">{openingQuotePdf ? "Opening PDF…" : "📄 Quote PDF"}</button>
+                </div>
+
+              </Section>
             )}
-
-            {/* Quote actions */}
-            <div className="flex gap-2 mt-4 flex-wrap">
-              {job.stage === "QUOTE" && (
-                <button onClick={markAccepted} disabled={saving}
-                  className="flex-1 bg-green-600 text-white text-sm font-semibold py-2.5 rounded-xl disabled:opacity-50">
-                  ✓ Mark Accepted
-                </button>
-              )}
-              <button onClick={openSendQuoteSheet} disabled={saving}
-                className="flex-1 bg-indigo-600 text-white text-sm font-semibold py-2.5 rounded-xl disabled:opacity-50">
-                ✉️ Send Quote
-              </button>
-              <button onClick={downloadQuotePDF} disabled={openingQuotePdf || saving} className="flex-1 bg-gray-900 text-white text-sm font-semibold py-2.5 rounded-xl disabled:opacity-50">{openingQuotePdf ? "Opening PDF…" : "📄 Quote PDF"}</button>
-            </div>
-            
-          </Section>
+          </QuoteHistory>
         ) : job.stage === "LEAD" ? (
           <div className="mb-3">
             <button onClick={openQuoteSheet}
