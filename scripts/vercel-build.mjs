@@ -15,6 +15,7 @@ if (process.env.VERCEL_ENV === 'production' &&
 if (process.env.VERCEL_ENV === 'production') {
   run('installation-splits:migrate');
   run('gm-report:migrate');
+  run('campaign-open-tracking:migrate');
 }
 run('build');
 

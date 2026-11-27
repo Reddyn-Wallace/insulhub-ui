@@ -1,6 +1,7 @@
 // Run against a disposable local database with CAMPAIGN_RESUME_TEST_DATABASE_URL.
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
+import { readFile } from 'node:fs/promises';
 import { NextRequest } from 'next/server';
 import { randomUUID } from 'node:crypto';
 const database = vi.hoisted(() => ({ query: vi.fn() }));
@@ -32,6 +33,7 @@ describe.skipIf(!process.env.CAMPAIGN_RESUME_TEST_DATABASE_URL)('campaign resume
       CREATE TABLE communication_senders (id uuid PRIMARY KEY, owner_user_id text, channel text, provider text, connection_status text, is_active boolean);
       CREATE TABLE campaign_recipients (id uuid PRIMARY KEY, campaign_id uuid, selected boolean, status text, failure_reason text DEFAULT '', provider_message_id text DEFAULT '', sent_at timestamptz, scheduled_at timestamptz, updated_at timestamptz, rendered_body text, contact_name text, job_number int);
     `);
+    await pool.query(await readFile(new URL('../../scripts/campaign-open-tracking-schema.sql', import.meta.url), 'utf8'));
     database.query.mockImplementation(async (sql, values) => (await pool.query(sql, values)).rows);
   });
   beforeEach(async () => {
