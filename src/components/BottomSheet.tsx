@@ -6,9 +6,11 @@ interface BottomSheetProps {
   onClose: () => void;
   title: string;
   children: React.ReactNode;
+  id?: string;
+  headerContent?: React.ReactNode;
 }
 
-export default function BottomSheet({ open, onClose, title, children }: BottomSheetProps) {
+export default function BottomSheet({ open, onClose, title, children, id, headerContent }: BottomSheetProps) {
   // Lock body scroll when open
   useEffect(() => {
     if (open) document.body.style.overflow = "hidden";
@@ -26,21 +28,27 @@ export default function BottomSheet({ open, onClose, title, children }: BottomSh
         onClick={onClose}
       />
       {/* Sheet */}
-      <div className="relative mx-auto w-full max-w-5xl bg-white rounded-t-3xl max-h-[92vh] flex flex-col shadow-2xl border border-gray-100">
+      <div id={id} role={id ? "dialog" : undefined} aria-labelledby={id ? `${id}-title` : undefined}
+        onKeyDown={id ? (event) => { if (event.key === "Escape") onClose(); } : undefined}
+        className="relative mx-auto w-full max-w-5xl bg-white rounded-t-3xl max-h-[92vh] flex flex-col shadow-2xl border border-gray-100">
         {/* Handle */}
         <div className="flex justify-center pt-3 pb-1">
           <div className="w-11 h-1.5 bg-gray-300 rounded-full" />
         </div>
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 sticky top-0 bg-white/95 backdrop-blur">
-          <h2 className="text-[15px] font-bold text-gray-900">{title}</h2>
+          <h2 id={id ? `${id}-title` : undefined} className="text-[15px] font-bold text-gray-900">{title}</h2>
           <button
+            type="button"
+            aria-label={id ? "Close" : undefined}
+            autoFocus={Boolean(id)}
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 text-2xl leading-none w-8 h-8 flex items-center justify-center"
           >
             ×
           </button>
         </div>
+        {headerContent}
         {/* Content */}
         <div className="overflow-y-auto flex-1 px-4 py-4">
           {children}

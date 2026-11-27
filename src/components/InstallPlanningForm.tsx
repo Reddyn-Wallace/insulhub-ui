@@ -54,43 +54,44 @@ function mergeDateAndTime(date: Date | undefined, time: string, defaultTime = DE
   return `${year}-${month}-${day}T${safeTime}`;
 }
 
-export function DateTimeCalendarField({
-  value,
-  onChange,
-  defaultTime = DEFAULT_TIME,
-}: {
+export function DateTimeCalendarField(props: {
   value: string;
   onChange: (next: string) => void;
   defaultTime?: string;
+  compact?: boolean;
+} | {
+  display: { date: string; time: string };
+  compact?: boolean;
 }) {
-  const selectedDate = dateFromDatetimeLocal(value);
-  const timeValue = timeFromDatetimeLocal(value, defaultTime);
-  const dateValue = value.split("T")[0] || "";
+  const editable = "value" in props ? props : null;
+  const value = editable?.value ?? "";
+  const defaultTime = editable?.defaultTime ?? DEFAULT_TIME;
+  const dateValue = "display" in props ? props.display.date : value.split("T")[0] || "";
+  const timeValue = "display" in props ? props.display.time : timeFromDatetimeLocal(value, defaultTime);
 
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-[minmax(0,1fr)_168px] gap-2">
-        <div>
-          <label className="text-xs text-gray-500 font-medium mb-1 block">Date</label>
+      <div className={`grid gap-2 ${props.compact ? "grid-cols-[minmax(0,1fr)_minmax(0,1fr)]" : "grid-cols-[minmax(0,1fr)_168px]"}`}>
+        <label className="min-w-0">
+          <span className="text-xs text-gray-500 font-medium mb-1 block">Date</span>
           <input
-            type="date"
+            type={editable ? "date" : "text"}
             value={dateValue}
-            onChange={(e) => {
-              if (!e.target.value) onChange("");
-              else onChange(`${e.target.value}T${timeValue}`);
-            }}
-            className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+            readOnly={!editable}
+            onChange={(e) => editable?.onChange(e.target.value ? `${e.target.value}T${timeValue}` : "")}
+            className="w-full min-w-0 border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
           />
-        </div>
-        <div>
-          <label className="text-xs text-gray-500 font-medium mb-1 block">Time</label>
+        </label>
+        <label className="min-w-0">
+          <span className="text-xs text-gray-500 font-medium mb-1 block">Time</span>
           <input
-            type="time"
+            type={editable ? "time" : "text"}
             value={timeValue}
-            onChange={(e) => onChange(mergeDateAndTime(selectedDate || new Date(), e.target.value, defaultTime))}
-            className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
+            readOnly={!editable}
+            onChange={(e) => editable?.onChange(mergeDateAndTime(dateFromDatetimeLocal(value) || new Date(), e.target.value, defaultTime))}
+            className="w-full min-w-0 border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#e85d04]"
           />
-        </div>
+        </label>
       </div>
       {value && <p className="text-sm text-gray-600">Selected: <span className="font-medium">{weekdayLabelFromDatetimeLocal(value)}</span></p>}
     </div>

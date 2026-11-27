@@ -1,6 +1,6 @@
 # CRM quote history
 
-Open **Quote versions** beside **Edit** on a job's Quote card. It appears after a saved quote change. **Previous** and **Next** move through read-only versions showing scope, pricing, charges, deposit, notes and site-plan references. Sends and acceptance alone do not create a new priced version.
+After a saved quote change, **Quote versions** appears beside **Edit** on the job's Quote card. It opens a read-only copy of the Edit Quote sheet. **Previous** and **Next** move through versions of the quote, including its scope, pricing, charges, deposit and quote comments. Sends and acceptance alone do not create a new priced version.
 
 The CRM captures the saved quote before and after new revisions. Earlier tracked versions are labelled **Reconstructed from edit history** and reverse the recorded field changes from the nearest saved snapshot. Unknown values are shown as **Unavailable**. Fields with a recorded blank are shown as **Not recorded**. The history cannot reconstruct edits from before tracking began.
 
