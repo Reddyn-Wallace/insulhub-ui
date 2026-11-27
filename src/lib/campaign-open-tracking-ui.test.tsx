@@ -39,6 +39,11 @@ it("shows unique opens, supports both sorts and filters, and reloads tracking th
   fireEvent.click(screen.getByRole("button", { name: "Opened (2)" }));
   const table = screen.getByRole("table");
   const arohaRow = within(table).getByRole("row", { name: /Aroha/ });
+  expect(within(table).getByRole("columnheader", { name: "Last opened" })).toBeTruthy();
+  expect(arohaRow.querySelector("time")?.dateTime).toBe(old.lastLikelyAt);
+  expect(arohaRow.querySelector("time")?.textContent).toMatch(/Thu.*26 Nov 2026.*3:00/);
+  expect(within(arohaRow).getByText("Opened").classList.contains("bg-emerald-50")).toBe(true);
+  expect(within(arohaRow).queryByText("3 recorded")).toBeNull();
   expect(within(arohaRow).getByRole("link", { name: "Aroha" }).getAttribute("href")).toBe("/jobs/aroha-job");
   expect(within(arohaRow).queryByText("#545")).toBeNull();
   expect(within(table).queryByText("Charlie")).toBeNull();
@@ -51,7 +56,9 @@ it("shows unique opens, supports both sorts and filters, and reloads tracking th
   expect(screen.getByText(/3 opens recorded · Last detected/)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Close" }));
   fireEvent.click(screen.getByRole("button", { name: "Likely unopened (2)" }));
-  expect(within(table).getByText("Charlie")).toBeTruthy();
+  const charlieRow = within(table).getByRole("row", { name: /Charlie/ });
+  expect(within(charlieRow).getByText("Likely unopened").classList.contains("bg-orange-50")).toBe(true);
+  expect(charlieRow.querySelector("time")).toBeNull();
   expect(within(table).getByText("Eli")).toBeTruthy();
   expect(within(table).queryByText("Dani")).toBeNull();
 

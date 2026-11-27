@@ -86,7 +86,10 @@ it('shows likely opens and the last detected time and lets staff refresh the his
   render(<JobCommunications messages={[{
     ...records[0], openTracking: { likelyCount: 2, lastLikelyAt: '2026-11-26T21:30:00Z', ambiguousSeen: true },
   }]} onRetry={refresh} />);
-  expect(screen.getByText('Opened', { exact: true })).toBeTruthy();
+  expect(screen.getByText('Opened', { exact: true }).classList.contains('bg-emerald-50')).toBe(true);
+  const card = screen.getByRole('button', { name: /Booking confirmation/ });
+  expect(card.textContent).toMatch(/Last opened Fri.*27 Nov 2026.*10:30/);
+  expect(card.querySelector('time')?.dateTime).toBe('2026-11-26T21:30:00Z');
   fireEvent.click(screen.getByRole('button', { name: 'Refresh communications' }));
   expect(refresh).toHaveBeenCalledOnce();
   fireEvent.click(screen.getByRole('button', { name: /Booking confirmation/ }));
@@ -96,7 +99,8 @@ it('shows likely opens and the last detected time and lets staff refresh the his
 
 it.each([false, true])('shows Likely unopened with ambiguous activity set to %s', ambiguousSeen => {
   render(<JobCommunications messages={[{ ...records[0], openTracking: { likelyCount: 0, lastLikelyAt: null, ambiguousSeen } }]} />);
-  expect(screen.getByText('Likely unopened')).toBeTruthy();
+  expect(screen.getByText('Likely unopened').classList.contains('bg-orange-50')).toBe(true);
+  expect(screen.queryByText('Last opened')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: /Booking confirmation/ }));
   expect(screen.getByText('0', { selector: 'dd' })).toBeTruthy();
 });
