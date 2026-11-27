@@ -19,7 +19,7 @@ it("sends edited subject and body once and closes on confirmation", async () => 
   expect(screen.queryByTitle("Email preview")).toBeNull();
   const send = screen.getByRole("button", { name: "Send email" }); fireEvent.click(send); fireEvent.click(send);
   await waitFor(() => expect(screen.queryByLabelText("Message")).toBeNull());
-  expect(posts).toBe(1); expect(sent).toMatchObject({ subject: "Edited booking", body: "Exact edited message", destination: props.email, senderId: "sender" });
+  expect(posts).toBe(1); expect(sent).toMatchObject({ subject: "Edited booking", body: "Exact edited message", destination: props.email, senderId: "sender", trackEmailOpens: true });
   expect(props.onRecorded).toHaveBeenCalledWith(expect.objectContaining({ status: "sent" }));
 });
 it("preserves an uncertain attempt across reloads without resending", async () => {

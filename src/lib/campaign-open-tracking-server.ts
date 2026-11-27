@@ -17,10 +17,25 @@ export function campaignOpenTrackingOrigin() {
 }
 
 export function campaignTrackedEmailHtml(body: string, origin: string, token: string) {
-  const pixel = new URL(`/api/campaigns/open/${token}`, origin);
+  return trackedEmailHtml(body, new URL(`/api/campaigns/open/${token}`, origin));
+}
+
+export function trackedEmailHtml(body: string, pixel: URL) {
   return createTrustedEmailHtml(
     `${emailContent(body).htmlBody}<img src="${pixel.href}" width="1" height="1" alt="" aria-hidden="true">`,
   );
+}
+
+const pixel = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
+const pixelHeaders = {
+  "Content-Type": "image/gif",
+  "Cache-Control": "private, no-store, max-age=0",
+  "X-Content-Type-Options": "nosniff",
+  "X-Robots-Tag": "noindex, nofollow",
+};
+
+export function emailOpenPixelResponse(head = false) {
+  return new Response(head ? null : new Uint8Array(pixel), { headers: pixelHeaders });
 }
 
 export function classifyCampaignOpen(headers: Headers): "likely" | "ambiguous" {

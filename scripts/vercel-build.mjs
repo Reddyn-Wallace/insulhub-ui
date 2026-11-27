@@ -16,6 +16,7 @@ if (process.env.VERCEL_ENV === 'production') {
   run('installation-splits:migrate');
   run('gm-report:migrate');
   run('campaign-open-tracking:migrate');
+  run('job-email:migrate');
 }
 if (process.env.VERCEL_ENV === 'production' && (process.env.QUOTE_HISTORY_ENABLED ?? 'true') === 'true') {
   run('quote-history:migrate');

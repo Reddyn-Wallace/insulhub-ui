@@ -3,17 +3,18 @@ import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 const router = vi.hoisted(() => ({ replace: vi.fn() }));
 vi.mock("next/navigation", () => ({ useParams: () => ({ id: "campaign" }), useRouter: () => router }));
-vi.mock("@/lib/graphql", () => ({ gql: vi.fn(async () => ({ users: { results: [] }, jobs: { results: [
+vi.mock("@/lib/graphql", () => ({ gql: vi.fn(async (_query, variables?: { stages?: string[] }) => ({ users: { results: [] }, jobs: { results: [
   { _id: "1", jobNumber: 1, stage: "LEAD", lead: { leadSource: [" Referral ", "Custom Partner"] }, client: { contactDetails: { name: "Matching customer", email: "one@example.com" } } },
   { _id: "2", jobNumber: 2, stage: "QUOTE", lead: { leadSource: ["Referral"] }, client: { contactDetails: { name: "Quote customer", email: "two@example.com" } } },
   { _id: "3", jobNumber: 3, stage: "LEAD", client: { contactDetails: { name: "No source customer", email: "three@example.com" } } },
-] } })) }));
+].filter(job => variables?.stages?.includes(job.stage)) } })) }));
 import AudienceBuilder from "@/app/jobs/campaigns/[id]/audience-builder/page";
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 it("combines lead source with status and applies the matching audience, using the same source options as the leads page", async () => {
   vi.stubGlobal("localStorage", { getItem: () => "test-token" });
   vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ campaign: { id: "campaign", name: "Test", channel: "email", status: "draft", recipientCount: 0 }, recipients: [] }) })));
   render(<AudienceBuilder />);
+  await screen.findByText("3 jobs match the current filters.");
   const source = await screen.findByRole("combobox", { name: "Lead source" });
   fireEvent.change(source, { target: { value: "referral" } });
   expect(screen.getByText("2 jobs match the current filters.")).toBeTruthy();

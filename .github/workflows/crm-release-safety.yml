@@ -33,6 +33,7 @@ jobs:
       CAMPAIGN_RESUME_TEST_DATABASE_URL: postgresql://postgres:local-test-only@127.0.0.1:55687/crm_tests
       CAMPAIGN_SMS_TEST_DATABASE_URL: postgresql://postgres:local-test-only@127.0.0.1:55687/crm_tests
       INSTALLATION_SPLITS_TEST_DATABASE_URL: postgresql://postgres:local-test-only@127.0.0.1:55687/crm_tests
+      JOB_EMAIL_TEST_DATABASE_URL: postgresql://postgres:local-test-only@127.0.0.1:55687/crm_tests
       FINANCE_TEST_DATABASE_URL: postgresql://postgres:local-test-only@127.0.0.1:55687/crm_tests
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262

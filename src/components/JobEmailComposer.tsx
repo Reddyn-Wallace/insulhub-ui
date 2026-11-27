@@ -76,7 +76,7 @@ export default function JobEmailComposer({ jobId, email, contactName, templates,
       sessionStorage.setItem(storageKey, JSON.stringify(current)); setAttempt(current);
       setOpen(false);
       recorded.current({ ...current, renderedBody: current.body, renderedHtml: "", senderLabel: sender?.label || "", senderValue: sender?.senderValue || "", actorName: "", status: "sending", failureReason: "", createdAt: new Date().toISOString() });
-      const response = await fetch(endpoint, { method: "POST", headers: headers(), body: JSON.stringify(current) });
+      const response = await fetch(endpoint, { method: "POST", headers: headers(), body: JSON.stringify({ ...current, trackEmailOpens: true }) });
       const data = await response.json();
       if (!response.ok) {
         if (data.safeToEdit === true) { sessionStorage.removeItem(storageKey); setAttempt(null); }
