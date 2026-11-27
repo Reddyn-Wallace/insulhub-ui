@@ -17,6 +17,9 @@ if (process.env.VERCEL_ENV === 'production') {
   run('gm-report:migrate');
   run('campaign-open-tracking:migrate');
 }
+if (process.env.VERCEL_ENV === 'production' && (process.env.QUOTE_HISTORY_ENABLED ?? 'true') === 'true') {
+  run('quote-history:migrate');
+}
 run('build');
 
 run('release:check-build');

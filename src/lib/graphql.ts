@@ -1,5 +1,6 @@
 import { calendarDataRevision, calendarLastWrite, invalidateCalendarData } from "./calendar/cache";
 import { clearCrmBrowserSession, CrmReadAccessDenied, CrmReadUnavailable, isCrmReadTransient } from "./crm-read/session";
+import { quoteHistoryMutation } from "./quote-history/mutation";
 import {isTrackedMutation} from './dead-followups/dates';
 import {
   type BrowserCacheStorage,
@@ -124,7 +125,7 @@ export async function gql<T>(
     : "";
 
   const run = async () => {
-    const res = await fetch(isTrackedMutation(query,variables) ? "/api/jobs/mutate" : "https://api.insulhub.nz/graphql", {
+    const res = await fetch((isTrackedMutation(query,variables) || quoteHistoryMutation(query,variables)) ? "/api/jobs/mutate" : "https://api.insulhub.nz/graphql", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

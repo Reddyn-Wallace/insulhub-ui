@@ -21,6 +21,7 @@
     "/api/dead-followups/templates/route",
     "/api/jobs/[id]/dead-followup/route",
     "/api/jobs/[id]/dead-followup/send/route",
+    "/api/jobs/[id]/quote-history/route", "/api/jobs/[id]/quote-pdf/route",
     "/api/jobs/mutate/route",
     "/api/jobs/[id]/dead-date/check/route",
     "/jobs/campaigns/page",
@@ -44,6 +45,8 @@
     "/api/gm-reports/[week]/route"
   ],
   "tests": [
+    "src/lib/quote-history/model.test.ts", "src/lib/quote-history/routes.test.ts",
+    "src/lib/quote-history/ui.test.tsx",
     "src/lib/installation-splits/edit.test.ts",
     "src/lib/installation-splits/views.test.ts",
     "src/lib/installation-splits/model.test.ts",

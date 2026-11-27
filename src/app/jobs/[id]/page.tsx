@@ -20,6 +20,7 @@ import {
 import JobSmsComposer, { type JobSmsMessage } from "@/components/JobSmsComposer";
 import { useJobSmsStatus, type SmsStatusUpdate } from "@/lib/use-job-sms-status";
 import JobCommunications from "@/components/JobCommunications";
+import QuoteHistory from "@/components/QuoteHistory";
 import JobEmailComposer from "@/components/JobEmailComposer";
 import { type JobEmailMessage } from "@/lib/job-email";
 import { mergeJobCommunicationHistory } from "@/lib/job-communication-history";
@@ -535,6 +536,8 @@ export default function JobDetailPage() {
   const quoteNoteTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const quoteEmailEditorRef = useRef<HTMLDivElement | null>(null);
   const [quoteSentAt, setQuoteSentAt] = useState<string | null>(null);
+  const [quoteHistoryRefresh, setQuoteHistoryRefresh] = useState(0);
+  const [openingQuotePdf, setOpeningQuotePdf] = useState(false);
   const [ebaSentAt, setEbaSentAt] = useState<string | null>(null);
   const [contactTemplates, setContactTemplates] = useState<ContactTemplate[]>([]);
   const [loadingContactTemplates, setLoadingContactTemplates] = useState(false);
@@ -1009,6 +1012,7 @@ export default function JobDetailPage() {
       const result = await fn();
       await load();
       closeSheet();
+      setQuoteHistoryRefresh(value => value + 1);
       if (onSuccess) onSuccess(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error");
@@ -1413,16 +1417,48 @@ export default function JobDetailPage() {
   }
 
   async function downloadQuotePDF() {
+    const preview = window.open("about:blank", "_blank");
+    if (preview) preview.opener = null;
+    setOpeningQuotePdf(true);
     try {
       const input = buildQuoteUpdateInput(false);
-      const params = new URLSearchParams({ token: encodeURIComponent(getToken()), input: JSON.stringify(input) });
-      window.open(`${API_BASE}/pdf/saveJobAndGetQuotePDF?${params.toString()}`, "_blank");
-    } catch {
+      const response = await fetch(`/api/jobs/${id}/quote-pdf`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-access-token": getToken() || "" },
+        body: JSON.stringify(input),
+      });
+      if (response.status === 204) {
+        const params = new URLSearchParams({ token: encodeURIComponent(getToken()), input: JSON.stringify(input) });
+        const url = `${API_BASE}/pdf/saveJobAndGetQuotePDF?${params.toString()}`;
+        if (preview && !preview.closed) preview.location.replace(url);
+        else throw new Error("Allow pop-ups for InsulHub and try again.");
+        return;
+      }
+      if (!response.ok) {
+        const result = await response.json().catch(() => null);
+        throw new Error(result?.error || "Refresh the quote before trying again.");
+      }
+      const url = URL.createObjectURL(await response.blob());
+      if (preview && !preview.closed) {
+        preview.location.replace(url);
+      } else {
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "quote.pdf";
+        link.click();
+      }
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      await load();
+    } catch (error) {
+      preview?.close();
       await alert({
         title: "Could not open quote PDF",
-        description: "Try again in a moment. If it keeps failing, the quote data may need to be saved again.",
+        description: error instanceof Error ? error.message : "Refresh the quote before trying again.",
         tone: "warning",
       });
+    } finally {
+      setOpeningQuotePdf(false);
+      setQuoteHistoryRefresh(value => value + 1);
     }
   }
 
@@ -2030,7 +2066,7 @@ export default function JobDetailPage() {
         if (email) await rememberRecordedSend("quote", id, email, token, sentAt).catch(() => {});
       }
     }, () => {
-      const msg = { type: "success" as const, text: "Quote sent to customer." };
+      const msg = { type: "success" as const, text: "InsulHub acknowledged the quote send." };
       setNotice(msg);
       setToast(msg);
     });
@@ -2967,8 +3003,9 @@ export default function JobDetailPage() {
             <div className="flex gap-2 mb-3 flex-wrap">
               {job.quote?.quoteNumber && <span className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded font-medium">#{job.quote.quoteNumber}</span>}
               {job.quote?.date && <span className="text-xs text-gray-400">{fmt(job.quote.date)}</span>}
-              {quoteSentAt && <span className="text-xs px-2 py-1 rounded bg-emerald-50 text-emerald-700 font-medium">Sent at {fmtDateTime(quoteSentAt)}</span>}
             </div>
+
+            <QuoteHistory key={id} jobId={id} refreshKey={`${job.updatedAt}:${quoteHistoryRefresh}`} legacySentAt={quoteSentAt} />
 
             {quoteExpanded && (
               <>
@@ -3027,7 +3064,7 @@ export default function JobDetailPage() {
                 className="flex-1 bg-indigo-600 text-white text-sm font-semibold py-2.5 rounded-xl disabled:opacity-50">
                 ✉️ Send Quote
               </button>
-              <button onClick={downloadQuotePDF} className="flex-1 bg-gray-900 text-white text-sm font-semibold py-2.5 rounded-xl">📄 Quote PDF</button>
+              <button onClick={downloadQuotePDF} disabled={openingQuotePdf || saving} className="flex-1 bg-gray-900 text-white text-sm font-semibold py-2.5 rounded-xl disabled:opacity-50">{openingQuotePdf ? "Opening PDF…" : "📄 Quote PDF"}</button>
             </div>
             
           </Section>

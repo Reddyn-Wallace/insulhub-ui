@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { PDFDocument, rgb, degrees } from "pdf-lib";
 import { gql } from "@/lib/graphql";
+import { ADD_FILES, REMOVE_FILE } from "@/lib/mutations";
 import { AppDialog } from "@/components/AppDialog";
 import { noteCenter, noteLayout, notePdfLines, resizeNote, rotateNotePoint } from "@/lib/site-plan-note-transform";
 import type { SitePlanTextNote, SitePlanDrawing, SitePlanDrawingDocument } from "@/lib/site-plan-drawings";
@@ -36,17 +37,7 @@ const JOB_QUERY = `
   }
 `;
 
-const ADD_FILES = `
-  mutation AddFiles($_id: ObjectId!, $documentType: UploadedFileType!, $fileNames: [String!]!) {
-    addFiles(_id: $_id, documentType: $documentType, fileNames: $fileNames)
-  }
-`;
 
-const REMOVE_FILE = `
-  mutation RemoveFile($_id: ObjectId!, $documentType: UploadedFileType!, $fileName: String!) {
-    removeFile(_id: $_id, documentType: $documentType, fileName: $fileName)
-  }
-`;
 
 const API_BASE = "https://api.insulhub.nz";
 
