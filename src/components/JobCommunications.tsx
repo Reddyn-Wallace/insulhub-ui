@@ -1,6 +1,7 @@
 "use client";
 import { useId, useState } from "react";
-import { campaignOpenLabels, campaignOpenStatus, type CampaignOpenRecipient } from "@/lib/campaign-open-tracking";
+import { campaignOpenStatus, formatEmailOpenTime, type CampaignOpenRecipient } from "@/lib/campaign-open-tracking";
+import EmailOpenBadge from "./EmailOpenBadge";
 import EmailPreview from "./EmailPreview";
 import { smsNeedsStatusCheck } from "@/lib/use-job-sms-status";
 
@@ -54,6 +55,8 @@ function MessageCard({ message, onCheckSms }: { message: JobCommunicationRecord;
   const manual = message.source === "job";
   const status = statusLabel(message);
   const openStatus = message.source === "crm_email" ? campaignOpenStatus(message) : null;
+  const lastOpen = openStatus === "opened" ? message.openTracking?.lastLikelyAt : null;
+  const lastOpenLabel = formatEmailOpenTime(lastOpen);
   const colour = message.status === "failed" ? "bg-rose-50 text-rose-700" : ["sent", "delivered"].includes(message.status) ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600";
   return <li className="overflow-hidden rounded-xl border border-slate-200 bg-white">
     <button type="button" aria-expanded={open} aria-controls={panelId} onClick={() => setOpen(!open)} className="flex w-full items-start gap-3 p-3 text-left hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-orange-500 sm:p-4">
@@ -66,7 +69,8 @@ function MessageCard({ message, onCheckSms }: { message: JobCommunicationRecord;
           {message.actorName && <span>· {message.actorName}</span>}
           {message.source === "campaign" && <span>· {message.campaignName || "Campaign"}</span>}
           <span role="status" className={`rounded-full px-2 py-0.5 font-semibold ${colour}`}>{status}</span>
-          {openStatus && <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-600">{campaignOpenLabels[openStatus]}</span>}
+          {openStatus && <EmailOpenBadge status={openStatus} />}
+          {lastOpen && lastOpenLabel && <span>Last opened <time dateTime={lastOpen}>{lastOpenLabel}</time></span>}
         </span>
       </span>
       <span className={`mt-1 shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true">⌄</span>
