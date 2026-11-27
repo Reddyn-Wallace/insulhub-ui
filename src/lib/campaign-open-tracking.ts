@@ -1,8 +1,6 @@
 export const campaignOpenLabels = {
-  likely: "Likely opened",
-  ambiguous: "Automated or unclear",
-  undetected: "No open detected",
-  unavailable: "Tracking unavailable",
+  opened: "Opened",
+  unopened: "Likely unopened",
 } as const;
 
 export type CampaignOpenStatus = keyof typeof campaignOpenLabels;
@@ -24,20 +22,19 @@ export type CampaignOpenRecipient = {
 };
 
 export function campaignOpenStatus(recipient: CampaignOpenRecipient): CampaignOpenStatus | null {
-  if (recipient.status !== "sent") return null;
-  if (!recipient.openTracking) return "unavailable";
-  if (recipient.openTracking.likelyCount > 0) return "likely";
-  return recipient.openTracking.ambiguousSeen ? "ambiguous" : "undetected";
+  if (recipient.status !== "sent" || !recipient.openTracking) return null;
+  return recipient.openTracking.likelyCount > 0 ? "opened" : "unopened";
 }
 
 export function summarizeCampaignOpens(recipients: CampaignOpenRecipient[]) {
-  const counts = { tracked: 0, likely: 0, ambiguous: 0, undetected: 0, unavailable: 0, repeat: 0 };
+  const counts = { tracked: 0, opened: 0, unopened: 0, repeat: 0, totalOpens: 0 };
   for (const recipient of recipients) {
     const status = campaignOpenStatus(recipient);
-    if (!status) continue;
+    if (!status || !recipient.openTracking) continue;
     counts[status]++;
-    if (status !== "unavailable") counts.tracked++;
-    if ((recipient.openTracking?.likelyCount ?? 0) > 1) counts.repeat++;
+    counts.tracked++;
+    counts.totalOpens += recipient.openTracking.likelyCount;
+    if (recipient.openTracking.likelyCount > 1) counts.repeat++;
   }
   return counts;
 }

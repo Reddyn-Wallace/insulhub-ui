@@ -28,6 +28,7 @@ vi.mock("@/lib/communication-delivery", async original => ({
 import { PATCH, GET as getCampaign } from "@/app/api/campaigns/[id]/route";
 import { GET as getPixel } from "@/app/api/campaigns/open/[token]/route";
 import { deliverCommunication } from "@/lib/communication-delivery";
+import { processCampaignQueue } from "@/lib/campaign-queue";
 
 describe.skipIf(!process.env.CAMPAIGN_RESUME_TEST_DATABASE_URL)("campaign open tracking in PostgreSQL", () => {
   let pool: Pool;
@@ -96,7 +97,7 @@ describe.skipIf(!process.env.CAMPAIGN_RESUME_TEST_DATABASE_URL)("campaign open t
       return { ok: true, providerMessageId: "first-message" };
     });
 
-    const queued = await patch({ sendCampaign: true, trackEmailOpens: true });
+    const queued = await patch({ sendCampaign: true });
     const response = await queued.json();
     expect(queued.status, JSON.stringify(response)).toBe(200);
     expect(openedToken).toMatch(/^[0-9a-f-]{36}$/);
@@ -119,5 +120,24 @@ describe.skipIf(!process.env.CAMPAIGN_RESUME_TEST_DATABASE_URL)("campaign open t
     await pixel(failedToken, "GoogleImageProxy");
     const { rows: [retried] } = await pool.query("SELECT likely_open_count FROM campaign_recipients WHERE id = $1", [secondId]);
     expect(retried.likely_open_count).toBe(0);
+  });
+
+  it("adds tracking before sending a previously queued Gmail recipient", async () => {
+    const campaignId = randomUUID(), senderId = randomUUID(), recipientId = randomUUID();
+    await pool.query("INSERT INTO campaigns (id,status,channel,sender_id,send_authorized_user_id) VALUES ($1,'pending','email',$2,'owner')", [campaignId, senderId]);
+    await pool.query("INSERT INTO communication_senders VALUES ($1,'owner','email','sales@example.com','gmail','connected',true)", [senderId]);
+    await pool.query(`INSERT INTO campaign_recipients (id,campaign_id,selected,status,destination,rendered_body)
+      VALUES ($1,$2,true,'pending','queued@example.com','Hi')`, [recipientId, campaignId]);
+
+    let deliveryToken = "";
+    vi.mocked(deliverCommunication).mockImplementationOnce(async input => {
+      deliveryToken = input.trustedHtml?.html.match(/\/open\/([0-9a-f-]+)/)?.[1] ?? "";
+      await pixel(deliveryToken, "GoogleImageProxy");
+      return { ok: true, providerMessageId: "queued-message" };
+    });
+    expect((await processCampaignQueue(campaignId, "owner")).processedCount).toBe(1);
+    const { rows: [recipient] } = await pool.query("SELECT status, open_tracking_token, likely_open_count FROM campaign_recipients WHERE id = $1", [recipientId]);
+    expect(deliveryToken).toMatch(/^[0-9a-f-]{36}$/);
+    expect(recipient).toEqual({ status: "sent", open_tracking_token: deliveryToken, likely_open_count: 1 });
   });
 });

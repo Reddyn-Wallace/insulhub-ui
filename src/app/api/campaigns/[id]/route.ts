@@ -46,7 +46,6 @@ type AudienceInput = {
   testDestination?: string | null;
   testRecipientId?: string | null;
   sendCampaign?: boolean;
-  trackEmailOpens?: boolean;
   sendStub?: boolean;
   haltCampaign?: boolean;
   resumeCampaign?: boolean;
@@ -235,7 +234,6 @@ export async function GET(
     return NextResponse.json({
       campaign: toCampaign(campaign),
       recipients: recipientRows.map(toRecipient),
-      emailOpenTrackingAvailable: campaign.channel === "email" && !!campaignOpenTrackingOrigin(),
     }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     return NextResponse.json(
@@ -308,6 +306,10 @@ export async function PATCH(
       if (sender.channel !== campaign.channel || (sender.provider !== "stub" && sender.connection_status !== "connected")) {
         return NextResponse.json({ error: "Reconnect the campaign's sending connection before resuming or retrying" }, { status: 400 });
       }
+      const trackOpens = sender.provider === "gmail" && sender.channel === "email";
+      if (trackOpens && !campaignOpenTrackingOrigin()) {
+        return NextResponse.json({ error: "The public email tracking URL is unavailable." }, { status: 400 });
+      }
       const recipients = await loadQueuedRecipients(id);
       if (retrying && input.recipientIds !== undefined && (!Array.isArray(input.recipientIds)
         || !input.recipientIds.length || input.recipientIds.some(id => typeof id !== "string" || !id))) {
@@ -352,7 +354,7 @@ export async function PATCH(
         ), requeued AS (
           UPDATE campaign_recipients cr
           SET status = 'pending', failure_reason = '',
-              open_tracking_token = CASE WHEN cr.open_tracking_token IS NOT NULL THEN gen_random_uuid() END,
+              open_tracking_token = CASE WHEN ${trackOpens}::boolean THEN gen_random_uuid() END,
               likely_open_count = 0, last_likely_open_at = NULL, ambiguous_open_seen = false,
               scheduled_at = incoming.scheduled_at, updated_at = now()
           FROM incoming, resumed
@@ -440,10 +442,10 @@ export async function PATCH(
       if (sender.provider !== "stub" && stringValue(sender.connection_status) !== "connected") {
         return NextResponse.json({ error: "Test and connect the selected sender before sending this campaign" }, { status: 400 });
       }
-      const trackEmailOpens = input.trackEmailOpens === true;
-      const trackingOrigin = trackEmailOpens ? campaignOpenTrackingOrigin() : null;
-      if (trackEmailOpens && (channel !== "email" || sender.provider !== "gmail" || !trackingOrigin)) {
-        return NextResponse.json({ error: "Open tracking requires a Gmail sender and a public tracking URL." }, { status: 400 });
+      const trackOpens = channel === "email" && sender.provider === "gmail";
+      const trackingOrigin = trackOpens ? campaignOpenTrackingOrigin() : null;
+      if (trackOpens && !trackingOrigin) {
+        return NextResponse.json({ error: "The public email tracking URL is unavailable." }, { status: 400 });
       }
       const communicationSettings = await loadCommunicationSettings();
 
@@ -502,7 +504,7 @@ export async function PATCH(
           SET status = 'pending', send_authorized_user_id = ${me._id},
               sent_by = ${[me.firstname, me.lastname].filter(Boolean).join(' ') || me._id},
               sent_at = NULL, updated_at = now()
-          WHERE id = ${id} AND status = 'draft'
+          WHERE id = ${id} AND status = 'draft' AND sender_id = ${senderId}
           RETURNING *
         ), prepared AS (
           UPDATE campaign_recipients cr
@@ -557,9 +559,12 @@ export async function PATCH(
       const campaignRows = await overlaySql`
         UPDATE campaigns
         SET sender_id = ${senderId}, sender_label = ${senderLabel}, test_sent_at = NULL, send_authorized_user_id = NULL, updated_at = now()
-        WHERE id = ${id}
+        WHERE id = ${id} AND status = 'draft'
         RETURNING *
       `;
+      if (!campaignRows.length) {
+        return NextResponse.json({ error: "Campaign status changed. Refresh before changing the sender." }, { status: 409 });
+      }
       const recipientRows = await overlaySql`
         SELECT *
         FROM campaign_recipients
@@ -589,7 +594,7 @@ export async function PATCH(
         const senderId = stringValue(current.sender_id);
         const testDestination = normalizeTestDestination(input.testDestination?.trim() || "", channel);
         if (!testDestination) return NextResponse.json({ error: "Test destination is required" }, { status: 400 });
-        if (!senderId) return NextResponse.json({ error: "Select and save a sender before sending a test" }, { status: 400 });
+        if (!senderId) return NextResponse.json({ error: "Select a sender before sending a test" }, { status: 400 });
         if (channel === "email" && !subject.trim()) return NextResponse.json({ error: "Email subject is required before sending a test" }, { status: 400 });
         if (!body.trim()) return NextResponse.json({ error: "Message body is required before sending a test" }, { status: 400 });
 

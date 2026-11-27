@@ -10,7 +10,7 @@ Pressing Send closes the composer immediately and shows Sending in Sent Communic
 
 ## Deployment and checks
 
-The guarded production build runs `npm run job-email:migrate` to add open tracking fields and an index to the CRM overlay. For a development database, run the migration manually before opening job communications. New emails sent directly from the job page use `CAMPAIGN_OPEN_TRACKING_ORIGIN` as their public HTTPS origin, with the production CRM URL as the production default. The saved message preview excludes the tracking image. The Communications list shows likely opens, their last detected time, and ambiguous activity. Previously sent emails show Tracking unavailable.
+The guarded production build runs `npm run job-email:migrate` to add open tracking fields and an index to the CRM overlay. For a development database, run the migration manually before opening job communications. New emails sent directly from the job page use `CAMPAIGN_OPEN_TRACKING_ORIGIN` as their public HTTPS origin, with the production CRM URL as the production default. The saved message preview excludes the tracking image. The Communications list shows Opened after a likely open and Likely unopened while the count is zero. Expanding a message shows the count and last detected time. Emails sent without a tracking image show that open tracking is unavailable in their details.
 
 - `npm run test:job-email`
 - `npm run test:job-sms`
