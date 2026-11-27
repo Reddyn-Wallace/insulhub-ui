@@ -1,60 +1,63 @@
 "use client";
 
-import { useEffect, useId, useState, type ReactNode } from "react";
-import { fields, quoteHistoryDate, quoteMoney, type QuoteHistory as History } from "@/lib/quote-history/model";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import BottomSheet from "@/components/BottomSheet";
+import QuoteSheetFields from "@/components/QuoteSheetFields";
+import { quoteHistoryDate, quoteMoney, type QuoteHistory as History } from "@/lib/quote-history/model";
 import type { QuoteVersion, QuoteVersionValues } from "@/lib/quote-history/versions";
-
-const labels = new Map(fields.map(([key, label]) => [key, label]));
-const sections = [
-  { name: "Quote details", keys: ["quoteNumber", "date", "status"] },
-  { name: "Wall insulation", keys: ["wall.SQM", "wall.SQMPrice", "wall.cavityDepthMeters", "wall.c_RValue", "wall.c_bagCount", "wall.internal"], area: "wall.SQM" },
-  { name: "Ceiling insulation", keys: ["ceiling.SQM", "ceiling.SQMPrice", "ceiling.RValue", "ceiling.c_thickness", "ceiling.c_bagCount", "ceiling.downlights"], area: "ceiling.SQM" },
-  { name: "Pricing", keys: ["c_contractPrice", "c_gst", "consentFee", "totalOverridden", "c_deposit", "depositPercentage", "depositOverridden"] },
-  { name: "Notes and site plan", keys: ["quoteNote", "quoteResultNote", "sitePlanNotes", "files_QuoteSitePlan"] },
-  { name: "Follow-up", keys: ["deferralDate", "sendFollowupEmail", "sendFollowupText"] },
-];
 
 function versionValue(value: string | null | undefined) {
   if (value == null) return "Unavailable";
   return value === "—" ? "Not recorded" : value;
 }
 
-function QuoteVersionDetails({ values }: { values: QuoteVersionValues }) {
+function scopeIncluded(area: string | null | undefined) {
+  if (area == null) return null;
+  return !["—", "0 m²"].includes(area);
+}
+
+function amount(value: string) {
+  return value.replace(/[$,]/g, "");
+}
+
+function QuoteVersionFields({ values }: { values: QuoteVersionValues }) {
+  const { fields, extras } = values;
+  const value = (key: string) => versionValue(fields[key]);
+  const [date, time] = value("date").split(", ", 2);
+
   return (
-    <div className="space-y-4">
-      <dl className="rounded-lg bg-gray-50 px-3 py-2.5">
-        <dt className="text-xs font-medium text-gray-600">Total incl. GST</dt>
-        <dd className="text-xl font-bold text-green-700">{versionValue(values.fields.c_total)}</dd>
-      </dl>
-      {sections.map(({ name, keys, area }) => (
-        area && ["—", "0 m²"].includes(values.fields[area] ?? "") ? null : (
-          <section key={name} className="space-y-1">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">{name}</h3>
-            <dl className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
-              {keys.map(key => (
-                <div key={key} className="flex justify-between gap-3 border-b border-gray-100 py-1.5 text-sm">
-                  <dt className="text-gray-600">{labels.get(key)}</dt>
-                  <dd className="min-w-0 break-words whitespace-pre-wrap text-right font-medium text-gray-900">{versionValue(values.fields[key])}</dd>
-                </div>
-              ))}
-            </dl>
-          </section>
-        )
-      ))}
-      <section>
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Charges and discounts</h3>
-        {values.extras?.length ? (
-          <dl>
-            {values.extras.map((line, index) => (
-              <div key={index} className="flex justify-between gap-3 border-b border-gray-100 py-1.5 text-sm">
-                <dt className="min-w-0 break-words text-gray-600">{line.label}</dt>
-                <dd className="shrink-0 font-medium text-gray-900">{line.amount}</dd>
-              </div>
-            ))}
-          </dl>
-        ) : <p className="py-1 text-sm text-gray-600">{values.extras ? "None" : "Unavailable"}</p>}
-      </section>
-    </div>
+    <QuoteSheetFields
+      quoteForm={{
+        quoteNumber: value("quoteNumber"),
+        date: "",
+        hasWall: scopeIncluded(fields["wall.SQM"]),
+        wallSQM: value("wall.SQM").replace(/ m²$/, ""),
+        wallSQMPrice: amount(value("wall.SQMPrice")).replace(/\/m²$/, ""),
+        wallCavityDepth: value("wall.cavityDepthMeters").replace(/^(100|150) mm$/, (_, mm) => `${Number(mm) / 10} cm`),
+        hasCeiling: scopeIncluded(fields["ceiling.SQM"]),
+        ceilingSQM: value("ceiling.SQM").replace(/ m²$/, ""),
+        ceilingSQMPrice: amount(value("ceiling.SQMPrice")).replace(/\/m²$/, ""),
+        ceilingRValue: value("ceiling.RValue").replace(/^R(?=\d)/, ""),
+        ceilingDownlights: value("ceiling.downlights"),
+        consentFee: amount(value("consentFee")),
+        depositPercentage: value("depositPercentage").replace(/%$/, ""),
+        extras: extras?.map(line => ({ name: line.label, price: amount(line.amount) })) ?? [],
+        quoteNote: fields.quoteNote === "—" ? "" : value("quoteNote"),
+      }}
+      savedDate={{ date, time: time ?? (fields.date == null ? "Unavailable" : "Not recorded") }}
+      extrasUnavailable={extras === null}
+      totals={{
+        wallR: value("wall.c_RValue"),
+        wallBags: value("wall.c_bagCount"),
+        ceilingThickness: value("ceiling.c_thickness"),
+        ceilingBags: value("ceiling.c_bagCount"),
+        contract: value("c_contractPrice"),
+        gst: value("c_gst"),
+        total: amount(value("c_total")),
+        deposit: amount(value("c_deposit")),
+      }}
+    />
   );
 }
 
@@ -74,6 +77,7 @@ export default function QuoteHistory({ jobId, refreshKey, legacySentAt, children
   children: (trigger: ReactNode, content: ReactNode) => ReactNode;
 }) {
   const panelId = useId();
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const [history, setHistory] = useState<History | null>(null);
   const [selected, setSelected] = useState<number | "latest" | null>(null);
   const [version, setVersion] = useState<QuoteVersion | null>(null);
@@ -112,17 +116,25 @@ export default function QuoteHistory({ jobId, refreshKey, legacySentAt, children
     setError("");
     setSelected(next);
   }
+  function close() {
+    setSelected(null);
+    setVersion(null);
+    triggerRef.current?.focus();
+  }
+
+  function retry() {
+    setError("");
+    setLoading(true);
+    setRefresh(value => value + 1);
+  }
+
   const open = selected !== null;
   const hasChanges = (history?.revision ?? 0) > 1;
   const trigger = hasChanges ? (
-    <button type="button" onClick={() => {
-      if (open) {
-        setSelected(null);
-        setVersion(null);
-      } else select("latest");
-    }} aria-expanded={open} aria-controls={open ? panelId : undefined}
+    <button type="button" ref={triggerRef} onClick={() => select("latest")}
+      aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? panelId : undefined}
       className="min-h-8 whitespace-nowrap text-xs font-medium text-gray-600 underline decoration-gray-300 underline-offset-4 hover:text-indigo-700 focus-visible:outline-indigo-700">
-      {open ? "Hide versions" : "Quote versions"}
+      Quote versions
     </button>
   ) : null;
   const latest = Math.max(history?.revision ?? 0, version?.latest ?? 0);
@@ -143,43 +155,45 @@ export default function QuoteHistory({ jobId, refreshKey, legacySentAt, children
           Email log match {quoteHistoryDate(legacySentAt)}
         </span>
       )}
-      {hasChanges && open && (
-        <section id={panelId} aria-label="Quote versions" aria-busy={loading}
-          className="mb-3 space-y-3 rounded-lg border border-gray-200 p-3 sm:p-4">
-          <div className="flex items-center justify-between gap-2">
-            <button type="button" className={navigationStyle} disabled={loading || !version || version.revision <= 1}
-              onClick={() => version && select(version.revision - 1)}>Previous</button>
-            <span className="text-center text-xs font-semibold text-gray-700" aria-live="polite">
-              {version ? `Version ${version.revision} of ${latest}` : "Quote versions"}
-            </span>
-            <button type="button" className={navigationStyle} disabled={loading || !version || version.revision >= latest}
-              onClick={() => version && select(version.revision + 1 === latest ? "latest" : version.revision + 1)}>Next</button>
-          </div>
+      {open && createPortal(
+        <BottomSheet open onClose={close} title="Quote versions" id={panelId}
+          headerContent={
+            <div className="border-b border-gray-100 px-4 py-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <button type="button" className={navigationStyle} disabled={loading || !version || version.revision <= 1}
+                  onClick={() => version && select(version.revision - 1)}>Previous</button>
+                <div className="text-center text-xs text-gray-600" aria-live="polite">
+                  <p className="font-semibold text-gray-800">{version ? `Version ${version.revision} of ${latest}` : "Read-only"}</p>
+                  {version && <p>{version.revision === latest ? "Current · Read-only" : "Read-only"}</p>}
+                </div>
+                <button type="button" className={navigationStyle} disabled={loading || !version || version.revision >= latest}
+                  onClick={() => version && select(version.revision + 1 === latest ? "latest" : version.revision + 1)}>Next</button>
+              </div>
+              {version && (
+                <p className="mt-1 text-center text-xs text-gray-500">
+                  {version.at && <time dateTime={version.at}>
+                    {version.observed ? "Recorded " : ""}{quoteHistoryDate(version.at)}
+                  </time>}
+                  {version.actor && ` · ${version.actor}`}
+                  {version.reconstructed && <span className="block text-amber-800">Reconstructed from edit history</span>}
+                </p>
+              )}
+            </div>
+          }>
           {error && <p role="alert" className="text-sm text-red-700">{error}{" "}
-            <button type="button" onClick={() => setRefresh(value => value + 1)} className="font-semibold underline">Retry</button>
+            <button type="button" onClick={retry} className="font-semibold underline">Retry</button>
           </p>}
           {history?.pending && (
-            <p role="status" className="text-sm text-amber-800">
+            <p role="status" className="mb-3 text-sm text-amber-800">
               An update is awaiting confirmation.{" "}
-              <button type="button" onClick={() => setRefresh(value => value + 1)} className="font-semibold underline">Refresh</button>
+              <button type="button" onClick={retry} className="font-semibold underline">Refresh</button>
             </p>
           )}
-          {loading && <p role="status" className="text-sm text-gray-600">Loading quote version…</p>}
-          {version && (
-            <>
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-600">
-                {version.revision === latest && <span className="rounded bg-green-50 px-2 py-1 font-medium text-green-800">Current</span>}
-                {version.reconstructed && <span className="rounded bg-amber-50 px-2 py-1 font-medium text-amber-800">Reconstructed from edit history</span>}
-                {version.at && <time dateTime={version.at}>
-                  {version.observed ? "Recorded " : ""}{quoteHistoryDate(version.at)}
-                </time>}
-                {version.actor && <span>· {version.actor}</span>}
-              </div>
-              {version.values ? <QuoteVersionDetails values={version.values} /> :
-                <p className="text-sm text-gray-600">Quote details are unavailable for this version.</p>}
-            </>
-          )}
-        </section>
+          {loading && <p role="status" className="mb-3 text-sm text-gray-600">Loading quote version…</p>}
+          {version && (version.values ? <QuoteVersionFields values={version.values} /> :
+            <p className="text-sm text-gray-600">Quote details are unavailable for this version.</p>)}
+        </BottomSheet>,
+        document.body
       )}
     </>
   ));
