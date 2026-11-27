@@ -26,6 +26,18 @@ export function campaignOpenStatus(recipient: CampaignOpenRecipient): CampaignOp
   return recipient.openTracking.likelyCount > 0 ? "opened" : "unopened";
 }
 
+const emailOpenTimeFormat = new Intl.DateTimeFormat("en-NZ", {
+  timeZone: "Pacific/Auckland",
+  weekday: "short", day: "numeric", month: "short", year: "numeric",
+  hour: "numeric", minute: "2-digit",
+});
+
+export function formatEmailOpenTime(value?: string | null) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : emailOpenTimeFormat.format(date);
+}
+
 export function summarizeCampaignOpens(recipients: CampaignOpenRecipient[]) {
   const counts = { tracked: 0, opened: 0, unopened: 0, repeat: 0, totalOpens: 0 };
   for (const recipient of recipients) {

@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import EmailOpenBadge from "@/components/EmailOpenBadge";
 import {
-  campaignOpenFilters, campaignOpenLabels, campaignOpenStatus, selectCampaignOpenRecipients, summarizeCampaignOpens,
+  campaignOpenFilters, campaignOpenStatus, formatEmailOpenTime, selectCampaignOpenRecipients, summarizeCampaignOpens,
   type CampaignOpenFilter, type CampaignOpenRecipient, type CampaignOpenSort,
 } from "@/lib/campaign-open-tracking";
 import { canResumeCampaignRecipient, canRetryCampaignRecipient } from "@/lib/campaign-resume";
@@ -750,13 +751,15 @@ export default function CampaignBuilderPage() {
                         <th className="px-3 py-2">Recipient</th>
                         <th className="px-3 py-2">Status</th>
                         <th className="px-3 py-2">Timing</th>
-                        {showOpenTracking && <th className="px-3 py-2">Opens</th>}
+                        {showOpenTracking && <th className="px-3 py-2 whitespace-nowrap">Last opened</th>}
                         <th className="px-3 py-2 text-right">Message</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 bg-white">
                       {visibleDeliveryRecipients.map((recipient) => {
                         const openStatus = campaignOpenStatus(recipient);
+                        const lastOpen = openStatus === "opened" ? recipient.openTracking?.lastLikelyAt : null;
+                        const lastOpenLabel = formatEmailOpenTime(lastOpen);
                         return (
                           <tr key={recipient.id}>
                             {retryableRecipients.length > 0 && <td className="px-3 py-2">
@@ -793,9 +796,9 @@ export default function CampaignBuilderPage() {
                               {recipient.status === "pending" ? fmtDateTime(recipient.scheduledAt) : fmtDateTime(recipient.sentAt)}
                             </td>
                             {showOpenTracking && <td className="px-3 py-2 text-gray-600">
-                              {openStatus ? campaignOpenLabels[openStatus] : "—"}
-                              {openStatus && recipient.openTracking && (
-                                <div className="mt-1 whitespace-nowrap text-xs">{recipient.openTracking.likelyCount} recorded</div>
+                              {openStatus ? <EmailOpenBadge status={openStatus} /> : "—"}
+                              {lastOpen && lastOpenLabel && (
+                                <time dateTime={lastOpen} className="mt-1 block whitespace-nowrap text-xs">{lastOpenLabel}</time>
                               )}
                             </td>}
                             <td className="px-3 py-2 text-right">
