@@ -1,3 +1,5 @@
+import { QUOTE_HISTORY_FIELDS } from "./quote-history/model";
+
 export const UPDATE_JOB_LEAD = `
   mutation UpdateJobLead($input: UpdateJobInput!) {
     updateJob(input: $input) {
@@ -32,18 +34,8 @@ export const UPDATE_JOB_QUOTE = `
     updateJob(input: $input, emailQuoteToCustomer: $emailQuoteToCustomer, quotePDFEmailBodyTemplate: $quotePDFEmailBodyTemplate) {
       _id
       stage
-      quote {
-        quoteNumber
-        date
-        c_total
-        c_deposit
-        depositPercentage
-        consentFee
-        quoteNote
-        quoteResultNote
-        wall { SQMPrice SQM c_RValue c_bagCount }
-        ceiling { SQMPrice SQM RValue downlights c_bagCount }
-      }
+      sitePlanNotes
+      quote { ${QUOTE_HISTORY_FIELDS} }
     }
   }
 `;

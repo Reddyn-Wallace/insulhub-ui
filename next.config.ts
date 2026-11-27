@@ -6,6 +6,7 @@ const withPWA = withPWAInit({
   workboxOptions: {
     runtimeCaching: [
       { urlPattern: /\/api\/campaigns\/(?:open\/)?[\da-f-]+(?:\?|$)/i, handler: "NetworkOnly" },
+      { urlPattern: /\/api\/jobs\/[^/]+\/quote-history(?:\?|$)/, handler: "NetworkOnly" },
       { urlPattern: /\/api\/calendar\//, handler: "NetworkOnly" },
       { urlPattern: /\/api\/(?:dead-followups|jobs\/[^/]+\/dead-followup)(?:[/?]|$)/, handler: "NetworkOnly" },
       { urlPattern: /\/api\/install-planning(?:\?|$)/, handler: "NetworkOnly" },

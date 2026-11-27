@@ -1,0 +1,13 @@
+# CRM quote history
+
+Open **Quote history** on a job's Quote card. The timeline shows earlier saved values and confirmed CRM changes to pricing, scope, notes, deposit, status and site-plan attachments. An unchanged save leaves the timeline as it was. Status changes can share the same revision as the priced quote. The first access to an existing quote records its current saved amount as a starting point.
+
+**Last send acknowledged** links the InsulHub save-and-send response to the saved revision and amount. It shows when the current tracked quote differs from that revision. The legacy API exposes no delivery receipt or attachment identity on this response. The old email-log match is by address and cannot identify a revision or reliably distinguish jobs sharing that address. Marked accepted records a CRM staff action on the saved quote.
+
+The data belongs to the CRM overlay in Neon. History covers CRM quote mutations, quote site-plan attachments, and the CRM's Quote PDF action. The legacy PDF endpoint receives the original quote input and may write it while rendering. The proxy validates the response and compares the saved quote after generation. A detected change is attributed to the PDF action when the changed values match its input. The legacy app, external clients and partner submissions can still write directly to InsulHub. The next CRM read observes any net difference and records the observation time with unknown attribution. Intermediate external changes and historical edits cannot be reconstructed from the current quote.
+
+Each tracked job has a short-lived advisory lock during a CRM write. The CRM persists intent before sending the upstream request. A lost upstream reply or failed history commit leaves a pending marker. After a minute, an authorised history read can reconcile the saved state. Recovery records any net change with unknown attribution and never retries an upstream send. If the CRM already received the upstream response and only history confirmation fails, it still returns that response.
+
+The protected production build enables quote history by default and applies the additive migration. To enable it outside production, run `npm run quote-history:migrate` with a disposable Neon branch or PostgreSQL database, then set `QUOTE_HISTORY_ENABLED=true`. Setting the flag to `false` pauses capture and hides history while retaining prior entries.
+
+The release regression suite tests the CRM handlers using a mocked InsulHub API and real PostgreSQL. A preview with an authorised test quote is required to confirm the legacy PDF output and whether generating it writes in that environment.
