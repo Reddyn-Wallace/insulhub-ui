@@ -1,6 +1,8 @@
 # CRM quote history
 
-Open **View changes** beside **Edit** on a job's Quote card. The link appears after a saved change to the starting quote. Saves without changes, sends and acceptance alone do not reveal the link. The timeline shows earlier saved values and confirmed CRM changes to pricing, scope, notes, deposit, status and site-plan attachments. An unchanged save leaves the timeline as it was. Status changes can share the same revision as the priced quote. The first access to an existing quote records its current saved amount as a starting point.
+Open **Quote versions** beside **Edit** on a job's Quote card. It appears after a saved quote change. **Previous** and **Next** move through read-only versions showing scope, pricing, charges, deposit, notes and site-plan references. Sends and acceptance alone do not create a new priced version.
+
+The CRM captures the saved quote before and after new revisions. Earlier tracked versions are labelled **Reconstructed from edit history** and reverse the recorded field changes from the nearest saved snapshot. Unknown values are shown as **Unavailable**. Fields with a recorded blank are shown as **Not recorded**. The history cannot reconstruct edits from before tracking began.
 
 **Last send acknowledged** links the InsulHub save-and-send response to the saved revision and amount. It shows when the current tracked quote differs from that revision. The legacy API exposes no delivery receipt or attachment identity on this response. The old email-log match is by address and cannot identify a revision or reliably distinguish jobs sharing that address. Marked accepted records a CRM staff action on the saved quote.
 

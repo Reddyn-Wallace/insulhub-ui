@@ -19,4 +19,12 @@ CREATE TABLE IF NOT EXISTS crm_quote_history_events (
 );
 CREATE INDEX IF NOT EXISTS crm_quote_history_events_job_id ON crm_quote_history_events(job_id, id DESC);
 CREATE INDEX IF NOT EXISTS crm_quote_history_events_last_send ON crm_quote_history_events(job_id, id DESC) WHERE kind = 'send';
+CREATE TABLE IF NOT EXISTS crm_quote_version_snapshots (
+  job_id text NOT NULL REFERENCES crm_quote_history_state(job_id),
+  revision integer NOT NULL CHECK (revision > 0),
+  event_id bigint NOT NULL REFERENCES crm_quote_history_events(id),
+  quote_fields jsonb,
+  PRIMARY KEY (job_id, revision)
+);
+CREATE INDEX IF NOT EXISTS crm_quote_history_events_job_revision ON crm_quote_history_events(job_id, revision, id);
 COMMIT;

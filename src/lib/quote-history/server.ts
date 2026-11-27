@@ -7,6 +7,8 @@ import {
   type QuoteEventKind, type QuoteHistory, type QuoteSnapshot,
 } from "./model";
 
+import { quoteVersionValues, reconstructQuoteVersion, type QuoteVersion } from "./versions";
+
 export const quoteHistoryEnabled = () => {
   const configured = process.env.QUOTE_HISTORY_ENABLED;
   return configured === undefined ? process.env.VERCEL_ENV === "production" : configured === "true";
@@ -106,6 +108,16 @@ export class QuoteHistoryRepository {
     );
   }
 
+  private async rememberVersion(client: PoolClient, id: string, revision: number, snapshot: QuoteSnapshot | null) {
+    if (revision === 0) return;
+    await client.query(
+      `INSERT INTO crm_quote_version_snapshots(job_id, revision, event_id, quote_fields)
+       SELECT $1, $2, id, $3 FROM crm_quote_history_events
+       WHERE job_id=$1 AND revision=$2 ORDER BY id DESC LIMIT 1
+       ON CONFLICT (job_id, revision) DO NOTHING`, [id, revision, snapshot],
+    );
+  }
+
   private async save(client: PoolClient, id: string, state: State, snapshot: QuoteSnapshot | null,
     kind: QuoteEventKind, actor?: Actor) {
     const { changes, revised } = quoteDiff(state.quote_fields, snapshot);
@@ -115,6 +127,7 @@ export class QuoteHistoryRepository {
 
     await client.query("BEGIN");
     try {
+      if (revised) await this.rememberVersion(client, id, state.revision, state.quote_fields);
       if (changes.length) {
         const editKind = kind === "send" || kind === "accepted" || kind === "edit"
           ? revised ? "edit" : kind !== "accepted" ? "status" : "accepted"
@@ -127,6 +140,7 @@ export class QuoteHistoryRepository {
       if (kind === "recovered" && !changes.length) {
         await this.append(client, id, revision, "unconfirmed", snapshot, []);
       }
+      if (revised) await this.rememberVersion(client, id, revision, snapshot);
       await client.query(
         "UPDATE crm_quote_history_state SET revision=$2, quote_fields=$3, pending_at=NULL, last_send_hash=$4 WHERE job_id=$1",
         [id, revision, snapshot, lastSendHash],
@@ -161,6 +175,43 @@ export class QuoteHistoryRepository {
         revision: state.revision, events: rows.slice(0, 30).map(event), next: rows.length > 30 ? rows[29].id : null,
         lastSend, changedSinceSend: !!lastSend && state.last_send_hash !== revisionHash(current.snapshot),
         pending: !!state.pending_at,
+      };
+    });
+  }
+
+  async version(id: string, read: () => Promise<JobRead>, wanted: number | "latest"): Promise<QuoteVersion> {
+    return this.locked(id, async client => {
+      const current = await read();
+      const state = await this.observe(client, id, await this.state(client, id), current.snapshot);
+      const revision = wanted === "latest" ? state.revision : wanted;
+      if (revision < 1 || revision > state.revision) throw new ControlError("Quote version not found.", 404);
+      const { rows: [metadata] } = await client.query<Pick<EventRow, "actor_name" | "occurred_at" | "kind">>(
+        `SELECT actor_name, occurred_at, kind FROM crm_quote_history_events
+         WHERE job_id=$1 AND revision=$2 ORDER BY id LIMIT 1`, [id, revision],
+      );
+      if (!metadata) throw new ControlError("Quote version not found.", 404);
+
+      const { rows: [anchor] } = await client.query<{ revision: number; event_id: string; quote_fields: QuoteSnapshot | null }>(
+        `SELECT revision, event_id, quote_fields FROM crm_quote_version_snapshots
+         WHERE job_id=$1 AND revision >= $2 ORDER BY revision LIMIT 1`, [id, revision],
+      );
+      const isCurrent = revision === state.revision;
+      const reconstructed = !isCurrent && anchor?.revision !== revision;
+      const snapshot = isCurrent || !anchor ? state.quote_fields : anchor.quote_fields;
+      let values = quoteVersionValues(snapshot);
+      if (reconstructed) {
+        const { rows } = await client.query<Pick<EventRow, "changes">>(
+          `SELECT changes FROM crm_quote_history_events
+           WHERE job_id=$1 AND revision > $2 AND ($3::bigint IS NULL OR id <= $3)
+             AND changes <> '[]'::jsonb ORDER BY id DESC`, [id, revision, anchor?.event_id ?? null],
+        );
+        values = rows.length ? reconstructQuoteVersion(snapshot, rows.map(row => row.changes)) : null;
+      }
+
+      return {
+        revision, latest: state.revision, reconstructed, values,
+        at: metadata.occurred_at.toISOString(), actor: metadata.actor_name,
+        observed: metadata.kind === "baseline" || metadata.kind === "external" || metadata.kind === "recovered",
       };
     });
   }

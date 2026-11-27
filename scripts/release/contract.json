@@ -48,7 +48,7 @@
   ],
   "tests": [
     "src/lib/quote-history/model.test.ts", "src/lib/quote-history/routes.test.ts",
-    "src/lib/quote-history/ui.test.tsx",
+    "src/lib/quote-history/ui.test.tsx", "src/lib/quote-history/versions.test.ts",
     "src/lib/installation-splits/edit.test.ts",
     "src/lib/installation-splits/views.test.ts",
     "src/lib/installation-splits/model.test.ts",

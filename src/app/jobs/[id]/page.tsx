@@ -694,7 +694,7 @@ export default function JobDetailPage() {
           quoteNumber: j.quote.quoteNumber || autoQuoteNum,
           date: toDatetimeLocal(j.quote.date),
           consentFee: j.quote.consentFee !== null && j.quote.consentFee !== undefined ? j.quote.consentFee.toString() : "0",
-          depositPercentage: j.quote.depositPercentage?.toString() || "25",
+          depositPercentage: String(j.quote.depositPercentage ?? (j.quote.c_deposit === 0 ? 0 : 25)),
           wallSQMPrice: j.quote.wall?.SQMPrice?.toString() || "",
           wallSQM: j.quote.wall?.SQM?.toString() || "",
           wallCavityDepth: (j.quote.wall?.cavityDepthMeters ?? 0.1).toString(),
@@ -1046,12 +1046,23 @@ export default function JobDetailPage() {
     const gst = contractPrice * 0.15;
     const autoTotal = contractPrice + gst + consentFee;
     const total = n(quoteForm.totalManual) > 0 ? n(quoteForm.totalManual) : autoTotal;
-    const depositPct = n(quoteForm.depositPercentage) || 25;
+    const enteredDepositPct = parseFloat(quoteForm.depositPercentage);
+    const depositPct = Number.isFinite(enteredDepositPct) ? enteredDepositPct : 25;
+    const savedQuote = job?.quote;
+    const savedDeposit = savedQuote?.c_deposit;
+    const savedDepositPct = savedQuote?.depositPercentage ?? (savedDeposit === 0 ? 0 : 25);
+    const preserveDeposit = job?.stage !== "LEAD" && depositPct === savedDepositPct &&
+      typeof savedDeposit === "number" && (savedDeposit === 0 || savedQuote?.depositOverridden === true);
     const autoDeposit = (total * depositPct) / 100;
-    const deposit = n(quoteForm.depositManual) > 0 ? n(quoteForm.depositManual) : autoDeposit;
+    const manualDeposit = n(quoteForm.depositManual);
+    const deposit = preserveDeposit ? savedDeposit : manualDeposit > 0 ? manualDeposit : autoDeposit;
 
-    return { wallR, wallBags, ceilingBags, ceilingThickness, contractPrice, gst, autoTotal, total, autoDeposit, deposit };
-  }, [quoteForm]);
+    return {
+      wallR, wallBags, ceilingBags, ceilingThickness, contractPrice, gst, autoTotal, total, deposit,
+      depositPercentage: preserveDeposit ? savedQuote?.depositPercentage : depositPct,
+      depositOverridden: preserveDeposit ? savedQuote?.depositOverridden : manualDeposit > 0,
+    };
+  }, [quoteForm, job?.quote, job?.stage]);
 
   // ── Actions ────────────────────────────────────────────────────
   function buildStampedNote(rawText: string) {
@@ -1339,7 +1350,7 @@ export default function JobDetailPage() {
     }));
   }
 
-  function buildQuoteUpdateInput(andProgress = false, quoteOverrides: Record<string, unknown> = {}) {
+  function buildQuoteUpdateInput(preserveWorkflow = false, quoteOverrides: Record<string, unknown> = {}) {
     const q = {
       ...quoteForm,
       quoteNote: quoteNoteTextareaRef.current?.value ?? quoteForm.quoteNote,
@@ -1348,6 +1359,7 @@ export default function JobDetailPage() {
     const existingWall = (job?.quote?.wall || {}) as Record<string, unknown>;
     const existingCeiling = (job?.quote?.ceiling || {}) as Record<string, unknown>;
 
+    const editingExistingQuote = preserveWorkflow && job?.stage !== "LEAD";
     const quotePayload = {
       ...existing,
       quoteNote: q.quoteNote,
@@ -1357,18 +1369,18 @@ export default function JobDetailPage() {
         price: parseFloat(e.price || "0") || 0,
       })),
       quoteNumber: q.quoteNumber,
-      status: "UNSET",
+      status: editingExistingQuote ? job?.quote?.status ?? "UNSET" : "UNSET",
       date: fromDatetimeLocal(q.date),
       consentFee: q.consentFee !== "" && q.consentFee !== null && q.consentFee !== undefined
         ? parseFloat(q.consentFee)
         : null,
-      depositPercentage: q.depositPercentage ? parseFloat(q.depositPercentage) : 25,
+      depositPercentage: quoteCalc.depositPercentage,
       c_contractPrice: quoteCalc.contractPrice,
       c_gst: quoteCalc.gst,
       c_total: quoteCalc.total,
       c_deposit: quoteCalc.deposit,
       totalOverridden: !!(quoteForm.totalManual && parseFloat(quoteForm.totalManual) > 0),
-      depositOverridden: !!(quoteForm.depositManual && parseFloat(quoteForm.depositManual) > 0),
+      depositOverridden: quoteCalc.depositOverridden,
       wall: q.hasWall ? {
         ...existingWall,
         SQMPrice: q.wallSQMPrice ? parseFloat(q.wallSQMPrice) : null,
@@ -1376,7 +1388,7 @@ export default function JobDetailPage() {
         cavityDepthMeters: q.wallCavityDepth ? parseFloat(q.wallCavityDepth) : 0.1,
         c_RValue: quoteCalc.wallR,
         c_bagCount: quoteCalc.wallBags,
-      } : clearedWallQuoteSection(),
+      } : editingExistingQuote && !job?.quote?.wall?.SQM ? job?.quote?.wall : clearedWallQuoteSection(),
       ceiling: q.hasCeiling ? {
         ...existingCeiling,
         SQMPrice: q.ceilingSQMPrice ? parseFloat(q.ceilingSQMPrice) : null,
@@ -1385,26 +1397,22 @@ export default function JobDetailPage() {
         downlights: q.ceilingDownlights ? parseFloat(q.ceilingDownlights) : null,
         c_thickness: quoteCalc.ceilingThickness,
         c_bagCount: quoteCalc.ceilingBags,
-      } : clearedCeilingQuoteSection(),
+      } : editingExistingQuote && !job?.quote?.ceiling?.SQM ? job?.quote?.ceiling : clearedCeilingQuoteSection(),
       files_QuoteSitePlan: persistedFileList(job?.quote?.files_QuoteSitePlan),
       ...quoteOverrides,
     };
 
     return {
       _id: id,
-      stage: "QUOTE",
+      stage: editingExistingQuote ? job?.stage ?? "QUOTE" : "QUOTE",
       quote: quotePayload,
       sitePlanNotes: job?.sitePlanNotes || "",
     };
   }
 
-  async function saveQuote(andProgress = false, emailQuoteToCustomer = false) {
-    await run(() => gql(UPDATE_JOB_QUOTE, {
-      input: buildQuoteUpdateInput(andProgress),
-      ...(emailQuoteToCustomer ? { emailQuoteToCustomer: true, quotePDFEmailBodyTemplate: "Please find your insulation quote attached." } : {}),
-    }));
+  async function saveQuote() {
+    await run(() => gql(UPDATE_JOB_QUOTE, { input: buildQuoteUpdateInput(true) }));
   }
-
 
   function openQuoteSheet() {
     setQuoteForm((f) => {
@@ -3765,12 +3773,12 @@ export default function JobDetailPage() {
           {/* Save buttons */}
           <div className="flex flex-col gap-2 pt-2">
             {job.stage === "LEAD" ? (
-              <button onClick={() => saveQuote(false)} disabled={saving}
+              <button onClick={saveQuote} disabled={saving}
                 className="w-full bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
                 {saving ? "Saving..." : "Save & Progress to Quote Stage"}
               </button>
             ) : (
-              <button onClick={() => saveQuote(false)} disabled={saving}
+              <button onClick={saveQuote} disabled={saving}
                 className="w-full bg-[#e85d04] text-white font-semibold py-3 rounded-xl disabled:opacity-50">
                 {saving ? "Saving..." : "Save Quote"}
               </button>

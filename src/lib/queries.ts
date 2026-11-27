@@ -97,6 +97,7 @@ const jobQuery = (checksheetFields: string) => `
         deferralDate
         c_total
         c_deposit
+        depositOverridden
         depositPercentage
         consentFee
         quoteNote
