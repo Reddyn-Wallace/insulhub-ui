@@ -1,5 +1,6 @@
 "use client";
 import { useId, useState } from "react";
+import { campaignOpenLabels, campaignOpenStatus, type CampaignOpenRecipient } from "@/lib/campaign-open-tracking";
 import EmailPreview from "./EmailPreview";
 import { smsNeedsStatusCheck } from "@/lib/use-job-sms-status";
 
@@ -9,6 +10,7 @@ export type JobCommunicationRecord = {
   senderLabel?: string; senderName?: string; senderValue?: string; actorName?: string;
   destination: string; templateTitle?: string; campaignName?: string;
   sentAt?: string | null; failureReason?: string;
+  openTracking?: CampaignOpenRecipient["openTracking"];
 };
 function timestamp(value?: string | null) {
   const date = new Date(value || "");
@@ -51,6 +53,7 @@ function MessageCard({ message, onCheckSms }: { message: JobCommunicationRecord;
   const title = message.channel === "email" ? message.renderedSubject || message.templateTitle || "Email" : message.renderedBody || "SMS";
   const manual = message.source === "job";
   const status = statusLabel(message);
+  const openStatus = message.source === "crm_email" ? campaignOpenStatus(message) : null;
   const colour = message.status === "failed" ? "bg-rose-50 text-rose-700" : ["sent", "delivered"].includes(message.status) ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600";
   return <li className="overflow-hidden rounded-xl border border-slate-200 bg-white">
     <button type="button" aria-expanded={open} aria-controls={panelId} onClick={() => setOpen(!open)} className="flex w-full items-start gap-3 p-3 text-left hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-orange-500 sm:p-4">
@@ -63,6 +66,7 @@ function MessageCard({ message, onCheckSms }: { message: JobCommunicationRecord;
           {message.actorName && <span>· {message.actorName}</span>}
           {message.source === "campaign" && <span>· {message.campaignName || "Campaign"}</span>}
           <span role="status" className={`rounded-full px-2 py-0.5 font-semibold ${colour}`}>{status}</span>
+          {openStatus && <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-600">{campaignOpenLabels[openStatus]}</span>}
         </span>
       </span>
       <span className={`mt-1 shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true">⌄</span>
@@ -73,13 +77,16 @@ function MessageCard({ message, onCheckSms }: { message: JobCommunicationRecord;
         {!manual && <><dt className="text-slate-500">From</dt><dd className="break-words text-slate-800">{message.senderName || message.senderLabel || "Not recorded"}{message.senderValue && <span className="block text-slate-500">{message.senderValue}</span>}</dd>
           <dt className="text-slate-500">Staff member</dt><dd className="text-slate-800">{message.actorName || "Not recorded"}</dd></>}
         <dt className="text-slate-500">Recorded</dt><dd className="text-slate-800">{dateLabel(message.sentAt)} NZ time</dd>
+        {openStatus === "likely" && message.openTracking && <>
+          <dt className="text-slate-500">Likely opens</dt><dd className="text-slate-800">{message.openTracking.likelyCount} recorded · Last detected {dateLabel(message.openTracking.lastLikelyAt)} NZ time</dd>
+        </>}
       </dl>
       {message.channel === "email" && message.renderedHtml
         ? <EmailPreview html={message.renderedHtml}/>
         : <div className={`whitespace-pre-wrap break-words rounded-xl p-4 text-sm leading-relaxed text-slate-800 ${message.channel === "sms" ? "bg-[#edf5f5]" : "bg-slate-50"}`}>{message.renderedBody || "No message body was saved."}</div>}
       {message.source === "campaign" && !message.senderValue && <p className="mt-3 text-xs text-slate-500">Sending {message.channel === "email" ? "address" : "number"} wasn’t saved for this campaign.</p>}
       {message.failureReason && <p className="mt-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{message.failureReason}</p>}
-      {message.channel === "email" && !manual && <p className="mt-3 text-xs text-slate-500">Delivery and read receipts are not tracked.</p>}
+      {message.openTracking && <p className="mt-3 text-xs text-slate-500">Open tracking estimates activity from image loads. Some email apps block or automatically load images.</p>}
       {message.source === "crm_sms" && message.status === "accepted" && <p className="mt-3 text-xs text-slate-500">Waiting for the phone to send.</p>}
       {canCheckSms && <button type="button" disabled={checking} onClick={() => void checkSms()} className="mt-3 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-[#1a3a4a] disabled:opacity-50">
         {checking ? "Checking delivery status…" : "Check delivery status"}
@@ -106,6 +113,7 @@ export default function JobCommunications({ messages, loading = false, error = "
     <header className="px-4 py-3 sm:px-5">
       <div className="flex items-center gap-2"><h2 className="text-base font-bold text-[#1a3a4a]">Communications</h2>
         <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">{loading && !messages.length ? "Loading…" : sent.length}</span>
+        {onRetry && sent.some(message => message.openTracking) && <button type="button" disabled={loading} onClick={onRetry} className="ml-auto text-xs font-semibold text-[#1a3a4a] disabled:opacity-50">Refresh communications</button>}
       </div>
     </header>
     {error && <div role="alert" className="mx-3 mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{error} {onRetry && <button type="button" onClick={onRetry} className="font-semibold underline">Try again</button>}</div>}

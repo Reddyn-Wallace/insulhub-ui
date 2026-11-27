@@ -137,6 +137,7 @@ type CampaignCommunication = {
   renderedSubject: string;
   renderedBody: string;
   renderedHtml?: string;
+  openTracking?: JobEmailMessage["openTracking"];
   sentAt?: string | null;
   failureReason: string;
 };
@@ -832,7 +833,8 @@ export default function JobDetailPage() {
       senderName: message.senderLabel || current?.senderName, senderValue: message.senderValue || current?.senderValue, actorName: message.actorName || current?.actorName,
       destination: message.destination, contactName: job?.client?.contactDetails?.name || "", jobNumber: job?.jobNumber || 0,
       status: message.status as CampaignCommunication["status"], renderedSubject: email?.subject || "", renderedBody: email?.renderedBody || message.body,
-      renderedHtml: email?.renderedHtml, sentAt: message.createdAt || current?.sentAt || new Date().toISOString(), failureReason: message.failureReason || "",
+      renderedHtml: email?.renderedHtml, openTracking: email?.openTracking ?? current?.openTracking,
+      sentAt: message.createdAt || current?.sentAt || new Date().toISOString(), failureReason: message.failureReason || "",
     });
     setCampaignCommunications(current => current.some(item => item.id === message.id) ? current.map(item => item.id === message.id ? update(item) : item) : [update(), ...current]);
   }

@@ -1,9 +1,11 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { jobSmsIdentity } from "@/lib/job-sms-access";
 import { overlaySql } from "@/lib/overlay-db";
 import { deliverCommunication, emailContent, GmailPreflightError, type DeliveryResult } from "@/lib/communication-delivery";
 import { validateJobEmail } from "@/lib/job-email";
+import { campaignOpenTrackingOrigin, trackedEmailHtml } from "@/lib/campaign-open-tracking-server";
+import { serializeCampaignOpenTracking } from "@/lib/campaign-open-tracking";
 
 export const maxDuration = 60;
 const uuid = /^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i;
@@ -12,7 +14,7 @@ function publicMessage(row: Record<string, unknown>) {
   return { id: row.id, subject: row.subject, body: row.body, renderedBody: row.rendered_body, renderedHtml: row.rendered_html,
     destination: row.destination, senderLabel: row.sender_label, senderValue: row.sender_value, actorName: row.actor_name,
     status: row.status === "sending" && Date.now() - new Date(String(row.created_at)).getTime() > 60000 ? "unknown" : row.status,
-    failureReason: row.failure_reason, createdAt: row.created_at };
+    failureReason: row.failure_reason, createdAt: row.created_at, openTracking: serializeCampaignOpenTracking(row) };
 }
 export async function GET(request: NextRequest, context: Context) {
   try {
@@ -52,14 +54,17 @@ export async function POST(request: NextRequest, context: Context) {
     if (Buffer.byteLength(content.htmlBody, "utf8") > 200000) return NextResponse.json({ error: "The message and signature are too large.", safeToEdit: true }, { status: 400 });
     const messageId = `<${input.id}@insulhub.nz>`;
     const createdAt = new Date().toISOString();
-    const claimed = await overlaySql`INSERT INTO job_email_messages(id,insulhub_job_id,job_number,sender_id,sender_label,sender_value,actor_id,actor_name,destination,contact_name,subject,body,rendered_body,rendered_html,template_title,request_hash,status,rfc_message_id,created_at)
-      VALUES(${input.id},${id},${job!.jobNumber},${input.senderId},${sender.label},${sender.sender_value},${me._id},${[me.firstname,me.lastname].filter(Boolean).join(" ") || me._id},${message.destination},${contact.name || ""},${message.subject},${message.body},${content.plainBody},${content.htmlBody},${title},${hash},${"sending"},${messageId},${createdAt})
+    const trackingOrigin = input.trackEmailOpens === true ? campaignOpenTrackingOrigin() : null;
+    const trackingToken = trackingOrigin ? randomUUID() : null;
+    const claimed = await overlaySql`INSERT INTO job_email_messages(id,insulhub_job_id,job_number,sender_id,sender_label,sender_value,actor_id,actor_name,destination,contact_name,subject,body,rendered_body,rendered_html,template_title,request_hash,status,rfc_message_id,created_at,open_tracking_token)
+      VALUES(${input.id},${id},${job!.jobNumber},${input.senderId},${sender.label},${sender.sender_value},${me._id},${[me.firstname,me.lastname].filter(Boolean).join(" ") || me._id},${message.destination},${contact.name || ""},${message.subject},${message.body},${content.plainBody},${content.htmlBody},${title},${hash},${"sending"},${messageId},${createdAt},${trackingToken})
       ON CONFLICT(id) DO NOTHING RETURNING id`;
     if (claimed.length) {
       let result: DeliveryResult;
       try {
         result = await deliverCommunication({ channel: "email", provider: "gmail", strictGmailConnection: true,
           from: String(sender.sender_value), fromName: String(sender.label), to: message.destination, subject: message.subject, body: message.body,
+          trustedHtml: trackingOrigin && trackingToken ? trackedEmailHtml(message.body, new URL(`/api/jobs/email/open/${trackingToken}`, trackingOrigin)) : undefined,
           messageId, providerConfig: config, accessToken: String(sender.provider_access_token || ""), refreshToken: String(sender.provider_refresh_token || ""),
           tokenExpiresAt: sender.provider_token_expires_at ? new Date(String(sender.provider_token_expires_at)).toISOString() : null,
           signal: AbortSignal.timeout(20000) });

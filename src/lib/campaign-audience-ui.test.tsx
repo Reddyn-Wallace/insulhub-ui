@@ -3,11 +3,13 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 const router = vi.hoisted(() => ({ replace: vi.fn(), push: vi.fn() }));
 vi.mock('next/navigation', () => ({ useParams: () => ({ id: 'campaign' }), useRouter: () => router }));
-vi.mock('@/lib/graphql', () => ({ gql: vi.fn(async () => ({ users: { results: [] }, jobs: { results: [
+vi.mock('@/lib/graphql', () => ({ gql: vi.fn(async (_query, variables?: { stages?: string[] }) => ({ users: { results: [] }, jobs: { results: [
   { _id: '1', jobNumber: 1, stage: 'LEAD', client: { contactDetails: { name: 'Previously sent', email: 'ALICE@example.com' } } },
   { _id: '2', jobNumber: 2, stage: 'LEAD', client: { contactDetails: { name: 'Eligible lead', email: 'bob@example.com' } } },
   { _id: '3', jobNumber: 3, stage: 'QUOTE', client: { contactDetails: { name: 'Quote customer', email: 'cara@example.com' } } },
-] } })) }));
+  { _id: '4', jobNumber: 4, stage: 'COMPLETED', client: { contactDetails: { name: 'Completed customer', email: 'dana@example.com' } } },
+  { _id: '5', jobNumber: 5, stage: 'COMPLETED', archivedAt: '2026-10-01', client: { contactDetails: { name: 'Archived customer', email: 'eli@example.com' } } },
+].filter(job => variables?.stages?.includes(job.stage)) } })) }));
 import NewCampaign from '@/app/jobs/campaigns/new/page';
 import CampaignPage from '@/app/jobs/campaigns/[id]/page';
 import Audience from '@/app/jobs/campaigns/[id]/audience/page';
@@ -105,4 +107,32 @@ it('refreshes delivery records without automatically processing a running campai
   expect(screen.getByText('1 sent, 0 pending, 0 failed, 0 skipped.')).toBeTruthy();
   await act(() => vi.advanceTimersByTimeAsync(6 * 60_000));
   expect(campaignRequests()).toHaveLength(2);
+});
+
+it('adds completed jobs to an email audience when explicitly selected', async () => {
+  setup();
+  const fetcher = vi.fn(async (_url: string, init?: RequestInit) => ({
+    ok: true,
+    json: async () => ({
+      campaign: { ...campaign, status: 'draft' },
+      recipients: init?.method === 'PATCH' ? [{ ...recipient, jobId: '4', jobStage: 'COMPLETED' }] : [],
+    }),
+  }));
+  vi.stubGlobal('fetch', fetcher);
+  render(<AudienceBuilder />);
+  await screen.findByText('3 jobs match the current filters.');
+  fireEvent.click(screen.getByRole('button', { name: 'Apply Filters' }));
+  expect(screen.queryByText('Completed customer')).toBeNull();
+
+  fireEvent.change(screen.getByRole('combobox', { name: 'Status' }), { target: { value: 'COMPLETED' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Apply Filters' }));
+  expect(screen.getByText('Completed customer')).toBeTruthy();
+  expect(screen.queryByText('Archived customer')).toBeNull();
+  expect(screen.queryByText('Eligible lead')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Add Selected to Audience' }));
+  await screen.findByText('1 new recipient added to the audience.');
+  const patch = fetcher.mock.calls.find(([, init]) => init?.method === 'PATCH')?.[1];
+  expect(JSON.parse(String(patch?.body))).toMatchObject({
+    mode: 'add', recipients: [{ jobId: '4', jobStage: 'COMPLETED', destination: 'dana@example.com' }],
+  });
 });

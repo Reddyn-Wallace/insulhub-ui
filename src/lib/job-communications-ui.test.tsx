@@ -80,3 +80,24 @@ it('checks an old SMS only when asked from its expanded history', async () => {
  expect(check).toHaveBeenCalledExactlyOnceWith('sms');
  expect(await screen.findByText('Delivery status checked.')).toBeTruthy();
 });
+
+it('shows likely opens and the last detected time and lets staff refresh the history', () => {
+  const refresh = vi.fn();
+  render(<JobCommunications messages={[{
+    ...records[0], openTracking: { likelyCount: 2, lastLikelyAt: '2026-11-26T21:30:00Z', ambiguousSeen: true },
+  }]} onRetry={refresh} />);
+  expect(screen.getByText('Likely opened')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh communications' }));
+  expect(refresh).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole('button', { name: /Booking confirmation/ }));
+  expect(screen.getByText(/2 recorded · Last detected.*27 Nov 2026/)).toBeTruthy();
+});
+
+it.each([
+  [null, 'Tracking unavailable'],
+  [{ likelyCount: 0, lastLikelyAt: null, ambiguousSeen: false }, 'No open detected'],
+  [{ likelyCount: 0, lastLikelyAt: null, ambiguousSeen: true }, 'Automated or unclear'],
+] as const)('distinguishes %j as %s', (openTracking, label) => {
+  render(<JobCommunications messages={[{ ...records[0], openTracking }]} />);
+  expect(screen.getByText(label)).toBeTruthy();
+});

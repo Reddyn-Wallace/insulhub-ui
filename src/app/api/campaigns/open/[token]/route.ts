@@ -1,15 +1,7 @@
-import { campaignOpenTokenPattern, classifyCampaignOpen, recordCampaignOpen } from "@/lib/campaign-open-tracking-server";
-
-const pixel = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
-const headers = {
-  "Content-Type": "image/gif",
-  "Cache-Control": "private, no-store, max-age=0",
-  "X-Content-Type-Options": "nosniff",
-  "X-Robots-Tag": "noindex, nofollow",
-};
+import { campaignOpenTokenPattern, classifyCampaignOpen, emailOpenPixelResponse, recordCampaignOpen } from "@/lib/campaign-open-tracking-server";
 
 export function HEAD() {
-  return new Response(null, { headers });
+  return emailOpenPixelResponse(true);
 }
 
 export async function GET(request: Request, { params }: { params: Promise<{ token: string }> }) {
@@ -22,5 +14,5 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     }
   }
 
-  return new Response(new Uint8Array(pixel), { headers });
+  return emailOpenPixelResponse();
 }

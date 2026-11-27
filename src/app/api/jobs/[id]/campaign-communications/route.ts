@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { jobSmsIdentity } from "@/lib/job-sms-access";
 import { requireInsulhubAuth } from "@/lib/insulhub-auth";
 import { ensureOverlaySchema, overlaySql } from "@/lib/overlay-db";
+import { serializeCampaignOpenTracking } from "@/lib/campaign-open-tracking";
 
 type LogInput = {
   channel?: "email" | "sms";
@@ -45,6 +46,7 @@ function toCommunication(row: Record<string, unknown>) {
     sentAt: row.sent_at || row.launched_at,
     launchedAt: row.launched_at,
     failureReason: stringValue(row.failure_reason),
+    openTracking: serializeCampaignOpenTracking(row),
   };
 }
 
@@ -115,26 +117,31 @@ export async function GET(
       )
       SELECT *
       FROM (
-        SELECT *, '' AS rendered_html FROM campaign_logs
+        SELECT *, '' AS rendered_html, NULL::uuid AS open_tracking_token, 0 AS likely_open_count,
+          NULL::timestamptz AS last_likely_open_at, false AS ambiguous_open_seen FROM campaign_logs
         UNION ALL
-        SELECT *, '' AS rendered_html FROM job_logs
+        SELECT *, '', NULL::uuid, 0, NULL::timestamptz, false FROM job_logs
         UNION ALL
         SELECT id, 'crm_sms' AS source, NULL::uuid, '', NULL::uuid, template_title,
           'sms', sender_label || ' · ' || actor_name, destination, contact_name, job_number,
           CASE WHEN status = 'sending' AND created_at < now() - interval '60 seconds' THEN 'unknown' ELSE status END,
-          '', body, created_at, NULL::timestamptz, failure_reason, sender_label, sender_value, actor_name, ''
+          '', body, created_at, NULL::timestamptz, failure_reason, sender_label, sender_value, actor_name, '',
+          NULL::uuid, 0, NULL::timestamptz, false
         FROM job_sms_messages WHERE insulhub_job_id = ${id}
         UNION ALL
         SELECT id, 'crm_email' AS source, NULL::uuid, '', NULL::uuid, template_title,
           'email', sender_label || ' (' || sender_value || ') · ' || actor_name, destination, contact_name, job_number,
           CASE WHEN status = 'sending' AND created_at < now() - interval '60 seconds' THEN 'unknown' ELSE status END,
-          subject, rendered_body, created_at, NULL::timestamptz, failure_reason, sender_label, sender_value, actor_name, rendered_html
+          subject, rendered_body, created_at, NULL::timestamptz, failure_reason, sender_label, sender_value, actor_name, rendered_html,
+          open_tracking_token, likely_open_count, last_likely_open_at, ambiguous_open_seen
         FROM job_email_messages WHERE insulhub_job_id = ${id}
       ) combined
       ORDER BY COALESCE(sent_at, launched_at) DESC NULLS LAST
     `;
 
-    return NextResponse.json({ communications: rows.map(toCommunication), crmMessagingEnabled: true });
+    return NextResponse.json({ communications: rows.map(toCommunication), crmMessagingEnabled: true }, {
+      headers: { "Cache-Control": "private, no-store" },
+    });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to load campaign communications" },

@@ -87,6 +87,7 @@ const JOB_STAGES = [
 ];
 
 const FETCH_STAGES = ["LEAD", "QUOTE", "SCHEDULED", "INSTALLATION", "INVOICE"];
+const COMPLETED_STAGE = "COMPLETED";
 
 const LEAD_STATUS_OPTIONS = [
   { value: "ALL", label: "All lead statuses" },
@@ -240,6 +241,7 @@ export default function CampaignDetailPage() {
     }
   }, [campaignId, router]);
 
+  const emailCampaign = campaign?.channel === "email";
   const loadJobs = useCallback(async () => {
     const token = getToken();
     if (!token) {
@@ -249,7 +251,7 @@ export default function CampaignDetailPage() {
 
     setJobsLoading(true);
     try {
-      const [jobsData, usersData] = await Promise.all([
+      const [jobsData, usersData, completedData] = await Promise.all([
         gql<JobsData>(JOBS_QUERY, {
           stages: FETCH_STAGES,
           skip: 0,
@@ -262,20 +264,31 @@ export default function CampaignDetailPage() {
           cacheKey: "users",
           ttlMs: 30 * 60 * 1000,
         }),
+        emailCampaign ? gql<JobsData>(JOBS_QUERY, {
+          stages: [COMPLETED_STAGE],
+          skip: 0,
+          limit: 5000,
+        }, {
+          cacheKey: "campaigns:audience-completed-jobs",
+          ttlMs: 2 * 60 * 1000,
+        }) : null,
       ]);
-      setJobs((jobsData.jobs?.results || []).filter((job) => !job.archivedAt));
+      setJobs([...(jobsData.jobs?.results || []), ...(completedData?.jobs?.results || [])].filter((job) => !job.archivedAt));
       setUsers((usersData.users?.results || []).filter((user) => (user.role || "").toUpperCase() !== "INSTALLER"));
     } catch (err) {
       setMessage({ type: "error", text: err instanceof Error ? err.message : "Failed to load jobs" });
     } finally {
       setJobsLoading(false);
     }
-  }, [router]);
+  }, [emailCampaign, router]);
 
   useEffect(() => {
     loadCampaign();
-    loadJobs();
-  }, [loadCampaign, loadJobs]);
+  }, [loadCampaign]);
+  const campaignIsDraft = campaign?.status === "draft";
+  useEffect(() => {
+    if (campaignIsDraft) loadJobs();
+  }, [campaignIsDraft, loadJobs]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -335,6 +348,7 @@ export default function CampaignDetailPage() {
 
   const includedJobs = useMemo(() => (
     jobs.filter((job) => {
+      if (statusFilter === "ALL" && job.stage === COMPLETED_STAGE) return false;
       if (statusFilter !== "ALL" && job.stage !== statusFilter) return false;
       if (statusFilter === "LEAD" && subStatusFilter !== "ALL" && leadAudienceStatus(job) !== subStatusFilter) return false;
       if (statusFilter === "QUOTE" && subStatusFilter !== "ALL" && quoteAudienceStatus(job) !== subStatusFilter) return false;
@@ -536,8 +550,9 @@ export default function CampaignDetailPage() {
                 className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900"
               >
                 {JOB_STAGES.map((stage) => (
-                  <option key={stage.value} value={stage.value}>{stage.label}</option>
+                  <option key={stage.value} value={stage.value}>{emailCampaign && stage.value === "ALL" ? "All except completed" : stage.label}</option>
                 ))}
+                {emailCampaign && <option value={COMPLETED_STAGE}>Completed</option>}
               </select>
             </label>
             {(statusFilter === "LEAD" || statusFilter === "QUOTE") && (
