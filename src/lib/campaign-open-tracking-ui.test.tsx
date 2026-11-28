@@ -17,11 +17,13 @@ it("shows unique opens, supports both sorts and filters, and reloads tracking th
   vi.stubGlobal("localStorage", { getItem: () => "token" });
   const recent = { likelyCount: 1, lastLikelyAt: "2026-11-27T02:00:00Z", ambiguousSeen: false };
   const old = { likelyCount: 3, lastLikelyAt: "2026-11-26T02:00:00Z", ambiguousSeen: true };
+  const firstRecordedOpen = "2026-11-26T01:42:00Z";
   let latestOpen: typeof recent | null = null;
   const fetcher = vi.fn(async (url: string) => ({
     ok: true,
     json: async () => url.includes("communication-senders") ? { senders: [gmailSender] } :
-      url.includes("communication-settings") ? {} : {
+      url.includes("communication-settings") ? {} :
+      url.includes("?openHistoryRecipientId=1") ? { openTracking: old, opens: [old.lastLikelyAt, firstRecordedOpen] } : {
         campaign: { ...campaign, status: "sent" },
         recipients: [
           { id: "1", status: "sent", jobId: "aroha-job", jobNumber: 545, contactName: "Aroha", destination: "aroha@example.com", openTracking: old },
@@ -36,8 +38,14 @@ it("shows unique opens, supports both sorts and filters, and reloads tracking th
 
   render(<CampaignPage />);
   expect(await screen.findByRole("heading", { name: "2 of 4 tracked recipients opened · 4 opens recorded" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Opened (2)" }));
   const table = screen.getByRole("table");
+  const opensColumn = within(table).getByRole("columnheader", { name: "Opens", exact: true });
+  const openCount = (recipient: string) =>
+    within(within(table).getByRole("row", { name: new RegExp(recipient) })).getAllByRole("cell")[(opensColumn as HTMLTableCellElement).cellIndex].textContent?.trim();
+  expect(openCount("Aroha")).toBe("3");
+  expect(openCount("Charlie")).toBe("0");
+  expect(openCount("Dani")).toBe("—");
+  fireEvent.click(screen.getByRole("button", { name: "Opened (2)" }));
   const arohaRow = within(table).getByRole("row", { name: /Aroha/ });
   expect(within(table).getByRole("columnheader", { name: "Last opened" })).toBeTruthy();
   expect(arohaRow.querySelector("time")?.dateTime).toBe(old.lastLikelyAt);
@@ -52,8 +60,13 @@ it("shows unique opens, supports both sorts and filters, and reloads tracking th
   expect(within(table).getAllByRole("row")[1].textContent).toContain("Aroha");
   fireEvent.click(screen.getByRole("button", { name: "Repeat opens (1)" }));
   expect(within(table).queryByText("Blake")).toBeNull();
+  expect(fetcher.mock.calls.some(([url]) => url.includes("openHistoryRecipientId"))).toBe(false);
   fireEvent.click(within(arohaRow).getByRole("button", { name: "View" }));
   expect(screen.getByText(/3 opens recorded · Last detected/)).toBeTruthy();
+  const history = await screen.findByRole("list", { name: "Recorded opens, newest first" });
+  expect(Array.from(history.querySelectorAll("time"), time => time.dateTime)).toEqual([old.lastLikelyAt, firstRecordedOpen]);
+  expect(history.textContent).toMatch(/Thu.*26 Nov 2026.*2:42/);
+  expect(screen.getByText("1 earlier open has no saved timestamp.")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Close" }));
   fireEvent.click(screen.getByRole("button", { name: "Likely unopened (2)" }));
   const charlieRow = within(table).getByRole("row", { name: /Charlie/ });

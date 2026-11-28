@@ -65,11 +65,16 @@ export async function recordCampaignOpen(token: string, classification: "likely"
     return;
   }
 
-  // The conditional UPDATE deduplicates concurrent loads for the same recipient.
+  // Record the event and update the count atomically, including deduplication of concurrent loads.
   await overlaySql`
-    UPDATE campaign_recipients
-    SET likely_open_count = likely_open_count + 1, last_likely_open_at = statement_timestamp()
-    WHERE open_tracking_token = ${token}::uuid AND selected = true AND status IN ('pending', 'sent')
-      AND (last_likely_open_at IS NULL OR last_likely_open_at <= statement_timestamp() - interval '1 minute')
+    WITH recorded AS (
+      UPDATE campaign_recipients
+      SET likely_open_count = likely_open_count + 1, last_likely_open_at = statement_timestamp()
+      WHERE open_tracking_token = ${token}::uuid AND selected = true AND status IN ('pending', 'sent')
+        AND (last_likely_open_at IS NULL OR last_likely_open_at <= statement_timestamp() - interval '1 minute')
+      RETURNING id, open_tracking_token, last_likely_open_at
+    )
+    INSERT INTO campaign_recipient_open_events (recipient_id, open_tracking_token, opened_at)
+    SELECT id, open_tracking_token, last_likely_open_at FROM recorded
   `;
 }
