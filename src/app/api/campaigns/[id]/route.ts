@@ -224,6 +224,32 @@ export async function GET(
     const campaign = await loadCampaign(id);
     if (!campaign) return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
 
+    const historyRecipientId = request.nextUrl.searchParams.get("openHistoryRecipientId");
+    if (historyRecipientId !== null) {
+      if (campaign.channel !== "email" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(historyRecipientId)) {
+        return NextResponse.json({ error: "Recipient not found" }, { status: 404 });
+      }
+
+      const [recipient] = await overlaySql`
+        SELECT cr.status, cr.open_tracking_token, cr.likely_open_count,
+               cr.last_likely_open_at, cr.ambiguous_open_seen,
+               ARRAY(
+                 SELECT events.opened_at
+                 FROM campaign_recipient_open_events events
+                 WHERE events.recipient_id = cr.id AND events.open_tracking_token = cr.open_tracking_token
+                 ORDER BY events.opened_at DESC
+               ) AS opens
+        FROM campaign_recipients cr
+        WHERE cr.campaign_id = ${id} AND cr.id = ${historyRecipientId}::uuid AND cr.status = 'sent'
+      `;
+      if (!recipient) return NextResponse.json({ error: "Recipient not found" }, { status: 404 });
+
+      return NextResponse.json({
+        openTracking: serializeCampaignOpenTracking(recipient),
+        opens: recipient.opens,
+      }, { headers: { "Cache-Control": "private, no-store" } });
+    }
+
     const recipientRows = await overlaySql`
       SELECT *
       FROM campaign_recipients

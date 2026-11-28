@@ -190,6 +190,73 @@ function estimateDelivery(
   };
 }
 
+type RecipientOpenHistory = {
+  opens: string[];
+  openTracking: CampaignOpenRecipient["openTracking"];
+};
+
+function CampaignRecipientOpenHistory({ campaignId, recipient }: { campaignId: string; recipient: SavedRecipient }) {
+  const [history, setHistory] = useState<RecipientOpenHistory | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const recipientId = recipient.id;
+  const hasTracking = Boolean(recipient.openTracking);
+
+  useEffect(() => {
+    if (!hasTracking) return;
+    const controller = new AbortController();
+    const token = getToken();
+
+    async function loadHistory() {
+      try {
+        const query = new URLSearchParams({ openHistoryRecipientId: recipientId });
+        const response = await fetch(`/api/campaigns/${campaignId}?${query}`, {
+          headers: { "x-access-token": token },
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error("Failed to load open history");
+        const result = await response.json() as RecipientOpenHistory;
+        if (!controller.signal.aborted && getToken() === token) setHistory(result);
+      } catch {
+        if (!controller.signal.aborted) setLoadFailed(true);
+      }
+    }
+
+    void loadHistory();
+    return () => controller.abort();
+  }, [campaignId, hasTracking, recipientId]);
+
+  const tracking = history ? history.openTracking : recipient.openTracking;
+  const earlierOpens = history && tracking ? tracking.likelyCount - history.opens.length : 0;
+
+  return (
+    <section aria-label="Open tracking" className="mb-4 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Open tracking</h3>
+      {tracking ? (
+        <>
+          <p className="mt-1 text-gray-900">
+            {tracking.likelyCount} {tracking.likelyCount === 1 ? "open" : "opens"} recorded
+            {tracking.lastLikelyAt && ` · Last detected ${formatEmailOpenTime(tracking.lastLikelyAt)}`}
+          </p>
+          {loadFailed && <p role="status" className="mt-2 text-gray-600">Couldn&apos;t load open history. Reopen this view to try again.</p>}
+          {!loadFailed && !history && <p role="status" className="mt-2 text-gray-600">Loading open history…</p>}
+          {history && history.opens.length > 0 && (
+            <ol aria-label="Recorded opens, newest first" className="mt-2 list-decimal space-y-1 border-t border-gray-200 pt-2 pl-5 text-gray-700">
+              {history.opens.map(openedAt => (
+                <li key={openedAt}><time dateTime={openedAt}>{formatEmailOpenTime(openedAt)}</time></li>
+              ))}
+            </ol>
+          )}
+          {earlierOpens > 0 && (
+            <p className="mt-2 text-gray-600">
+              {earlierOpens} earlier {earlierOpens === 1 ? "open has no saved timestamp" : "opens have no saved timestamps"}.
+            </p>
+          )}
+        </>
+      ) : <p className="mt-1 text-gray-600">Unavailable for this email</p>}
+    </section>
+  );
+}
+
 export default function CampaignBuilderPage() {
   const router = useRouter();
   const { confirm, dialog } = useAppDialog();
@@ -1044,15 +1111,11 @@ export default function CampaignBuilderPage() {
                 </div>
               )}
               {campaign.channel === "email" && viewingRecipient.status === "sent" && (
-                <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Open tracking</div>
-                  {viewingRecipient.openTracking ? (
-                    <p className="mt-1 text-gray-900">
-                      {viewingRecipient.openTracking.likelyCount} opens recorded
-                      {viewingRecipient.openTracking.lastLikelyAt && ` · Last detected ${fmtDateTime(viewingRecipient.openTracking.lastLikelyAt)}`}
-                    </p>
-                  ) : <p className="mt-1 text-gray-600">Unavailable for this email</p>}
-                </div>
+                <CampaignRecipientOpenHistory
+                  key={`${campaignId}:${viewingRecipient.id}`}
+                  campaignId={campaignId}
+                  recipient={viewingRecipient}
+                />
               )}
               <div className="rounded-lg border border-gray-200 bg-white px-3 py-3">
                 <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Body</div>

@@ -77,6 +77,7 @@ describe.skipIf(!process.env.CAMPAIGN_RESUME_TEST_DATABASE_URL)("campaign open t
       method: "PATCH", body: JSON.stringify(body),
     }), options);
     const readCampaign = async () => (await getCampaign(new NextRequest(url), options)).json();
+    const readHistory = (id: string) => getCampaign(new NextRequest(`${url}?openHistoryRecipientId=${id}`), options);
 
     await pool.query("INSERT INTO campaigns (id,status,channel,sender_id,sender_label,message_subject,message_body) VALUES ($1,'draft','email',$2,'Gmail','Your quote','Hi')", [campaignId, senderId]);
     await pool.query("INSERT INTO communication_senders VALUES ($1,'owner','email','sales@example.com','gmail','connected',true)", [senderId]);
@@ -108,9 +109,29 @@ describe.skipIf(!process.env.CAMPAIGN_RESUME_TEST_DATABASE_URL)("campaign open t
       expect.objectContaining({ likelyCount: 1, ambiguousSeen: true }), null,
     ]);
 
+    const firstHistory = await (await readHistory(firstId)).json();
+    expect(firstHistory.opens).toEqual([firstHistory.openTracking.lastLikelyAt]);
+    expect(JSON.stringify(firstHistory)).not.toContain(openedToken);
+    expect((await readHistory(secondId)).status).toBe(404);
+
+    // Move the first event back to exercise the repeat-open window without waiting.
+    await pool.query("UPDATE campaign_recipient_open_events SET opened_at = now() - interval '2 minutes' WHERE recipient_id = $1", [firstId]);
     await pool.query("UPDATE campaign_recipients SET last_likely_open_at = now() - interval '2 minutes' WHERE id = $1", [firstId]);
     await pixel(openedToken, "GoogleImageProxy");
     expect((await readCampaign()).recipients[0].openTracking.likelyCount).toBe(2);
+    const repeatResponse = await readHistory(firstId);
+    expect(repeatResponse.headers.get("Cache-Control")).toBe("private, no-store");
+    const repeatHistory = await repeatResponse.json();
+    expect(repeatHistory.opens).toHaveLength(2);
+    expect(repeatHistory.opens[0]).toBe(repeatHistory.openTracking.lastLikelyAt);
+    expect(Date.parse(repeatHistory.opens[0])).toBeGreaterThan(Date.parse(repeatHistory.opens[1]));
+
+    const otherCampaignId = randomUUID();
+    await pool.query("INSERT INTO campaigns (id,status,channel) VALUES ($1,'sent','email')", [otherCampaignId]);
+    const otherCampaignHistory = await getCampaign(new NextRequest(`https://tracking.example/api/campaigns/${otherCampaignId}?openHistoryRecipientId=${firstId}`), {
+      params: Promise.resolve({ id: otherCampaignId }),
+    });
+    expect(otherCampaignHistory.status).toBe(404);
 
     const retry = await patch({ retryFailed: true, recipientIds: [secondId] });
     expect(retry.status).toBe(200);
@@ -120,6 +141,26 @@ describe.skipIf(!process.env.CAMPAIGN_RESUME_TEST_DATABASE_URL)("campaign open t
     await pixel(failedToken, "GoogleImageProxy");
     const { rows: [retried] } = await pool.query("SELECT likely_open_count FROM campaign_recipients WHERE id = $1", [secondId]);
     expect(retried.likely_open_count).toBe(0);
+  });
+
+  it("preserves the last known timestamp once when backfilling existing opens", async () => {
+    const id = randomUUID(), campaignId = randomUUID(), token = randomUUID();
+    const lastOpenedAt = "2026-11-25T00:00:00.000Z";
+    await pool.query("INSERT INTO campaigns (id,status,channel) VALUES ($1,'sent','email')", [campaignId]);
+    await pool.query(`
+      INSERT INTO campaign_recipients (id, campaign_id, selected, status, open_tracking_token, likely_open_count, last_likely_open_at)
+      VALUES ($1, $2, true, 'sent', $3, 3, $4)
+    `, [id, campaignId, token, lastOpenedAt]);
+    const migration = await readFile(new URL("../../scripts/campaign-open-tracking-schema.sql", import.meta.url), "utf8");
+    await pool.query(migration);
+    await pool.query(migration);
+    const response = await getCampaign(new NextRequest(`https://tracking.example/api/campaigns/${campaignId}?openHistoryRecipientId=${id}`), {
+      params: Promise.resolve({ id: campaignId }),
+    });
+    expect(await response.json()).toEqual({
+      openTracking: { likelyCount: 3, lastLikelyAt: lastOpenedAt, ambiguousSeen: false },
+      opens: [lastOpenedAt],
+    });
   });
 
   it("adds tracking before sending a previously queued Gmail recipient", async () => {
