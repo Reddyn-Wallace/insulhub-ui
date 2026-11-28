@@ -37,7 +37,7 @@ describe.skipIf(!process.env.CAMPAIGN_RESUME_TEST_DATABASE_URL)('campaign resume
     database.query.mockImplementation(async (sql, values) => (await pool.query(sql, values)).rows);
   });
   beforeEach(async () => {
-    await pool.query('TRUNCATE campaign_recipients, campaigns, communication_senders');
+    await pool.query('TRUNCATE campaign_recipient_open_events, campaign_recipients, campaigns, communication_senders');
     await pool.query("INSERT INTO campaigns (id,status,channel,sender_id) VALUES ($1,'halted','sms',$2)", [campaignId, senderId]);
     await pool.query("INSERT INTO communication_senders VALUES ($1,'owner','sms','smsgate','connected',true)", [senderId]);
     for (let i = 0; i < 30; i++) {
