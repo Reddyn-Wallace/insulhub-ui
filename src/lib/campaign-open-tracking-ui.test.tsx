@@ -36,8 +36,14 @@ it("shows unique opens, supports both sorts and filters, and reloads tracking th
 
   render(<CampaignPage />);
   expect(await screen.findByRole("heading", { name: "2 of 4 tracked recipients opened · 4 opens recorded" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Opened (2)" }));
   const table = screen.getByRole("table");
+  const opensColumn = within(table).getByRole("columnheader", { name: "Opens", exact: true });
+  const openCount = (recipient: string) =>
+    within(within(table).getByRole("row", { name: new RegExp(recipient) })).getAllByRole("cell")[(opensColumn as HTMLTableCellElement).cellIndex].textContent?.trim();
+  expect(openCount("Aroha")).toBe("3");
+  expect(openCount("Charlie")).toBe("0");
+  expect(openCount("Dani")).toBe("—");
+  fireEvent.click(screen.getByRole("button", { name: "Opened (2)" }));
   const arohaRow = within(table).getByRole("row", { name: /Aroha/ });
   expect(within(table).getByRole("columnheader", { name: "Last opened" })).toBeTruthy();
   expect(arohaRow.querySelector("time")?.dateTime).toBe(old.lastLikelyAt);

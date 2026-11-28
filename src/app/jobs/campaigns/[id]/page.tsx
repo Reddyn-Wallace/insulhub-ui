@@ -751,7 +751,10 @@ export default function CampaignBuilderPage() {
                         <th className="px-3 py-2">Recipient</th>
                         <th className="px-3 py-2">Status</th>
                         <th className="px-3 py-2">Timing</th>
-                        {showOpenTracking && <th className="px-3 py-2 whitespace-nowrap">Last opened</th>}
+                        {showOpenTracking && <>
+                          <th className="px-3 py-2 whitespace-nowrap">Last opened</th>
+                          <th className="px-3 py-2 text-right">Opens</th>
+                        </>}
                         <th className="px-3 py-2 text-right">Message</th>
                       </tr>
                     </thead>
@@ -801,6 +804,9 @@ export default function CampaignBuilderPage() {
                                 <time dateTime={lastOpen} className="mt-1 block whitespace-nowrap text-xs">{lastOpenLabel}</time>
                               )}
                             </td>}
+                            {showOpenTracking && <td className="px-3 py-2 text-right tabular-nums text-gray-600">
+                              {openStatus ? recipient.openTracking?.likelyCount ?? "—" : "—"}
+                            </td>}
                             <td className="px-3 py-2 text-right">
                               {canRetryCampaignRecipient(recipient) && (
                                 <button type="button" aria-label={`Retry ${recipient.contactName || recipient.destination}`}
@@ -822,7 +828,7 @@ export default function CampaignBuilderPage() {
                         );
                       })}
                       {visibleDeliveryRecipients.length === 0 && (
-                        <tr><td colSpan={4 + Number(showOpenTracking) + Number(retryableRecipients.length > 0)}
+                        <tr><td colSpan={4 + (showOpenTracking ? 2 : 0) + Number(retryableRecipients.length > 0)}
                           className="px-4 py-5 text-center text-gray-600">No recipients match this filter.</td></tr>
                       )}
                     </tbody>
