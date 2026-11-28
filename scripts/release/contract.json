@@ -88,6 +88,7 @@
     "src/lib/dead-followups/integration.test.ts",
     "src/lib/dead-followups/composer-ui.test.tsx",
     "src/lib/campaign-resume-route.test.ts",
+    "src/lib/campaign-open-history-route.test.ts",
     "src/lib/campaign-open-tracking.test.ts",
     "src/lib/campaign-open-tracking-ui.test.tsx",
     "src/lib/campaign-sender-ownership.test.ts",
